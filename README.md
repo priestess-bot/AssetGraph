@@ -14,6 +14,7 @@ AssetGraph 是一个面向麦兔软件与数字人直播业务的多模态视频
 - 脚本编号：`AG-SCRIPT-{YYYYMMDD}-{SEQ}`
 - 视频片段编号：`AG-SEG-{YYYYMMDD}-{SEQ}`
 - 麦兔素材分类：以麦兔真实 UI 类型为准，核心类型包括数字分身、背景、装饰、视频、文本、模版；商品 PNG 贴片在麦兔中通常属于装饰，转场素材属于视频
+- 素材编号映射：AssetGraph 保留全局 `AG-*` asset_code，同时通过 `display_code` / `local_file_code` / `entity_code` 保存 `MT-*`、`DH-*` 等麦兔/本地文件编号，避免系统编号和 Browser-use 友好编号混用
 - 麦兔素材槽位编号：`MT-SLOT-{YYYYMMDD}-{SEQ}`
 - 麦兔槽位管理：通过 `maitu_material_slots` 记录麦兔模板中的可替换位置、所需素材分类、接受文件类型、画幅和布局信息
 - 麦兔候选素材推荐：通过槽位自动匹配 `maitu_category`、`asset_type`、场景、槽位编号和槽位名称，返回可替换素材及匹配原因

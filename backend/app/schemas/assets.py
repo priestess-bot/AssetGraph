@@ -46,11 +46,31 @@ class AssetCreate(BaseModel):
     project_id: str | None = None
     description: str | None = None
 
+    # Source-side identity mapping. AssetGraph keeps a stable global
+    # asset_code, while preserving Maitu / local Browser-use-friendly codes
+    # such as MT-VID-0001 or DH-MDL-0001-F022 for operators and agents.
+    display_code: str | None = Field(default=None, max_length=64)
+    local_file_code: str | None = Field(default=None, max_length=64)
+    entity_code: str | None = Field(default=None, max_length=64)
+    source_system: str | None = Field(default=None, max_length=64)
+
     # Maitu-specific material taxonomy and replacement metadata.  AssetGraph
     # keeps these separate from asset_type: asset_type says what the file is,
     # maitu_category says what the material is used for inside Maitu.
     source_type: str | None = Field(default=None, max_length=64)
     maitu_category: MaituAssetCategory | None = None
+    maitu_type: str | None = Field(default=None, max_length=64)
+    maitu_subtype: str | None = Field(default=None, max_length=64)
+    usage: str | None = Field(default=None, max_length=128)
+    subject: str | None = Field(default=None, max_length=255)
+    file_role: str | None = Field(default=None, max_length=128)
+    browser_use_hint: str | None = None
+    local_relative_path: str | None = None
+    duplicate_group: str | None = Field(default=None, max_length=64)
+    duplicate_rank: int | None = Field(default=None, ge=1)
+    duplicate_count: int | None = Field(default=None, ge=1)
+    duplicate_primary_local_file_code: str | None = Field(default=None, max_length=64)
+    duplicate_primary_asset_code: str | None = Field(default=None, max_length=64)
     maitu_project_code: str | None = Field(default=None, max_length=64)
     maitu_scene_name: str | None = Field(default=None, max_length=128)
     maitu_scene_index: int | None = Field(default=None, ge=0)

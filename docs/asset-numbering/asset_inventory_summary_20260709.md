@@ -1,6 +1,6 @@
 # AssetGraph 本地素材扫描结果
 
-生成时间：2026-07-08T17:08:22.905860+00:00
+生成时间：2026-07-08T17:38:05.481260+00:00
 
 ## 扫描范围
 
@@ -46,3 +46,8 @@ D:/AssetGraph/素材
 ```
 
 JSON 中每个素材都带有 `asset_create_payload`，可直接作为后续导入 `POST /api/assets` 或 CLI 导入的基础数据。
+
+`asset_create_payload` 同时保留两套编号：
+
+- `asset_code`：导入 AssetGraph 后生成的全局 AG-* 编号。
+- `display_code` / `local_file_code` / `entity_code`：从文件名解析出的 MT-* / DH-* 麦兔或本地素材编号。

@@ -41,7 +41,15 @@ def test_scan_assets_parses_maitu_and_digital_human_files(tmp_path: Path) -> Non
     assert maitu_video.subject == "品酒大师PRO"
     assert "品酒大师" in maitu_video.tags
     assert "PRO" in maitu_video.tags
-    assert maitu_video.to_asset_create_payload()["status"] == "stored"
+    payload = maitu_video.to_asset_create_payload()
+    assert payload["status"] == "stored"
+    assert payload["display_code"] == "MT-VID-0001"
+    assert payload["local_file_code"] == "MT-VID-0001"
+    assert payload["source_system"] == "maitu"
+    assert payload["maitu_type"] == "视频"
+    assert payload["usage"] == "商品讲解视频"
+    assert payload["subject"] == "品酒大师PRO"
+    assert payload["local_relative_path"] == "视频/MT-VID-0001_视频_商品讲解视频_品酒大师PRO.mp4"
 
     voice = by_code["DH-VOI-0001-F002"]
     assert voice.entity_code == "DH-VOI-0001"
@@ -50,6 +58,10 @@ def test_scan_assets_parses_maitu_and_digital_human_files(tmp_path: Path) -> Non
     assert voice.maitu_subtype == "音色"
     assert voice.maitu_category == "voice_audio"
     assert voice.file_role == "试听音频"
+    voice_payload = voice.to_asset_create_payload()
+    assert voice_payload["local_file_code"] == "DH-VOI-0001-F002"
+    assert voice_payload["entity_code"] == "DH-VOI-0001"
+    assert voice_payload["maitu_subtype"] == "音色"
 
     duplicate_item = by_code["MT-DEC-0001"]
     assert maitu_video.duplicate_group == duplicate_item.duplicate_group

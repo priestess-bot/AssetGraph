@@ -21,8 +21,24 @@ class AssetRepository:
         "status",
         "project_id",
         "description",
+        "display_code",
+        "local_file_code",
+        "entity_code",
+        "source_system",
         "source_type",
         "maitu_category",
+        "maitu_type",
+        "maitu_subtype",
+        "usage",
+        "subject",
+        "file_role",
+        "browser_use_hint",
+        "local_relative_path",
+        "duplicate_group",
+        "duplicate_rank",
+        "duplicate_count",
+        "duplicate_primary_local_file_code",
+        "duplicate_primary_asset_code",
         "maitu_project_code",
         "maitu_scene_name",
         "maitu_scene_index",
@@ -79,6 +95,11 @@ class AssetRepository:
         *,
         asset_type: str | None = None,
         maitu_category: str | None = None,
+        local_file_code: str | None = None,
+        entity_code: str | None = None,
+        maitu_type: str | None = None,
+        usage: str | None = None,
+        subject: str | None = None,
         maitu_project_code: str | None = None,
         maitu_scene_name: str | None = None,
         maitu_slot_name: str | None = None,
@@ -95,6 +116,21 @@ class AssetRepository:
         if maitu_category is not None:
             where_clauses.append("maitu_category = %s")
             values.append(maitu_category)
+        if local_file_code is not None:
+            where_clauses.append("local_file_code = %s")
+            values.append(local_file_code)
+        if entity_code is not None:
+            where_clauses.append("entity_code = %s")
+            values.append(entity_code)
+        if maitu_type is not None:
+            where_clauses.append("maitu_type = %s")
+            values.append(maitu_type)
+        if usage is not None:
+            where_clauses.append("usage = %s")
+            values.append(usage)
+        if subject is not None:
+            where_clauses.append("subject ILIKE %s")
+            values.append(f"%{subject}%")
         if maitu_project_code is not None:
             where_clauses.append("maitu_project_code = %s")
             values.append(maitu_project_code)
@@ -106,10 +142,15 @@ class AssetRepository:
             values.append(maitu_slot_name)
         if q:
             where_clauses.append(
-                "(asset_code ILIKE %s OR title ILIKE %s OR original_filename ILIKE %s OR description ILIKE %s)"
+                "("
+                "asset_code ILIKE %s OR display_code ILIKE %s OR local_file_code ILIKE %s "
+                "OR entity_code ILIKE %s OR title ILIKE %s OR original_filename ILIKE %s "
+                "OR description ILIKE %s OR usage ILIKE %s OR subject ILIKE %s "
+                "OR file_role ILIKE %s OR browser_use_hint ILIKE %s"
+                ")"
             )
             pattern = f"%{q}%"
-            values.extend([pattern, pattern, pattern, pattern])
+            values.extend([pattern] * 11)
 
         values.extend([limit, offset])
         with self.connection.cursor(row_factory=dict_row) as cursor:

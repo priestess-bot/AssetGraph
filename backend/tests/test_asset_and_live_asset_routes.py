@@ -28,8 +28,24 @@ class FakeAssetRepository:
             "status": payload.get("status", "created"),
             "project_id": payload.get("project_id"),
             "description": payload.get("description"),
+            "display_code": payload.get("display_code"),
+            "local_file_code": payload.get("local_file_code"),
+            "entity_code": payload.get("entity_code"),
+            "source_system": payload.get("source_system"),
             "source_type": payload.get("source_type"),
             "maitu_category": payload.get("maitu_category"),
+            "maitu_type": payload.get("maitu_type"),
+            "maitu_subtype": payload.get("maitu_subtype"),
+            "usage": payload.get("usage"),
+            "subject": payload.get("subject"),
+            "file_role": payload.get("file_role"),
+            "browser_use_hint": payload.get("browser_use_hint"),
+            "local_relative_path": payload.get("local_relative_path"),
+            "duplicate_group": payload.get("duplicate_group"),
+            "duplicate_rank": payload.get("duplicate_rank"),
+            "duplicate_count": payload.get("duplicate_count"),
+            "duplicate_primary_local_file_code": payload.get("duplicate_primary_local_file_code"),
+            "duplicate_primary_asset_code": payload.get("duplicate_primary_asset_code"),
             "maitu_project_code": payload.get("maitu_project_code"),
             "maitu_scene_name": payload.get("maitu_scene_name"),
             "maitu_scene_index": payload.get("maitu_scene_index"),
@@ -55,6 +71,11 @@ class FakeAssetRepository:
         *,
         asset_type: str | None = None,
         maitu_category: str | None = None,
+        local_file_code: str | None = None,
+        entity_code: str | None = None,
+        maitu_type: str | None = None,
+        usage: str | None = None,
+        subject: str | None = None,
         maitu_project_code: str | None = None,
         maitu_scene_name: str | None = None,
         maitu_slot_name: str | None = None,
@@ -67,6 +88,16 @@ class FakeAssetRepository:
             rows = [row for row in rows if row["asset_type"] == asset_type]
         if maitu_category is not None:
             rows = [row for row in rows if row.get("maitu_category") == maitu_category]
+        if local_file_code is not None:
+            rows = [row for row in rows if row.get("local_file_code") == local_file_code]
+        if entity_code is not None:
+            rows = [row for row in rows if row.get("entity_code") == entity_code]
+        if maitu_type is not None:
+            rows = [row for row in rows if row.get("maitu_type") == maitu_type]
+        if usage is not None:
+            rows = [row for row in rows if row.get("usage") == usage]
+        if subject is not None:
+            rows = [row for row in rows if subject in (row.get("subject") or "")]
         if maitu_project_code is not None:
             rows = [row for row in rows if row.get("maitu_project_code") == maitu_project_code]
         if maitu_scene_name is not None:
@@ -78,9 +109,16 @@ class FakeAssetRepository:
                 row
                 for row in rows
                 if q in row["asset_code"]
+                or q in (row.get("display_code") or "")
+                or q in (row.get("local_file_code") or "")
+                or q in (row.get("entity_code") or "")
                 or q in (row.get("title") or "")
                 or q in row["original_filename"]
                 or q in (row.get("description") or "")
+                or q in (row.get("usage") or "")
+                or q in (row.get("subject") or "")
+                or q in (row.get("file_role") or "")
+                or q in (row.get("browser_use_hint") or "")
             ]
         return rows[offset : offset + limit]
 
@@ -215,6 +253,91 @@ def test_create_maitu_asset_metadata_and_filter_for_agent_lookup(client: TestCli
     results = list_response.json()
     assert results[0]["asset_code"] == body["asset_code"]
     assert results[0]["layer_width"] == 460
+
+
+def test_create_asset_preserves_local_material_code_mapping(client: TestClient) -> None:
+    response = client.post(
+        "/api/assets",
+        json={
+            "asset_type": "VID",
+            "title": "品酒大师 PRO 商品讲解视频",
+            "original_filename": "MT-VID-0024_视频_商品讲解视频_品酒大师PRO.mp4",
+            "file_ext": ".mp4",
+            "mime_type": "video/mp4",
+            "checksum_sha256": "b" * 64,
+            "display_code": "MT-VID-0024",
+            "local_file_code": "MT-VID-0024",
+            "entity_code": None,
+            "source_system": "maitu",
+            "source_type": "maitu_local_material",
+            "maitu_category": "product_video",
+            "maitu_type": "视频",
+            "usage": "商品讲解视频",
+            "subject": "品酒大师PRO",
+            "file_role": "商品讲解视频",
+            "browser_use_hint": "用于麦兔视频素材选择：品酒大师PRO，用途：商品讲解视频",
+            "local_relative_path": "视频/MT-VID-0024_视频_商品讲解视频_品酒大师PRO.mp4",
+            "duplicate_group": "DUP-008",
+            "duplicate_rank": 1,
+            "duplicate_count": 2,
+            "duplicate_primary_local_file_code": "MT-VID-0024",
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["asset_code"] == "AG-VID-20260707-000001"
+    assert body["display_code"] == "MT-VID-0024"
+    assert body["local_file_code"] == "MT-VID-0024"
+    assert body["source_system"] == "maitu"
+    assert body["maitu_type"] == "视频"
+    assert body["usage"] == "商品讲解视频"
+    assert body["subject"] == "品酒大师PRO"
+    assert body["duplicate_group"] == "DUP-008"
+
+    by_local_code = client.get("/api/assets", params={"local_file_code": "MT-VID-0024"})
+    assert by_local_code.status_code == 200
+    assert by_local_code.json()[0]["asset_code"] == body["asset_code"]
+
+    by_subject = client.get("/api/assets", params={"maitu_type": "视频", "subject": "品酒大师"})
+    assert by_subject.status_code == 200
+    assert by_subject.json()[0]["local_file_code"] == "MT-VID-0024"
+
+    by_q = client.get("/api/assets", params={"q": "MT-VID-0024"})
+    assert by_q.status_code == 200
+    assert by_q.json()[0]["subject"] == "品酒大师PRO"
+
+
+def test_create_digital_human_file_preserves_entity_code_mapping(client: TestClient) -> None:
+    response = client.post(
+        "/api/assets",
+        json={
+            "asset_type": "VID",
+            "title": "模特 7717 品酒大师 PRO 训练素材",
+            "original_filename": "DH-MDL-0001-F022_模特_7717_Y26定制_品酒大师PRO_训练素材.mov",
+            "local_file_code": "DH-MDL-0001-F022",
+            "entity_code": "DH-MDL-0001",
+            "source_system": "maitu",
+            "source_type": "maitu_local_material",
+            "maitu_category": "digital_human_video",
+            "maitu_type": "数字分身",
+            "maitu_subtype": "模特",
+            "usage": "视频",
+            "subject": "7717_Y26定制_品酒大师PRO",
+            "file_role": "训练素材",
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["asset_code"] == "AG-VID-20260707-000001"
+    assert body["local_file_code"] == "DH-MDL-0001-F022"
+    assert body["entity_code"] == "DH-MDL-0001"
+    assert body["maitu_subtype"] == "模特"
+
+    by_entity = client.get("/api/assets", params={"entity_code": "DH-MDL-0001"})
+    assert by_entity.status_code == 200
+    assert by_entity.json()[0]["file_role"] == "训练素材"
 
 
 def test_link_asset_to_live_and_list_assets(client: TestClient) -> None:

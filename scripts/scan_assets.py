@@ -113,9 +113,11 @@ CSV_COLUMNS = [
     "sha256",
     "tags",
     "browser_use_hint",
+    "local_relative_path",
     "duplicate_group",
     "duplicate_rank",
     "duplicate_count",
+    "duplicate_primary_local_file_code",
     "duplicate_primary_relative_path",
     "is_duplicate_primary",
     "parse_status",
@@ -150,6 +152,7 @@ class AssetInventoryItem:
     duplicate_group: str | None = None
     duplicate_rank: int | None = None
     duplicate_count: int | None = None
+    duplicate_primary_local_file_code: str | None = None
     duplicate_primary_relative_path: str | None = None
     is_duplicate_primary: bool = False
     parse_status: str = "parsed"
@@ -173,13 +176,28 @@ class AssetInventoryItem:
             "file_size": self.file_size,
             "checksum_sha256": self.sha256,
             "status": "stored",
+            "display_code": self.file_code,
+            "local_file_code": self.file_code,
+            "entity_code": self.entity_code,
+            "source_system": "maitu",
             "source_type": self.source_type,
+            "maitu_type": self.maitu_type,
+            "maitu_subtype": self.maitu_subtype,
+            "usage": self.usage,
+            "subject": self.subject,
+            "file_role": self.file_role,
+            "browser_use_hint": self.browser_use_hint,
+            "local_relative_path": self.relative_path,
+            "duplicate_group": self.duplicate_group,
+            "duplicate_rank": self.duplicate_rank,
+            "duplicate_count": self.duplicate_count,
+            "duplicate_primary_local_file_code": self.duplicate_primary_local_file_code,
             "description": "; ".join(description_parts),
             "replacement_policy": self.replacement_policy,
         }
         if self.maitu_category is not None:
             payload["maitu_category"] = self.maitu_category
-        return payload
+        return {key: value for key, value in payload.items() if value is not None}
 
     def to_json_dict(self) -> dict[str, object]:
         data = asdict(self)
@@ -457,10 +475,12 @@ def annotate_duplicates(items: Sequence[AssetInventoryItem]) -> None:
         group.sort(key=lambda item: item.relative_path.casefold())
         duplicate_group = f"DUP-{index:03d}"
         primary_path = group[0].relative_path
+        primary_file_code = group[0].file_code
         for rank, item in enumerate(group, start=1):
             item.duplicate_group = duplicate_group
             item.duplicate_rank = rank
             item.duplicate_count = len(group)
+            item.duplicate_primary_local_file_code = primary_file_code
             item.duplicate_primary_relative_path = primary_path
             item.is_duplicate_primary = rank == 1
 
@@ -547,6 +567,11 @@ def write_markdown_summary(path: Path, inventory: dict[str, object]) -> None:
             "```",
             "",
             "JSON 中每个素材都带有 `asset_create_payload`，可直接作为后续导入 `POST /api/assets` 或 CLI 导入的基础数据。",
+            "",
+            "`asset_create_payload` 同时保留两套编号：",
+            "",
+            "- `asset_code`：导入 AssetGraph 后生成的全局 AG-* 编号。",
+            "- `display_code` / `local_file_code` / `entity_code`：从文件名解析出的 MT-* / DH-* 麦兔或本地素材编号。",
             "",
         ]
     )
