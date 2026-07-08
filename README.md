@@ -41,7 +41,7 @@ AssetGraph 是一个面向麦兔软件与数字人直播业务的多模态视频
 ## 目录结构
 
 ```text
-backend/                后端服务
+backend/                AssetGraph FastAPI 后端、RAG API、数据库迁移
   app/
     api/routes/         API 路由
     core/               配置与核心能力
@@ -49,9 +49,14 @@ backend/                后端服务
     services/           业务服务
   migrations/           SQL migration
   tests/                测试目录
+workers/
+  browser-use/          麦兔 Browser-use worker，同仓部署/迁移
+    src/browser_use_worker/
+    tests/
 docs/                   设计文档
 infra/                  本地基础设施
 scripts/                辅助脚本
+素材/                   本地麦兔素材目录；大文件不进 Git
 ```
 
 ## 本地开发
@@ -76,6 +81,14 @@ pip install -e .
 uvicorn app.main:app --reload
 ```
 
+运行 Browser-use worker 配置检查 / dry-run：
+
+```bash
+cd workers/browser-use
+python -m browser_use_worker --check-config
+python -m browser_use_worker --once --dry-run
+```
+
 ## 文档
 
 - `docs/final-goal.md`：项目最终目标，定义数字人直播视频多模态资产图谱的长期愿景、核心对象和 MVP 闭环。
@@ -86,4 +99,5 @@ uvicorn app.main:app --reload
 - `docs/asset-numbering/rename_execution_summary_20260709.md`：V3 Browser-use 友好素材重命名执行结果，记录执行策略、manifest、回滚清单和复查统计。
 - `docs/asset-numbering/asset_inventory_summary_20260709.md`：本地素材扫描结果摘要，统计 131 个素材的类型、麦兔分类、重复组和解析状态。
 - `docs/asset-numbering/asset_inventory_20260709.json` / `.csv`：从 `D:/AssetGraph/素材` 扫描生成的结构化素材清单，每条素材包含 file_code、sha256、maitu_category、tags、browser_use_hint 和后续导入 `POST /api/assets` 的 `asset_create_payload`。
+- `docs/browser-use-integration.md`：AssetGraph 与 Browser-use 同仓一体化布局，说明 backend、worker、scripts、infra 和素材目录如何一起部署/迁移。
 - `docs/worker-protocols/maitu-browser-use-retry-worker.md`：Browser use retry worker 执行协议，定义取任务、执行、成功回写、失败释放和人工介入流程。
