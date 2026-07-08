@@ -24,6 +24,14 @@ class AssetGraphClient:
                 return None
             raise
 
+    def get_asset(self, asset_code: str) -> dict[str, Any] | None:
+        try:
+            return self._request_json("GET", f"/api/assets/{asset_code}")
+        except AssetGraphClientError as exc:
+            if "HTTP 404" in str(exc):
+                return None
+            raise
+
     def release_retry_task(self, retry_task_code: str, *, status: str, result_summary: str) -> dict[str, Any]:
         return self._request_json(
             "POST",

@@ -88,17 +88,24 @@ worker 不应该直接拥有素材推荐逻辑，也不应该自行生成替换�
 
 ## 5. 当前 worker 状态
 
-当前新增的是 worker 脚手架，不直接启动真实 browser-use 自动化。
+当前 worker 已有可测试的 Maitu executor 抽象层，但不直接启动真实 browser-use 自动化。
 
 已支持：
 
 ```text
 claim-next 请求 payload 组装
 领取 retry task
-dry-run 校验 operation_plan
+AssetGraph asset metadata 读取
+MaituBrowserUseExecutor 操作分发
+MaituBrowserSession 抽象接口
+retry_replace_layer_asset
+retry_asset_upload_and_replace
+retry_save_project
+recover_login_then_retry
+manual_required / resolve_missing_slot_asset 分流
+recoverable failure 释放回队列
 成功结果回写
-失败释放回队列
-manual_required 回写
+dry-run 校验 operation_plan
 单元测试
 ```
 
@@ -144,12 +151,13 @@ BROWSER_USE_MAX_ATTEMPTS=3
 
 ## 7. 后续接入真实 browser-use 的步骤
 
-1. 在 `workers/browser-use` 中增加真实 `BrowserUseExecutor` 实现。
-2. executor 根据 `operation_plan.operations` 执行麦兔页面动作。
+1. 在 `workers/browser-use` 中实现真实 `MaituBrowserSession`。
+2. session 使用 browser-use / Playwright 完成麦兔页面 selector 操作。
 3. 明确浏览器 profile / cookies / 登录态保存位置。
-4. 将截图保存并通过 AssetGraph 上传/入库，返回 `screenshot_asset_code`。
-5. 将真实成功/失败结果回写 retry task。
-6. 增加端到端测试：创建 retry task -> worker claim -> mock browser-use 执行 -> 回写 -> 状态变更。
+4. 将本地素材路径从 `asset.local_relative_path` / `local_file_code` 解析为可上传文件。
+5. 将截图保存并通过 AssetGraph 上传/入库，返回 `screenshot_asset_code`。
+6. 将真实成功/失败结果回写 retry task。
+7. 增加端到端测试：创建 retry task -> worker claim -> fake/real browser-use 执行 -> 回写 -> 状态变更。
 
 ---
 

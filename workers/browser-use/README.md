@@ -2,7 +2,7 @@
 
 This worker lives in the same repository as AssetGraph so the API, RAG ingestion code, local asset inventory, and Maitu browser automation protocol can be deployed or migrated together.
 
-Current status: scaffold only. It implements the queue/claim/release/result protocol boundary without binding to a concrete browser-use runtime yet.
+Current status: scaffold plus tested Maitu executor abstraction. It implements the queue/claim/release/result protocol boundary and a `MaituBrowserUseExecutor` that dispatches AssetGraph operation plans to a thin browser session interface. A concrete browser-use runtime is still intentionally not bound.
 
 ## Responsibilities
 
@@ -39,3 +39,26 @@ Environment variables:
 ## Production note
 
 The worker should run on a machine/session that can open the Maitu web UI and keep browser state/cookies. The backend and worker can be packaged together, but browser automation may still require a desktop-capable Windows runtime.
+
+## Real browser-use integration point
+
+The tested execution boundary is:
+
+```text
+MaituBrowserUseExecutor
+  -> MaituBrowserSession.ensure_ready()
+  -> MaituBrowserSession.upload_asset()
+  -> MaituBrowserSession.replace_layer_asset()
+  -> MaituBrowserSession.save_project()
+  -> MaituBrowserSession.capture_screenshot()
+```
+
+A real implementation should provide `MaituBrowserSession` using browser-use / Playwright selectors. The executor already handles:
+
+- loading AssetGraph asset metadata with `GET /api/assets/{asset_code}`
+- dispatching `retry_replace_layer_asset`
+- dispatching `retry_asset_upload_and_replace`
+- dispatching `retry_save_project`
+- dispatching `recover_login_then_retry`
+- converting recoverable browser failures into queue releases
+- converting missing assets/manual operations into `manual_required`
