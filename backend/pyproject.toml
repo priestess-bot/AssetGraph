@@ -1,0 +1,26 @@
+[project]
+name = "assetgraph-backend"
+version = "0.1.0"
+description = "AssetGraph multimodal asset library backend"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0",
+    "psycopg[binary]>=3.2.0",
+    "psycopg-pool>=3.2.0",
+    "pydantic-settings>=2.6.0",
+    "uvicorn[standard]>=0.30.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "httpx2>=0.28.0",
+    "pglast>=7.10",
+    "pytest>=8.3.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]

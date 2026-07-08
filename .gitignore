@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local data
+.minio/
+.postgres/
+.neo4j/
+.milvus/
+data/
+logs/
+
+# Local media assets are managed outside Git. Keep metadata/manifest files under docs/ tracked.
+素材/
