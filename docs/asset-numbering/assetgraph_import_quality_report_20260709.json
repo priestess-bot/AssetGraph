@@ -1,0 +1,78 @@
+{
+  "generated_at": "2026-07-09T11:42:59",
+  "summary": {
+    "total_assets": 131,
+    "checked_assets": 131,
+    "asset_file_count": 3,
+    "tag_count": 123,
+    "tagged_asset_count": 131,
+    "asset_tag_relation_count": 806,
+    "tag_coverage_ratio": 1.0,
+    "duplicate_group_count": 8,
+    "duplicate_asset_count": 20,
+    "local_file_code_duplicate_groups": 0
+  },
+  "distributions": {
+    "by_asset_type": {
+      "IMG": 71,
+      "VID": 56,
+      "AUD": 4
+    },
+    "by_maitu_category": {
+      "digital_human_video": 68,
+      "product_video": 28,
+      "floating_sticker": 26,
+      "background_image": 5,
+      "voice_audio": 4
+    },
+    "by_maitu_type": {
+      "数字分身": 72,
+      "视频": 28,
+      "装饰": 26,
+      "背景": 4,
+      "模版": 1
+    },
+    "by_usage": {
+      "图片": 40,
+      "视频": 28,
+      "商品整体视频": 7,
+      "酒体视频": 7,
+      "动效装饰": 5,
+      "商品讲解视频": 5,
+      "开箱视频": 5,
+      "装饰": 5,
+      "商品贴片": 4,
+      "音频": 4,
+      "直播背景": 3,
+      "装饰底图": 3,
+      "视频素材": 3,
+      "前景框": 2,
+      "品牌Logo": 2,
+      "贴片": 2,
+      "买赠贴片": 1,
+      "品牌TVC": 1,
+      "图标": 1,
+      "底部背景": 1,
+      "模板预览": 1,
+      "礼盒装饰": 1
+    }
+  },
+  "missing_fields": {
+    "local_file_code": 0,
+    "display_code": 0,
+    "title": 0,
+    "maitu_category": 0,
+    "maitu_type": 0,
+    "usage": 0,
+    "subject": 0,
+    "browser_use_hint": 0
+  },
+  "duplicate_local_file_codes": {},
+  "quality_gates": {
+    "asset_count_matches_stats": true,
+    "required_fields_complete": true,
+    "local_file_codes_unique": true,
+    "browser_use_hints_complete": true,
+    "all_assets_tagged": true
+  }
+}

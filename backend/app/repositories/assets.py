@@ -172,6 +172,69 @@ class AssetRepository:
             rows = cursor.fetchall()
         return [self._stringify_ids(row) for row in rows]
 
+    def stats(self) -> dict[str, Any]:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                WITH duplicate_local_codes AS (
+                    SELECT local_file_code
+                    FROM assets
+                    WHERE deleted_at IS NULL AND local_file_code IS NOT NULL
+                    GROUP BY local_file_code
+                    HAVING COUNT(*) > 1
+                )
+                SELECT
+                    COUNT(*) AS total_assets,
+                    (SELECT COUNT(*) FROM asset_files) AS asset_file_count,
+                    COUNT(DISTINCT duplicate_group) FILTER (WHERE duplicate_group IS NOT NULL) AS duplicate_group_count,
+                    COUNT(*) FILTER (WHERE duplicate_group IS NOT NULL) AS duplicate_asset_count,
+                    (SELECT COUNT(*) FROM duplicate_local_codes) AS local_file_code_duplicate_groups,
+                    (SELECT COUNT(*) FROM tags) AS tag_count,
+                    (SELECT COUNT(DISTINCT asset_id) FROM asset_tags) AS tagged_asset_count,
+                    (SELECT COUNT(*) FROM asset_tags) AS asset_tag_relation_count,
+                    COUNT(*) FILTER (WHERE local_file_code IS NULL OR local_file_code = '') AS missing_local_file_code,
+                    COUNT(*) FILTER (WHERE display_code IS NULL OR display_code = '') AS missing_display_code,
+                    COUNT(*) FILTER (WHERE title IS NULL OR title = '') AS missing_title,
+                    COUNT(*) FILTER (WHERE maitu_category IS NULL OR maitu_category = '') AS missing_maitu_category,
+                    COUNT(*) FILTER (WHERE maitu_type IS NULL OR maitu_type = '') AS missing_maitu_type,
+                    COUNT(*) FILTER (WHERE usage IS NULL OR usage = '') AS missing_usage,
+                    COUNT(*) FILTER (WHERE subject IS NULL OR subject = '') AS missing_subject,
+                    COUNT(*) FILTER (WHERE browser_use_hint IS NULL OR browser_use_hint = '') AS missing_browser_use_hint
+                FROM assets
+                WHERE deleted_at IS NULL
+                """
+            )
+            summary = cursor.fetchone()
+            by_asset_type = self._count_by(cursor, "asset_type")
+            by_maitu_category = self._count_by(cursor, "maitu_category")
+            by_maitu_type = self._count_by(cursor, "maitu_type")
+            by_usage = self._count_by(cursor, "usage")
+
+        return {
+            "total_assets": int(summary["total_assets"] or 0),
+            "asset_file_count": int(summary["asset_file_count"] or 0),
+            "duplicate_group_count": int(summary["duplicate_group_count"] or 0),
+            "duplicate_asset_count": int(summary["duplicate_asset_count"] or 0),
+            "local_file_code_duplicate_groups": int(summary["local_file_code_duplicate_groups"] or 0),
+            "tag_count": int(summary["tag_count"] or 0),
+            "tagged_asset_count": int(summary["tagged_asset_count"] or 0),
+            "asset_tag_relation_count": int(summary["asset_tag_relation_count"] or 0),
+            "by_asset_type": by_asset_type,
+            "by_maitu_category": by_maitu_category,
+            "by_maitu_type": by_maitu_type,
+            "by_usage": by_usage,
+            "missing_fields": {
+                "local_file_code": int(summary["missing_local_file_code"] or 0),
+                "display_code": int(summary["missing_display_code"] or 0),
+                "title": int(summary["missing_title"] or 0),
+                "maitu_category": int(summary["missing_maitu_category"] or 0),
+                "maitu_type": int(summary["missing_maitu_type"] or 0),
+                "usage": int(summary["missing_usage"] or 0),
+                "subject": int(summary["missing_subject"] or 0),
+                "browser_use_hint": int(summary["missing_browser_use_hint"] or 0),
+            },
+        }
+
     def get_by_local_file_code(self, source_system: str, local_file_code: str) -> dict[str, Any] | None:
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
@@ -291,6 +354,22 @@ class AssetRepository:
                 """,
                 (asset_id, tag),
             )
+
+    @staticmethod
+    def _count_by(cursor: Any, column: str) -> dict[str, int]:
+        allowed_columns = {"asset_type", "maitu_category", "maitu_type", "usage"}
+        if column not in allowed_columns:
+            raise ValueError(f"unsupported stats column: {column}")
+        cursor.execute(
+            f"""
+            SELECT {column} AS key, COUNT(*) AS count
+            FROM assets
+            WHERE deleted_at IS NULL AND {column} IS NOT NULL AND {column} <> ''
+            GROUP BY {column}
+            ORDER BY count DESC, key ASC
+            """
+        )
+        return {str(row["key"]): int(row["count"] or 0) for row in cursor.fetchall()}
 
     def _next_asset_code(self, asset_type: str) -> str:
         sequence_date = datetime.now(UTC).date()

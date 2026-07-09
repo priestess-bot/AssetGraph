@@ -80,6 +80,13 @@ def list_assets(
     )
 
 
+@router.get("/stats")
+def asset_stats(
+    repository: Annotated[AssetRepository, Depends(get_asset_repository)],
+) -> dict:
+    return repository.stats()
+
+
 @router.get("/{asset_code}", response_model=AssetRead)
 def get_asset(
     asset_code: str,
