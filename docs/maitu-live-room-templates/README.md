@@ -43,3 +43,16 @@ req = urllib.request.Request(
 print(urllib.request.urlopen(req).read().decode('utf-8'))
 PY
 ```
+
+## 通过剧本反查模板
+
+后端 `GET /api/maitu/live-room-blueprints` 支持 `q` 参数，会搜索蓝图编码、标题、直播间名、场景 JSON、剧本 `script_blocks` 和原始 profile/blueprint。
+
+示例：
+
+```bash
+curl --get 'http://127.0.0.1:8000/api/maitu/live-room-blueprints' \
+  --data-urlencode 'q=贺兰山东麓'
+```
+
+应能返回 `MT-BP-20260709-38336-TEMPLATE` / `张裕夏日主题`。

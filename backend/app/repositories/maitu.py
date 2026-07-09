@@ -163,6 +163,7 @@ class MaituMaterialSlotRepository:
         *,
         reference_room_id: str | None = None,
         status: str | None = None,
+        q: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
@@ -174,6 +175,18 @@ class MaituMaterialSlotRepository:
         if status is not None:
             where_clauses.append("b.status = %s")
             values.append(status)
+        if q:
+            like_query = f"%{q}%"
+            where_clauses.append(
+                "(" 
+                "b.blueprint_code ILIKE %s OR b.title ILIKE %s OR "
+                "b.reference_room_id ILIKE %s OR b.reference_room_name ILIKE %s OR "
+                "b.description ILIKE %s OR b.scenes::text ILIKE %s OR "
+                "b.script_blocks::text ILIKE %s OR b.raw_blueprint::text ILIKE %s OR "
+                "p.raw_profile::text ILIKE %s"
+                ")"
+            )
+            values.extend([like_query] * 9)
         values.extend([limit, offset])
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(

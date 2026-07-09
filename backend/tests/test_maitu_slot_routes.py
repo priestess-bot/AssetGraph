@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
@@ -151,6 +152,7 @@ class FakeMaituMaterialSlotRepository:
         *,
         reference_room_id: str | None = None,
         status: str | None = None,
+        q: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
@@ -159,6 +161,27 @@ class FakeMaituMaterialSlotRepository:
             rows = [row for row in rows if row.get("reference_room_id") == reference_room_id]
         if status is not None:
             rows = [row for row in rows if row.get("status") == status]
+        if q:
+            needle = q.lower()
+
+            def matches(row: dict[str, Any]) -> bool:
+                haystack = "\n".join(
+                    str(part)
+                    for part in (
+                        row.get("blueprint_code"),
+                        row.get("title"),
+                        row.get("reference_room_id"),
+                        row.get("reference_room_name"),
+                        row.get("description"),
+                        json.dumps(row.get("scenes") or [], ensure_ascii=False),
+                        json.dumps(row.get("script_blocks") or [], ensure_ascii=False),
+                        json.dumps(row.get("reference_profile") or {}, ensure_ascii=False),
+                    )
+                    if part is not None
+                ).lower()
+                return needle in haystack
+
+            rows = [row for row in rows if matches(row)]
         return rows[offset : offset + limit]
 
     def get_live_room_blueprint_by_code(self, blueprint_code: str) -> dict[str, Any] | None:
@@ -1856,6 +1879,75 @@ def test_get_missing_live_room_blueprint_returns_404(client: TestClient) -> None
     response = client.get("/api/maitu/live-room-blueprints/MT-BP-20260709-999999")
 
     assert response.status_code == 404
+
+
+def test_list_live_room_blueprints_can_search_by_script_text(client: TestClient) -> None:
+    first_payload = {
+        "reference_profile": {
+            "profile_code": "MT-REF-20260709-38336-TEMPLATE",
+            "source": "maitu_template_library_readonly_observe",
+            "reference_room_id": "38336",
+            "reference_room_name": "张裕夏日主题",
+            "platform": "京东",
+        },
+        "blueprint": {
+            "blueprint_code": "MT-BP-20260709-38336-TEMPLATE",
+            "reference_profile_code": "MT-REF-20260709-38336-TEMPLATE",
+            "title": "张裕夏日主题 模板库基准蓝图",
+            "platform": "京东",
+            "room_type": "template_library_baseline",
+            "reference_room_id": "38336",
+            "reference_room_name": "张裕夏日主题",
+            "status": "template_baseline",
+            "scenes": [],
+            "script_blocks": [
+                {
+                    "script_block_code": "MT-TPL-SCRIPT-38336-001",
+                    "scene_name": "商品01-场景01",
+                    "sort_order": 1,
+                    "content": "龙谕的葡萄园，在宁夏贺兰山东麓。那里有父亲山贺兰山，也有母亲河黄河。",
+                }
+            ],
+        },
+    }
+    second_payload = {
+        "reference_profile": {
+            "profile_code": "MT-REF-20260709-39826",
+            "source": "browser_use_observe",
+            "reference_room_id": "39826",
+            "reference_room_name": "京东空白直播间-0707-1352",
+            "platform": "京东",
+        },
+        "blueprint": {
+            "blueprint_code": "MT-BP-20260709-39826",
+            "reference_profile_code": "MT-REF-20260709-39826",
+            "title": "京东空白直播间-0707-1352 重建蓝图",
+            "platform": "京东",
+            "room_type": "reference_rebuild",
+            "reference_room_id": "39826",
+            "reference_room_name": "京东空白直播间-0707-1352",
+            "status": "draft",
+            "scenes": [],
+            "script_blocks": [
+                {
+                    "script_block_code": "MT-SCRIPT-BLOCK-20260709-000001",
+                    "scene_name": "场景01",
+                    "sort_order": 1,
+                    "content": "大家好，今天给大家介绍张裕解百纳品酒大师系列。",
+                }
+            ],
+        },
+    }
+    assert client.post("/api/maitu/live-room-blueprints/import-reference", json=first_payload).status_code == 201
+    assert client.post("/api/maitu/live-room-blueprints/import-reference", json=second_payload).status_code == 201
+
+    response = client.get("/api/maitu/live-room-blueprints", params={"q": "贺兰山东麓"})
+
+    assert response.status_code == 200
+    rows = response.json()
+    assert [row["blueprint_code"] for row in rows] == ["MT-BP-20260709-38336-TEMPLATE"]
+    assert rows[0]["reference_room_id"] == "38336"
+    assert rows[0]["script_blocks"][0]["content"].startswith("龙谕的葡萄园")
 
 
 def test_create_live_room_build_plan_from_blueprint_and_get_browser_use_operations(client: TestClient) -> None:

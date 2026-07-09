@@ -195,12 +195,14 @@ def list_live_room_blueprints(
     repository: Annotated[MaituMaterialSlotRepository, Depends(get_maitu_slot_repository)],
     reference_room_id: str | None = None,
     status: str | None = None,
+    q: str | None = Query(default=None, min_length=1),
     limit: int = 50,
     offset: int = 0,
 ) -> list[dict]:
     return repository.list_live_room_blueprints(
         reference_room_id=reference_room_id,
         status=status,
+        q=q,
         limit=limit,
         offset=offset,
     )
