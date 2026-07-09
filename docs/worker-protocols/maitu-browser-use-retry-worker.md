@@ -165,6 +165,7 @@ GET /api/assets/{asset_code}
 5. operation 包含 Browser-use 友好字段：`asset_display_code`、`asset_local_file_code`、`asset_original_filename`、`asset_browser_use_hint`。
 6. 本地素材文件存在于 `--assets-root` 下，且大小与 AssetGraph 元数据一致或给出 warning。
 7. Browser-use 当前会话可看到麦兔页面，并且不是登录页。
+8. 当前麦兔页面文本中可见目标 `layer_name` 或 `slot_name`；否则拒绝无人值守替换，避免把素材替换到错误图层。
 
 预检不领取 retry queue，不上传素材，不替换图层，不保存项目。返回 JSON 中：
 

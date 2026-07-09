@@ -21,7 +21,7 @@ class FakeAssetClient:
 class FakeProbe:
     title: str = "MyTwins麦兔直播"
     url: str = "https://live2.maituai.com/Home"
-    text: str = "首页\n本地向量检索验证场景\n素材管理"
+    text: str = "首页\n本地向量检索验证场景\n商品讲解视频槽位\n素材管理"
     logged_in: bool = True
     login_required: bool = False
     opened_home: bool = False
@@ -161,6 +161,24 @@ def test_preflight_fails_when_login_page_is_visible(tmp_path: Path) -> None:
 
     assert result.status == "failed"
     assert any(check.name == "maitu_browser_probe" and check.status == "fail" for check in result.checks)
+
+
+def test_preflight_fails_when_target_layer_or_slot_is_not_visible(tmp_path: Path) -> None:
+    relative_path = "视频/MT-VID-0024_视频_商品讲解视频_品酒大师PRO.mp4"
+    write_asset_file(tmp_path, relative_path)
+    session = FakeProbeSession(FakeProbe(text="首页\n本地向量检索验证场景\n图层\n明月"))
+    preflight = ReplacementPlanPreflight(
+        asset_client=FakeAssetClient({"AG-VID-20260709-000052": asset(relative_path)}),
+        assets_root=tmp_path,
+        session=session,
+    )
+
+    result = preflight.run(operation_plan())
+
+    assert result.status == "failed"
+    target_check = next(check for check in result.checks if check.name == "operation[0].maitu_target_visibility")
+    assert target_check.status == "fail"
+    assert "商品讲解视频槽位" in target_check.details["target_names"]
 
 
 def test_preflight_can_skip_browser_probe_but_is_not_ready_to_execute(tmp_path: Path) -> None:

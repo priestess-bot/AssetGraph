@@ -433,6 +433,7 @@ class ReplacementPlanPreflight:
             )
         )
         self._check_scene_visibility(operation_plan, title=title, text=text, checks=checks)
+        self._check_operation_target_visibility(operation_plan, title=title, text=text, checks=checks)
 
     def _check_scene_visibility(self, operation_plan: dict[str, Any], *, title: str, text: str, checks: list[PreflightCheck]) -> None:
         scene_name = operation_plan.get("scene_name")
@@ -457,6 +458,56 @@ class ReplacementPlanPreflight:
                 details={"scene_name": scene_name},
             )
         )
+
+    def _check_operation_target_visibility(
+        self,
+        operation_plan: dict[str, Any],
+        *,
+        title: str,
+        text: str,
+        checks: list[PreflightCheck],
+    ) -> None:
+        operations = operation_plan.get("operations") or []
+        if not isinstance(operations, list):
+            return
+        combined = f"{title}\n{text}"
+        for index, operation in enumerate(operations):
+            if not isinstance(operation, dict):
+                continue
+            target_names = [
+                str(value).strip()
+                for value in (operation.get("layer_name"), operation.get("slot_name"))
+                if value
+            ]
+            if not target_names:
+                checks.append(
+                    PreflightCheck(
+                        name=f"operation[{index}].maitu_target_visibility",
+                        status="warning",
+                        summary="Operation has no layer_name or slot_name for Maitu target visibility verification.",
+                        details={"slot_code": operation.get("slot_code")},
+                    )
+                )
+                continue
+            visible_name = next((name for name in target_names if name in combined), None)
+            if visible_name is not None:
+                checks.append(
+                    PreflightCheck(
+                        name=f"operation[{index}].maitu_target_visibility",
+                        status="pass",
+                        summary="Target layer/slot name is visible in the current Maitu page text.",
+                        details={"visible_name": visible_name, "target_names": target_names},
+                    )
+                )
+                continue
+            checks.append(
+                PreflightCheck(
+                    name=f"operation[{index}].maitu_target_visibility",
+                    status="fail",
+                    summary="Target layer/slot name was not visible in the current Maitu page text; refusing unattended replacement.",
+                    details={"target_names": target_names, "slot_code": operation.get("slot_code")},
+                )
+            )
 
     def _safe_asset_path(self, relative_path: str) -> Path | None:
         normalized = relative_path.replace("\\", "/").strip()
