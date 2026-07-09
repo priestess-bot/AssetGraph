@@ -20,6 +20,8 @@ from app.schemas.maitu import (
     MaituLiveRoomBuildPlanOperationPlanResponse,
     MaituLiveRoomBuildPlanRead,
     MaituLiveRoomComponentSearchResultRead,
+    MaituLiveRoomTemplateComponentRead,
+    MaituLiveRoomTemplateSceneRead,
     MaituLayoutAdjustmentCreate,
     MaituLayoutAdjustmentRead,
     MaituMaterialSlotCreate,
@@ -207,6 +209,42 @@ def list_live_room_blueprints(
         limit=limit,
         offset=offset,
     )
+
+
+@router.get("/live-room-template-scenes", response_model=list[MaituLiveRoomTemplateSceneRead])
+def list_live_room_template_scenes(
+    repository: Annotated[MaituMaterialSlotRepository, Depends(get_maitu_slot_repository)],
+    blueprint_code: str | None = None,
+    reference_room_id: str | None = None,
+    template_library_code: str | None = None,
+    status: str | None = None,
+    q: str | None = Query(default=None, min_length=1),
+    limit: int = 50,
+    offset: int = 0,
+) -> list[dict]:
+    return repository.list_live_room_template_scenes(
+        blueprint_code=blueprint_code,
+        reference_room_id=reference_room_id,
+        template_library_code=template_library_code,
+        status=status,
+        q=q,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get(
+    "/live-room-template-scenes/{scene_template_code}/components",
+    response_model=list[MaituLiveRoomTemplateComponentRead],
+)
+def list_live_room_template_scene_components(
+    scene_template_code: str,
+    repository: Annotated[MaituMaterialSlotRepository, Depends(get_maitu_slot_repository)],
+) -> list[dict]:
+    rows = repository.list_live_room_template_scene_components(scene_template_code)
+    if rows is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Maitu live-room template scene not found")
+    return rows
 
 
 @router.get(

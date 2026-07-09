@@ -79,3 +79,16 @@ def test_maitu_live_room_build_operation_selection_migration_exists_and_stores_s
     assert "selected_asset_local_file_code" in sql
     assert "match_reasons JSONB" in sql
     assert "selection_source" in sql
+
+
+def test_maitu_template_component_index_migration_exists_and_stores_scene_components() -> None:
+    migration = MIGRATIONS_DIR / "013_maitu_live_room_template_component_index.sql"
+
+    assert migration.exists()
+    sql = migration.read_text(encoding="utf-8")
+    assert "maitu_live_room_template_scenes" in sql
+    assert "maitu_live_room_template_components" in sql
+    assert "scene_template_code" in sql
+    assert "component_template_code" in sql
+    assert "script_content TEXT" in sql
+    assert "geometry JSONB" in sql

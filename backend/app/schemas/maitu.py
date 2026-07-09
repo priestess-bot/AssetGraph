@@ -55,6 +55,8 @@ class MaituLiveRoomComponentRead(BaseModel):
 
 
 class MaituLiveRoomComponentPlacementRead(BaseModel):
+    scene_template_code: str | None = None
+    component_template_code: str | None = None
     scene_name: str | None = None
     scene_type: str | None = None
     reference_product_name: str | None = None
@@ -86,6 +88,7 @@ class MaituLiveRoomComponentSearchResultRead(BaseModel):
     status: str
     room_type: str
     template_library_code: str | None = None
+    component_index_source: str | None = None
     matched_script_blocks: list[MaituLiveRoomScriptMatchRead] = Field(default_factory=list)
     matched_scene_names: list[str] = Field(default_factory=list)
     matched_scene_count: int = 0
@@ -95,6 +98,61 @@ class MaituLiveRoomComponentSearchResultRead(BaseModel):
     component_placement_count: int = 0
     components: list[MaituLiveRoomComponentRead] = Field(default_factory=list)
     component_placements: list[MaituLiveRoomComponentPlacementRead] = Field(default_factory=list)
+
+
+class MaituLiveRoomTemplateSceneRead(BaseModel):
+    id: str | None = None
+    blueprint_code: str
+    template_library_code: str | None = None
+    scene_template_code: str
+    scene_code: str | None = None
+    scene_name: str
+    scene_type: str | None = None
+    sort_order: int | None = None
+    reference_product_name: str | None = None
+    reference_item_id: str | int | None = None
+    reference_clip_id: str | int | None = None
+    script_block_code: str | None = None
+    script_sort_order: int | None = None
+    script_content: str | None = None
+    component_count: int = 0
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class MaituLiveRoomTemplateComponentRead(BaseModel):
+    id: str | None = None
+    blueprint_code: str
+    template_library_code: str | None = None
+    scene_template_code: str
+    component_template_code: str
+    scene_code: str | None = None
+    scene_name: str
+    scene_type: str | None = None
+    reference_product_name: str | None = None
+    reference_item_id: str | int | None = None
+    reference_clip_id: str | int | None = None
+    component_name: str | None = None
+    component_type: str | None = None
+    component_role: str | None = None
+    layer_code: str | None = None
+    layer_name: str | None = None
+    layer_role: str | None = None
+    material_id: int | None = None
+    material_tab: str | None = None
+    source_material_type: str | None = None
+    required_category: str | None = None
+    accepted_asset_types: list[str] = Field(default_factory=list)
+    replacement_policy: str | None = None
+    geometry: dict[str, Any] = Field(default_factory=dict)
+    z_index: int | None = None
+    speaker_id: int | None = None
+    digital_human_image_id: int | None = None
+    source_material_url: str | None = None
+    source_cover_url: str | None = None
+    sort_order: int | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
 
 class MaituLiveRoomBuildPlanCreate(BaseModel):

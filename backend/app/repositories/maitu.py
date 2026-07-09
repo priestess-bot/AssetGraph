@@ -155,6 +155,8 @@ class MaituMaterialSlotRepository:
                     Jsonb(blueprint),
                 ),
             )
+            blueprint_row = cursor.fetchone()
+            self._rebuild_live_room_template_component_index(cursor, blueprint_row, blueprint, profile)
         self.connection.commit()
         return self.get_live_room_blueprint_by_code(blueprint_code) or {}
 
@@ -203,6 +205,79 @@ class MaituMaterialSlotRepository:
             rows = cursor.fetchall()
         return [self._normalize_live_room_blueprint(row) for row in rows]
 
+    def list_live_room_template_scenes(
+        self,
+        *,
+        blueprint_code: str | None = None,
+        reference_room_id: str | None = None,
+        template_library_code: str | None = None,
+        status: str | None = None,
+        q: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        where_clauses = ["s.deleted_at IS NULL", "b.deleted_at IS NULL"]
+        values: list[Any] = []
+        if blueprint_code is not None:
+            where_clauses.append("s.blueprint_code = %s")
+            values.append(blueprint_code)
+        if reference_room_id is not None:
+            where_clauses.append("b.reference_room_id = %s")
+            values.append(reference_room_id)
+        if template_library_code is not None:
+            where_clauses.append("s.template_library_code = %s")
+            values.append(template_library_code)
+        if status is not None:
+            where_clauses.append("b.status = %s")
+            values.append(status)
+        if q:
+            like_query = f"%{q}%"
+            where_clauses.append(
+                "(s.scene_template_code ILIKE %s OR s.scene_name ILIKE %s OR "
+                "s.reference_product_name ILIKE %s OR s.script_content ILIKE %s OR s.raw_scene::text ILIKE %s)"
+            )
+            values.extend([like_query] * 5)
+        values.extend([limit, offset])
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                f"""
+                SELECT s.*
+                FROM maitu_live_room_template_scenes s
+                JOIN maitu_live_room_blueprints b ON b.blueprint_code = s.blueprint_code
+                WHERE {' AND '.join(where_clauses)}
+                ORDER BY b.created_at DESC, s.sort_order ASC NULLS LAST, s.scene_template_code ASC
+                LIMIT %s OFFSET %s
+                """,
+                tuple(values),
+            )
+            rows = cursor.fetchall()
+        return [self._normalize_live_room_template_scene(row) for row in rows]
+
+    def list_live_room_template_scene_components(self, scene_template_code: str) -> list[dict[str, Any]] | None:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT id
+                FROM maitu_live_room_template_scenes
+                WHERE scene_template_code = %s AND deleted_at IS NULL
+                LIMIT 1
+                """,
+                (scene_template_code,),
+            )
+            if cursor.fetchone() is None:
+                return None
+            cursor.execute(
+                """
+                SELECT *
+                FROM maitu_live_room_template_components
+                WHERE scene_template_code = %s AND deleted_at IS NULL
+                ORDER BY sort_order ASC NULLS LAST, z_index ASC NULLS LAST, component_template_code ASC
+                """,
+                (scene_template_code,),
+            )
+            rows = cursor.fetchall()
+        return [self._normalize_live_room_template_component(row) for row in rows]
+
     def search_live_room_scene_components_by_script(
         self,
         *,
@@ -212,6 +287,16 @@ class MaituMaterialSlotRepository:
         limit: int = 50,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
+        index_results = self._search_live_room_scene_components_by_script_from_index(
+            q=q,
+            reference_room_id=reference_room_id,
+            status=status,
+            limit=limit,
+            offset=offset,
+        )
+        if index_results:
+            return index_results
+
         where_clauses = ["b.deleted_at IS NULL", "p.deleted_at IS NULL", "b.script_blocks::text ILIKE %s"]
         values: list[Any] = [f"%{q}%"]
         if reference_room_id is not None:
@@ -1986,6 +2071,283 @@ class MaituMaterialSlotRepository:
         }
         return mapping.get(retry_execution_status, retry_execution_status)
 
+    def _rebuild_live_room_template_component_index(
+        self,
+        cursor: Any,
+        blueprint_row: dict[str, Any] | None,
+        blueprint: dict[str, Any],
+        profile: dict[str, Any],
+    ) -> None:
+        if blueprint_row is None:
+            return
+        blueprint_code = str(blueprint_row["blueprint_code"])
+        template_library_code = blueprint.get("template_library_code") or profile.get("template_library_code")
+        script_blocks_by_scene = self._script_blocks_by_scene(blueprint.get("script_blocks"))
+
+        cursor.execute("DELETE FROM maitu_live_room_template_components WHERE blueprint_code = %s", (blueprint_code,))
+        cursor.execute("DELETE FROM maitu_live_room_template_scenes WHERE blueprint_code = %s", (blueprint_code,))
+
+        for scene_index, scene in enumerate(self._dict_list(blueprint.get("scenes"))):
+            scene_name = str(scene.get("scene_name") or f"场景{scene_index + 1:02d}")
+            scene_template_code = self._scene_template_code(blueprint_code, scene, scene_index)
+            scene_code = scene.get("scene_code") or scene_template_code
+            script_block = script_blocks_by_scene.get(scene_name) or {}
+            layers = self._dict_list(scene.get("layers"))
+            cursor.execute(
+                """
+                INSERT INTO maitu_live_room_template_scenes (
+                    blueprint_id, blueprint_code, template_library_code, scene_template_code,
+                    scene_code, scene_name, scene_type, sort_order, reference_product_name,
+                    reference_item_id, reference_clip_id, script_block_code, script_sort_order,
+                    script_content, component_count, raw_scene
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (
+                    blueprint_row["id"],
+                    blueprint_code,
+                    template_library_code,
+                    scene_template_code,
+                    scene_code,
+                    scene_name,
+                    scene.get("scene_type"),
+                    scene.get("sort_order") if scene.get("sort_order") is not None else scene_index + 1,
+                    scene.get("reference_product_name"),
+                    self._optional_str(scene.get("reference_item_id")),
+                    self._optional_str(scene.get("reference_clip_id")),
+                    script_block.get("script_block_code"),
+                    script_block.get("sort_order"),
+                    script_block.get("content"),
+                    len(layers),
+                    Jsonb(scene),
+                ),
+            )
+            scene_row = cursor.fetchone()
+            for layer_index, layer in enumerate(layers):
+                component_template_code = self._component_template_code(scene_template_code, layer, layer_index)
+                cursor.execute(
+                    """
+                    INSERT INTO maitu_live_room_template_components (
+                        scene_template_id, blueprint_code, template_library_code,
+                        scene_template_code, component_template_code, scene_code, scene_name,
+                        scene_type, reference_product_name, reference_item_id, reference_clip_id,
+                        component_name, component_type, component_role, layer_code, layer_name,
+                        layer_role, material_id, material_tab, source_material_type,
+                        required_category, accepted_asset_types, replacement_policy, geometry,
+                        z_index, speaker_id, digital_human_image_id, source_material_url,
+                        source_cover_url, sort_order, raw_layer
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        scene_row["id"],
+                        blueprint_code,
+                        template_library_code,
+                        scene_template_code,
+                        component_template_code,
+                        scene_code,
+                        scene_name,
+                        scene.get("scene_type"),
+                        scene.get("reference_product_name"),
+                        self._optional_str(scene.get("reference_item_id")),
+                        self._optional_str(scene.get("reference_clip_id")),
+                        layer.get("component_name") or layer.get("layer_name"),
+                        layer.get("component_type") or layer.get("source_material_type"),
+                        layer.get("component_role") or layer.get("layer_role"),
+                        layer.get("layer_code") or component_template_code,
+                        layer.get("layer_name"),
+                        layer.get("layer_role"),
+                        layer.get("material_id"),
+                        layer.get("material_tab"),
+                        layer.get("source_material_type"),
+                        layer.get("required_category"),
+                        Jsonb(layer.get("accepted_asset_types") or []),
+                        layer.get("replacement_policy"),
+                        Jsonb(self._layer_geometry(layer)),
+                        layer.get("z_index"),
+                        layer.get("speaker_id"),
+                        layer.get("digital_human_image_id"),
+                        layer.get("source_material_url"),
+                        layer.get("source_cover_url"),
+                        layer.get("sort_order") if layer.get("sort_order") is not None else layer_index + 1,
+                        Jsonb(layer),
+                    ),
+                )
+
+    def _search_live_room_scene_components_by_script_from_index(
+        self,
+        *,
+        q: str,
+        reference_room_id: str | None = None,
+        status: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        where_clauses = ["s.deleted_at IS NULL", "b.deleted_at IS NULL", "s.script_content ILIKE %s"]
+        values: list[Any] = [f"%{q}%"]
+        if reference_room_id is not None:
+            where_clauses.append("b.reference_room_id = %s")
+            values.append(reference_room_id)
+        if status is not None:
+            where_clauses.append("b.status = %s")
+            values.append(status)
+        values.extend([limit, offset])
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                f"""
+                SELECT s.*, b.title AS blueprint_title, b.reference_room_id,
+                    b.reference_room_name, b.platform AS blueprint_platform,
+                    b.status AS blueprint_status, b.room_type AS blueprint_room_type
+                FROM maitu_live_room_template_scenes s
+                JOIN maitu_live_room_blueprints b ON b.blueprint_code = s.blueprint_code
+                WHERE {' AND '.join(where_clauses)}
+                ORDER BY b.created_at DESC, s.sort_order ASC NULLS LAST, s.scene_template_code ASC
+                LIMIT %s OFFSET %s
+                """,
+                tuple(values),
+            )
+            scene_rows = cursor.fetchall()
+        results: list[dict[str, Any]] = []
+        for row in scene_rows:
+            scene = self._normalize_live_room_template_scene(row)
+            components = self.list_live_room_template_scene_components(scene["scene_template_code"]) or []
+            results.append(self._scene_component_search_index_result(scene, components, dict(row)))
+        return results
+
+    @classmethod
+    def _scene_component_search_index_result(
+        cls,
+        scene: dict[str, Any],
+        components: list[dict[str, Any]],
+        metadata: dict[str, Any],
+    ) -> dict[str, Any]:
+        component_map: dict[tuple[Any, ...], dict[str, Any]] = {}
+        component_placements: list[dict[str, Any]] = []
+        for component_row in components:
+            placement = cls._template_component_placement(component_row)
+            component_placements.append(placement)
+            key = (
+                placement.get("layer_name"),
+                placement.get("material_id"),
+                placement.get("source_material_type"),
+                placement.get("layer_role"),
+            )
+            component = component_map.setdefault(
+                key,
+                {
+                    "component_name": placement.get("layer_name"),
+                    "component_type": placement.get("source_material_type"),
+                    "component_role": placement.get("layer_role"),
+                    "material_id": placement.get("material_id"),
+                    "required_category": placement.get("required_category"),
+                    "material_tab": placement.get("material_tab"),
+                    "source_material_type": placement.get("source_material_type"),
+                    "source_material_url": placement.get("source_material_url"),
+                    "source_cover_url": placement.get("source_cover_url"),
+                    "placements": 0,
+                    "scene_names": [],
+                    "geometry_examples": [],
+                },
+            )
+            component["placements"] += 1
+            placement_scene_name = placement.get("scene_name")
+            if placement_scene_name and placement_scene_name not in component["scene_names"]:
+                component["scene_names"].append(placement_scene_name)
+            geometry = placement.get("geometry") or {}
+            if geometry and geometry not in component["geometry_examples"] and len(component["geometry_examples"]) < 5:
+                component["geometry_examples"].append(geometry)
+
+        matched_script_blocks = []
+        if scene.get("script_content"):
+            matched_script_blocks.append(
+                {
+                    "script_block_code": scene.get("script_block_code"),
+                    "scene_name": scene.get("scene_name"),
+                    "sort_order": scene.get("script_sort_order"),
+                    "content": scene.get("script_content"),
+                }
+            )
+        matched_scene_names = [scene["scene_name"]] if scene.get("scene_name") else []
+        return {
+            "blueprint_code": scene["blueprint_code"],
+            "title": metadata.get("blueprint_title") or scene["blueprint_code"],
+            "reference_room_id": metadata.get("reference_room_id"),
+            "reference_room_name": metadata.get("reference_room_name"),
+            "platform": metadata.get("blueprint_platform"),
+            "status": metadata.get("blueprint_status") or "template_baseline",
+            "room_type": metadata.get("blueprint_room_type") or "template_library_baseline",
+            "template_library_code": scene.get("template_library_code"),
+            "component_index_source": "template_component_index",
+            "matched_script_blocks": matched_script_blocks,
+            "matched_scene_names": matched_scene_names,
+            "matched_scene_count": len(matched_scene_names),
+            "scene_count": 1,
+            "script_block_count": len(matched_script_blocks),
+            "unique_component_count": len(component_map),
+            "component_placement_count": len(component_placements),
+            "components": list(component_map.values()),
+            "component_placements": component_placements,
+        }
+
+    @classmethod
+    def _template_component_placement(cls, component: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "scene_template_code": component.get("scene_template_code"),
+            "component_template_code": component.get("component_template_code"),
+            "scene_name": component.get("scene_name"),
+            "scene_type": component.get("scene_type"),
+            "reference_product_name": component.get("reference_product_name"),
+            "reference_item_id": component.get("reference_item_id"),
+            "reference_clip_id": component.get("reference_clip_id"),
+            "layer_code": component.get("layer_code"),
+            "layer_name": component.get("layer_name") or component.get("component_name"),
+            "layer_role": component.get("layer_role") or component.get("component_role"),
+            "material_id": component.get("material_id"),
+            "material_tab": component.get("material_tab"),
+            "source_material_type": component.get("source_material_type") or component.get("component_type"),
+            "required_category": component.get("required_category"),
+            "accepted_asset_types": component.get("accepted_asset_types") or [],
+            "replacement_policy": component.get("replacement_policy"),
+            "geometry": component.get("geometry") or {},
+            "z_index": component.get("z_index"),
+            "speaker_id": component.get("speaker_id"),
+            "digital_human_image_id": component.get("digital_human_image_id"),
+            "source_material_url": component.get("source_material_url"),
+            "source_cover_url": component.get("source_cover_url"),
+        }
+
+    @staticmethod
+    def _scene_template_code(blueprint_code: str, scene: dict[str, Any], scene_index: int) -> str:
+        return str(scene.get("scene_code") or f"{blueprint_code}-SCENE-{scene_index + 1:03d}")[:128]
+
+    @staticmethod
+    def _component_template_code(scene_template_code: str, layer: dict[str, Any], layer_index: int) -> str:
+        return str(layer.get("layer_code") or f"{scene_template_code}-COMP-{layer_index + 1:03d}")[:128]
+
+    @staticmethod
+    def _script_blocks_by_scene(value: Any) -> dict[str, dict[str, Any]]:
+        result: dict[str, dict[str, Any]] = {}
+        for block in MaituMaterialSlotRepository._dict_list(value):
+            scene_name = str(block.get("scene_name") or "")
+            if scene_name and scene_name not in result:
+                result[scene_name] = block
+        return result
+
+    @staticmethod
+    def _layer_geometry(layer: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "left": layer.get("left_position"),
+            "top": layer.get("top_position"),
+            "width": layer.get("width"),
+            "height": layer.get("height"),
+            "scale": layer.get("scale"),
+        }
+
+    @staticmethod
+    def _optional_str(value: Any) -> str | None:
+        return None if value is None else str(value)
+
     @classmethod
     def _scene_component_search_result(cls, blueprint: dict[str, Any], query: str) -> list[dict[str, Any]]:
         needle = query.lower()
@@ -2131,6 +2493,30 @@ class MaituMaterialSlotRepository:
                 converted[key] = []
         if converted.get("reference_profile") is None:
             converted["reference_profile"] = {}
+        return converted
+
+    @staticmethod
+    def _normalize_live_room_template_scene(row: dict[str, Any]) -> dict[str, Any]:
+        converted = dict(row)
+        if "id" in converted and converted["id"] is not None:
+            converted["id"] = str(converted["id"])
+        converted.pop("blueprint_id", None)
+        converted.pop("raw_scene", None)
+        converted.pop("deleted_at", None)
+        return converted
+
+    @staticmethod
+    def _normalize_live_room_template_component(row: dict[str, Any]) -> dict[str, Any]:
+        converted = dict(row)
+        if "id" in converted and converted["id"] is not None:
+            converted["id"] = str(converted["id"])
+        converted.pop("scene_template_id", None)
+        converted.pop("raw_layer", None)
+        converted.pop("deleted_at", None)
+        if converted.get("accepted_asset_types") is None:
+            converted["accepted_asset_types"] = []
+        if converted.get("geometry") is None:
+            converted["geometry"] = {}
         return converted
 
     @staticmethod

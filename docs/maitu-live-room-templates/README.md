@@ -61,6 +61,22 @@ curl --get 'http://127.0.0.1:8000/api/maitu/live-room-blueprints' \
 
 后端 `GET /api/maitu/live-room-blueprints/scene-components/by-script` 支持用一段场景剧本文案反查匹配场景，并返回该场景的所有组件/图层，而不是只返回直播间。
 
+当前实现会优先走正式物化索引：
+
+```text
+LiveRoomBlueprint -> TemplateScene -> TemplateComponent
+```
+
+因此返回体中的 `component_index_source` 应为 `template_component_index`。索引可直接查询：
+
+```bash
+curl --get 'http://127.0.0.1:8000/api/maitu/live-room-template-scenes' \
+  --data-urlencode 'reference_room_id=38336' \
+  --data-urlencode 'q=贺兰山东麓'
+
+curl 'http://127.0.0.1:8000/api/maitu/live-room-template-scenes/MT-TPL-SCENE-38336-001/components'
+```
+
 示例：
 
 ```bash
