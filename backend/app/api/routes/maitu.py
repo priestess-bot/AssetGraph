@@ -14,6 +14,9 @@ from app.schemas.maitu import (
     MaituCandidateAssetsResponse,
     MaituLiveRoomBlueprintImportCreate,
     MaituLiveRoomBlueprintRead,
+    MaituLiveRoomBuildPlanCreate,
+    MaituLiveRoomBuildPlanOperationPlanResponse,
+    MaituLiveRoomBuildPlanRead,
     MaituMaterialSlotCreate,
     MaituMaterialSlotRead,
     MaituMaterialSlotUpdate,
@@ -207,6 +210,42 @@ def get_live_room_blueprint(
     row = repository.get_live_room_blueprint_by_code(blueprint_code)
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Maitu live-room blueprint not found")
+    return row
+
+
+@router.post("/live-room-build-plans", response_model=MaituLiveRoomBuildPlanRead, status_code=status.HTTP_201_CREATED)
+def create_live_room_build_plan(
+    payload: MaituLiveRoomBuildPlanCreate,
+    repository: Annotated[MaituMaterialSlotRepository, Depends(get_maitu_slot_repository)],
+) -> dict:
+    row = repository.create_live_room_build_plan(payload.model_dump(exclude_none=True))
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Maitu live-room blueprint not found")
+    return row
+
+
+@router.get("/live-room-build-plans/{build_plan_code}", response_model=MaituLiveRoomBuildPlanRead)
+def get_live_room_build_plan(
+    build_plan_code: str,
+    repository: Annotated[MaituMaterialSlotRepository, Depends(get_maitu_slot_repository)],
+) -> dict:
+    row = repository.get_live_room_build_plan_by_code(build_plan_code)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Maitu live-room build plan not found")
+    return row
+
+
+@router.get(
+    "/live-room-build-plans/{build_plan_code}/browser-use-operations",
+    response_model=MaituLiveRoomBuildPlanOperationPlanResponse,
+)
+def get_live_room_build_plan_browser_use_operations(
+    build_plan_code: str,
+    repository: Annotated[MaituMaterialSlotRepository, Depends(get_maitu_slot_repository)],
+) -> dict:
+    row = repository.get_live_room_build_plan_operations(build_plan_code)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Maitu live-room build plan not found")
     return row
 
 

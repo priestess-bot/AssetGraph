@@ -381,7 +381,7 @@ LayerBlueprint -> required_category + accepted_asset_types + layer_role + scene 
 
 ### 阶段 D：BuildPlan 与 dry-run
 
-新增：
+已新增：
 
 ```http
 POST /api/maitu/live-room-build-plans
@@ -389,11 +389,34 @@ GET  /api/maitu/live-room-build-plans/{build_plan_code}
 GET  /api/maitu/live-room-build-plans/{build_plan_code}/browser-use-operations
 ```
 
-要求先支持：
+当前支持：
 
 ```text
-blueprint -> operations JSON -> dry-run -> preflight
+blueprint -> operations JSON -> dry-run/browser-use operation plan
 ```
+
+生成规则：
+
+- 先生成 `preflight_build_plan`，要求只读确认页面/登录态/直播间/场景仍匹配。
+- 对蓝图内每个场景生成 `select_scene`。
+- 对已观测图层生成 `replace_layer_asset` 规划操作，保留 `layer_role`、`required_category`、`accepted_asset_types`、`replacement_policy=keep_layout`。
+- 对脚本块生成 `add_script_block`。
+- 最后生成 `save_live_room`，但状态为 `manual_review`；默认不点击正式开播。
+
+真实 smoke test 已用后端对象 `MT-BP-20260709-39826` 生成：
+
+```text
+POST build status 201
+build_plan_code MT-BUILD-20260709-000001
+blueprint_code MT-BP-20260709-39826
+operation_count 17
+first_operation preflight_build_plan
+last_operation save_live_room manual_review
+GET build status 200
+GET operations status 200
+```
+
+下一步是把 Browser-use worker 接到 `GET /live-room-build-plans/{build_plan_code}/browser-use-operations`，先做只读 preflight，不执行 mutating operation。
 
 ### 阶段 E：真实执行器逐步放开
 

@@ -193,3 +193,30 @@ room_name 京东空白直播间-0707-1352
 ```
 
 这一步把 artifact 层升级为后端持久化对象。下一步可以从 `MT-BP-20260709-39826` 生成 BuildPlan dry-run，而不是继续依赖临时 JSON 文件。
+
+## 已生成 BuildPlan dry-run
+
+已新增并真实调用：
+
+```http
+POST /api/maitu/live-room-build-plans
+GET  /api/maitu/live-room-build-plans/MT-BUILD-20260709-000001
+GET  /api/maitu/live-room-build-plans/MT-BUILD-20260709-000001/browser-use-operations
+```
+
+真实 smoke test 返回：
+
+```text
+POST build status 201
+build_plan_code MT-BUILD-20260709-000001
+blueprint_code MT-BP-20260709-39826
+operation_count 17
+first_operation preflight_build_plan
+last_operation save_live_room manual_review
+GET build status 200
+get_operation_count 17
+GET operations status 200
+operations_count 17
+```
+
+当前 operation 由蓝图直接展开：1 个只读预检、7 个场景选择、7 个场景01图层规划、1 个脚本块写入、1 个保存草稿人工复核步骤。仍未执行真实 UI 变更。

@@ -10,6 +10,7 @@ from psycopg.types.json import Jsonb
 
 from app.services.code_generator import (
     BusinessObjectType,
+    format_maitu_build_plan_code,
     format_maitu_execution_code,
     format_maitu_plan_code,
     format_maitu_retry_task_code,
@@ -200,6 +201,94 @@ class MaituMaterialSlotRepository:
             )
             row = cursor.fetchone()
         return self._normalize_live_room_blueprint(row) if row else None
+
+    def create_live_room_build_plan(self, payload: dict[str, Any]) -> dict[str, Any] | None:
+        blueprint = self.get_live_room_blueprint_by_code(payload["blueprint_code"])
+        if blueprint is None:
+            return None
+        build_plan_code = self._next_build_plan_code()
+        plan_name = payload.get("plan_name") or f"{blueprint['title']} BuildPlan"
+        operations = self._build_live_room_operations_from_blueprint(blueprint)
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                INSERT INTO maitu_live_room_build_plans (
+                    build_plan_code, blueprint_code, plan_name, target_app, executor,
+                    status, strategy, description
+                )
+                VALUES (%s, %s, %s, 'maitu', 'browser_use', 'draft', %s, %s)
+                RETURNING *
+                """,
+                (
+                    build_plan_code,
+                    blueprint["blueprint_code"],
+                    plan_name,
+                    payload.get("strategy", "reference_rebuild_dry_run"),
+                    payload.get("description"),
+                ),
+            )
+            plan = cursor.fetchone()
+            for operation in operations:
+                cursor.execute(
+                    """
+                    INSERT INTO maitu_live_room_build_plan_operations (
+                        build_plan_id, build_plan_code, operation_type, operation_name,
+                        sort_order, status, scene_name, layer_name, layer_role,
+                        required_category, accepted_asset_types, replacement_policy,
+                        script_block_code, script_block_content, instruction, details
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        plan["id"],
+                        build_plan_code,
+                        operation["operation_type"],
+                        operation["operation_name"],
+                        operation["sort_order"],
+                        operation["status"],
+                        operation.get("scene_name"),
+                        operation.get("layer_name"),
+                        operation.get("layer_role"),
+                        operation.get("required_category"),
+                        Jsonb(operation.get("accepted_asset_types") or []),
+                        operation.get("replacement_policy"),
+                        operation.get("script_block_code"),
+                        operation.get("script_block_content"),
+                        operation["instruction"],
+                        Jsonb(operation.get("details") or {}),
+                    ),
+                )
+        self.connection.commit()
+        return self.get_live_room_build_plan_by_code(build_plan_code) or self._normalize_live_room_build_plan(plan)
+
+    def get_live_room_build_plan_by_code(self, build_plan_code: str) -> dict[str, Any] | None:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT *
+                FROM maitu_live_room_build_plans
+                WHERE build_plan_code = %s AND deleted_at IS NULL
+                """,
+                (build_plan_code,),
+            )
+            row = cursor.fetchone()
+        if row is None:
+            return None
+        plan = self._normalize_live_room_build_plan(row)
+        plan["operations"] = self._fetch_live_room_build_plan_operations(build_plan_code)
+        return plan
+
+    def get_live_room_build_plan_operations(self, build_plan_code: str) -> dict[str, Any] | None:
+        plan = self.get_live_room_build_plan_by_code(build_plan_code)
+        if plan is None:
+            return None
+        return {
+            "build_plan_code": plan["build_plan_code"],
+            "blueprint_code": plan["blueprint_code"],
+            "executor": plan["executor"],
+            "target_app": plan["target_app"],
+            "operations": plan.get("operations", []),
+        }
 
     def create(self, payload: dict[str, Any]) -> dict[str, Any]:
         data = self._filter_writable(payload)
@@ -1068,6 +1157,23 @@ class MaituMaterialSlotRepository:
             sequence = cursor.fetchone()[0]
         return format_maitu_plan_code(sequence_date, sequence)
 
+    def _next_build_plan_code(self) -> str:
+        sequence_date = datetime.now(UTC).date()
+        object_type = BusinessObjectType.MAITU_BUILD_PLAN.value
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO business_sequences (sequence_date, object_type, current_value)
+                VALUES (%s, %s, 1)
+                ON CONFLICT (sequence_date, object_type)
+                DO UPDATE SET current_value = business_sequences.current_value + 1, updated_at = now()
+                RETURNING current_value
+                """,
+                (sequence_date, object_type),
+            )
+            sequence = cursor.fetchone()[0]
+        return format_maitu_build_plan_code(sequence_date, sequence)
+
     def _next_execution_code(self) -> str:
         sequence_date = datetime.now(UTC).date()
         object_type = BusinessObjectType.MAITU_EXECUTION.value
@@ -1135,6 +1241,109 @@ class MaituMaterialSlotRepository:
             )
             rows = cursor.fetchall()
         return [self._normalize_plan_item(row) for row in rows]
+
+    def _fetch_live_room_build_plan_operations(self, build_plan_code: str) -> list[dict[str, Any]]:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT operation_type, operation_name, sort_order, status, scene_name,
+                    layer_name, layer_role, required_category, accepted_asset_types,
+                    replacement_policy, script_block_code, script_block_content,
+                    instruction, details
+                FROM maitu_live_room_build_plan_operations
+                WHERE build_plan_code = %s
+                ORDER BY sort_order ASC, created_at ASC
+                """,
+                (build_plan_code,),
+            )
+            rows = cursor.fetchall()
+        return [self._normalize_live_room_build_plan_operation(row) for row in rows]
+
+    @staticmethod
+    def _build_live_room_operations_from_blueprint(blueprint: dict[str, Any]) -> list[dict[str, Any]]:
+        operations: list[dict[str, Any]] = [
+            {
+                "operation_type": "preflight_build_plan",
+                "operation_name": "只读预检直播间蓝图",
+                "sort_order": 1,
+                "status": "ready",
+                "instruction": (
+                    f"预检蓝图 {blueprint['blueprint_code']}：确认当前麦兔页面、登录态、"
+                    "直播间和场景仍匹配；默认不点击正式开播。"
+                ),
+                "details": {"safety_gate": True},
+            }
+        ]
+        sort_order = 10
+        for scene in blueprint.get("scenes", []):
+            scene_name = scene.get("scene_name")
+            operations.append(
+                {
+                    "operation_type": "select_scene",
+                    "operation_name": f"选择场景 {scene_name}",
+                    "sort_order": sort_order,
+                    "status": "ready",
+                    "scene_name": scene_name,
+                    "instruction": (
+                        f"在麦兔直播间 {blueprint.get('reference_room_id') or '当前直播间'} 中选择场景 {scene_name}，"
+                        "只做定位不保存。"
+                    ),
+                    "details": {"scene_code": scene.get("scene_code"), "scene_type": scene.get("scene_type")},
+                }
+            )
+            sort_order += 10
+            for layer in scene.get("layers", []):
+                layer_name = layer.get("layer_name")
+                replacement_policy = layer.get("replacement_policy") or "keep_layout"
+                operations.append(
+                    {
+                        "operation_type": "replace_layer_asset",
+                        "operation_name": f"规划图层 {layer_name}",
+                        "sort_order": sort_order,
+                        "status": "planned",
+                        "scene_name": scene_name,
+                        "layer_name": layer_name,
+                        "layer_role": layer.get("layer_role"),
+                        "required_category": layer.get("required_category"),
+                        "accepted_asset_types": layer.get("accepted_asset_types") or [],
+                        "replacement_policy": replacement_policy,
+                        "instruction": (
+                            f"在场景 {scene_name} 定位图层 {layer_name}，后续按 {replacement_policy} "
+                            "策略匹配素材并保持原布局。"
+                        ),
+                        "details": {"layer_code": layer.get("layer_code"), "material_tab": layer.get("material_tab")},
+                    }
+                )
+                sort_order += 10
+        for block in blueprint.get("script_blocks", []):
+            operations.append(
+                {
+                    "operation_type": "add_script_block",
+                    "operation_name": f"写入脚本块 {block.get('script_block_code')}",
+                    "sort_order": sort_order,
+                    "status": "planned",
+                    "scene_name": block.get("scene_name"),
+                    "script_block_code": block.get("script_block_code"),
+                    "script_block_content": block.get("content"),
+                    "instruction": (
+                        f"在场景 {block.get('scene_name')} 的直播脚本区域写入脚本块 "
+                        f"{block.get('script_block_code')}，写入后需要重新 Observe 验证。"
+                    ),
+                    "details": {"source": block.get("source")},
+                }
+            )
+            sort_order += 10
+        operations.append(
+            {
+                "operation_type": "save_live_room",
+                "operation_name": "保存直播间草稿",
+                "sort_order": 999,
+                "status": "manual_review",
+                "instruction": "仅在所有前置操作验证通过后保存直播间草稿；默认不点击正式开播。",
+                "details": {"requires_human_or_preflight_pass": True},
+            }
+        )
+        return operations
 
     def _fetch_asset_operation_metadata(self, asset_code: str) -> dict[str, Any] | None:
         with self.connection.cursor(row_factory=dict_row) as cursor:
@@ -1259,6 +1468,23 @@ class MaituMaterialSlotRepository:
                 converted[key] = []
         if converted.get("reference_profile") is None:
             converted["reference_profile"] = {}
+        return converted
+
+    @staticmethod
+    def _normalize_live_room_build_plan(row: dict[str, Any]) -> dict[str, Any]:
+        converted = dict(row)
+        if "id" in converted and converted["id"] is not None:
+            converted["id"] = str(converted["id"])
+        converted.setdefault("operations", [])
+        return converted
+
+    @staticmethod
+    def _normalize_live_room_build_plan_operation(row: dict[str, Any]) -> dict[str, Any]:
+        converted = dict(row)
+        if converted.get("accepted_asset_types") is None:
+            converted["accepted_asset_types"] = []
+        if converted.get("details") is None:
+            converted["details"] = {}
         return converted
 
     @staticmethod

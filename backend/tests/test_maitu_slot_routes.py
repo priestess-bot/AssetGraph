@@ -16,6 +16,7 @@ class FakeMaituMaterialSlotRepository:
         self.executions: dict[str, dict[str, Any]] = {}
         self.retry_tasks: dict[str, dict[str, Any]] = {}
         self.blueprints: dict[str, dict[str, Any]] = {}
+        self.build_plans: dict[str, dict[str, Any]] = {}
         self.assets: list[dict[str, Any]] = [
             {
                 "asset_code": "AG-IMG-20260707-000001",
@@ -97,6 +98,104 @@ class FakeMaituMaterialSlotRepository:
 
     def get_live_room_blueprint_by_code(self, blueprint_code: str) -> dict[str, Any] | None:
         return self.blueprints.get(blueprint_code)
+
+    def create_live_room_build_plan(self, payload: dict[str, Any]) -> dict[str, Any] | None:
+        blueprint = self.blueprints.get(payload["blueprint_code"])
+        if blueprint is None:
+            return None
+        code = f"MT-BUILD-20260709-{len(self.build_plans) + 1:06d}"
+        operations: list[dict[str, Any]] = [
+            {
+                "operation_type": "preflight_build_plan",
+                "operation_name": "只读预检直播间蓝图",
+                "sort_order": 1,
+                "status": "ready",
+                "instruction": f"预检蓝图 {blueprint['blueprint_code']}：确认当前麦兔页面、登录态、直播间和场景仍匹配，不点击正式开播。",
+            }
+        ]
+        sort_order = 10
+        for scene in blueprint.get("scenes", []):
+            operations.append(
+                {
+                    "operation_type": "select_scene",
+                    "operation_name": f"选择场景 {scene.get('scene_name')}",
+                    "sort_order": sort_order,
+                    "status": "ready",
+                    "scene_name": scene.get("scene_name"),
+                    "instruction": f"在麦兔直播间 {blueprint.get('reference_room_id')} 中选择场景 {scene.get('scene_name')}，只做定位不保存。",
+                }
+            )
+            sort_order += 10
+            for layer in scene.get("layers", []):
+                operations.append(
+                    {
+                        "operation_type": "replace_layer_asset",
+                        "operation_name": f"规划图层 {layer.get('layer_name')}",
+                        "sort_order": sort_order,
+                        "status": "planned",
+                        "scene_name": scene.get("scene_name"),
+                        "layer_name": layer.get("layer_name"),
+                        "layer_role": layer.get("layer_role"),
+                        "required_category": layer.get("required_category"),
+                        "accepted_asset_types": layer.get("accepted_asset_types", []),
+                        "replacement_policy": layer.get("replacement_policy", "keep_layout"),
+                        "instruction": f"在场景 {scene.get('scene_name')} 定位图层 {layer.get('layer_name')}，后续按 {layer.get('replacement_policy', 'keep_layout')} 策略匹配素材并保持原布局。",
+                    }
+                )
+                sort_order += 10
+        for block in blueprint.get("script_blocks", []):
+            operations.append(
+                {
+                    "operation_type": "add_script_block",
+                    "operation_name": f"写入脚本块 {block.get('script_block_code')}",
+                    "sort_order": sort_order,
+                    "status": "planned",
+                    "scene_name": block.get("scene_name"),
+                    "script_block_code": block.get("script_block_code"),
+                    "script_block_content": block.get("content"),
+                    "instruction": f"在场景 {block.get('scene_name')} 的直播脚本区域写入脚本块 {block.get('script_block_code')}，写入后需要重新 Observe 验证。",
+                }
+            )
+            sort_order += 10
+        operations.append(
+            {
+                "operation_type": "save_live_room",
+                "operation_name": "保存直播间草稿",
+                "sort_order": 999,
+                "status": "manual_review",
+                "instruction": "仅在所有前置操作验证通过后保存直播间草稿；默认不点击正式开播。",
+            }
+        )
+        plan = {
+            "id": f"87000000-0000-0000-0000-{len(self.build_plans) + 1:012d}",
+            "build_plan_code": code,
+            "blueprint_code": blueprint["blueprint_code"],
+            "plan_name": payload.get("plan_name") or f"{blueprint['title']} BuildPlan",
+            "target_app": "maitu",
+            "executor": "browser_use",
+            "status": "draft",
+            "strategy": payload.get("strategy", "reference_rebuild_dry_run"),
+            "operations": operations,
+            "created_at": None,
+            "updated_at": None,
+        }
+        self.build_plans[code] = plan
+        return plan
+
+    def get_live_room_build_plan_by_code(self, build_plan_code: str) -> dict[str, Any] | None:
+        return self.build_plans.get(build_plan_code)
+
+    def get_live_room_build_plan_operations(self, build_plan_code: str) -> dict[str, Any] | None:
+        plan = self.build_plans.get(build_plan_code)
+        if plan is None:
+            return None
+        return {
+            "build_plan_code": plan["build_plan_code"],
+            "blueprint_code": plan["blueprint_code"],
+            "executor": plan["executor"],
+            "target_app": plan["target_app"],
+            "operations": plan["operations"],
+        }
 
     def create(self, payload: dict[str, Any]) -> dict[str, Any]:
         code = f"MT-SLOT-20260707-{len(self.rows) + 1:06d}"
@@ -1546,6 +1645,113 @@ def test_import_reference_live_room_blueprint_and_get_it(client: TestClient) -> 
 
 def test_get_missing_live_room_blueprint_returns_404(client: TestClient) -> None:
     response = client.get("/api/maitu/live-room-blueprints/MT-BP-20260709-999999")
+
+    assert response.status_code == 404
+
+
+def test_create_live_room_build_plan_from_blueprint_and_get_browser_use_operations(client: TestClient) -> None:
+    import_response = client.post(
+        "/api/maitu/live-room-blueprints/import-reference",
+        json={
+            "reference_profile": {
+                "profile_code": "MT-REF-20260709-39826",
+                "source": "browser_use_observe",
+                "reference_room_id": "39826",
+                "reference_room_name": "京东空白直播间-0707-1352",
+                "platform": "京东",
+                "active_scene_name": "场景01",
+            },
+            "blueprint": {
+                "blueprint_code": "MT-BP-20260709-39826",
+                "reference_profile_code": "MT-REF-20260709-39826",
+                "title": "京东空白直播间-0707-1352 重建蓝图",
+                "platform": "京东",
+                "room_type": "reference_rebuild",
+                "reference_room_id": "39826",
+                "reference_room_name": "京东空白直播间-0707-1352",
+                "status": "draft",
+                "scenes": [
+                    {
+                        "scene_code": "MT-SCENE-20260709-000001",
+                        "scene_name": "场景01",
+                        "scene_type": "讲品",
+                        "sort_order": 1,
+                        "reference_active": True,
+                        "layers": [
+                            {
+                                "layer_code": "MT-LAYER-20260709-000001",
+                                "layer_name": "微信图片_20260618221607_11_15",
+                                "layer_role": "background",
+                                "required_category": "background_image",
+                                "accepted_asset_types": ["IMG"],
+                                "replacement_policy": "keep_layout",
+                            }
+                        ],
+                    }
+                ],
+                "script_blocks": [
+                    {
+                        "script_block_code": "MT-SCRIPT-BLOCK-20260709-000001",
+                        "scene_name": "场景01",
+                        "sort_order": 1,
+                        "content": "大家好，今天给大家介绍张裕解百纳品酒大师系列。",
+                    }
+                ],
+                "safety_rules": ["默认不点击正式开播", "真实执行前必须通过 Browser-use preflight"],
+            },
+        },
+    )
+    assert import_response.status_code == 201
+
+    create_response = client.post(
+        "/api/maitu/live-room-build-plans",
+        json={
+            "blueprint_code": "MT-BP-20260709-39826",
+            "plan_name": "39826 参考直播间 BuildPlan dry-run",
+            "strategy": "reference_rebuild_dry_run",
+        },
+    )
+
+    assert create_response.status_code == 201
+    plan = create_response.json()
+    assert plan["build_plan_code"] == "MT-BUILD-20260709-000001"
+    assert plan["blueprint_code"] == "MT-BP-20260709-39826"
+    assert plan["executor"] == "browser_use"
+    assert plan["target_app"] == "maitu"
+    assert plan["status"] == "draft"
+    operation_types = [operation["operation_type"] for operation in plan["operations"]]
+    assert operation_types == [
+        "preflight_build_plan",
+        "select_scene",
+        "replace_layer_asset",
+        "add_script_block",
+        "save_live_room",
+    ]
+    assert plan["operations"][2]["layer_name"] == "微信图片_20260618221607_11_15"
+    assert plan["operations"][2]["required_category"] == "background_image"
+    assert plan["operations"][2]["replacement_policy"] == "keep_layout"
+    assert plan["operations"][-1]["status"] == "manual_review"
+    assert all("开播" not in operation["instruction"].replace("不点击正式开播", "") for operation in plan["operations"])
+
+    get_response = client.get("/api/maitu/live-room-build-plans/MT-BUILD-20260709-000001")
+    assert get_response.status_code == 200
+    assert get_response.json()["operations"][3]["script_block_code"] == "MT-SCRIPT-BLOCK-20260709-000001"
+
+    operations_response = client.get(
+        "/api/maitu/live-room-build-plans/MT-BUILD-20260709-000001/browser-use-operations"
+    )
+    assert operations_response.status_code == 200
+    operations = operations_response.json()
+    assert operations["build_plan_code"] == "MT-BUILD-20260709-000001"
+    assert operations["operations"][0]["operation_type"] == "preflight_build_plan"
+    assert operations["operations"][-1]["operation_type"] == "save_live_room"
+
+
+def test_create_live_room_build_plan_for_missing_blueprint_returns_404(client: TestClient) -> None:
+    response = client.post(
+        "/api/maitu/live-room-build-plans",
+        json={"blueprint_code": "MT-BP-20260709-999999", "plan_name": "missing"},
+    )
 
     assert response.status_code == 404
 

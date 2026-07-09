@@ -32,6 +32,53 @@ class MaituLiveRoomBlueprintRead(BaseModel):
     updated_at: datetime | None = None
 
 
+class MaituLiveRoomBuildPlanCreate(BaseModel):
+    blueprint_code: str = Field(..., min_length=1, max_length=64)
+    plan_name: str | None = Field(default=None, max_length=255)
+    strategy: str = Field(default="reference_rebuild_dry_run", max_length=64)
+    description: str | None = None
+
+
+class MaituLiveRoomBuildPlanOperationRead(BaseModel):
+    operation_type: str
+    operation_name: str
+    sort_order: int
+    status: str
+    scene_name: str | None = None
+    layer_name: str | None = None
+    layer_role: str | None = None
+    required_category: str | None = None
+    accepted_asset_types: list[str] = Field(default_factory=list)
+    replacement_policy: str | None = None
+    script_block_code: str | None = None
+    script_block_content: str | None = None
+    instruction: str
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
+class MaituLiveRoomBuildPlanRead(BaseModel):
+    id: str
+    build_plan_code: str
+    blueprint_code: str
+    plan_name: str
+    target_app: str = "maitu"
+    executor: str = "browser_use"
+    status: str
+    strategy: str
+    description: str | None = None
+    operations: list[MaituLiveRoomBuildPlanOperationRead] = Field(default_factory=list)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class MaituLiveRoomBuildPlanOperationPlanResponse(BaseModel):
+    build_plan_code: str
+    blueprint_code: str
+    executor: str = "browser_use"
+    target_app: str = "maitu"
+    operations: list[MaituLiveRoomBuildPlanOperationRead] = Field(default_factory=list)
+
+
 class MaituMaterialSlotCreate(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
 

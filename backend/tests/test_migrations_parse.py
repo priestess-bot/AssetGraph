@@ -33,3 +33,14 @@ def test_maitu_live_room_blueprint_migration_exists_and_stores_profile_and_bluep
     assert "reference_profile_code" in sql
     assert "scenes JSONB" in sql
     assert "script_blocks JSONB" in sql
+
+
+def test_maitu_live_room_build_plan_migration_exists_and_stores_operations() -> None:
+    migration = MIGRATIONS_DIR / "009_maitu_live_room_build_plans.sql"
+
+    assert migration.exists()
+    sql = migration.read_text(encoding="utf-8")
+    assert "maitu_live_room_build_plans" in sql
+    assert "maitu_live_room_build_plan_operations" in sql
+    assert "build_plan_code" in sql
+    assert "operation_type" in sql
