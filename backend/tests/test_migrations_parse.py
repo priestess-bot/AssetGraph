@@ -44,3 +44,15 @@ def test_maitu_live_room_build_plan_migration_exists_and_stores_operations() -> 
     assert "maitu_live_room_build_plan_operations" in sql
     assert "build_plan_code" in sql
     assert "operation_type" in sql
+
+
+def test_maitu_layout_adjustment_migration_exists_and_stores_geometry() -> None:
+    migration = MIGRATIONS_DIR / "010_maitu_layout_adjustments.sql"
+
+    assert migration.exists()
+    sql = migration.read_text(encoding="utf-8")
+    assert "maitu_layout_adjustments" in sql
+    assert "adjustment_code" in sql
+    assert "before_geometry JSONB" in sql
+    assert "target_geometry JSONB" in sql
+    assert "operation JSONB" in sql

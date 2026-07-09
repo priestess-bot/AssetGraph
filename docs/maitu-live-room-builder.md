@@ -418,6 +418,56 @@ GET operations status 200
 
 下一步是把 Browser-use worker 接到 `GET /live-room-build-plans/{build_plan_code}/browser-use-operations`，先做只读 preflight，不执行 mutating operation。
 
+### 阶段 D+：自然语言版式微调闭环
+
+已新增第一版后端 planner/API：
+
+```http
+POST /api/maitu/layout-adjustments
+GET  /api/maitu/layout-adjustments/{adjustment_code}
+```
+
+核心对象：
+
+```text
+MT-ADJ-{YYYYMMDD}-{SEQ}
+```
+
+输入示例：
+
+```json
+{
+  "build_plan_code": "MT-BUILD-20260709-000001",
+  "scene_name": "场景01",
+  "layer_name": "商品图",
+  "user_instruction": "商品图往右下挪一点，缩小一点，别挡主播",
+  "before_geometry": {"x": 100, "y": 200, "width": 400, "height": 300},
+  "canvas_width": 1080,
+  "canvas_height": 1920
+}
+```
+
+输出会把自然语言转为可验证的几何目标和 Browser-use operation：
+
+```text
+adjustment_code MT-ADJ-20260709-000001
+status planned
+target_geometry x=130 y=230 width=380 height=285
+operation_type set_layer_transform
+checks within_canvas passed
+```
+
+已支持的自然语言模式：
+
+- 方向微调：`往左/往右/往上/往下/往右下挪一点`
+- 显式像素：`往左50px`、`往上30px`
+- 缩放：`缩小一点`、`放大一点`、`缩小10%`
+- 对齐：`水平居中`
+- 锚点：`放到右下角，留点边距`
+- 模糊反馈：`调好看点` -> `manual_required`，不盲动
+
+这只是“文本 -> 几何目标 -> operation”的第一步。真正精准还需要下一步由 Browser-use 执行 `set_layer_transform` 后重新 Observe，比较 `target_geometry` 与 `actual_geometry`，误差超过阈值则继续补偿或回滚。
+
 ### 阶段 E：真实执行器逐步放开
 
 执行放开顺序：

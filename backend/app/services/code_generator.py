@@ -19,6 +19,7 @@ class BusinessObjectType(StrEnum):
     MAITU_SLOT = "MT-SLOT"
     MAITU_PLAN = "MT-PLAN"
     MAITU_BUILD_PLAN = "MT-BUILD"
+    MAITU_LAYOUT_ADJUSTMENT = "MT-ADJ"
     MAITU_EXECUTION = "MT-EXEC"
     MAITU_RETRY_TASK = "MT-RETRY"
 
@@ -27,6 +28,7 @@ LIVE_CODE_PREFIX = "AG-LIVE"
 MAITU_SLOT_CODE_PREFIX = "MT-SLOT"
 MAITU_PLAN_CODE_PREFIX = "MT-PLAN"
 MAITU_BUILD_PLAN_CODE_PREFIX = "MT-BUILD"
+MAITU_LAYOUT_ADJUSTMENT_CODE_PREFIX = "MT-ADJ"
 MAITU_EXECUTION_CODE_PREFIX = "MT-EXEC"
 MAITU_RETRY_TASK_CODE_PREFIX = "MT-RETRY"
 
@@ -73,6 +75,11 @@ def format_maitu_build_plan_code(sequence_date: date, sequence: int) -> str:
     return f"{MAITU_BUILD_PLAN_CODE_PREFIX}-{sequence_date:%Y%m%d}-{sequence:06d}"
 
 
+def format_maitu_layout_adjustment_code(sequence_date: date, sequence: int) -> str:
+    _validate_sequence(sequence)
+    return f"{MAITU_LAYOUT_ADJUSTMENT_CODE_PREFIX}-{sequence_date:%Y%m%d}-{sequence:06d}"
+
+
 def format_maitu_execution_code(sequence_date: date, sequence: int) -> str:
     _validate_sequence(sequence)
     return f"{MAITU_EXECUTION_CODE_PREFIX}-{sequence_date:%Y%m%d}-{sequence:06d}"
@@ -109,6 +116,9 @@ class CodeGenerator:
 
     def next_maitu_build_plan_code(self, sequence_date: date, sequence: int) -> str:
         return format_maitu_build_plan_code(sequence_date, sequence)
+
+    def next_maitu_layout_adjustment_code(self, sequence_date: date, sequence: int) -> str:
+        return format_maitu_layout_adjustment_code(sequence_date, sequence)
 
     def next_maitu_execution_code(self, sequence_date: date, sequence: int) -> str:
         return format_maitu_execution_code(sequence_date, sequence)

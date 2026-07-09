@@ -8,6 +8,7 @@ from app.services.code_generator import (
     format_maitu_execution_code,
     format_maitu_plan_code,
     format_maitu_build_plan_code,
+    format_maitu_layout_adjustment_code,
     format_maitu_retry_task_code,
     format_maitu_slot_code,
     format_segment_code,
@@ -56,6 +57,10 @@ def test_format_maitu_plan_code() -> None:
 
 def test_format_maitu_build_plan_code() -> None:
     assert format_maitu_build_plan_code(date(2026, 7, 7), 8) == "MT-BUILD-20260707-000008"
+
+
+def test_format_maitu_layout_adjustment_code() -> None:
+    assert format_maitu_layout_adjustment_code(date(2026, 7, 7), 9) == "MT-ADJ-20260707-000009"
 
 
 def test_format_maitu_execution_code() -> None:

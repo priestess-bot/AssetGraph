@@ -11,6 +11,7 @@ from psycopg.types.json import Jsonb
 from app.services.code_generator import (
     BusinessObjectType,
     format_maitu_build_plan_code,
+    format_maitu_layout_adjustment_code,
     format_maitu_execution_code,
     format_maitu_plan_code,
     format_maitu_retry_task_code,
@@ -289,6 +290,59 @@ class MaituMaterialSlotRepository:
             "target_app": plan["target_app"],
             "operations": plan.get("operations", []),
         }
+
+    def create_layout_adjustment(self, payload: dict[str, Any]) -> dict[str, Any]:
+        from app.services.layout_adjustment import LayerGeometry, plan_layout_adjustment
+
+        adjustment_code = self._next_layout_adjustment_code()
+        before_geometry = dict(payload["before_geometry"])
+        plan = plan_layout_adjustment(
+            user_instruction=payload["user_instruction"],
+            before_geometry=LayerGeometry(**before_geometry),
+            canvas_width=payload["canvas_width"],
+            canvas_height=payload["canvas_height"],
+            safe_margin=payload.get("safe_margin", 20),
+        )
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                INSERT INTO maitu_layout_adjustments (
+                    adjustment_code, build_plan_code, scene_name, layer_name,
+                    user_instruction, status, before_geometry, target_geometry,
+                    operation, checks
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING *
+                """,
+                (
+                    adjustment_code,
+                    payload.get("build_plan_code"),
+                    payload.get("scene_name"),
+                    payload.get("layer_name"),
+                    payload["user_instruction"],
+                    plan.status,
+                    Jsonb(before_geometry),
+                    Jsonb(plan.operation["target_geometry"]),
+                    Jsonb(plan.operation),
+                    Jsonb(plan.checks),
+                ),
+            )
+            row = cursor.fetchone()
+        self.connection.commit()
+        return self._normalize_layout_adjustment(row)
+
+    def get_layout_adjustment_by_code(self, adjustment_code: str) -> dict[str, Any] | None:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT *
+                FROM maitu_layout_adjustments
+                WHERE adjustment_code = %s AND deleted_at IS NULL
+                """,
+                (adjustment_code,),
+            )
+            row = cursor.fetchone()
+        return self._normalize_layout_adjustment(row) if row else None
 
     def create(self, payload: dict[str, Any]) -> dict[str, Any]:
         data = self._filter_writable(payload)
@@ -1174,6 +1228,23 @@ class MaituMaterialSlotRepository:
             sequence = cursor.fetchone()[0]
         return format_maitu_build_plan_code(sequence_date, sequence)
 
+    def _next_layout_adjustment_code(self) -> str:
+        sequence_date = datetime.now(UTC).date()
+        object_type = BusinessObjectType.MAITU_LAYOUT_ADJUSTMENT.value
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO business_sequences (sequence_date, object_type, current_value)
+                VALUES (%s, %s, 1)
+                ON CONFLICT (sequence_date, object_type)
+                DO UPDATE SET current_value = business_sequences.current_value + 1, updated_at = now()
+                RETURNING current_value
+                """,
+                (sequence_date, object_type),
+            )
+            sequence = cursor.fetchone()[0]
+        return format_maitu_layout_adjustment_code(sequence_date, sequence)
+
     def _next_execution_code(self) -> str:
         sequence_date = datetime.now(UTC).date()
         object_type = BusinessObjectType.MAITU_EXECUTION.value
@@ -1485,6 +1556,17 @@ class MaituMaterialSlotRepository:
             converted["accepted_asset_types"] = []
         if converted.get("details") is None:
             converted["details"] = {}
+        return converted
+
+    @staticmethod
+    def _normalize_layout_adjustment(row: dict[str, Any]) -> dict[str, Any]:
+        converted = dict(row)
+        if "id" in converted and converted["id"] is not None:
+            converted["id"] = str(converted["id"])
+        if converted.get("checks") is None:
+            converted["checks"] = []
+        if converted.get("operation") is None:
+            converted["operation"] = {}
         return converted
 
     @staticmethod

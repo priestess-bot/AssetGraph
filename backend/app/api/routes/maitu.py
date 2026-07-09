@@ -17,6 +17,8 @@ from app.schemas.maitu import (
     MaituLiveRoomBuildPlanCreate,
     MaituLiveRoomBuildPlanOperationPlanResponse,
     MaituLiveRoomBuildPlanRead,
+    MaituLayoutAdjustmentCreate,
+    MaituLayoutAdjustmentRead,
     MaituMaterialSlotCreate,
     MaituMaterialSlotRead,
     MaituMaterialSlotUpdate,
@@ -246,6 +248,25 @@ def get_live_room_build_plan_browser_use_operations(
     row = repository.get_live_room_build_plan_operations(build_plan_code)
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Maitu live-room build plan not found")
+    return row
+
+
+@router.post("/layout-adjustments", response_model=MaituLayoutAdjustmentRead, status_code=status.HTTP_201_CREATED)
+def create_layout_adjustment(
+    payload: MaituLayoutAdjustmentCreate,
+    repository: Annotated[MaituMaterialSlotRepository, Depends(get_maitu_slot_repository)],
+) -> dict:
+    return repository.create_layout_adjustment(payload.model_dump(exclude_none=True))
+
+
+@router.get("/layout-adjustments/{adjustment_code}", response_model=MaituLayoutAdjustmentRead)
+def get_layout_adjustment(
+    adjustment_code: str,
+    repository: Annotated[MaituMaterialSlotRepository, Depends(get_maitu_slot_repository)],
+) -> dict:
+    row = repository.get_layout_adjustment_by_code(adjustment_code)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Maitu layout adjustment not found")
     return row
 
 

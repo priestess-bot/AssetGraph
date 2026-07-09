@@ -17,6 +17,7 @@ class FakeMaituMaterialSlotRepository:
         self.retry_tasks: dict[str, dict[str, Any]] = {}
         self.blueprints: dict[str, dict[str, Any]] = {}
         self.build_plans: dict[str, dict[str, Any]] = {}
+        self.layout_adjustments: dict[str, dict[str, Any]] = {}
         self.assets: list[dict[str, Any]] = [
             {
                 "asset_code": "AG-IMG-20260707-000001",
@@ -196,6 +197,38 @@ class FakeMaituMaterialSlotRepository:
             "target_app": plan["target_app"],
             "operations": plan["operations"],
         }
+
+    def create_layout_adjustment(self, payload: dict[str, Any]) -> dict[str, Any]:
+        from app.services.layout_adjustment import LayerGeometry, plan_layout_adjustment
+
+        code = f"MT-ADJ-20260709-{len(self.layout_adjustments) + 1:06d}"
+        plan = plan_layout_adjustment(
+            user_instruction=payload["user_instruction"],
+            before_geometry=LayerGeometry(**payload["before_geometry"]),
+            canvas_width=payload["canvas_width"],
+            canvas_height=payload["canvas_height"],
+            safe_margin=payload.get("safe_margin", 20),
+        )
+        row = {
+            "id": f"88000000-0000-0000-0000-{len(self.layout_adjustments) + 1:012d}",
+            "adjustment_code": code,
+            "build_plan_code": payload.get("build_plan_code"),
+            "scene_name": payload.get("scene_name"),
+            "layer_name": payload.get("layer_name"),
+            "user_instruction": payload["user_instruction"],
+            "status": plan.status,
+            "before_geometry": payload["before_geometry"],
+            "target_geometry": plan.operation["target_geometry"],
+            "operation": plan.operation,
+            "checks": plan.checks,
+            "created_at": None,
+            "updated_at": None,
+        }
+        self.layout_adjustments[code] = row
+        return row
+
+    def get_layout_adjustment_by_code(self, adjustment_code: str) -> dict[str, Any] | None:
+        return self.layout_adjustments.get(adjustment_code)
 
     def create(self, payload: dict[str, Any]) -> dict[str, Any]:
         code = f"MT-SLOT-20260707-{len(self.rows) + 1:06d}"
@@ -1752,6 +1785,40 @@ def test_create_live_room_build_plan_for_missing_blueprint_returns_404(client: T
         "/api/maitu/live-room-build-plans",
         json={"blueprint_code": "MT-BP-20260709-999999", "plan_name": "missing"},
     )
+
+    assert response.status_code == 404
+
+
+def test_create_and_get_natural_language_layout_adjustment(client: TestClient) -> None:
+    create_response = client.post(
+        "/api/maitu/layout-adjustments",
+        json={
+            "build_plan_code": "MT-BUILD-20260709-000001",
+            "scene_name": "场景01",
+            "layer_name": "商品图",
+            "user_instruction": "商品图往右下挪一点，缩小一点，别挡主播",
+            "before_geometry": {"x": 100, "y": 200, "width": 400, "height": 300},
+            "canvas_width": 1080,
+            "canvas_height": 1920,
+        },
+    )
+
+    assert create_response.status_code == 201
+    adjustment = create_response.json()
+    assert adjustment["adjustment_code"] == "MT-ADJ-20260709-000001"
+    assert adjustment["status"] == "planned"
+    assert adjustment["target_geometry"] == {"x": 130.0, "y": 230.0, "width": 380.0, "height": 285.0, "rotation": 0.0, "z_index": None}
+    assert adjustment["operation"]["operation_type"] == "set_layer_transform"
+    assert adjustment["operation"]["details"]["tolerance_px"] == 5
+    assert adjustment["checks"][-1]["name"] == "within_canvas"
+
+    get_response = client.get("/api/maitu/layout-adjustments/MT-ADJ-20260709-000001")
+    assert get_response.status_code == 200
+    assert get_response.json()["layer_name"] == "商品图"
+
+
+def test_get_missing_layout_adjustment_returns_404(client: TestClient) -> None:
+    response = client.get("/api/maitu/layout-adjustments/MT-ADJ-20260709-999999")
 
     assert response.status_code == 404
 

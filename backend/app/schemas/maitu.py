@@ -79,6 +79,42 @@ class MaituLiveRoomBuildPlanOperationPlanResponse(BaseModel):
     operations: list[MaituLiveRoomBuildPlanOperationRead] = Field(default_factory=list)
 
 
+class MaituLayerGeometry(BaseModel):
+    x: float = Field(..., ge=0)
+    y: float = Field(..., ge=0)
+    width: float = Field(..., gt=0)
+    height: float = Field(..., gt=0)
+    rotation: float = 0.0
+    z_index: int | None = None
+
+
+class MaituLayoutAdjustmentCreate(BaseModel):
+    build_plan_code: str | None = Field(default=None, max_length=64)
+    scene_name: str | None = Field(default=None, max_length=128)
+    layer_name: str | None = Field(default=None, max_length=128)
+    user_instruction: str = Field(..., min_length=1)
+    before_geometry: MaituLayerGeometry
+    canvas_width: float = Field(..., gt=0)
+    canvas_height: float = Field(..., gt=0)
+    safe_margin: float = Field(default=20, ge=0)
+
+
+class MaituLayoutAdjustmentRead(BaseModel):
+    id: str
+    adjustment_code: str
+    build_plan_code: str | None = None
+    scene_name: str | None = None
+    layer_name: str | None = None
+    user_instruction: str
+    status: str
+    before_geometry: dict[str, Any]
+    target_geometry: dict[str, Any]
+    operation: dict[str, Any]
+    checks: list[dict[str, Any]] = Field(default_factory=list)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
 class MaituMaterialSlotCreate(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
 

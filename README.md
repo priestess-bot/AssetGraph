@@ -36,6 +36,7 @@ AssetGraph 是一个面向麦兔软件与数字人直播业务的多模态视频
 - 麦兔从0搭建直播间：将用户选中的参考直播间抽成结构化 Profile，生成 LiveRoomBlueprint / SceneBlueprint / LayerBlueprint，再转换成 BuildPlan 和 Browser-use 操作计划；替换只是 BuildPlan 的子操作之一
 - 麦兔参考直播间/蓝图 API ingestion：提供 `/api/maitu/live-room-blueprints/import-reference`、`GET /api/maitu/live-room-blueprints`、`GET /api/maitu/live-room-blueprints/{blueprint_code}`，把 Browser-use Observe-derived Profile/Blueprint artifact 持久化为后端对象
 - 麦兔 BuildPlan dry-run：提供 `/api/maitu/live-room-build-plans`、`GET /api/maitu/live-room-build-plans/{build_plan_code}`、`GET /api/maitu/live-room-build-plans/{build_plan_code}/browser-use-operations`，把 `MT-BP-*` 蓝图转换为可审阅的 Browser-use 操作序列，默认只规划/预检，不点击正式开播
+- 麦兔自然语言版式微调：提供 `/api/maitu/layout-adjustments` 与 `MT-ADJ-*` 调整计划，把“往右下挪一点/缩小一点/居中/贴右下”等反馈转成 `set_layer_transform` 几何目标、检查项和可验证 operation，模糊反馈进入人工复核
 - 麦兔替换上下文：记录素材对应的麦兔项目、场景、图层、槽位、位置尺寸和 `replacement_policy`，默认保持原布局替换
 - 直播素材索引：通过 `live_code` 聚合一场数字人直播的录屏、切片、封面、字幕、评论导出、脚本和复盘文档等素材
 - 核心业务对象：`LiveSession`、`VideoSegment`、`DigitalHuman`、`VoiceProfile`、`Product`、`Script`、`ScriptBlock`
@@ -180,6 +181,11 @@ curl -X POST "http://127.0.0.1:8000/api/maitu/live-room-build-plans" \
   -d '{"blueprint_code":"MT-BP-20260709-39826","plan_name":"39826 参考直播间 BuildPlan dry-run","strategy":"reference_rebuild_dry_run"}'
 
 curl "http://127.0.0.1:8000/api/maitu/live-room-build-plans/MT-BUILD-20260709-000001/browser-use-operations"
+
+# 自然语言版式微调：把用户反馈转成可验证的 set_layer_transform 目标。
+curl -X POST "http://127.0.0.1:8000/api/maitu/layout-adjustments" \
+  -H "Content-Type: application/json" \
+  -d '{"build_plan_code":"MT-BUILD-20260709-000001","scene_name":"场景01","layer_name":"商品图","user_instruction":"商品图往右下挪一点，缩小一点，别挡主播","before_geometry":{"x":100,"y":200,"width":400,"height":300},"canvas_width":1080,"canvas_height":1920}'
 
 # 对指定替换方案直接做 Browser-use 操作计划 dry-run，不领取 retry queue。
 python -m browser_use_worker --plan-code MT-PLAN-20260709-000001 --dry-run

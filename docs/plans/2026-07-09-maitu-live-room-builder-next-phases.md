@@ -479,3 +479,39 @@ The next milestone is complete when:
 - It never clicks, saves, uploads, or goes live.
 - Backend and worker tests pass.
 - A real read-only smoke test against `39826` is documented.
+
+---
+
+# Added Track — Natural-language Layout Adjustment Loop
+
+用户提出的关键问题是：素材按槽位放上去后，如果用户觉得位置不对，如何用自然语言精准调整。当前已新增第一步：
+
+```http
+POST /api/maitu/layout-adjustments
+GET  /api/maitu/layout-adjustments/{adjustment_code}
+```
+
+已实现：
+
+```text
+用户自然语言 + before_geometry + canvas size
+  -> MT-ADJ-* adjustment plan
+  -> target_geometry
+  -> set_layer_transform operation
+  -> checks
+```
+
+已支持模式：
+
+- `往右下挪一点，缩小一点`
+- `往左50px，再往上30px`
+- `水平居中`
+- `放到右下角，留点边距`
+- 模糊的 `调好看点` 返回 `manual_required`，不盲动
+
+下一步要把它并入 Sprint 1/3 的 worker preflight/dry-run：
+
+1. Browser-use Observe 必须读取/估计图层几何：`x/y/width/height/z_index/rotation`。
+2. Worker 新增 `--adjustment-code MT-ADJ-* --dry-run`，只打印目标几何和 set_layer_transform。
+3. Worker 新增 `--adjustment-code MT-ADJ-* --preflight-adjustment`：检查目标图层可见、未锁定、目标几何在画布内。
+4. 后续真实执行时必须小步 set transform，然后重新 Observe，比较 `actual_geometry` 与 `target_geometry`，误差大于 5px 则补偿或回滚。
