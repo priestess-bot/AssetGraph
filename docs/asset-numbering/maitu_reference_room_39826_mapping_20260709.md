@@ -95,3 +95,45 @@
 ```
 
 在没有确认哪个图层需要被替换为视频前，不应自动把 `MT-VID-0024` 应用到任何图层。
+
+## 已创建 AssetGraph 真实槽位映射
+
+2026-07-09 已基于上述真实页面结构，在 AssetGraph 中为 `39826 / 场景01` 创建 7 个槽位：
+
+| slot_code | slot_name | layer_name | required_category | accepted_asset_types |
+|---|---|---|---|---|
+| `MT-SLOT-20260709-000002` | 场景01-前景素材槽位 | 前景 | `floating_sticker` | `IMG` |
+| `MT-SLOT-20260709-000003` | 场景01-品酒大师(PRO）数字人槽位 | 品酒大师(PRO） | `digital_human_video` | `IMG`, `VID` |
+| `MT-SLOT-20260709-000004` | 场景01-png装饰槽位 | png | `floating_sticker` | `IMG` |
+| `MT-SLOT-20260709-000005` | 场景01-gif-01动效装饰槽位 | gif-01 | `floating_sticker` | `IMG` |
+| `MT-SLOT-20260709-000006` | 场景01-标题+logo槽位 | 标题+logo | `floating_sticker` | `IMG` |
+| `MT-SLOT-20260709-000007` | 场景01-珠珠-亲和数字人槽位 | 珠珠-亲和 | `digital_human_video` | `IMG`, `VID` |
+| `MT-SLOT-20260709-000008` | 场景01-背景图槽位 | 微信图片_20260618221607_11_15 | `background_image` | `IMG` |
+
+## 真实槽位语义选材 smoke test
+
+对背景图槽位 `MT-SLOT-20260709-000008` 运行 semantic candidate：
+
+- query: `微信图片_20260618221607_11_15 直播背景`
+- Top1: `AG-IMG-20260709-000045` / `MT-BG-0004`
+- title: `背景 - 直播背景 - 微信图片_20260618221607_11_15`
+- score: `0.800581`
+
+已基于该槽位生成真实 replacement plan：
+
+- plan_code: `MT-PLAN-20260709-000002`
+- project: `39826`
+- scene: `场景01`
+- layer: `微信图片_20260618221607_11_15`
+- selected asset: `AG-IMG-20260709-000045` / `MT-BG-0004`
+- replacement policy: `keep_layout`
+
+Browser-use preflight 结果：
+
+```text
+status: passed
+ready_to_execute: true
+summary: Preflight passed: 9 passed, 0 warning(s), 0 failure(s), 0 skipped.
+```
+
+这说明新的真实 plan 已经和当前麦兔页面、场景、图层、本地素材文件对齐；但仍未执行真实替换/保存。
