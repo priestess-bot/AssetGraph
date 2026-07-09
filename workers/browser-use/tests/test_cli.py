@@ -27,9 +27,20 @@ class FakeBrowserUseCliSession:
         return FakeProbe(opened_home=True)
 
     def read_current_state(self, *, open_if_needed: bool):
-        assert open_if_needed is True
         self.called = True
         return FakeCurrentState()
+
+    def select_scene(self, scene_name: str) -> dict:
+        self.called = True
+        return {"clicked": True, "target": scene_name}
+
+    def open_material_tab(self, tab_name: str) -> dict:
+        self.called = True
+        return {"clicked": True, "target": tab_name}
+
+    def open_workbench_tab(self, tab_name: str) -> dict:
+        self.called = True
+        return {"clicked": True, "target": tab_name}
 
 
 @dataclass(slots=True)
@@ -133,8 +144,20 @@ class FakeAssetGraphClient:
                     "status": "planned",
                     "scene_name": "场景01",
                     "layer_name": "商品图",
+                    "required_category": "floating_sticker",
+                    "accepted_asset_types": ["IMG"],
                     "replacement_policy": "keep_layout",
                     "instruction": "定位商品图图层并保持原布局。",
+                },
+                {
+                    "operation_type": "add_script_block",
+                    "operation_name": "写脚本块",
+                    "sort_order": 30,
+                    "status": "planned",
+                    "scene_name": "场景01",
+                    "script_block_code": "SCRIPT-1",
+                    "script_block_content": "大家好，今天介绍品酒大师PRO。",
+                    "instruction": "写入脚本块，写入后重新 Observe。",
                 },
                 {
                     "operation_type": "save_live_room",
@@ -257,6 +280,23 @@ def test_build_plan_code_dry_run_cli_prints_safe_operation_summary(monkeypatch, 
     assert output["status"] == "dry_run"
     assert output["ready_to_execute"] is False
     assert output["build_plan_code"] == "MT-BUILD-20260709-000001"
-    assert output["operation_count"] == 4
+    assert output["operation_count"] == 5
     assert output["operations"][0]["safe_action"] == "read_only_preflight"
     assert output["operations"][-1]["safe_action"] == "manual_review_save_not_executed"
+
+
+def test_build_plan_non_destructive_cli_runs_only_allowed_low_risk_actions(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(worker_main, "AssetGraphClient", FakeAssetGraphClient, raising=False)
+    monkeypatch.setattr(worker_main, "BrowserUseCliSession", FakeBrowserUseCliSession, raising=False)
+
+    exit_code = worker_main.main(["--build-plan-code", "MT-BUILD-20260709-000001", "--non-destructive-build"])
+
+    assert exit_code == 0
+    output = json.loads(capsys.readouterr().out)
+    assert output["status"] == "completed"
+    assert output["ready_for_mutation"] is False
+    assert output["allowed_action_count"] == 3
+    assert output["blocked_mutation_count"] == 3
+    assert output["actions"][1]["action_type"] == "select_scene"
+    assert output["actions"][2]["action_type"] == "open_material_tab"
+    assert output["actions"][3]["action_type"] == "open_workbench_tab"

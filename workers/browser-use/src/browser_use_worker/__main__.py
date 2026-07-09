@@ -8,6 +8,7 @@ from dataclasses import asdict
 
 from .browser_cli_session import BrowserUseCliSession
 from .build_plan_dry_run import BuildPlanDryRun
+from .build_plan_non_destructive import BuildPlanNonDestructiveRunner
 from .build_plan_preflight import BuildPlanPreflight
 from .client import AssetGraphClient
 from .config import WorkerConfig
@@ -25,6 +26,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--build-plan-code", help="Fetch a live-room BuildPlan operation plan and run BuildPlan-specific dry-run/preflight")
     parser.add_argument("--preflight", action="store_true", help="Run read-only safety checks for --plan-code before mutating Maitu")
     parser.add_argument("--preflight-build", action="store_true", help="Run read-only safety checks for --build-plan-code before mutating Maitu")
+    parser.add_argument("--non-destructive-build", action="store_true", help="Run only low-risk BuildPlan UI navigation after a green preflight")
     parser.add_argument("--skip-browser-probe", action="store_true", help="Skip Browser-use/Maitu page probing during --preflight")
     parser.add_argument("--assets-root", default="D:/AssetGraph/素材", help="Local asset root used by --preflight file checks")
     parser.add_argument("--check-config", action="store_true", help="Print resolved configuration and exit without calling AssetGraph")
@@ -54,6 +56,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         dry_run = BuildPlanDryRun().run(operation_plan)
         print(json.dumps(asdict(dry_run), ensure_ascii=False, indent=2))
         return 0 if dry_run.safety_violation_count == 0 else 2
+    if args.non_destructive_build:
+        if not args.build_plan_code:
+            raise SystemExit("--non-destructive-build requires --build-plan-code")
+        if args.skip_browser_probe:
+            raise SystemExit("--non-destructive-build cannot use --skip-browser-probe; it requires a real green preflight")
+        operation_plan = client.get_live_room_build_plan_operation_plan(args.build_plan_code)
+        session = BrowserUseCliSession()
+        preflight = BuildPlanPreflight(session=session).run(operation_plan)
+        result = BuildPlanNonDestructiveRunner(session=session).run(operation_plan, preflight)
+        print(json.dumps(asdict(result), ensure_ascii=False, indent=2))
+        return 0 if result.failure_count == 0 else 2
     if args.preflight_build:
         if not args.build_plan_code:
             raise SystemExit("--preflight-build requires --build-plan-code")

@@ -105,9 +105,11 @@ BrowserUseCliSession 只读页面探测
 --plan-code MT-PLAN-* --preflight
 --build-plan-code MT-BUILD-* --dry-run
 --build-plan-code MT-BUILD-* --preflight-build
+--build-plan-code MT-BUILD-* --non-destructive-build
 BuildPlan operation safe dry-run renderer（不打开浏览器、不点击、不保存）
 BuildPlan operation allowlist / save_live_room manual_review / 禁开播安全检查
 BuildPlan 当前登录态 / liveRoomId / 场景 / 激活场景图层 / 直播脚本面板 preflight
+BuildPlan 非破坏性 UI 导航：select_scene、open material tab、open 直播脚本 tab、Observe after action
 retry_replace_layer_asset
 retry_asset_upload_and_replace
 retry_save_project
@@ -148,9 +150,12 @@ python -m browser_use_worker --once --dry-run
 python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --dry-run
 python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --preflight-build
 python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --preflight-build --skip-browser-probe
+python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --non-destructive-build
 ```
 
 `--build-plan-code ... --dry-run` fetches `/api/maitu/live-room-build-plans/{build_plan_code}/browser-use-operations` and prints a structured safe-action summary for each operation. It never opens Browser-use, clicks Maitu, uploads assets, writes scripts, saves drafts, or starts live streaming. Mutating operations such as `replace_layer_asset` and `add_script_block` are rendered as `planned_*_not_executed`; `save_live_room` must stay `manual_review`.
+
+`--build-plan-code ... --non-destructive-build` first runs a real Browser-use current-state preflight and refuses to continue unless it is fully green. When allowed, it only performs low-risk navigation: selecting existing scenes, opening inferred material tabs, opening the `直播脚本` workbench tab, and re-observing after each action. Upload, insert/replace, typing script text, saving drafts, and clicking `正式开播` remain blocked.
 
 `--probe-maitu` 只读取当前 browser-use 页面状态，必要时打开麦兔首页，并输出：
 

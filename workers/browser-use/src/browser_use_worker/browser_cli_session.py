@@ -205,6 +205,66 @@ class BrowserUseCliSession(MaituBrowserSession):
                 return
             raise
 
+    def select_scene(self, scene_name: str) -> dict[str, Any]:
+        return self._click_existing_text_target(
+            target=scene_name,
+            selectors=("[role=button]", "button", "div"),
+            action_name="select_scene",
+        )
+
+    def open_material_tab(self, tab_name: str) -> dict[str, Any]:
+        return self._click_existing_text_target(
+            target=tab_name,
+            selectors=('div[class*="Fitment__tabItem"]', "button", "div"),
+            action_name="open_material_tab",
+        )
+
+    def open_workbench_tab(self, tab_name: str) -> dict[str, Any]:
+        return self._click_existing_text_target(
+            target=tab_name,
+            selectors=('div[class*="Workbench__tabItem"]', "button", "div"),
+            action_name="open_workbench_tab",
+        )
+
+    def _click_existing_text_target(self, *, target: str, selectors: Sequence[str], action_name: str) -> dict[str, Any]:
+        selector_js = json.dumps(",".join(selectors), ensure_ascii=False)
+        target_js = json.dumps(target, ensure_ascii=False)
+        script = f"""
+(() => {{
+  const target = {target_js};
+  const selectors = {selector_js};
+  const textOf = (el) => (el.innerText || el.textContent || '').trim();
+  const isVisible = (el) => {{
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  }};
+  const candidates = [...document.querySelectorAll(selectors)]
+    .filter(isVisible)
+    .map((el, i) => {{
+      const text = textOf(el);
+      const firstLine = text.split(/\n/).map((line) => line.trim()).find(Boolean) || '';
+      return {{el, i, text, firstLine, className: String(el.className)}};
+    }})
+    .filter((item) => item.text);
+  const match = candidates.find((item) => item.firstLine === target)
+    || candidates.find((item) => item.text === target)
+    || candidates.find((item) => item.text.includes(target));
+  if (!match) {{
+    return JSON.stringify({{clicked:false, reason:'target_not_found', target, candidate_count:candidates.length}});
+  }}
+  match.el.click();
+  return JSON.stringify({{clicked:true, target, text:match.text, className:match.className}});
+}})()
+""".strip()
+        result = self._parse_json_object(self._call_browser_use(["eval", script])) or {}
+        if not result.get("clicked"):
+            raise MaituBrowserExecutionError(
+                f"Non-destructive Browser-use action {action_name} could not find target: {target}",
+                retryable=False,
+                retry_instruction="Re-observe the current Maitu page and confirm the target scene/tab text before retrying.",
+            )
+        return result
+
     def _current_state_from_payload(self, payload: dict[str, Any]) -> MaituCurrentState:
         title = str(payload.get("title") or "")
         url = str(payload.get("href") or payload.get("url") or "")

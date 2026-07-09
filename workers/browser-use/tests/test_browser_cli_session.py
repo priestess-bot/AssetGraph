@@ -190,6 +190,36 @@ def test_state_without_url_falls_back_to_eval_summary() -> None:
     ]
 
 
+def test_non_destructive_scene_and_tab_clicks_use_browser_use_eval() -> None:
+    session, runner = make_session([
+        '{"clicked":true,"target":"场景02"}',
+        '{"clicked":true,"target":"装饰"}',
+        '{"clicked":true,"target":"直播脚本"}',
+    ])
+
+    assert session.select_scene("场景02")["clicked"] is True
+    assert session.open_material_tab("装饰")["target"] == "装饰"
+    assert session.open_workbench_tab("直播脚本")["target"] == "直播脚本"
+    assert [command[:4] for command in runner.commands] == [
+        ("uv", "run", "browser-use", "eval"),
+        ("uv", "run", "browser-use", "eval"),
+        ("uv", "run", "browser-use", "eval"),
+    ]
+    assert "场景02" in runner.commands[0][4]
+    assert "装饰" in runner.commands[1][4]
+    assert "直播脚本" in runner.commands[2][4]
+
+
+def test_non_destructive_click_raises_when_target_is_missing() -> None:
+    session, _runner = make_session(['{"clicked":false,"reason":"target_not_found","target":"场景99"}'])
+
+    with pytest.raises(MaituBrowserExecutionError) as exc_info:
+        session.select_scene("场景99")
+
+    assert exc_info.value.retryable is False
+    assert "场景99" in str(exc_info.value)
+
+
 def test_subprocess_runner_scrubs_parent_python_environment(monkeypatch) -> None:
     recorded: dict[str, object] = {}
 

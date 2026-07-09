@@ -416,12 +416,13 @@ GET build status 200
 GET operations status 200
 ```
 
-当前 Browser-use worker 已接入 `GET /live-room-build-plans/{build_plan_code}/browser-use-operations` 的 BuildPlan dry-run 和只读 preflight：
+当前 Browser-use worker 已接入 `GET /live-room-build-plans/{build_plan_code}/browser-use-operations` 的 BuildPlan dry-run、只读 preflight 和非破坏性 UI 导航：
 
 ```bash
 python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --dry-run
 python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --preflight-build
 python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --preflight-build --skip-browser-probe
+python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --non-destructive-build
 ```
 
 worker dry-run 会：
@@ -446,6 +447,15 @@ preflight 会检查：
 - 当前激活场景内目标图层是否可见。
 - `直播脚本` workbench tab 是否可用。
 
+non-destructive build 会在真实 preflight 全绿后才继续，且只允许：
+
+- 选择已有场景 `select_scene`。
+- 根据 `required_category` 打开已有素材页签，例如背景/装饰/视频/数字分身。
+- 打开 `直播脚本` workbench tab。
+- 每个动作后重新 Observe。
+
+仍然禁止：上传素材、插入/替换图层、写入脚本、保存草稿、点击正式开播。
+
 真实 smoke：
 
 ```text
@@ -468,6 +478,12 @@ status failed
 ready_to_execute false
 19 passed, 0 warning, 1 failure
 failure: Maitu login page is visible; manual login is required before BuildPlan execution
+
+non-destructive build on current unauthenticated browser:
+status blocked
+failure_count 1
+allowed_action_count 0
+reason: preflight is not green, so no UI navigation was executed
 ```
 
 这说明当前已能安全地阻止未登录状态下的自主搭建执行。

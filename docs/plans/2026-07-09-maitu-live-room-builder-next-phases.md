@@ -295,10 +295,12 @@ For now, all mutating execution paths remain disabled.
 
 ## Deliverables
 
-- `BrowserUseBuildPlanExecutor` skeleton。
-- 每步执行后重新 Observe。
-- 截图路径 / DOM 状态记录。
-- 如果 scene/layer 不存在，返回 failure_type：`missing_scene` / `missing_layer`。
+- `BuildPlanNonDestructiveRunner` ✅
+- CLI `--build-plan-code MT-BUILD-* --non-destructive-build` ✅
+- 每步执行后重新 Observe ✅
+- 如果 preflight 不是全绿，直接 blocked 且不执行任何 UI 导航 ✅
+- 截图路径 / DOM 状态记录（后续）。
+- 如果 scene/layer 不存在，返回 failure_type：`missing_scene` / `missing_layer`（后续扩展为执行结果 taxonomy）。
 
 ---
 
@@ -423,10 +425,10 @@ Only after Phase 4/5 prove UI stability should create/configure operations be en
 ## Sprint 3: Worker dry-run and non-destructive UI
 
 1. `--build-plan-code --dry-run` ✅
-2. Select scene / open tabs only.
-3. Observe after each action.
-4. Evidence report.
-5. Docs + commit.
+2. Select scene / open tabs only ✅
+3. Observe after each action ✅
+4. Evidence report（后续截图/DOM artifact）
+5. Docs + commit ✅
 
 ## Sprint 4: Controlled first mutation
 
@@ -463,12 +465,13 @@ Real API smoke:
 curl "http://127.0.0.1:8000/api/maitu/live-room-build-plans/MT-BUILD-20260709-000001/browser-use-operations"
 ```
 
-Real worker smoke, read-only:
+Real worker smoke, read-only / non-destructive:
 
 ```bash
 cd D:/AssetGraph/workers/browser-use
 python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --dry-run
 python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --preflight-build
+python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --non-destructive-build
 ```
 
 ---
