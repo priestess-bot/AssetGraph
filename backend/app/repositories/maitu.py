@@ -203,7 +203,11 @@ class MaituMaterialSlotRepository:
             "assets": candidates[offset : offset + limit],
         }
 
-    def create_replacement_plan(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def create_replacement_plan(
+        self,
+        payload: dict[str, Any],
+        slot_candidates: list[tuple[dict[str, Any], dict[str, Any] | None]] | None = None,
+    ) -> dict[str, Any]:
         plan_code = self._next_plan_code()
         plan_data = {
             "plan_code": plan_code,
@@ -214,12 +218,13 @@ class MaituMaterialSlotRepository:
             "strategy": payload.get("strategy", "best_match"),
             "description": payload.get("description"),
         }
-        slots = self._resolve_plan_slots(payload)
-        slot_candidates = []
-        for slot in slots:
-            candidate_response = self.list_candidate_assets(slot["slot_code"], limit=1)
-            candidate = candidate_response["assets"][0] if candidate_response and candidate_response["assets"] else None
-            slot_candidates.append((slot, candidate))
+        if slot_candidates is None:
+            slots = self._resolve_plan_slots(payload)
+            slot_candidates = []
+            for slot in slots:
+                candidate_response = self.list_candidate_assets(slot["slot_code"], limit=1)
+                candidate = candidate_response["assets"][0] if candidate_response and candidate_response["assets"] else None
+                slot_candidates.append((slot, candidate))
 
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
@@ -920,6 +925,9 @@ class MaituMaterialSlotRepository:
             )
             sequence = cursor.fetchone()[0]
         return format_maitu_retry_task_code(sequence_date, sequence)
+
+    def resolve_plan_slots(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
+        return self._resolve_plan_slots(payload)
 
     def _resolve_plan_slots(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
         slot_codes = payload.get("slot_codes") or []

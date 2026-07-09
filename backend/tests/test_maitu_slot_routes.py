@@ -151,14 +151,25 @@ class FakeMaituMaterialSlotRepository:
             "assets": assets[offset : offset + limit],
         }
 
-    def create_replacement_plan(self, payload: dict[str, Any]) -> dict[str, Any]:
-        code = f"MT-PLAN-20260707-{len(self.plans) + 1:06d}"
+    def resolve_plan_slots(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
         slot_codes = payload.get("slot_codes") or list(self.rows.keys())
-        slots = [self.rows[slot_code] for slot_code in slot_codes if slot_code in self.rows]
+        return [self.rows[slot_code] for slot_code in slot_codes if slot_code in self.rows]
+
+    def create_replacement_plan(
+        self,
+        payload: dict[str, Any],
+        slot_candidates: list[tuple[dict[str, Any], dict[str, Any] | None]] | None = None,
+    ) -> dict[str, Any]:
+        code = f"MT-PLAN-20260707-{len(self.plans) + 1:06d}"
+        if slot_candidates is None:
+            slots = self.resolve_plan_slots(payload)
+            slot_candidates = []
+            for slot in slots:
+                candidates = self.list_candidate_assets(slot["slot_code"], limit=1)
+                candidate = candidates["assets"][0] if candidates and candidates["assets"] else None
+                slot_candidates.append((slot, candidate))
         items = []
-        for sort_order, slot in enumerate(slots):
-            candidates = self.list_candidate_assets(slot["slot_code"], limit=1)
-            candidate = candidates["assets"][0] if candidates and candidates["assets"] else None
+        for sort_order, (slot, candidate) in enumerate(slot_candidates):
             items.append(
                 {
                     "slot_code": slot["slot_code"],
@@ -1472,3 +1483,69 @@ def test_semantic_candidate_assets_for_slot_use_slot_context_and_retrieval_index
     assert body["assets"][0]["original_filename"] == "MT-VID-0024.mp4"
     assert body["assets"][0]["retrieval_score"] == 1.0
     assert "maitu_category matches required_category: product_video" in body["assets"][0]["match_reasons"]
+
+
+def test_semantic_best_match_replacement_plan_uses_semantic_slot_candidates(client: TestClient) -> None:
+    from app.services.asset_candidates import AssetRetrievalIndex
+
+    slot_response = client.post(
+        "/api/maitu/slots",
+        json={
+            "slot_name": "商品讲解视频",
+            "maitu_project_code": "MT-PROJ-20260707-000001",
+            "scene_name": "京东空白直播间",
+            "layer_name": "视频图层",
+            "required_category": "product_video",
+            "accepted_asset_types": ["VID"],
+            "replacement_policy": "keep_layout",
+            "description": "用于品酒大师商品讲解片段。",
+        },
+    )
+    slot_code = slot_response.json()["slot_code"]
+    index = AssetRetrievalIndex(
+        entries=[
+            {
+                "document_id": "asset:AG-VID-20260709-000052:retrieval",
+                "asset_code": "AG-VID-20260709-000052",
+                "display_code": "MT-VID-0024",
+                "local_file_code": "MT-VID-0024",
+                "title": "视频 - 商品讲解视频 - 品酒大师PRO",
+                "content": "品酒大师 商品讲解 视频 PRO",
+                "content_hash": "hash-video",
+                "metadata": {
+                    "asset_type": "VID",
+                    "maitu_category": "product_video",
+                    "usage": "商品讲解视频",
+                    "subject": "品酒大师PRO",
+                    "local_relative_path": "视频/MT-VID-0024.mp4",
+                },
+                "model": "qwen3-embedding-4b-local",
+                "dimension": 3,
+                "vector": [1.0, 0.0, 0.0],
+            }
+        ]
+    )
+    app.dependency_overrides[maitu.get_slot_asset_retrieval_index_factory] = lambda: lambda: index
+    app.dependency_overrides[maitu.get_slot_candidate_qwen3_client_factory] = lambda: lambda: FakeSlotCandidateQwen3Client()
+    try:
+        response = client.post(
+            "/api/maitu/replacement-plans",
+            json={
+                "plan_name": "语义自动选材方案",
+                "maitu_project_code": "MT-PROJ-20260707-000001",
+                "scene_name": "京东空白直播间",
+                "slot_codes": [slot_code],
+                "strategy": "semantic_best_match",
+                "description": "使用槽位语义检索自动选择素材。",
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(maitu.get_slot_asset_retrieval_index_factory, None)
+        app.dependency_overrides.pop(maitu.get_slot_candidate_qwen3_client_factory, None)
+
+    assert response.status_code == 201
+    plan = response.json()
+    assert plan["strategy"] == "semantic_best_match"
+    assert plan["items"][0]["selected_asset_code"] == "AG-VID-20260709-000052"
+    assert plan["items"][0]["match_score"] == 1.0
+    assert "semantic retrieval matched slot context" in plan["items"][0]["match_reasons"]

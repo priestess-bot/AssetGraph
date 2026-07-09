@@ -109,6 +109,66 @@ def semantic_candidate_to_response(candidate: AssetCandidate, slot: dict) -> dic
     }
 
 
+def semantic_candidate_assets_for_slot(
+    slot: dict,
+    *,
+    index_factory: Callable[[], AssetRetrievalIndex],
+    client_factory: Callable[[], Qwen3Client],
+    limit: int,
+    offset: int = 0,
+    q: str | None = None,
+    candidate_pool_size: int = 30,
+) -> dict:
+    try:
+        index = index_factory()
+    except (OSError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Asset retrieval index unavailable: {exc}",
+        ) from exc
+    if not index.entries:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Asset retrieval index is empty")
+
+    client = client_factory()
+    semantic_query = build_slot_semantic_query(slot, q)
+    try:
+        vectors = client.embed_texts([semantic_query], is_query=True)
+    except Qwen3ClientError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    if not vectors:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Qwen3 returned no query embedding")
+
+    accepted_asset_types = slot.get("accepted_asset_types") or []
+    base_filters = {"maitu_category": slot.get("required_category")}
+    pool_size = max(limit + offset, candidate_pool_size)
+    candidates: list[AssetCandidate] = []
+    if accepted_asset_types:
+        for asset_type in accepted_asset_types:
+            candidates.extend(
+                index.search(vectors[0], top_k=pool_size, filters={**base_filters, "asset_type": asset_type})
+            )
+    else:
+        candidates = index.search(vectors[0], top_k=pool_size, filters=base_filters)
+
+    deduped: dict[str, AssetCandidate] = {}
+    for candidate in candidates:
+        previous = deduped.get(candidate.asset_code)
+        if previous is None or candidate.score > previous.score:
+            deduped[candidate.asset_code] = candidate
+    ranked = sorted(deduped.values(), key=lambda candidate: candidate.score, reverse=True)
+    assets = [semantic_candidate_to_response(candidate, slot) for candidate in ranked[offset : offset + limit]]
+    return {
+        "slot_code": slot["slot_code"],
+        "required_category": slot["required_category"],
+        "accepted_asset_types": accepted_asset_types,
+        "source": "semantic_retrieval",
+        "semantic_query": semantic_query,
+        "embedding_model": client.embedding_model,
+        "rerank_model": None,
+        "assets": assets,
+    }
+
+
 @router.post("/slots", response_model=MaituMaterialSlotRead, status_code=status.HTTP_201_CREATED)
 def create_maitu_slot(
     payload: MaituMaterialSlotCreate,
@@ -171,54 +231,15 @@ def list_candidate_assets_for_slot(
     slot = repository.get_by_code(slot_code)
     if slot is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Maitu material slot not found")
-    try:
-        index = index_factory()
-    except (OSError, ValueError) as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Asset retrieval index unavailable: {exc}",
-        ) from exc
-    if not index.entries:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Asset retrieval index is empty")
-
-    client = client_factory()
-    semantic_query = build_slot_semantic_query(slot, q)
-    try:
-        vectors = client.embed_texts([semantic_query], is_query=True)
-    except Qwen3ClientError as exc:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
-    if not vectors:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Qwen3 returned no query embedding")
-
-    accepted_asset_types = slot.get("accepted_asset_types") or []
-    base_filters = {"maitu_category": slot.get("required_category")}
-    pool_size = max(limit + offset, candidate_pool_size)
-    candidates: list[AssetCandidate] = []
-    if accepted_asset_types:
-        for asset_type in accepted_asset_types:
-            candidates.extend(
-                index.search(vectors[0], top_k=pool_size, filters={**base_filters, "asset_type": asset_type})
-            )
-    else:
-        candidates = index.search(vectors[0], top_k=pool_size, filters=base_filters)
-
-    deduped: dict[str, AssetCandidate] = {}
-    for candidate in candidates:
-        previous = deduped.get(candidate.asset_code)
-        if previous is None or candidate.score > previous.score:
-            deduped[candidate.asset_code] = candidate
-    ranked = sorted(deduped.values(), key=lambda candidate: candidate.score, reverse=True)
-    assets = [semantic_candidate_to_response(candidate, slot) for candidate in ranked[offset : offset + limit]]
-    return {
-        "slot_code": slot["slot_code"],
-        "required_category": slot["required_category"],
-        "accepted_asset_types": accepted_asset_types,
-        "source": "semantic_retrieval",
-        "semantic_query": semantic_query,
-        "embedding_model": client.embedding_model,
-        "rerank_model": None,
-        "assets": assets,
-    }
+    return semantic_candidate_assets_for_slot(
+        slot,
+        index_factory=index_factory,
+        client_factory=client_factory,
+        limit=limit,
+        offset=offset,
+        q=q,
+        candidate_pool_size=candidate_pool_size,
+    )
 
 
 @router.patch("/slots/{slot_code}", response_model=MaituMaterialSlotRead)
@@ -247,8 +268,26 @@ def delete_maitu_slot(
 def create_replacement_plan(
     payload: MaituReplacementPlanCreate,
     repository: Annotated[MaituMaterialSlotRepository, Depends(get_maitu_slot_repository)],
+    index_factory: Annotated[Callable[[], AssetRetrievalIndex], Depends(get_slot_asset_retrieval_index_factory)],
+    client_factory: Annotated[Callable[[], Qwen3Client], Depends(get_slot_candidate_qwen3_client_factory)],
 ) -> dict:
-    return repository.create_replacement_plan(payload.model_dump(exclude_none=True))
+    data = payload.model_dump(exclude_none=True)
+    if data.get("strategy") != "semantic_best_match":
+        return repository.create_replacement_plan(data)
+
+    slots = repository.resolve_plan_slots(data)
+    slot_candidates = []
+    for slot in slots:
+        candidate_response = semantic_candidate_assets_for_slot(
+            slot,
+            index_factory=index_factory,
+            client_factory=client_factory,
+            limit=1,
+            q=data.get("description"),
+        )
+        candidate = candidate_response["assets"][0] if candidate_response["assets"] else None
+        slot_candidates.append((slot, candidate))
+    return repository.create_replacement_plan(data, slot_candidates=slot_candidates)
 
 
 @router.get("/replacement-plans", response_model=list[MaituReplacementPlanRead])
