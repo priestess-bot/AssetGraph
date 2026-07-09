@@ -74,6 +74,8 @@ class MaituLiveRoomBuildPlanRead(BaseModel):
 class MaituLiveRoomBuildPlanOperationPlanResponse(BaseModel):
     build_plan_code: str
     blueprint_code: str
+    reference_room_id: str | None = None
+    reference_room_name: str | None = None
     executor: str = "browser_use"
     target_app: str = "maitu"
     operations: list[MaituLiveRoomBuildPlanOperationRead] = Field(default_factory=list)

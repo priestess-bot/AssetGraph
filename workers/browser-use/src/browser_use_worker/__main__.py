@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from dataclasses import asdict
 
 from .browser_cli_session import BrowserUseCliSession
+from .build_plan_preflight import BuildPlanPreflight
 from .client import AssetGraphClient
 from .config import WorkerConfig
 from .preflight import ReplacementPlanPreflight
@@ -20,7 +21,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--probe-maitu", action="store_true", help="Run a read-only browser-use probe of the current Maitu page")
     parser.add_argument("--observe-maitu", action="store_true", help="Read structured current Maitu live-room state for the Observe step")
     parser.add_argument("--plan-code", help="Fetch a replacement plan operation plan and execute/dry-run it once")
+    parser.add_argument("--build-plan-code", help="Fetch a live-room BuildPlan operation plan and run BuildPlan-specific dry-run/preflight")
     parser.add_argument("--preflight", action="store_true", help="Run read-only safety checks for --plan-code before mutating Maitu")
+    parser.add_argument("--preflight-build", action="store_true", help="Run read-only safety checks for --build-plan-code before mutating Maitu")
     parser.add_argument("--skip-browser-probe", action="store_true", help="Skip Browser-use/Maitu page probing during --preflight")
     parser.add_argument("--assets-root", default="D:/AssetGraph/素材", help="Local asset root used by --preflight file checks")
     parser.add_argument("--check-config", action="store_true", help="Print resolved configuration and exit without calling AssetGraph")
@@ -45,6 +48,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     client = AssetGraphClient(config.api_base_url)
+    if args.preflight_build:
+        if not args.build_plan_code:
+            raise SystemExit("--preflight-build requires --build-plan-code")
+        operation_plan = client.get_live_room_build_plan_operation_plan(args.build_plan_code)
+        preflight = BuildPlanPreflight(
+            session=None if args.skip_browser_probe else BrowserUseCliSession(),
+            probe_browser=not args.skip_browser_probe,
+        ).run(operation_plan)
+        print(json.dumps(asdict(preflight), ensure_ascii=False, indent=2))
+        return 0 if preflight.failure_count == 0 else 2
     if args.preflight:
         if not args.plan_code:
             raise SystemExit("--preflight requires --plan-code")

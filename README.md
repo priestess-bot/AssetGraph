@@ -182,6 +182,12 @@ curl -X POST "http://127.0.0.1:8000/api/maitu/live-room-build-plans" \
 
 curl "http://127.0.0.1:8000/api/maitu/live-room-build-plans/MT-BUILD-20260709-000001/browser-use-operations"
 
+# BuildPlan 只读 preflight：拉取 MT-BUILD-* operations 并校验当前麦兔页面；不点击、不保存、不开播。
+python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --preflight-build
+
+# API-only smoke 可跳过浏览器探测；结果应是 warning 且 ready_to_execute=false。
+python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --preflight-build --skip-browser-probe
+
 # 自然语言版式微调：把用户反馈转成可验证的 set_layer_transform 目标。
 curl -X POST "http://127.0.0.1:8000/api/maitu/layout-adjustments" \
   -H "Content-Type: application/json" \

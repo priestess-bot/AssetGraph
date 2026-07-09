@@ -193,6 +193,8 @@ class FakeMaituMaterialSlotRepository:
         return {
             "build_plan_code": plan["build_plan_code"],
             "blueprint_code": plan["blueprint_code"],
+            "reference_room_id": self.blueprints[plan["blueprint_code"]].get("reference_room_id"),
+            "reference_room_name": self.blueprints[plan["blueprint_code"]].get("reference_room_name"),
             "executor": plan["executor"],
             "target_app": plan["target_app"],
             "operations": plan["operations"],
@@ -1776,6 +1778,9 @@ def test_create_live_room_build_plan_from_blueprint_and_get_browser_use_operatio
     assert operations_response.status_code == 200
     operations = operations_response.json()
     assert operations["build_plan_code"] == "MT-BUILD-20260709-000001"
+    assert operations["blueprint_code"] == "MT-BP-20260709-39826"
+    assert operations["reference_room_id"] == "39826"
+    assert operations["reference_room_name"] == "京东空白直播间-0707-1352"
     assert operations["operations"][0]["operation_type"] == "preflight_build_plan"
     assert operations["operations"][-1]["operation_type"] == "save_live_room"
 

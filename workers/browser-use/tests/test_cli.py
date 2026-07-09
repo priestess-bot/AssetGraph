@@ -33,13 +33,45 @@ class FakeBrowserUseCliSession:
 
 
 @dataclass(slots=True)
+class FakeScene:
+    name: str
+    active: bool = False
+
+
+@dataclass(slots=True)
+class FakeLayer:
+    name: str
+    active: bool = False
+
+
+@dataclass(slots=True)
+class FakeTab:
+    name: str
+    active: bool = False
+
+
+@dataclass(slots=True)
 class FakeCurrentState:
     title: str = "MyTwins麦兔直播"
     url: str = "https://live2.maituai.com/LiveRoom?liveRoomId=39826"
+    text: str = "场景01\n商品图\n直播脚本"
     live_room_id: str = "39826"
     live_room_name: str = "京东空白直播间-0707-1352"
     platform: str = "京东版"
+    logged_in: bool = True
+    login_required: bool = False
+    scenes: list[FakeScene] | None = None
     active_scene_name: str = "场景01"
+    layers: list[FakeLayer] | None = None
+    workbench_tabs: list[FakeTab] | None = None
+
+    def __post_init__(self) -> None:
+        if self.scenes is None:
+            self.scenes = [FakeScene("场景01", active=True)]
+        if self.layers is None:
+            self.layers = [FakeLayer("商品图")]
+        if self.workbench_tabs is None:
+            self.workbench_tabs = [FakeTab("直播脚本", active=True)]
 
 
 def test_probe_maitu_cli_prints_page_probe_json(monkeypatch, capsys) -> None:
@@ -71,6 +103,48 @@ def test_observe_maitu_cli_prints_current_state_json(monkeypatch, capsys) -> Non
 class FakeAssetGraphClient:
     def __init__(self, base_url: str) -> None:
         self.base_url = base_url
+
+    def get_live_room_build_plan_operation_plan(self, build_plan_code: str) -> dict:
+        assert build_plan_code == "MT-BUILD-20260709-000001"
+        return {
+            "build_plan_code": build_plan_code,
+            "blueprint_code": "MT-BP-20260709-39826",
+            "reference_room_id": "39826",
+            "operations": [
+                {
+                    "operation_type": "preflight_build_plan",
+                    "operation_name": "只读预检",
+                    "sort_order": 1,
+                    "status": "ready",
+                    "instruction": "只读确认当前麦兔页面，默认不点击正式开播。",
+                },
+                {
+                    "operation_type": "select_scene",
+                    "operation_name": "选择场景01",
+                    "sort_order": 10,
+                    "status": "ready",
+                    "scene_name": "场景01",
+                    "instruction": "只做定位不保存。",
+                },
+                {
+                    "operation_type": "replace_layer_asset",
+                    "operation_name": "规划商品图",
+                    "sort_order": 20,
+                    "status": "planned",
+                    "scene_name": "场景01",
+                    "layer_name": "商品图",
+                    "replacement_policy": "keep_layout",
+                    "instruction": "定位商品图图层并保持原布局。",
+                },
+                {
+                    "operation_type": "save_live_room",
+                    "operation_name": "保存直播间草稿",
+                    "sort_order": 999,
+                    "status": "manual_review",
+                    "instruction": "仅保存草稿；默认不点击正式开播。",
+                },
+            ],
+        }
 
     def get_replacement_plan_operation_plan(self, plan_code: str) -> dict:
         assert plan_code == "MT-PLAN-20260709-000001"
@@ -140,3 +214,34 @@ def test_plan_code_preflight_cli_prints_preflight_json(monkeypatch, capsys, tmp_
     assert output["failure_count"] == 0
     assert output["ready_to_execute"] is False
     assert any(check["name"] == "maitu_browser_probe" and check["status"] == "skipped" for check in output["checks"])
+
+
+def test_build_plan_preflight_cli_prints_preflight_json(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(worker_main, "AssetGraphClient", FakeAssetGraphClient, raising=False)
+    monkeypatch.setattr(worker_main, "BrowserUseCliSession", FakeBrowserUseCliSession, raising=False)
+
+    exit_code = worker_main.main(["--build-plan-code", "MT-BUILD-20260709-000001", "--preflight-build"])
+
+    assert exit_code == 0
+    output = json.loads(capsys.readouterr().out)
+    assert output["status"] == "passed"
+    assert output["ready_to_execute"] is True
+    assert output["build_plan_code"] == "MT-BUILD-20260709-000001"
+    assert any(check["name"] == "maitu_current_state_probe" and check["status"] == "pass" for check in output["checks"])
+
+
+def test_build_plan_preflight_cli_can_skip_browser_probe(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(worker_main, "AssetGraphClient", FakeAssetGraphClient, raising=False)
+
+    exit_code = worker_main.main([
+        "--build-plan-code",
+        "MT-BUILD-20260709-000001",
+        "--preflight-build",
+        "--skip-browser-probe",
+    ])
+
+    assert exit_code == 0
+    output = json.loads(capsys.readouterr().out)
+    assert output["status"] == "warning"
+    assert output["ready_to_execute"] is False
+    assert any(check["name"] == "maitu_current_state_probe" and check["status"] == "skipped" for check in output["checks"])

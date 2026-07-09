@@ -283,9 +283,12 @@ class MaituMaterialSlotRepository:
         plan = self.get_live_room_build_plan_by_code(build_plan_code)
         if plan is None:
             return None
+        blueprint = self.get_live_room_blueprint_by_code(plan["blueprint_code"])
         return {
             "build_plan_code": plan["build_plan_code"],
             "blueprint_code": plan["blueprint_code"],
+            "reference_room_id": blueprint.get("reference_room_id") if blueprint else None,
+            "reference_room_name": blueprint.get("reference_room_name") if blueprint else None,
             "executor": plan["executor"],
             "target_app": plan["target_app"],
             "operations": plan.get("operations", []),

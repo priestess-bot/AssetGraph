@@ -100,7 +100,12 @@ MaituBrowserUseExecutor 操作分发
 MaituBrowserSession 抽象接口
 BrowserUseCliSession 只读页面探测
 --probe-maitu 登录态/页面状态检查
-麦兔登录页 vs 已登录后台识别
+--observe-maitu 结构化读取当前直播间状态
+--plan-code MT-PLAN-* --dry-run
+--plan-code MT-PLAN-* --preflight
+--build-plan-code MT-BUILD-* --preflight-build
+BuildPlan operation allowlist / save_live_room manual_review / 禁开播安全检查
+BuildPlan 当前登录态 / liveRoomId / 场景 / 激活场景图层 / 直播脚本面板 preflight
 retry_replace_layer_asset
 retry_asset_upload_and_replace
 retry_save_project
@@ -138,6 +143,8 @@ cd workers/browser-use
 python -m browser_use_worker --check-config
 python -m browser_use_worker --probe-maitu
 python -m browser_use_worker --once --dry-run
+python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --preflight-build
+python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --preflight-build --skip-browser-probe
 ```
 
 `--probe-maitu` 只读取当前 browser-use 页面状态，必要时打开麦兔首页，并输出：

@@ -416,7 +416,42 @@ GET build status 200
 GET operations status 200
 ```
 
-下一步是把 Browser-use worker 接到 `GET /live-room-build-plans/{build_plan_code}/browser-use-operations`，先做只读 preflight，不执行 mutating operation。
+当前 Browser-use worker 已接入 `GET /live-room-build-plans/{build_plan_code}/browser-use-operations` 的只读 preflight：
+
+```bash
+python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --preflight-build
+python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --preflight-build --skip-browser-probe
+```
+
+preflight 会检查：
+
+- BuildPlan operations 非空。
+- operation type 是否在安全 allowlist：`preflight_build_plan`、`select_scene`、`replace_layer_asset`、`add_script_block`、`save_live_room`。
+- `save_live_room` 必须保持 `manual_review`。
+- instruction 不允许包含真实开播动作。
+- 当前麦兔状态是否登录。
+- liveRoomId 是否匹配。
+- 场景是否存在。
+- 当前激活场景内目标图层是否可见。
+- `直播脚本` workbench tab 是否可用。
+
+真实 smoke：
+
+```text
+--skip-browser-probe:
+status warning
+ready_to_execute false
+operation_count 17
+18 passed, 0 warning, 0 failure, 1 skipped
+
+real browser probe:
+status failed
+ready_to_execute false
+19 passed, 0 warning, 1 failure
+failure: Maitu login page is visible; manual login is required before BuildPlan execution
+```
+
+这说明当前已能安全地阻止未登录状态下的自主搭建执行。
 
 ### 阶段 D+：自然语言版式微调闭环
 
