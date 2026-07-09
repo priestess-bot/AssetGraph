@@ -32,7 +32,7 @@ AssetGraph 是一个面向麦兔软件与数字人直播业务的多模态视频
 - Browser use 过期领取回收：提供 reclaim-expired API，将超时的 `in_progress` 任务释放回 `pending`，避免 worker 崩溃后任务永久卡死
 - Browser use worker 一站式取活：提供 `/api/maitu/retry-worker/next`，自动回收过期任务、领取下一条任务并返回 Browser use 操作计划
 - Browser use worker 执行协议：文档化 worker 从取任务、执行操作、成功回写、失败释放到人工介入的完整契约
-- 麦兔素材库与 Browser-use 现场联合调度：素材库负责稳定编号、检索、语义推荐、蓝图和计划；Browser-use 负责读取麦兔真实页面现场、执行小步 UI 操作、截图验证和结果回写
+- 麦兔素材库与 Browser-use 现场 loop：建立 Observe → Plan → Act → Verify → Learn 闭环；素材库负责稳定编号、检索、语义推荐、蓝图和计划，Browser-use 负责读取麦兔真实页面现场、执行小步 UI 操作、截图验证和结果回写，AssetGraph 再沉淀成功路径、失败类型、重试任务和可复用模板
 - 麦兔从0搭建直播间：将用户选中的参考直播间抽成结构化 Profile，生成 LiveRoomBlueprint / SceneBlueprint / LayerBlueprint，再转换成 BuildPlan 和 Browser-use 操作计划；替换只是 BuildPlan 的子操作之一
 - 麦兔替换上下文：记录素材对应的麦兔项目、场景、图层、槽位、位置尺寸和 `replacement_policy`，默认保持原布局替换
 - 直播素材索引：通过 `live_code` 聚合一场数字人直播的录屏、切片、封面、字幕、评论导出、脚本和复盘文档等素材
