@@ -32,6 +32,71 @@ class MaituLiveRoomBlueprintRead(BaseModel):
     updated_at: datetime | None = None
 
 
+class MaituLiveRoomScriptMatchRead(BaseModel):
+    script_block_code: str | None = None
+    scene_name: str | None = None
+    sort_order: int | None = None
+    content: str
+
+
+class MaituLiveRoomComponentRead(BaseModel):
+    component_name: str | None = None
+    component_type: str | None = None
+    component_role: str | None = None
+    material_id: int | None = None
+    required_category: str | None = None
+    material_tab: str | None = None
+    source_material_type: str | None = None
+    source_material_url: str | None = None
+    source_cover_url: str | None = None
+    placements: int = 0
+    scene_names: list[str] = Field(default_factory=list)
+    geometry_examples: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class MaituLiveRoomComponentPlacementRead(BaseModel):
+    scene_name: str | None = None
+    scene_type: str | None = None
+    reference_product_name: str | None = None
+    reference_item_id: str | int | None = None
+    reference_clip_id: str | int | None = None
+    layer_code: str | None = None
+    layer_name: str | None = None
+    layer_role: str | None = None
+    material_id: int | None = None
+    material_tab: str | None = None
+    source_material_type: str | None = None
+    required_category: str | None = None
+    accepted_asset_types: list[str] = Field(default_factory=list)
+    replacement_policy: str | None = None
+    geometry: dict[str, Any] = Field(default_factory=dict)
+    z_index: int | None = None
+    speaker_id: int | None = None
+    digital_human_image_id: int | None = None
+    source_material_url: str | None = None
+    source_cover_url: str | None = None
+
+
+class MaituLiveRoomComponentSearchResultRead(BaseModel):
+    blueprint_code: str
+    title: str
+    reference_room_id: str | None = None
+    reference_room_name: str | None = None
+    platform: str | None = None
+    status: str
+    room_type: str
+    template_library_code: str | None = None
+    matched_script_blocks: list[MaituLiveRoomScriptMatchRead] = Field(default_factory=list)
+    matched_scene_names: list[str] = Field(default_factory=list)
+    matched_scene_count: int = 0
+    scene_count: int = 0
+    script_block_count: int = 0
+    unique_component_count: int = 0
+    component_placement_count: int = 0
+    components: list[MaituLiveRoomComponentRead] = Field(default_factory=list)
+    component_placements: list[MaituLiveRoomComponentPlacementRead] = Field(default_factory=list)
+
+
 class MaituLiveRoomBuildPlanCreate(BaseModel):
     blueprint_code: str = Field(..., min_length=1, max_length=64)
     plan_name: str | None = Field(default=None, max_length=255)

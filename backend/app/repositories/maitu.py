@@ -203,6 +203,43 @@ class MaituMaterialSlotRepository:
             rows = cursor.fetchall()
         return [self._normalize_live_room_blueprint(row) for row in rows]
 
+    def search_live_room_scene_components_by_script(
+        self,
+        *,
+        q: str,
+        reference_room_id: str | None = None,
+        status: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        where_clauses = ["b.deleted_at IS NULL", "p.deleted_at IS NULL", "b.script_blocks::text ILIKE %s"]
+        values: list[Any] = [f"%{q}%"]
+        if reference_room_id is not None:
+            where_clauses.append("b.reference_room_id = %s")
+            values.append(reference_room_id)
+        if status is not None:
+            where_clauses.append("b.status = %s")
+            values.append(status)
+        values.extend([limit, offset])
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                f"""
+                SELECT b.*, p.raw_profile AS reference_profile
+                FROM maitu_live_room_blueprints b
+                JOIN maitu_reference_room_profiles p ON p.id = b.reference_profile_id
+                WHERE {' AND '.join(where_clauses)}
+                ORDER BY b.created_at DESC
+                LIMIT %s OFFSET %s
+                """,
+                tuple(values),
+            )
+            rows = cursor.fetchall()
+        results: list[dict[str, Any]] = []
+        for row in rows:
+            blueprint = self._normalize_live_room_blueprint(row)
+            results.extend(self._scene_component_search_result(blueprint, q))
+        return results
+
     def get_live_room_blueprint_by_code(self, blueprint_code: str) -> dict[str, Any] | None:
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
@@ -1948,6 +1985,139 @@ class MaituMaterialSlotRepository:
             "manual_required": "manual_required",
         }
         return mapping.get(retry_execution_status, retry_execution_status)
+
+    @classmethod
+    def _scene_component_search_result(cls, blueprint: dict[str, Any], query: str) -> list[dict[str, Any]]:
+        needle = query.lower()
+        blocks_by_scene: dict[str | None, list[dict[str, Any]]] = {}
+        for block in cls._dict_list(blueprint.get("script_blocks")):
+            content = str(block.get("content") or "")
+            if needle not in content.lower():
+                continue
+            scene_name = str(block.get("scene_name") or "") or None
+            blocks_by_scene.setdefault(scene_name, []).append(
+                {
+                    "script_block_code": block.get("script_block_code"),
+                    "scene_name": scene_name,
+                    "sort_order": block.get("sort_order"),
+                    "content": content,
+                }
+            )
+        if not blocks_by_scene:
+            return []
+
+        scenes_by_name = {
+            str(scene.get("scene_name") or ""): scene
+            for scene in cls._dict_list(blueprint.get("scenes"))
+            if scene.get("scene_name")
+        }
+        return [
+            cls._scene_component_search_scene_result(blueprint, scene_name, blocks, scenes_by_name.get(scene_name or ""))
+            for scene_name, blocks in blocks_by_scene.items()
+        ]
+
+    @classmethod
+    def _scene_component_search_scene_result(
+        cls,
+        blueprint: dict[str, Any],
+        scene_name: str | None,
+        matched_script_blocks: list[dict[str, Any]],
+        matched_scene: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        component_map: dict[tuple[Any, ...], dict[str, Any]] = {}
+        component_placements: list[dict[str, Any]] = []
+        if matched_scene is not None:
+            for layer in cls._dict_list(matched_scene.get("layers")):
+                placement = cls._scene_component_placement(matched_scene, layer)
+                component_placements.append(placement)
+                key = (
+                    placement.get("layer_name"),
+                    placement.get("material_id"),
+                    placement.get("source_material_type"),
+                    placement.get("layer_role"),
+                )
+                component = component_map.setdefault(
+                    key,
+                    {
+                        "component_name": placement.get("layer_name"),
+                        "component_type": placement.get("source_material_type"),
+                        "component_role": placement.get("layer_role"),
+                        "material_id": placement.get("material_id"),
+                        "required_category": placement.get("required_category"),
+                        "material_tab": placement.get("material_tab"),
+                        "source_material_type": placement.get("source_material_type"),
+                        "source_material_url": placement.get("source_material_url"),
+                        "source_cover_url": placement.get("source_cover_url"),
+                        "placements": 0,
+                        "scene_names": [],
+                        "geometry_examples": [],
+                    },
+                )
+                component["placements"] += 1
+                placement_scene_name = placement.get("scene_name")
+                if placement_scene_name and placement_scene_name not in component["scene_names"]:
+                    component["scene_names"].append(placement_scene_name)
+                geometry = placement.get("geometry") or {}
+                if geometry and geometry not in component["geometry_examples"] and len(component["geometry_examples"]) < 5:
+                    component["geometry_examples"].append(geometry)
+
+        reference_profile = blueprint.get("reference_profile") if isinstance(blueprint.get("reference_profile"), dict) else {}
+        matched_scene_names = [scene_name] if scene_name else []
+        return {
+            "blueprint_code": blueprint["blueprint_code"],
+            "title": blueprint["title"],
+            "reference_room_id": blueprint.get("reference_room_id"),
+            "reference_room_name": blueprint.get("reference_room_name"),
+            "platform": blueprint.get("platform"),
+            "status": blueprint["status"],
+            "room_type": blueprint["room_type"],
+            "template_library_code": blueprint.get("template_library_code") or reference_profile.get("template_library_code"),
+            "matched_script_blocks": matched_script_blocks,
+            "matched_scene_names": matched_scene_names,
+            "matched_scene_count": len(matched_scene_names),
+            "scene_count": 1 if matched_scene is not None else 0,
+            "script_block_count": len(matched_script_blocks),
+            "unique_component_count": len(component_map),
+            "component_placement_count": len(component_placements),
+            "components": list(component_map.values()),
+            "component_placements": component_placements,
+        }
+
+    @staticmethod
+    def _scene_component_placement(scene: dict[str, Any], layer: dict[str, Any]) -> dict[str, Any]:
+        geometry = {
+            "left": layer.get("left_position"),
+            "top": layer.get("top_position"),
+            "width": layer.get("width"),
+            "height": layer.get("height"),
+            "scale": layer.get("scale"),
+        }
+        return {
+            "scene_name": scene.get("scene_name"),
+            "scene_type": scene.get("scene_type"),
+            "reference_product_name": scene.get("reference_product_name"),
+            "reference_item_id": scene.get("reference_item_id"),
+            "reference_clip_id": scene.get("reference_clip_id"),
+            "layer_code": layer.get("layer_code"),
+            "layer_name": layer.get("layer_name"),
+            "layer_role": layer.get("layer_role"),
+            "material_id": layer.get("material_id"),
+            "material_tab": layer.get("material_tab"),
+            "source_material_type": layer.get("source_material_type"),
+            "required_category": layer.get("required_category"),
+            "accepted_asset_types": layer.get("accepted_asset_types") or [],
+            "replacement_policy": layer.get("replacement_policy"),
+            "geometry": geometry,
+            "z_index": layer.get("z_index"),
+            "speaker_id": layer.get("speaker_id"),
+            "digital_human_image_id": layer.get("digital_human_image_id"),
+            "source_material_url": layer.get("source_material_url"),
+            "source_cover_url": layer.get("source_cover_url"),
+        }
+
+    @staticmethod
+    def _dict_list(value: Any) -> list[dict[str, Any]]:
+        return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
 
     @staticmethod
     def _normalize_live_room_blueprint(row: dict[str, Any]) -> dict[str, Any]:

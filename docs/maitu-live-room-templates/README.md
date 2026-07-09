@@ -56,3 +56,22 @@ curl --get 'http://127.0.0.1:8000/api/maitu/live-room-blueprints' \
 ```
 
 应能返回 `MT-BP-20260709-38336-TEMPLATE` / `张裕夏日主题`。
+
+## 通过某个场景剧本反查该场景组件
+
+后端 `GET /api/maitu/live-room-blueprints/scene-components/by-script` 支持用一段场景剧本文案反查匹配场景，并返回该场景的所有组件/图层，而不是只返回直播间。
+
+示例：
+
+```bash
+curl --get 'http://127.0.0.1:8000/api/maitu/live-room-blueprints/scene-components/by-script' \
+  --data-urlencode 'reference_room_id=38336' \
+  --data-urlencode 'q=龙谕的葡萄园，在宁夏贺兰山东麓'
+```
+
+返回结果按匹配场景分组，每个结果包含：
+
+- `matched_scene_names`：匹配到的场景名。
+- `matched_script_blocks`：命中的剧本块。
+- `components`：该场景去重后的组件清单。
+- `component_placements`：该场景每个图层的完整摆放信息，包含素材名、类型、角色、`material_id`、坐标、尺寸、层级、数字人/音色关联等。

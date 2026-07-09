@@ -184,6 +184,128 @@ class FakeMaituMaterialSlotRepository:
             rows = [row for row in rows if matches(row)]
         return rows[offset : offset + limit]
 
+    def search_live_room_scene_components_by_script(
+        self,
+        *,
+        q: str,
+        reference_room_id: str | None = None,
+        status: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        needle = q.lower()
+        rows = list(self.blueprints.values())
+        if reference_room_id is not None:
+            rows = [row for row in rows if row.get("reference_room_id") == reference_room_id]
+        if status is not None:
+            rows = [row for row in rows if row.get("status") == status]
+        results: list[dict[str, Any]] = []
+        for row in rows:
+            matched_blocks = [
+                block
+                for block in row.get("script_blocks", [])
+                if needle in str(block.get("content") or "").lower()
+            ]
+            if not matched_blocks:
+                continue
+            matched_scene_names = []
+            for block in matched_blocks:
+                scene_name = block.get("scene_name")
+                if scene_name and scene_name not in matched_scene_names:
+                    matched_scene_names.append(scene_name)
+            matched_scenes = [scene for scene in row.get("scenes", []) if scene.get("scene_name") in matched_scene_names]
+            placements = []
+            components: dict[tuple[Any, ...], dict[str, Any]] = {}
+            for scene in matched_scenes:
+                for layer in scene.get("layers", []):
+                    geometry = {
+                        "left": layer.get("left_position"),
+                        "top": layer.get("top_position"),
+                        "width": layer.get("width"),
+                        "height": layer.get("height"),
+                        "scale": layer.get("scale"),
+                    }
+                    placement = {
+                        "scene_name": scene.get("scene_name"),
+                        "scene_type": scene.get("scene_type"),
+                        "reference_product_name": scene.get("reference_product_name"),
+                        "reference_item_id": scene.get("reference_item_id"),
+                        "reference_clip_id": scene.get("reference_clip_id"),
+                        "layer_code": layer.get("layer_code"),
+                        "layer_name": layer.get("layer_name"),
+                        "layer_role": layer.get("layer_role"),
+                        "material_id": layer.get("material_id"),
+                        "material_tab": layer.get("material_tab"),
+                        "source_material_type": layer.get("source_material_type"),
+                        "required_category": layer.get("required_category"),
+                        "accepted_asset_types": layer.get("accepted_asset_types", []),
+                        "replacement_policy": layer.get("replacement_policy"),
+                        "geometry": geometry,
+                        "z_index": layer.get("z_index"),
+                        "speaker_id": layer.get("speaker_id"),
+                        "digital_human_image_id": layer.get("digital_human_image_id"),
+                        "source_material_url": layer.get("source_material_url"),
+                        "source_cover_url": layer.get("source_cover_url"),
+                    }
+                    placements.append(placement)
+                    key = (
+                        placement.get("layer_name"),
+                        placement.get("material_id"),
+                        placement.get("source_material_type"),
+                        placement.get("layer_role"),
+                    )
+                    component = components.setdefault(
+                        key,
+                        {
+                            "component_name": placement.get("layer_name"),
+                            "component_type": placement.get("source_material_type"),
+                            "component_role": placement.get("layer_role"),
+                            "material_id": placement.get("material_id"),
+                            "required_category": placement.get("required_category"),
+                            "material_tab": placement.get("material_tab"),
+                            "source_material_type": placement.get("source_material_type"),
+                            "source_material_url": placement.get("source_material_url"),
+                            "source_cover_url": placement.get("source_cover_url"),
+                            "placements": 0,
+                            "scene_names": [],
+                            "geometry_examples": [],
+                        },
+                    )
+                    component["placements"] += 1
+                    if placement["scene_name"] not in component["scene_names"]:
+                        component["scene_names"].append(placement["scene_name"])
+                    component["geometry_examples"].append(geometry)
+            results.append(
+                {
+                    "blueprint_code": row["blueprint_code"],
+                    "title": row["title"],
+                    "reference_room_id": row.get("reference_room_id"),
+                    "reference_room_name": row.get("reference_room_name"),
+                    "platform": row.get("platform"),
+                    "status": row["status"],
+                    "room_type": row["room_type"],
+                    "template_library_code": row.get("template_library_code") or row.get("reference_profile", {}).get("template_library_code"),
+                    "matched_script_blocks": [
+                        {
+                            "script_block_code": block.get("script_block_code"),
+                            "scene_name": block.get("scene_name"),
+                            "sort_order": block.get("sort_order"),
+                            "content": block.get("content") or "",
+                        }
+                        for block in matched_blocks
+                    ],
+                    "matched_scene_names": matched_scene_names,
+                    "matched_scene_count": len(matched_scene_names),
+                    "scene_count": len(matched_scenes),
+                    "script_block_count": len(matched_blocks),
+                    "unique_component_count": len(components),
+                    "component_placement_count": len(placements),
+                    "components": list(components.values()),
+                    "component_placements": placements,
+                }
+            )
+        return results[offset : offset + limit]
+
     def get_live_room_blueprint_by_code(self, blueprint_code: str) -> dict[str, Any] | None:
         return self.blueprints.get(blueprint_code)
 
@@ -1948,6 +2070,132 @@ def test_list_live_room_blueprints_can_search_by_script_text(client: TestClient)
     assert [row["blueprint_code"] for row in rows] == ["MT-BP-20260709-38336-TEMPLATE"]
     assert rows[0]["reference_room_id"] == "38336"
     assert rows[0]["script_blocks"][0]["content"].startswith("龙谕的葡萄园")
+
+
+def test_search_scene_components_by_script_returns_only_matched_scene_components(client: TestClient) -> None:
+    payload = {
+        "reference_profile": {
+            "profile_code": "MT-REF-20260709-38336-TEMPLATE",
+            "source": "maitu_template_library_readonly_observe",
+            "reference_room_id": "38336",
+            "reference_room_name": "张裕夏日主题",
+            "platform": "京东",
+        },
+        "blueprint": {
+            "blueprint_code": "MT-BP-20260709-38336-TEMPLATE",
+            "reference_profile_code": "MT-REF-20260709-38336-TEMPLATE",
+            "title": "张裕夏日主题 模板库基准蓝图",
+            "platform": "京东",
+            "room_type": "template_library_baseline",
+            "reference_room_id": "38336",
+            "reference_room_name": "张裕夏日主题",
+            "status": "template_baseline",
+            "scenes": [
+                {
+                    "scene_code": "MT-TPL-SCENE-38336-001",
+                    "scene_name": "商品01-场景01",
+                    "scene_type": "讲品",
+                    "reference_product_name": "龙谕 龙8 干红葡萄酒 750ml*4瓶 整箱装",
+                    "reference_item_id": "100029295221",
+                    "reference_clip_id": "390051",
+                    "layers": [
+                        {
+                            "layer_code": "MT-TPL-LAYER-38336-001-01",
+                            "layer_name": "微信图片_20260618221607_11_15",
+                            "layer_role": "background",
+                            "required_category": "background_image",
+                            "accepted_asset_types": ["IMG"],
+                            "material_tab": "背景",
+                            "source_material_type": "image",
+                            "material_id": 40131,
+                            "left_position": 0,
+                            "top_position": 0,
+                            "width": 1080,
+                            "height": 1919,
+                            "z_index": 1,
+                            "replacement_policy": "keep_layout",
+                        },
+                        {
+                            "layer_code": "MT-TPL-LAYER-38336-001-02",
+                            "layer_name": "张裕定制形象260519",
+                            "layer_role": "digital_human",
+                            "required_category": "digital_human_video",
+                            "accepted_asset_types": ["IMG", "VID"],
+                            "material_tab": "数字分身",
+                            "source_material_type": "digital_human",
+                            "material_id": 37200,
+                            "left_position": 106,
+                            "top_position": 464,
+                            "width": 856,
+                            "height": 1540,
+                            "z_index": 3,
+                            "speaker_id": 3760,
+                            "digital_human_image_id": 7717,
+                            "replacement_policy": "keep_layout",
+                        },
+                    ],
+                },
+                {
+                    "scene_code": "MT-TPL-SCENE-38336-002",
+                    "scene_name": "商品01-场景02",
+                    "scene_type": "特写",
+                    "layers": [
+                        {
+                            "layer_code": "MT-TPL-LAYER-38336-002-01",
+                            "layer_name": "不应返回的特写视频",
+                            "layer_role": "product_video",
+                            "required_category": "product_video",
+                            "accepted_asset_types": ["VID"],
+                            "source_material_type": "decorative_video",
+                            "material_id": 37318,
+                            "left_position": 0,
+                            "top_position": 0,
+                            "width": 1086,
+                            "height": 1926,
+                        }
+                    ],
+                },
+            ],
+            "script_blocks": [
+                {
+                    "script_block_code": "MT-TPL-SCRIPT-38336-001",
+                    "scene_name": "商品01-场景01",
+                    "sort_order": 1,
+                    "content": "龙谕的葡萄园，在宁夏贺兰山东麓。那里有父亲山贺兰山，也有母亲河黄河。",
+                },
+                {
+                    "script_block_code": "MT-TPL-SCRIPT-38336-002",
+                    "scene_name": "商品01-场景02",
+                    "sort_order": 2,
+                    "content": "这是一段商品细节特写，不包含查询关键词。",
+                },
+            ],
+            "template_library_code": "MT-TEMPLATE-38336-ZHANGYU-SUMMER",
+        },
+    }
+    assert client.post("/api/maitu/live-room-blueprints/import-reference", json=payload).status_code == 201
+
+    response = client.get(
+        "/api/maitu/live-room-blueprints/scene-components/by-script",
+        params={"q": "贺兰山东麓"},
+    )
+
+    assert response.status_code == 200
+    rows = response.json()
+    assert len(rows) == 1
+    result = rows[0]
+    assert result["blueprint_code"] == "MT-BP-20260709-38336-TEMPLATE"
+    assert result["matched_scene_names"] == ["商品01-场景01"]
+    assert result["scene_count"] == 1
+    assert result["script_block_count"] == 1
+    assert result["unique_component_count"] == 2
+    assert result["component_placement_count"] == 2
+    component_names = {component["component_name"] for component in result["components"]}
+    assert component_names == {"微信图片_20260618221607_11_15", "张裕定制形象260519"}
+    assert "不应返回的特写视频" not in component_names
+    digital_human = next(component for component in result["components"] if component["component_role"] == "digital_human")
+    assert digital_human["material_id"] == 37200
+    assert digital_human["geometry_examples"][0]["left"] == 106
 
 
 def test_create_live_room_build_plan_from_blueprint_and_get_browser_use_operations(client: TestClient) -> None:

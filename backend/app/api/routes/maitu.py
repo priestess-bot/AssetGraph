@@ -19,6 +19,7 @@ from app.schemas.maitu import (
     MaituLiveRoomBuildPlanExecutionResultRead,
     MaituLiveRoomBuildPlanOperationPlanResponse,
     MaituLiveRoomBuildPlanRead,
+    MaituLiveRoomComponentSearchResultRead,
     MaituLayoutAdjustmentCreate,
     MaituLayoutAdjustmentRead,
     MaituMaterialSlotCreate,
@@ -203,6 +204,27 @@ def list_live_room_blueprints(
         reference_room_id=reference_room_id,
         status=status,
         q=q,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get(
+    "/live-room-blueprints/scene-components/by-script",
+    response_model=list[MaituLiveRoomComponentSearchResultRead],
+)
+def search_live_room_scene_components_by_script(
+    repository: Annotated[MaituMaterialSlotRepository, Depends(get_maitu_slot_repository)],
+    q: str = Query(..., min_length=1),
+    reference_room_id: str | None = None,
+    status: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[dict]:
+    return repository.search_live_room_scene_components_by_script(
+        q=q,
+        reference_room_id=reference_room_id,
+        status=status,
         limit=limit,
         offset=offset,
     )
