@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from browser_use_worker.build_plan_non_destructive import BuildPlanNonDestructiveRunner
+from browser_use_worker.build_plan_non_destructive import BuildPlanNonDestructiveRunner, build_non_destructive_execution_payload
 from browser_use_worker.build_plan_preflight import BuildPlanPreflight
 
 
@@ -157,3 +157,47 @@ def test_non_destructive_runner_blocks_when_preflight_is_not_green() -> None:
     assert result.allowed_action_count == 0
     assert action_session.calls == []
     assert "preflight" in result.summary
+
+
+def test_build_non_destructive_execution_payload_maps_actions_to_api_shape() -> None:
+    preflight = BuildPlanPreflight(session=FakeNonDestructiveSession()).run(build_plan())
+    result = BuildPlanNonDestructiveRunner(session=FakeNonDestructiveSession()).run(build_plan(), preflight)
+
+    payload = build_non_destructive_execution_payload(result)
+
+    assert payload["execution_status"] == "completed"
+    assert payload["mode"] == "non_destructive"
+    assert payload["result_summary"] == result.summary
+    assert payload["operation_results"][1]["operation_index"] == 1
+    assert payload["operation_results"][1]["operation_type"] == "select_scene"
+    assert payload["operation_results"][1]["action_type"] == "select_scene"
+    assert payload["operation_results"][1]["status"] == "executed"
+    assert payload["operation_results"][2]["details"]["replacement_blocked"] is True
+
+
+def test_build_non_destructive_execution_payload_includes_synthetic_blocked_preflight_result() -> None:
+    warning_preflight = BuildPlanPreflight(session=None, probe_browser=False).run(build_plan())
+    result = BuildPlanNonDestructiveRunner(session=FakeNonDestructiveSession()).run(build_plan(), warning_preflight)
+
+    payload = build_non_destructive_execution_payload(result)
+
+    assert payload["execution_status"] == "blocked"
+    assert payload["failure_type"] == "preflight_not_green"
+    assert payload["operation_results"] == [
+        {
+            "operation_index": 0,
+            "operation_type": "preflight_build_plan",
+            "operation_name": "BuildPlan preflight gate",
+            "action_type": "preflight_gate",
+            "status": "blocked",
+            "failure_type": "preflight_not_green",
+            "retryable": False,
+            "error_message": result.summary,
+            "details": {
+                "ready_for_mutation": False,
+                "allowed_action_count": 0,
+                "blocked_mutation_count": 0,
+                "failure_count": 1,
+            },
+        }
+    ]

@@ -52,3 +52,19 @@ def test_get_live_room_build_plan_operation_plan_uses_browser_use_endpoint() -> 
             None,
         )
     ]
+
+
+def test_write_live_room_build_plan_execution_result_uses_execution_results_endpoint() -> None:
+    client = RecordingClient()
+    payload = {"execution_status": "blocked", "mode": "non_destructive", "operation_results": []}
+
+    result = client.write_live_room_build_plan_execution_result("MT-BUILD-20260709-000001", payload)
+
+    assert result == {"asset_code": "AG-VID-20260709-000001"}
+    assert client.calls == [
+        (
+            "POST",
+            "/api/maitu/live-room-build-plans/MT-BUILD-20260709-000001/execution-results",
+            payload,
+        )
+    ]

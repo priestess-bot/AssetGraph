@@ -416,13 +416,14 @@ GET build status 200
 GET operations status 200
 ```
 
-当前 Browser-use worker 已接入 `GET /live-room-build-plans/{build_plan_code}/browser-use-operations` 的 BuildPlan dry-run、只读 preflight 和非破坏性 UI 导航：
+当前 Browser-use worker 已接入 `GET /live-room-build-plans/{build_plan_code}/browser-use-operations` 的 BuildPlan dry-run、只读 preflight、非破坏性 UI 导航和执行证据回写：
 
 ```bash
 python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --dry-run
 python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --preflight-build
 python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --preflight-build --skip-browser-probe
 python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --non-destructive-build
+python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --non-destructive-build --write-result
 ```
 
 worker dry-run 会：
@@ -456,6 +457,16 @@ non-destructive build 会在真实 preflight 全绿后才继续，且只允许�
 
 仍然禁止：上传素材、插入/替换图层、写入脚本、保存草稿、点击正式开播。
 
+执行证据回写新增接口：
+
+```http
+POST /api/maitu/live-room-build-plans/{build_plan_code}/execution-results
+GET  /api/maitu/live-room-build-plans/{build_plan_code}/execution-results
+GET  /api/maitu/live-room-build-plans/{build_plan_code}/execution-results/{execution_code}
+```
+
+`--write-result` 会把非破坏性 run 的总体状态、failure type、摘要、每个 action 的 operation index/type/action/status/details，以及可选 `screenshot_asset_code` / `dom_snapshot_asset_code` 回写成 `MT-EXEC-*`。如果 preflight 未全绿，worker 仍然不会点击 UI，但会回写一个 `blocked` execution result，方便后端审计和后续 retry/人工处理。
+
 真实 smoke：
 
 ```text
@@ -484,6 +495,13 @@ status blocked
 failure_count 1
 allowed_action_count 0
 reason: preflight is not green, so no UI navigation was executed
+
+non-destructive build --write-result:
+POST /api/maitu/live-room-build-plans/MT-BUILD-20260709-000001/execution-results -> 201 Created
+execution_code MT-EXEC-20260709-000001
+execution_status blocked
+mode non_destructive
+operation_results[0].action_type preflight_gate
 ```
 
 这说明当前已能安全地阻止未登录状态下的自主搭建执行。

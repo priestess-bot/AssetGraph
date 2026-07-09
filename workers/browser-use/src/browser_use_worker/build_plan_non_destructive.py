@@ -311,3 +311,62 @@ class BuildPlanNonDestructiveRunner:
             return None
         text = str(value)
         return text if text else None
+
+
+def build_non_destructive_execution_payload(result: BuildPlanNonDestructiveResult) -> dict[str, Any]:
+    """Convert a non-destructive worker result into the backend execution-result payload."""
+    execution_status = "completed" if result.status == "completed" else result.status
+    payload: dict[str, Any] = {
+        "executor": "browser_use",
+        "execution_status": execution_status,
+        "mode": "non_destructive",
+        "retryable": False,
+        "result_summary": result.summary,
+        "operation_results": [_action_to_operation_result(action) for action in result.actions],
+    }
+    if result.status == "blocked":
+        payload["failure_type"] = "preflight_not_green"
+        if not payload["operation_results"]:
+            payload["operation_results"] = [_synthetic_preflight_blocked_result(result)]
+    elif result.status == "failed":
+        payload["failure_type"] = "non_destructive_action_failed"
+    return payload
+
+
+def _action_to_operation_result(action: BuildPlanNonDestructiveActionResult) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "operation_index": action.index,
+        "operation_type": action.operation_type or "unknown",
+        "operation_name": action.operation_name,
+        "scene_name": action.scene_name,
+        "layer_name": action.layer_name,
+        "action_type": action.action_type,
+        "status": action.status,
+        "retryable": False,
+        "details": {**(action.details or {}), "summary": action.summary},
+    }
+    if action.status == "failed":
+        payload["failure_type"] = "non_destructive_action_failed"
+        payload["error_message"] = action.summary
+    if action.status == "blocked":
+        payload["failure_type"] = "mutation_blocked"
+    return {key: value for key, value in payload.items() if value is not None}
+
+
+def _synthetic_preflight_blocked_result(result: BuildPlanNonDestructiveResult) -> dict[str, Any]:
+    return {
+        "operation_index": 0,
+        "operation_type": "preflight_build_plan",
+        "operation_name": "BuildPlan preflight gate",
+        "action_type": "preflight_gate",
+        "status": "blocked",
+        "failure_type": "preflight_not_green",
+        "retryable": False,
+        "error_message": result.summary,
+        "details": {
+            "ready_for_mutation": result.ready_for_mutation,
+            "allowed_action_count": result.allowed_action_count,
+            "blocked_mutation_count": result.blocked_mutation_count,
+            "failure_count": result.failure_count,
+        },
+    }

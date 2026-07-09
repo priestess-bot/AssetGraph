@@ -81,6 +81,66 @@ class MaituLiveRoomBuildPlanOperationPlanResponse(BaseModel):
     operations: list[MaituLiveRoomBuildPlanOperationRead] = Field(default_factory=list)
 
 
+class MaituLiveRoomBuildPlanOperationResultCreate(BaseModel):
+    operation_index: int = Field(..., ge=0)
+    operation_type: str = Field(..., max_length=64)
+    operation_name: str | None = Field(default=None, max_length=255)
+    scene_name: str | None = Field(default=None, max_length=128)
+    layer_name: str | None = Field(default=None, max_length=128)
+    action_type: str | None = Field(default=None, max_length=64)
+    status: str = Field(..., max_length=32)
+    failure_type: str | None = Field(default=None, max_length=64)
+    retryable: bool = False
+    retry_instruction: str | None = None
+    error_message: str | None = None
+    screenshot_asset_code: str | None = Field(default=None, max_length=64)
+    dom_snapshot_asset_code: str | None = Field(default=None, max_length=64)
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
+class MaituLiveRoomBuildPlanOperationResultRead(MaituLiveRoomBuildPlanOperationResultCreate):
+    id: str | None = None
+    sort_order: int = 0
+
+
+class MaituLiveRoomBuildPlanExecutionResultCreate(BaseModel):
+    executor: str = Field(default="browser_use", max_length=64)
+    execution_status: str = Field(..., max_length=32)
+    mode: str = Field(default="non_destructive", max_length=64)
+    failure_type: str | None = Field(default=None, max_length=64)
+    retryable: bool = False
+    retry_instruction: str | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    error_message: str | None = None
+    screenshot_asset_code: str | None = Field(default=None, max_length=64)
+    dom_snapshot_asset_code: str | None = Field(default=None, max_length=64)
+    result_summary: str | None = None
+    operation_results: list[MaituLiveRoomBuildPlanOperationResultCreate] = Field(default_factory=list)
+
+
+class MaituLiveRoomBuildPlanExecutionResultRead(BaseModel):
+    id: str
+    execution_code: str
+    build_plan_code: str
+    blueprint_code: str
+    executor: str
+    execution_status: str
+    mode: str
+    failure_type: str | None = None
+    retryable: bool = False
+    retry_instruction: str | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    error_message: str | None = None
+    screenshot_asset_code: str | None = None
+    dom_snapshot_asset_code: str | None = None
+    result_summary: str | None = None
+    operation_results: list[MaituLiveRoomBuildPlanOperationResultRead] = Field(default_factory=list)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
 class MaituLayerGeometry(BaseModel):
     x: float = Field(..., ge=0)
     y: float = Field(..., ge=0)

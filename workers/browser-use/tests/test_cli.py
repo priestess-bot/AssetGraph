@@ -112,8 +112,23 @@ def test_observe_maitu_cli_prints_current_state_json(monkeypatch, capsys) -> Non
 
 
 class FakeAssetGraphClient:
+    writes: list[tuple[str, dict]] = []
+
     def __init__(self, base_url: str) -> None:
         self.base_url = base_url
+
+    def write_live_room_build_plan_execution_result(self, build_plan_code: str, payload: dict) -> dict:
+        self.writes.append((build_plan_code, payload))
+        return {
+            "execution_code": "MT-EXEC-20260709-000001",
+            "build_plan_code": build_plan_code,
+            "blueprint_code": "MT-BP-20260709-39826",
+            "executor": payload.get("executor", "browser_use"),
+            "execution_status": payload["execution_status"],
+            "mode": payload["mode"],
+            "operation_results": payload["operation_results"],
+            "id": "89100000-0000-0000-0000-000000000001",
+        }
 
     def get_live_room_build_plan_operation_plan(self, build_plan_code: str) -> dict:
         assert build_plan_code == "MT-BUILD-20260709-000001"
@@ -300,3 +315,26 @@ def test_build_plan_non_destructive_cli_runs_only_allowed_low_risk_actions(monke
     assert output["actions"][1]["action_type"] == "select_scene"
     assert output["actions"][2]["action_type"] == "open_material_tab"
     assert output["actions"][3]["action_type"] == "open_workbench_tab"
+
+
+def test_build_plan_non_destructive_cli_can_write_execution_result(monkeypatch, capsys) -> None:
+    FakeAssetGraphClient.writes = []
+    monkeypatch.setattr(worker_main, "AssetGraphClient", FakeAssetGraphClient, raising=False)
+    monkeypatch.setattr(worker_main, "BrowserUseCliSession", FakeBrowserUseCliSession, raising=False)
+
+    exit_code = worker_main.main([
+        "--build-plan-code",
+        "MT-BUILD-20260709-000001",
+        "--non-destructive-build",
+        "--write-result",
+    ])
+
+    assert exit_code == 0
+    output = json.loads(capsys.readouterr().out)
+    assert output["worker_result"]["status"] == "completed"
+    assert output["execution_result"]["execution_code"] == "MT-EXEC-20260709-000001"
+    assert output["execution_result"]["execution_status"] == "completed"
+    assert FakeAssetGraphClient.writes[0][0] == "MT-BUILD-20260709-000001"
+    written_payload = FakeAssetGraphClient.writes[0][1]
+    assert written_payload["mode"] == "non_destructive"
+    assert written_payload["operation_results"][1]["action_type"] == "select_scene"

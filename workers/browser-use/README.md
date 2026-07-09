@@ -32,6 +32,7 @@ python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --dry-ru
 python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --preflight-build
 python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --preflight-build --skip-browser-probe
 python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --non-destructive-build
+python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --non-destructive-build --write-result
 ```
 
 `--preflight --plan-code ...` fetches the replacement plan operation plan and performs read-only safety checks before any mutating Browser-use execution. It validates operation support, Maitu project/scene context, AssetGraph asset lookup, Browser-use-friendly asset fields, local file availability under `--assets-root` (default `D:/AssetGraph/素材`), the current Maitu browser/login shell, and whether the target layer/slot name is visible on the current page. It exits with code `0` when there are no failures and code `2` when a blocking check fails. `ready_to_execute` is only `true` when there are no failures, warnings, or skipped checks.
@@ -45,6 +46,8 @@ python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --non-de
 `--preflight-build --build-plan-code ...` fetches the same BuildPlan operation plan and performs read-only checks against the current Maitu state: login status, target live room id, scene names, active-scene layer names, script tab availability, operation allowlist, save/manual-review status, and unsafe go-live instructions.
 
 `--non-destructive-build --build-plan-code ...` requires that same real preflight to pass with no warnings/skips/failures. It then allows only low-risk UI navigation: select existing scenes, open inferred material tabs, open the `直播脚本` tab, and re-observe after each action. It still refuses upload, insert/replace, typing script text, save, and go-live actions.
+
+`--write-result` can be added to `--non-destructive-build` to POST `/api/maitu/live-room-build-plans/{build_plan_code}/execution-results`. A preflight-blocked run writes a `blocked` `MT-EXEC-*` record with a synthetic `preflight_gate` operation result; a completed low-risk run writes one operation result per action, including details and optional screenshot/DOM asset references.
 
 `--probe-maitu` is read-only. It calls the local `D:/browser-use` CLI, inspects the current page, opens Maitu home when the active page is unrelated, and prints JSON with `url`, `logged_in`, `login_required`, and `opened_home`. It never uploads assets, replaces layers, or saves a Maitu project.
 

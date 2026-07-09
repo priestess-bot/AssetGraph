@@ -333,8 +333,10 @@ For now, all mutating execution paths remain disabled.
   ```http
   POST /api/maitu/live-room-build-plans/{build_plan_code}/execution-results
   GET  /api/maitu/live-room-build-plans/{build_plan_code}/execution-results
+  GET  /api/maitu/live-room-build-plans/{build_plan_code}/execution-results/{execution_code}
   ```
 - Operation result fields mirror replacement execution results, but operation key is generic, not slot-only。
+- Worker `--non-destructive-build --write-result` can now persist a blocked preflight gate or completed low-risk action evidence as `MT-EXEC-*`.
 
 ---
 
@@ -427,8 +429,9 @@ Only after Phase 4/5 prove UI stability should create/configure operations be en
 1. `--build-plan-code --dry-run` ✅
 2. Select scene / open tabs only ✅
 3. Observe after each action ✅
-4. Evidence report（后续截图/DOM artifact）
-5. Docs + commit ✅
+4. Evidence report（blocked/completed execution result write-back）✅
+5. Screenshot/DOM artifact upload（next）
+6. Docs + commit ✅
 
 ## Sprint 4: Controlled first mutation
 
@@ -472,6 +475,7 @@ cd D:/AssetGraph/workers/browser-use
 python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --dry-run
 python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --preflight-build
 python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --non-destructive-build
+python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --non-destructive-build --write-result
 ```
 
 ---

@@ -15,6 +15,8 @@ from app.schemas.maitu import (
     MaituLiveRoomBlueprintImportCreate,
     MaituLiveRoomBlueprintRead,
     MaituLiveRoomBuildPlanCreate,
+    MaituLiveRoomBuildPlanExecutionResultCreate,
+    MaituLiveRoomBuildPlanExecutionResultRead,
     MaituLiveRoomBuildPlanOperationPlanResponse,
     MaituLiveRoomBuildPlanRead,
     MaituLayoutAdjustmentCreate,
@@ -248,6 +250,63 @@ def get_live_room_build_plan_browser_use_operations(
     row = repository.get_live_room_build_plan_operations(build_plan_code)
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Maitu live-room build plan not found")
+    return row
+
+
+@router.post(
+    "/live-room-build-plans/{build_plan_code}/execution-results",
+    response_model=MaituLiveRoomBuildPlanExecutionResultRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_live_room_build_plan_execution_result(
+    build_plan_code: str,
+    payload: MaituLiveRoomBuildPlanExecutionResultCreate,
+    repository: Annotated[MaituMaterialSlotRepository, Depends(get_maitu_slot_repository)],
+) -> dict:
+    row = repository.create_live_room_build_plan_execution_result(build_plan_code, payload.model_dump(exclude_none=True))
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Maitu live-room build plan not found")
+    return row
+
+
+@router.get(
+    "/live-room-build-plans/{build_plan_code}/execution-results",
+    response_model=list[MaituLiveRoomBuildPlanExecutionResultRead],
+)
+def list_live_room_build_plan_execution_results(
+    build_plan_code: str,
+    repository: Annotated[MaituMaterialSlotRepository, Depends(get_maitu_slot_repository)],
+    executor: str | None = None,
+    execution_status: str | None = None,
+    mode: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[dict]:
+    rows = repository.list_live_room_build_plan_execution_results(
+        build_plan_code,
+        executor=executor,
+        execution_status=execution_status,
+        mode=mode,
+        limit=limit,
+        offset=offset,
+    )
+    if rows is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Maitu live-room build plan not found")
+    return rows
+
+
+@router.get(
+    "/live-room-build-plans/{build_plan_code}/execution-results/{execution_code}",
+    response_model=MaituLiveRoomBuildPlanExecutionResultRead,
+)
+def get_live_room_build_plan_execution_result(
+    build_plan_code: str,
+    execution_code: str,
+    repository: Annotated[MaituMaterialSlotRepository, Depends(get_maitu_slot_repository)],
+) -> dict:
+    row = repository.get_live_room_build_plan_execution_result_by_code(build_plan_code, execution_code)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Maitu live-room build execution result not found")
     return row
 
 

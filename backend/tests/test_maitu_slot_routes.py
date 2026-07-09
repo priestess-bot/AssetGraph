@@ -17,6 +17,7 @@ class FakeMaituMaterialSlotRepository:
         self.retry_tasks: dict[str, dict[str, Any]] = {}
         self.blueprints: dict[str, dict[str, Any]] = {}
         self.build_plans: dict[str, dict[str, Any]] = {}
+        self.build_plan_executions: dict[str, dict[str, Any]] = {}
         self.layout_adjustments: dict[str, dict[str, Any]] = {}
         self.assets: list[dict[str, Any]] = [
             {
@@ -199,6 +200,85 @@ class FakeMaituMaterialSlotRepository:
             "target_app": plan["target_app"],
             "operations": plan["operations"],
         }
+
+    def create_live_room_build_plan_execution_result(self, build_plan_code: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+        plan = self.build_plans.get(build_plan_code)
+        if plan is None:
+            return None
+        execution_code = f"MT-EXEC-20260709-{len(self.build_plan_executions) + 1:06d}"
+        operation_results = []
+        for sort_order, operation in enumerate(payload.get("operation_results", [])):
+            operation_results.append(
+                {
+                    "id": f"89000000-0000-0000-0000-{sort_order + 1:012d}",
+                    "operation_index": operation.get("operation_index", sort_order),
+                    "operation_type": operation["operation_type"],
+                    "operation_name": operation.get("operation_name"),
+                    "scene_name": operation.get("scene_name"),
+                    "layer_name": operation.get("layer_name"),
+                    "action_type": operation.get("action_type"),
+                    "status": operation["status"],
+                    "failure_type": operation.get("failure_type"),
+                    "retryable": operation.get("retryable", False),
+                    "retry_instruction": operation.get("retry_instruction"),
+                    "error_message": operation.get("error_message"),
+                    "screenshot_asset_code": operation.get("screenshot_asset_code"),
+                    "dom_snapshot_asset_code": operation.get("dom_snapshot_asset_code"),
+                    "details": operation.get("details", {}),
+                    "sort_order": sort_order,
+                }
+            )
+        execution = {
+            "id": f"89100000-0000-0000-0000-{len(self.build_plan_executions) + 1:012d}",
+            "execution_code": execution_code,
+            "build_plan_code": build_plan_code,
+            "blueprint_code": plan["blueprint_code"],
+            "executor": payload.get("executor", "browser_use"),
+            "execution_status": payload["execution_status"],
+            "mode": payload.get("mode", "non_destructive"),
+            "failure_type": payload.get("failure_type"),
+            "retryable": payload.get("retryable", False),
+            "retry_instruction": payload.get("retry_instruction"),
+            "started_at": payload.get("started_at"),
+            "finished_at": payload.get("finished_at"),
+            "error_message": payload.get("error_message"),
+            "screenshot_asset_code": payload.get("screenshot_asset_code"),
+            "dom_snapshot_asset_code": payload.get("dom_snapshot_asset_code"),
+            "result_summary": payload.get("result_summary"),
+            "operation_results": operation_results,
+            "created_at": None,
+            "updated_at": None,
+        }
+        self.build_plan_executions[execution_code] = execution
+        plan["status"] = "execution_reported"
+        return execution
+
+    def list_live_room_build_plan_execution_results(
+        self,
+        build_plan_code: str,
+        *,
+        executor: str | None = None,
+        execution_status: str | None = None,
+        mode: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[dict[str, Any]] | None:
+        if build_plan_code not in self.build_plans:
+            return None
+        rows = [row for row in self.build_plan_executions.values() if row["build_plan_code"] == build_plan_code]
+        if executor is not None:
+            rows = [row for row in rows if row["executor"] == executor]
+        if execution_status is not None:
+            rows = [row for row in rows if row["execution_status"] == execution_status]
+        if mode is not None:
+            rows = [row for row in rows if row["mode"] == mode]
+        return rows[offset : offset + limit]
+
+    def get_live_room_build_plan_execution_result_by_code(self, build_plan_code: str, execution_code: str) -> dict[str, Any] | None:
+        row = self.build_plan_executions.get(execution_code)
+        if row is None or row["build_plan_code"] != build_plan_code:
+            return None
+        return row
 
     def create_layout_adjustment(self, payload: dict[str, Any]) -> dict[str, Any]:
         from app.services.layout_adjustment import LayerGeometry, plan_layout_adjustment
@@ -1783,6 +1863,100 @@ def test_create_live_room_build_plan_from_blueprint_and_get_browser_use_operatio
     assert operations["reference_room_name"] == "京东空白直播间-0707-1352"
     assert operations["operations"][0]["operation_type"] == "preflight_build_plan"
     assert operations["operations"][-1]["operation_type"] == "save_live_room"
+
+
+def test_create_live_room_build_plan_execution_result_and_list_evidence(client: TestClient) -> None:
+    import_response = client.post(
+        "/api/maitu/live-room-blueprints/import-reference",
+        json={
+            "reference_profile": {
+                "profile_code": "MT-REF-20260709-39826",
+                "source": "browser_use_observe",
+                "reference_room_id": "39826",
+                "reference_room_name": "京东空白直播间-0707-1352",
+                "platform": "京东",
+                "active_scene_name": "场景01",
+            },
+            "blueprint": {
+                "blueprint_code": "MT-BP-20260709-39826",
+                "reference_profile_code": "MT-REF-20260709-39826",
+                "title": "京东空白直播间-0707-1352 重建蓝图",
+                "platform": "京东",
+                "room_type": "reference_rebuild",
+                "reference_room_id": "39826",
+                "reference_room_name": "京东空白直播间-0707-1352",
+                "status": "draft",
+                "scenes": [{"scene_code": "MT-SCENE-20260709-000001", "scene_name": "场景01", "layers": []}],
+                "script_blocks": [],
+            },
+        },
+    )
+    assert import_response.status_code == 201
+    plan_response = client.post(
+        "/api/maitu/live-room-build-plans",
+        json={"blueprint_code": "MT-BP-20260709-39826", "plan_name": "non destructive evidence test"},
+    )
+    build_plan_code = plan_response.json()["build_plan_code"]
+
+    create_response = client.post(
+        f"/api/maitu/live-room-build-plans/{build_plan_code}/execution-results",
+        json={
+            "executor": "browser_use",
+            "execution_status": "blocked",
+            "mode": "non_destructive",
+            "failure_type": "preflight_not_green",
+            "retryable": False,
+            "result_summary": "Preflight was not green; no UI navigation was executed.",
+            "dom_snapshot_asset_code": "AG-DOM-20260709-000001",
+            "operation_results": [
+                {
+                    "operation_index": 0,
+                    "operation_type": "preflight_build_plan",
+                    "operation_name": "只读预检直播间蓝图",
+                    "action_type": "preflight_gate",
+                    "status": "blocked",
+                    "failure_type": "login_required",
+                    "retryable": False,
+                    "error_message": "Maitu login page is visible.",
+                    "details": {"ready_to_execute": False, "allowed_action_count": 0},
+                }
+            ],
+        },
+    )
+
+    assert create_response.status_code == 201
+    created = create_response.json()
+    assert created["execution_code"] == "MT-EXEC-20260709-000001"
+    assert created["build_plan_code"] == build_plan_code
+    assert created["blueprint_code"] == "MT-BP-20260709-39826"
+    assert created["execution_status"] == "blocked"
+    assert created["mode"] == "non_destructive"
+    assert created["dom_snapshot_asset_code"] == "AG-DOM-20260709-000001"
+    assert created["operation_results"][0]["operation_index"] == 0
+    assert created["operation_results"][0]["action_type"] == "preflight_gate"
+    assert created["operation_results"][0]["details"]["allowed_action_count"] == 0
+
+    list_response = client.get(
+        f"/api/maitu/live-room-build-plans/{build_plan_code}/execution-results",
+        params={"executor": "browser_use", "execution_status": "blocked", "mode": "non_destructive"},
+    )
+    assert list_response.status_code == 200
+    assert list_response.json()[0]["execution_code"] == created["execution_code"]
+
+    get_response = client.get(
+        f"/api/maitu/live-room-build-plans/{build_plan_code}/execution-results/{created['execution_code']}"
+    )
+    assert get_response.status_code == 200
+    assert get_response.json()["operation_results"][0]["failure_type"] == "login_required"
+
+
+def test_create_live_room_build_plan_execution_result_for_missing_plan_returns_404(client: TestClient) -> None:
+    response = client.post(
+        "/api/maitu/live-room-build-plans/MT-BUILD-20260709-999999/execution-results",
+        json={"execution_status": "blocked", "mode": "non_destructive", "result_summary": "missing"},
+    )
+
+    assert response.status_code == 404
 
 
 def test_create_live_room_build_plan_for_missing_blueprint_returns_404(client: TestClient) -> None:

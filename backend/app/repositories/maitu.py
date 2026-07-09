@@ -294,6 +294,148 @@ class MaituMaterialSlotRepository:
             "operations": plan.get("operations", []),
         }
 
+    def create_live_room_build_plan_execution_result(self, build_plan_code: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+        plan = self.get_live_room_build_plan_by_code(build_plan_code)
+        if plan is None:
+            return None
+
+        execution_code = self._next_execution_code()
+        operation_results = payload.get("operation_results", [])
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                INSERT INTO maitu_live_room_build_plan_executions (
+                    execution_code, build_plan_code, blueprint_code, executor,
+                    execution_status, mode, started_at, finished_at, failure_type,
+                    retryable, retry_instruction, error_message, screenshot_asset_code,
+                    dom_snapshot_asset_code, result_summary
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING *
+                """,
+                (
+                    execution_code,
+                    build_plan_code,
+                    plan["blueprint_code"],
+                    payload.get("executor", "browser_use"),
+                    payload["execution_status"],
+                    payload.get("mode", "non_destructive"),
+                    payload.get("started_at"),
+                    payload.get("finished_at"),
+                    payload.get("failure_type"),
+                    payload.get("retryable", False),
+                    payload.get("retry_instruction"),
+                    payload.get("error_message"),
+                    payload.get("screenshot_asset_code"),
+                    payload.get("dom_snapshot_asset_code"),
+                    payload.get("result_summary"),
+                ),
+            )
+            execution = cursor.fetchone()
+
+            for sort_order, operation in enumerate(operation_results):
+                cursor.execute(
+                    """
+                    INSERT INTO maitu_live_room_build_plan_operation_results (
+                        execution_id, execution_code, build_plan_code, operation_index,
+                        operation_type, operation_name, scene_name, layer_name, action_type,
+                        status, failure_type, retryable, retry_instruction, error_message,
+                        screenshot_asset_code, dom_snapshot_asset_code, details, sort_order
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        execution["id"],
+                        execution_code,
+                        build_plan_code,
+                        operation["operation_index"],
+                        operation["operation_type"],
+                        operation.get("operation_name"),
+                        operation.get("scene_name"),
+                        operation.get("layer_name"),
+                        operation.get("action_type"),
+                        operation["status"],
+                        operation.get("failure_type"),
+                        operation.get("retryable", False),
+                        operation.get("retry_instruction"),
+                        operation.get("error_message"),
+                        operation.get("screenshot_asset_code"),
+                        operation.get("dom_snapshot_asset_code"),
+                        Jsonb(operation.get("details", {})),
+                        sort_order,
+                    ),
+                )
+
+            cursor.execute(
+                """
+                UPDATE maitu_live_room_build_plans
+                SET status = %s, updated_at = now()
+                WHERE build_plan_code = %s AND deleted_at IS NULL
+                """,
+                (self._build_plan_status_from_execution(payload["execution_status"]), build_plan_code),
+            )
+        self.connection.commit()
+        return self.get_live_room_build_plan_execution_result_by_code(build_plan_code, execution_code)
+
+    def list_live_room_build_plan_execution_results(
+        self,
+        build_plan_code: str,
+        *,
+        executor: str | None = None,
+        execution_status: str | None = None,
+        mode: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[dict[str, Any]] | None:
+        if self.get_live_room_build_plan_by_code(build_plan_code) is None:
+            return None
+        where_clauses = ["build_plan_code = %s", "deleted_at IS NULL"]
+        values: list[Any] = [build_plan_code]
+        if executor is not None:
+            where_clauses.append("executor = %s")
+            values.append(executor)
+        if execution_status is not None:
+            where_clauses.append("execution_status = %s")
+            values.append(execution_status)
+        if mode is not None:
+            where_clauses.append("mode = %s")
+            values.append(mode)
+        values.extend([limit, offset])
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                f"""
+                SELECT *
+                FROM maitu_live_room_build_plan_executions
+                WHERE {' AND '.join(where_clauses)}
+                ORDER BY created_at DESC
+                LIMIT %s OFFSET %s
+                """,
+                tuple(values),
+            )
+            rows = cursor.fetchall()
+        return [self._normalize_live_room_build_plan_execution(row) for row in rows]
+
+    def get_live_room_build_plan_execution_result_by_code(
+        self,
+        build_plan_code: str,
+        execution_code: str,
+    ) -> dict[str, Any] | None:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT *
+                FROM maitu_live_room_build_plan_executions
+                WHERE build_plan_code = %s AND execution_code = %s AND deleted_at IS NULL
+                """,
+                (build_plan_code, execution_code),
+            )
+            row = cursor.fetchone()
+        if row is None:
+            return None
+        execution = self._normalize_live_room_build_plan_execution(row)
+        execution["operation_results"] = self._fetch_live_room_build_plan_operation_results(execution_code)
+        return execution
+
     def create_layout_adjustment(self, payload: dict[str, Any]) -> dict[str, Any]:
         from app.services.layout_adjustment import LayerGeometry, plan_layout_adjustment
 
@@ -1449,6 +1591,23 @@ class MaituMaterialSlotRepository:
             rows = cursor.fetchall()
         return [self._normalize_operation_result(row) for row in rows]
 
+    def _fetch_live_room_build_plan_operation_results(self, execution_code: str) -> list[dict[str, Any]]:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT id, operation_index, operation_type, operation_name, scene_name,
+                    layer_name, action_type, status, failure_type, retryable,
+                    retry_instruction, error_message, screenshot_asset_code,
+                    dom_snapshot_asset_code, details, sort_order
+                FROM maitu_live_room_build_plan_operation_results
+                WHERE execution_code = %s
+                ORDER BY sort_order ASC, created_at ASC
+                """,
+                (execution_code,),
+            )
+            rows = cursor.fetchall()
+        return [self._normalize_live_room_build_plan_operation_result(row) for row in rows]
+
     def _create_retry_tasks_for_execution(
         self,
         cursor: Any,
@@ -1506,6 +1665,18 @@ class MaituMaterialSlotRepository:
             return "partial_failed"
         if execution_status == "failed":
             return "execution_failed"
+        return "execution_reported"
+
+    @staticmethod
+    def _build_plan_status_from_execution(execution_status: str) -> str:
+        if execution_status in {"succeeded", "completed"}:
+            return "executed"
+        if execution_status == "partial_failed":
+            return "partial_failed"
+        if execution_status == "failed":
+            return "execution_failed"
+        if execution_status == "blocked":
+            return "execution_blocked"
         return "execution_reported"
 
     @staticmethod
@@ -1598,7 +1769,24 @@ class MaituMaterialSlotRepository:
         return converted
 
     @staticmethod
+    def _normalize_live_room_build_plan_execution(row: dict[str, Any]) -> dict[str, Any]:
+        converted = dict(row)
+        if "id" in converted and converted["id"] is not None:
+            converted["id"] = str(converted["id"])
+        converted.setdefault("operation_results", [])
+        return converted
+
+    @staticmethod
     def _normalize_operation_result(row: dict[str, Any]) -> dict[str, Any]:
+        converted = dict(row)
+        if "id" in converted and converted["id"] is not None:
+            converted["id"] = str(converted["id"])
+        if converted.get("details") is None:
+            converted["details"] = {}
+        return converted
+
+    @staticmethod
+    def _normalize_live_room_build_plan_operation_result(row: dict[str, Any]) -> dict[str, Any]:
         converted = dict(row)
         if "id" in converted and converted["id"] is not None:
             converted["id"] = str(converted["id"])

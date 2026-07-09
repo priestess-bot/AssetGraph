@@ -38,6 +38,7 @@ AssetGraph 是一个面向麦兔软件与数字人直播业务的多模态视频
 - 麦兔 BuildPlan dry-run：提供 `/api/maitu/live-room-build-plans`、`GET /api/maitu/live-room-build-plans/{build_plan_code}`、`GET /api/maitu/live-room-build-plans/{build_plan_code}/browser-use-operations`，把 `MT-BP-*` 蓝图转换为可审阅的 Browser-use 操作序列；worker 支持 `--build-plan-code MT-BUILD-* --dry-run` 打印安全摘要，默认只规划/预检，不点击正式开播
 - 麦兔 BuildPlan 只读 preflight：worker 支持 `--build-plan-code MT-BUILD-* --preflight-build`，拉取 BuildPlan operations 并只读校验登录态、liveRoomId、场景、激活场景图层、直播脚本面板、`save_live_room=manual_review` 与禁开播规则
 - 麦兔 BuildPlan 非破坏性 UI 导航：worker 支持 `--build-plan-code MT-BUILD-* --non-destructive-build`，仅在 preflight 全绿后选择已有场景、打开素材页签/直播脚本页签并重新 Observe；仍禁止上传、替换、写脚本、保存和开播
+- 麦兔 BuildPlan 执行证据回写：提供 `POST/GET /api/maitu/live-room-build-plans/{build_plan_code}/execution-results`，worker 支持 `--write-result` 将 blocked/completed 非破坏性执行结果、operation evidence、DOM/screenshot asset code 回写为 `MT-EXEC-*`
 - 麦兔自然语言版式微调：提供 `/api/maitu/layout-adjustments` 与 `MT-ADJ-*` 调整计划，把“往右下挪一点/缩小一点/居中/贴右下”等反馈转成 `set_layer_transform` 几何目标、检查项和可验证 operation，模糊反馈进入人工复核
 - 麦兔替换上下文：记录素材对应的麦兔项目、场景、图层、槽位、位置尺寸和 `replacement_policy`，默认保持原布局替换
 - 直播素材索引：通过 `live_code` 聚合一场数字人直播的录屏、切片、封面、字幕、评论导出、脚本和复盘文档等素材
@@ -198,6 +199,9 @@ python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --prefli
 
 # BuildPlan 非破坏性 UI 导航：必须先真实 preflight 全绿；只选择已有场景/打开页签/重新 Observe。
 python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --non-destructive-build
+
+# BuildPlan 执行证据回写：即使 preflight blocked，也把 blocked/completed 摘要与 operation results 回写为 MT-EXEC-*。
+python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --non-destructive-build --write-result
 cd ../..
 
 # 自然语言版式微调：把用户反馈转成可验证的 set_layer_transform 目标。
