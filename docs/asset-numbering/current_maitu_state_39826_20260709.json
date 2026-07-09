@@ -1,0 +1,130 @@
+{
+  "title": "MyTwins麦兔直播",
+  "url": "https://live2.maituai.com/LiveRoom?liveRoomId=39826",
+  "text": "返回\n(ID:39826)\n京东空白直播间-0707-1352\n直播间设置\n正式开播\n商品列表\n创建\n商品ID异常\n1\n收起\n未命名\n场景01\n已激活\n讲品\n场景02\n已激活\n讲品\n场景03\n已激活\n讲品\n场景04\n已激活\n讲品\n场景05\n已激活\n讲品\n场景06\n已激活\n讲品\n场景07\n已激活\n讲品\n创建场景\n画面编辑\n数字分身\n背景\n装饰\n视频\n文本\n模版\n官方\n定制\n声音设置\n珠珠-亲和\n醒醒-俊朗\n芊芊-甜美\n雪瑶-轻熟\n雪瑶-干练\n雪瑶-知性\n雪瑶-简约\n婉瑜-文艺\n婉瑜-端庄\n婉瑜-清纯\n娜娜-温柔\n娜娜-沉稳\n娜娜-柔美\n娜娜-干练\n娜娜-活力\n苏苏-时尚\n苏苏-干练\n明轩-少年\n明轩-酷感\n宇航-文艺\n宇航-利落\n宇航-沉稳\n萱萱-灵动\n冉冉-干练\n冉冉-温雅\n小欣-甜美\n小欣-干练\n小欣-沉稳\n南希-干练\n语妍-温婉\n阿布-稳重\n婉瑜-活力\n婉瑜-柔和\n阿布-精英\n南笙-文艺\n图层\n前景\n品酒大师(PRO）\npng\ngif-01\n标题+logo\n珠珠-亲和\n微信图片_20260618221607_11_15\n直播脚本\n直播互动\n账号授权\n文本\n01\n130 / 3000",
+  "live_room_id": "39826",
+  "live_room_name": "京东空白直播间-0707-1352",
+  "platform": null,
+  "logged_in": true,
+  "login_required": false,
+  "scenes": [
+    {
+      "name": "场景01",
+      "scene_type": "讲品",
+      "active": true,
+      "status": "已激活"
+    },
+    {
+      "name": "场景02",
+      "scene_type": "讲品",
+      "active": false,
+      "status": "已激活"
+    },
+    {
+      "name": "场景03",
+      "scene_type": "讲品",
+      "active": false,
+      "status": "已激活"
+    },
+    {
+      "name": "场景04",
+      "scene_type": "讲品",
+      "active": false,
+      "status": "已激活"
+    },
+    {
+      "name": "场景05",
+      "scene_type": "讲品",
+      "active": false,
+      "status": "已激活"
+    },
+    {
+      "name": "场景06",
+      "scene_type": "讲品",
+      "active": false,
+      "status": "已激活"
+    },
+    {
+      "name": "场景07",
+      "scene_type": "讲品",
+      "active": false,
+      "status": "已激活"
+    }
+  ],
+  "active_scene_name": "场景01",
+  "layers": [
+    {
+      "name": "前景",
+      "active": false
+    },
+    {
+      "name": "品酒大师(PRO）",
+      "active": false
+    },
+    {
+      "name": "png",
+      "active": false
+    },
+    {
+      "name": "gif-01",
+      "active": false
+    },
+    {
+      "name": "标题+logo",
+      "active": false
+    },
+    {
+      "name": "珠珠-亲和",
+      "active": false
+    },
+    {
+      "name": "微信图片_20260618221607_11_15",
+      "active": false
+    }
+  ],
+  "material_tabs": [
+    {
+      "name": "数字分身",
+      "active": true
+    },
+    {
+      "name": "背景",
+      "active": false
+    },
+    {
+      "name": "装饰",
+      "active": false
+    },
+    {
+      "name": "视频",
+      "active": false
+    },
+    {
+      "name": "文本",
+      "active": false
+    },
+    {
+      "name": "模版",
+      "active": false
+    }
+  ],
+  "active_material_tab": "数字分身",
+  "workbench_tabs": [
+    {
+      "name": "直播脚本",
+      "active": true
+    },
+    {
+      "name": "直播互动",
+      "active": false
+    },
+    {
+      "name": "账号授权",
+      "active": false
+    }
+  ],
+  "active_workbench_tab": "直播脚本",
+  "script_texts": [
+    "大家好，今天给大家介绍张裕解百纳品酒大师系列。从适合第一次喝红酒的PRO，到品质旗舰MASTER，再到高端礼赠SUPER，一分钟带大家了解三款酒的区别。如果你第一次接触葡萄酒，我推荐从品酒大师PRO开始。入口柔顺，果香清新，百年张裕品牌保障，新手也能轻松接受。"
+  ]
+}

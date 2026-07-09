@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 from typing import Sequence
@@ -46,6 +47,46 @@ def make_session(outputs: list[str]) -> tuple[BrowserUseCliSession, FakeRunner]:
         runner=runner,
     )
     return session, runner
+
+
+def test_read_current_state_parses_reference_room_from_browser_use_eval() -> None:
+    payload = {
+        "title": "MyTwins麦兔直播",
+        "href": "https://live2.maituai.com/LiveRoom?liveRoomId=39826",
+        "text": "返回\n(ID:39826)\n京东空白直播间-0707-1352\n直播间设置\n京东版",
+        "scenes": [
+            {"text": "场景01\n已激活\n讲品", "active": True},
+            {"text": "场景02\n已激活\n讲品", "active": False},
+        ],
+        "layers": [
+            {"text": "前景", "active": False},
+            {"text": "品酒大师(PRO）", "active": False},
+            {"text": "微信图片_20260618221607_11_15", "active": False},
+        ],
+        "materialTabs": [
+            {"text": "数字分身", "active": True},
+            {"text": "背景", "active": False},
+            {"text": "视频", "active": False},
+        ],
+        "workbenchTabs": [{"text": "直播脚本", "active": True}],
+        "textareas": [{"value": "大家好，今天介绍品酒大师系列。", "maxlength": 3000}],
+    }
+    session, runner = make_session(["result: " + json.dumps(payload, ensure_ascii=False)])
+
+    state = session.read_current_state(open_if_needed=False)
+
+    assert state.live_room_id == "39826"
+    assert state.live_room_name == "京东空白直播间-0707-1352"
+    assert state.platform == "京东版"
+    assert state.active_scene_name == "场景01"
+    assert [scene.name for scene in state.scenes] == ["场景01", "场景02"]
+    assert state.scenes[0].scene_type == "讲品"
+    assert state.scenes[0].active is True
+    assert [layer.name for layer in state.layers] == ["前景", "品酒大师(PRO）", "微信图片_20260618221607_11_15"]
+    assert state.active_material_tab == "数字分身"
+    assert state.active_workbench_tab == "直播脚本"
+    assert state.script_texts == ["大家好，今天介绍品酒大师系列。"]
+    assert runner.commands == [("uv", "run", "browser-use", "eval", BrowserUseCliSession.CURRENT_STATE_SCRIPT)]
 
 
 def test_probe_opens_maitu_home_when_current_page_is_elsewhere() -> None:

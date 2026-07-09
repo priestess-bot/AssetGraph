@@ -26,6 +26,21 @@ class FakeBrowserUseCliSession:
         self.called = True
         return FakeProbe(opened_home=True)
 
+    def read_current_state(self, *, open_if_needed: bool):
+        assert open_if_needed is True
+        self.called = True
+        return FakeCurrentState()
+
+
+@dataclass(slots=True)
+class FakeCurrentState:
+    title: str = "MyTwins麦兔直播"
+    url: str = "https://live2.maituai.com/LiveRoom?liveRoomId=39826"
+    live_room_id: str = "39826"
+    live_room_name: str = "京东空白直播间-0707-1352"
+    platform: str = "京东版"
+    active_scene_name: str = "场景01"
+
 
 def test_probe_maitu_cli_prints_page_probe_json(monkeypatch, capsys) -> None:
     monkeypatch.setattr(worker_main, "BrowserUseCliSession", FakeBrowserUseCliSession, raising=False)
@@ -38,6 +53,19 @@ def test_probe_maitu_cli_prints_page_probe_json(monkeypatch, capsys) -> None:
     assert output["login_required"] is False
     assert output["opened_home"] is True
     assert output["url"] == "https://live2.maituai.com/Home"
+
+
+def test_observe_maitu_cli_prints_current_state_json(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(worker_main, "BrowserUseCliSession", FakeBrowserUseCliSession, raising=False)
+
+    exit_code = worker_main.main(["--observe-maitu"])
+
+    assert exit_code == 0
+    output = json.loads(capsys.readouterr().out)
+    assert output["live_room_id"] == "39826"
+    assert output["live_room_name"] == "京东空白直播间-0707-1352"
+    assert output["platform"] == "京东版"
+    assert output["active_scene_name"] == "场景01"
 
 
 class FakeAssetGraphClient:

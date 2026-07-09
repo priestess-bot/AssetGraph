@@ -302,13 +302,23 @@ reference_room_profile.json
 - script_text[]
 ```
 
-当前已完成一版 Markdown 映射：
+当前已完成一版 Markdown 映射和 Browser-use Observe JSON artifact：
 
 ```text
 docs/asset-numbering/maitu_reference_room_39826_mapping_20260709.md
+docs/asset-numbering/current_maitu_state_39826_20260709.json
 ```
 
-下一步应补 JSON artifact 和 API ingestion。
+Observe 命令：
+
+```bash
+cd workers/browser-use
+python -m browser_use_worker --observe-maitu
+```
+
+该命令只读执行，不点击保存/开播；它输出当前麦兔现场状态，包括登录态、URL、直播间 ID、直播间名称、场景、图层、素材页签、Workbench 页签和脚本文本。
+
+下一步应补 API ingestion。
 
 ### 阶段 B：蓝图建模 API
 

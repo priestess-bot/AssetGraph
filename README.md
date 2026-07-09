@@ -144,6 +144,9 @@ cd workers/browser-use
 python -m browser_use_worker --check-config
 python -m browser_use_worker --once --dry-run
 
+# Observe 环：结构化读取当前麦兔现场状态（直播间、场景、图层、素材页签、脚本文本）。
+python -m browser_use_worker --observe-maitu
+
 # 对指定替换方案直接做 Browser-use 操作计划 dry-run，不领取 retry queue。
 python -m browser_use_worker --plan-code MT-PLAN-20260709-000001 --dry-run
 

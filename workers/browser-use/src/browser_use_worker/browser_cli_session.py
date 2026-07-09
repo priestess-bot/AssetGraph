@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -32,6 +33,46 @@ class MaituPageProbe:
     opened_home: bool = False
 
 
+@dataclass(slots=True)
+class MaituSceneState:
+    name: str
+    scene_type: str | None = None
+    active: bool = False
+    status: str | None = None
+
+
+@dataclass(slots=True)
+class MaituLayerState:
+    name: str
+    active: bool = False
+
+
+@dataclass(slots=True)
+class MaituTabState:
+    name: str
+    active: bool = False
+
+
+@dataclass(slots=True)
+class MaituCurrentState:
+    title: str
+    url: str
+    text: str
+    live_room_id: str | None = None
+    live_room_name: str | None = None
+    platform: str | None = None
+    logged_in: bool = False
+    login_required: bool = False
+    scenes: list[MaituSceneState] | None = None
+    active_scene_name: str | None = None
+    layers: list[MaituLayerState] | None = None
+    material_tabs: list[MaituTabState] | None = None
+    active_material_tab: str | None = None
+    workbench_tabs: list[MaituTabState] | None = None
+    active_workbench_tab: str | None = None
+    script_texts: list[str] | None = None
+
+
 class BrowserUseCliSession(MaituBrowserSession):
     """Read-only Maitu session backed by the local browser-use CLI.
 
@@ -41,6 +82,28 @@ class BrowserUseCliSession(MaituBrowserSession):
     """
 
     PAGE_SUMMARY_SCRIPT = "(() => JSON.stringify({title:document.title,href:location.href,text:document.body?.innerText||''}))()"
+    CURRENT_STATE_SCRIPT = r"""
+(() => {
+  const rect = (el) => { const r = el.getBoundingClientRect(); return {x:Math.round(r.x), y:Math.round(r.y), w:Math.round(r.width), h:Math.round(r.height)}; };
+  const textOf = (el) => (el.innerText || el.textContent || '').trim();
+  const pickDivs = (needle) => [...document.querySelectorAll('div')]
+    .map((el, i) => ({i, className:String(el.className), text:textOf(el), active:String(el.className).includes('Active'), rect:rect(el)}))
+    .filter((item) => item.className.includes(needle) && item.text);
+  return JSON.stringify({
+    title: document.title,
+    href: location.href,
+    text: document.body?.innerText || '',
+    scenes: [...document.querySelectorAll('[role=button]')]
+      .map((el, i) => ({i, className:String(el.className), text:textOf(el), active:String(el.className).includes('Active'), rect:rect(el)}))
+      .filter((item) => /场景\s*\d+/.test(item.text)),
+    layers: pickDivs('layerBox'),
+    materialTabs: pickDivs('Fitment__tabItem'),
+    workbenchTabs: pickDivs('Workbench__tabItem'),
+    textareas: [...document.querySelectorAll('textarea')]
+      .map((el, i) => ({i, placeholder:el.placeholder || '', value:el.value || '', maxlength:el.maxLength, rect:rect(el)})),
+  });
+})()
+""".strip()
 
     def __init__(
         self,
@@ -102,6 +165,13 @@ class BrowserUseCliSession(MaituBrowserSession):
         self.last_probe = probe
         return probe
 
+    def read_current_state(self, *, open_if_needed: bool = True) -> MaituCurrentState:
+        if open_if_needed:
+            self.probe_current_page(open_if_needed=True)
+        output = self._call_browser_use(["eval", self.CURRENT_STATE_SCRIPT])
+        raw = self._parse_json_object(output) or {}
+        return self._current_state_from_payload(raw)
+
     def read_page_summary(self) -> dict[str, str]:
         state_output = self._call_browser_use(["state"])
         parsed = self._parse_json_object(state_output)
@@ -134,6 +204,84 @@ class BrowserUseCliSession(MaituBrowserSession):
                 self._call_browser_use(["open", self.config.home_url])
                 return
             raise
+
+    def _current_state_from_payload(self, payload: dict[str, Any]) -> MaituCurrentState:
+        title = str(payload.get("title") or "")
+        url = str(payload.get("href") or payload.get("url") or "")
+        text = str(payload.get("text") or payload.get("bodyText") or "")
+        probe = self._probe_from_summary({"title": title, "href": url, "text": text})
+        scenes = [self._scene_state_from_item(item) for item in self._list_payload(payload.get("scenes"))]
+        layers = [self._layer_state_from_item(item) for item in self._list_payload(payload.get("layers"))]
+        material_tabs = [self._tab_state_from_item(item) for item in self._list_payload(payload.get("materialTabs"))]
+        workbench_tabs = [self._tab_state_from_item(item) for item in self._list_payload(payload.get("workbenchTabs"))]
+        script_texts = [
+            str(item.get("value") or "").strip()
+            for item in self._list_payload(payload.get("textareas"))
+            if str(item.get("value") or "").strip()
+        ]
+        return MaituCurrentState(
+            title=title,
+            url=url,
+            text=text,
+            live_room_id=self._extract_live_room_id(url, text),
+            live_room_name=self._extract_live_room_name(text),
+            platform=self._extract_platform(text),
+            logged_in=probe.logged_in,
+            login_required=probe.login_required,
+            scenes=scenes,
+            active_scene_name=next((scene.name for scene in scenes if scene.active), None),
+            layers=layers,
+            material_tabs=material_tabs,
+            active_material_tab=next((tab.name for tab in material_tabs if tab.active), None),
+            workbench_tabs=workbench_tabs,
+            active_workbench_tab=next((tab.name for tab in workbench_tabs if tab.active), None),
+            script_texts=script_texts,
+        )
+
+    @staticmethod
+    def _list_payload(value: Any) -> list[dict[str, Any]]:
+        return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+
+    @staticmethod
+    def _scene_state_from_item(item: dict[str, Any]) -> MaituSceneState:
+        lines = [line.strip() for line in str(item.get("text") or "").splitlines() if line.strip()]
+        name = lines[0] if lines else ""
+        status = next((line for line in lines[1:] if line in {"已激活", "未激活"}), None)
+        scene_type = next((line for line in lines[1:] if line not in {"已激活", "未激活"}), None)
+        return MaituSceneState(name=name, scene_type=scene_type, status=status, active=bool(item.get("active")))
+
+    @staticmethod
+    def _layer_state_from_item(item: dict[str, Any]) -> MaituLayerState:
+        return MaituLayerState(name=str(item.get("text") or "").strip(), active=bool(item.get("active")))
+
+    @staticmethod
+    def _tab_state_from_item(item: dict[str, Any]) -> MaituTabState:
+        return MaituTabState(name=str(item.get("text") or "").strip(), active=bool(item.get("active")))
+
+    @staticmethod
+    def _extract_live_room_id(url: str, text: str) -> str | None:
+        url_match = re.search(r"liveRoomId=(\d+)", url)
+        if url_match:
+            return url_match.group(1)
+        text_match = re.search(r"ID[:：]?\s*(\d+)", text)
+        return text_match.group(1) if text_match else None
+
+    @staticmethod
+    def _extract_live_room_name(text: str) -> str | None:
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        for index, line in enumerate(lines):
+            if line.startswith("(ID:") and index + 1 < len(lines):
+                return lines[index + 1]
+            if line.startswith("ID:") and index + 1 < len(lines):
+                return lines[index + 1]
+        return None
+
+    @staticmethod
+    def _extract_platform(text: str) -> str | None:
+        for line in (line.strip() for line in text.splitlines()):
+            if line.endswith("版") and line in {"京东版", "淘宝版", "抖音版", "视频号版"}:
+                return line
+        return None
 
     def _probe_from_summary(self, summary: dict[str, str]) -> MaituPageProbe:
         title = summary.get("title", "")

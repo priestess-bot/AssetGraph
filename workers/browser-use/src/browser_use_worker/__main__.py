@@ -18,6 +18,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--once", action="store_true", help="Run a single claim/execute/write-back cycle")
     parser.add_argument("--dry-run", action="store_true", help="Validate operation plans but do not operate Maitu")
     parser.add_argument("--probe-maitu", action="store_true", help="Run a read-only browser-use probe of the current Maitu page")
+    parser.add_argument("--observe-maitu", action="store_true", help="Read structured current Maitu live-room state for the Observe step")
     parser.add_argument("--plan-code", help="Fetch a replacement plan operation plan and execute/dry-run it once")
     parser.add_argument("--preflight", action="store_true", help="Run read-only safety checks for --plan-code before mutating Maitu")
     parser.add_argument("--skip-browser-probe", action="store_true", help="Skip Browser-use/Maitu page probing during --preflight")
@@ -37,6 +38,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.probe_maitu:
         probe = BrowserUseCliSession().probe_current_page(open_if_needed=True)
         print(json.dumps(asdict(probe), ensure_ascii=True, indent=2))
+        return 0
+    if args.observe_maitu:
+        state = BrowserUseCliSession().read_current_state(open_if_needed=True)
+        print(json.dumps(asdict(state), ensure_ascii=False, indent=2))
         return 0
 
     client = AssetGraphClient(config.api_base_url)
