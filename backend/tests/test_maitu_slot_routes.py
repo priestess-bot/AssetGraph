@@ -21,6 +21,10 @@ class FakeMaituMaterialSlotRepository:
                 "asset_type": "IMG",
                 "title": "胶原蛋白商品主图-白底款",
                 "original_filename": "collagen-main.png",
+                "display_code": "MT-IMG-0001",
+                "local_file_code": "MT-IMG-0001",
+                "browser_use_hint": "用于麦兔图片素材选择：胶原蛋白商品主图",
+                "local_relative_path": "图片/MT-IMG-0001_胶原蛋白商品主图.png",
                 "maitu_category": "product_image",
                 "maitu_project_code": "MT-PROJ-20260707-000001",
                 "maitu_scene_name": "京东空白直播间",
@@ -227,12 +231,20 @@ class FakeMaituMaterialSlotRepository:
         for item in plan.get("items", []):
             slot = self.rows.get(item["slot_code"], {})
             if item.get("selected_asset_code"):
+                asset = next((row for row in self.assets if row["asset_code"] == item.get("selected_asset_code")), {})
+                asset_display_code = asset.get("display_code") or asset.get("local_file_code") or item["selected_asset_code"]
+                asset_title = asset.get("title") or item.get("selected_asset_title")
                 instruction = (
                     f"进入麦兔项目 {plan.get('maitu_project_code')} 的“{slot.get('scene_name')}”场景，"
-                    f"找到{slot.get('layer_name')}图层/槽位，将素材替换为 "
-                    f"{item['selected_asset_code']}（{item.get('selected_asset_title')}），"
-                    f"替换策略为 {item.get('replacement_policy')}；保持原图层位置和尺寸不变，替换后保存项目。"
+                    f"找到目标图层/槽位 {slot.get('layer_name')}，将素材替换为 "
+                    f"{asset_display_code}（{asset_title}；AssetGraph编号 {item['selected_asset_code']}），"
+                    f"替换策略为 {item.get('replacement_policy')}；保持原图层位置和尺寸不变"
                 )
+                if asset.get("original_filename"):
+                    instruction += f"；素材文件名：{asset['original_filename']}"
+                if asset.get("browser_use_hint"):
+                    instruction += f"；选择提示：{asset['browser_use_hint']}"
+                instruction += "，替换后保存项目。"
                 operations.append(
                     {
                         "operation_type": "replace_layer_asset",
@@ -241,7 +253,12 @@ class FakeMaituMaterialSlotRepository:
                         "scene_name": slot.get("scene_name"),
                         "layer_name": slot.get("layer_name"),
                         "asset_code": item.get("selected_asset_code"),
-                        "asset_title": item.get("selected_asset_title"),
+                        "asset_title": asset_title,
+                        "asset_display_code": asset.get("display_code"),
+                        "asset_local_file_code": asset.get("local_file_code"),
+                        "asset_original_filename": asset.get("original_filename"),
+                        "asset_local_relative_path": asset.get("local_relative_path"),
+                        "asset_browser_use_hint": asset.get("browser_use_hint"),
                         "replacement_policy": item.get("replacement_policy"),
                         "status": "ready",
                         "instruction": instruction,
@@ -704,12 +721,18 @@ def test_create_list_and_get_replacement_plan(client: TestClient) -> None:
     operations_response = client.get(f"/api/maitu/replacement-plans/{plan['plan_code']}/browser-use-operations")
     assert operations_response.status_code == 200
     operations = operations_response.json()
+    operation = operations["operations"][0]
     assert operations["executor"] == "browser_use"
     assert operations["target_app"] == "maitu"
-    assert operations["operations"][0]["operation_type"] == "replace_layer_asset"
-    assert operations["operations"][0]["asset_code"] == "AG-IMG-20260707-000001"
-    assert "Browser" not in operations["operations"][0]["instruction"]
-    assert "保持原图层位置和尺寸不变" in operations["operations"][0]["instruction"]
+    assert operation["operation_type"] == "replace_layer_asset"
+    assert operation["asset_code"] == "AG-IMG-20260707-000001"
+    assert operation["asset_display_code"] == "MT-IMG-0001"
+    assert operation["asset_local_file_code"] == "MT-IMG-0001"
+    assert operation["asset_original_filename"] == "collagen-main.png"
+    assert operation["asset_browser_use_hint"] == "用于麦兔图片素材选择：胶原蛋白商品主图"
+    assert "Browser" not in operation["instruction"]
+    assert "MT-IMG-0001" in operation["instruction"]
+    assert "保持原图层位置和尺寸不变" in operation["instruction"]
 
 
 def test_create_list_and_get_browser_use_execution_result(client: TestClient) -> None:

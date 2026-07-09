@@ -341,12 +341,22 @@ class MaituMaterialSlotRepository:
             slot_name = item.get("slot_name") or (slot.get("slot_name") if slot else None)
             if item.get("selected_asset_code"):
                 policy = item.get("replacement_policy") or (slot.get("replacement_policy") if slot else "keep_layout")
+                asset = self._fetch_asset_operation_metadata(item["selected_asset_code"]) or {}
+                asset_title = asset.get("title") or item.get("selected_asset_title") or "未命名素材"
+                asset_display_code = asset.get("display_code") or asset.get("local_file_code") or item["selected_asset_code"]
+                asset_filename = asset.get("original_filename")
+                asset_hint = asset.get("browser_use_hint")
                 instruction = (
                     f"进入麦兔项目 {plan.get('maitu_project_code') or '当前项目'} 的“{scene_name or '当前场景'}”场景，"
-                    f"找到{layer_name or slot_name or item['slot_code']}图层/槽位，"
-                    f"将素材替换为 {item['selected_asset_code']}（{item.get('selected_asset_title') or '未命名素材'}），"
-                    f"替换策略为 {policy}；保持原图层位置和尺寸不变，替换后保存项目。"
+                    f"找到目标图层/槽位 {layer_name or slot_name or item['slot_code']}，"
+                    f"将素材替换为 {asset_display_code}（{asset_title}；AssetGraph编号 {item['selected_asset_code']}），"
+                    f"替换策略为 {policy}；保持原图层位置和尺寸不变"
                 )
+                if asset_filename:
+                    instruction += f"；素材文件名：{asset_filename}"
+                if asset_hint:
+                    instruction += f"；选择提示：{asset_hint}"
+                instruction += "，替换后保存项目。"
                 operations.append(
                     {
                         "operation_type": "replace_layer_asset",
@@ -355,7 +365,12 @@ class MaituMaterialSlotRepository:
                         "scene_name": scene_name,
                         "layer_name": layer_name,
                         "asset_code": item.get("selected_asset_code"),
-                        "asset_title": item.get("selected_asset_title"),
+                        "asset_title": asset_title,
+                        "asset_display_code": asset.get("display_code"),
+                        "asset_local_file_code": asset.get("local_file_code"),
+                        "asset_original_filename": asset.get("original_filename"),
+                        "asset_local_relative_path": asset.get("local_relative_path"),
+                        "asset_browser_use_hint": asset.get("browser_use_hint"),
                         "replacement_policy": policy,
                         "status": "ready",
                         "instruction": instruction,
@@ -959,6 +974,20 @@ class MaituMaterialSlotRepository:
             )
             rows = cursor.fetchall()
         return [self._normalize_plan_item(row) for row in rows]
+
+    def _fetch_asset_operation_metadata(self, asset_code: str) -> dict[str, Any] | None:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT asset_code, title, original_filename, display_code, local_file_code,
+                    local_relative_path, browser_use_hint
+                FROM assets
+                WHERE asset_code = %s AND deleted_at IS NULL
+                """,
+                (asset_code,),
+            )
+            row = cursor.fetchone()
+        return dict(row) if row else None
 
     def _fetch_operation_results(self, execution_code: str) -> list[dict[str, Any]]:
         with self.connection.cursor(row_factory=dict_row) as cursor:

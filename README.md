@@ -130,6 +130,9 @@ curl "http://127.0.0.1:8000/api/maitu/slots/MT-SLOT-20260709-000001/candidate-as
 curl -X POST "http://127.0.0.1:8000/api/maitu/replacement-plans" \
   -H "Content-Type: application/json" \
   -d '{"plan_name":"语义自动选材方案","slot_codes":["MT-SLOT-20260709-000001"],"strategy":"semantic_best_match","description":"找适合品酒大师商品讲解的视频素材"}'
+
+# 输出 Browser-use 操作计划；operation 会包含 asset_display_code、local_file_code、原文件名和 browser_use_hint。
+curl "http://127.0.0.1:8000/api/maitu/replacement-plans/MT-PLAN-20260709-000001/browser-use-operations"
 ```
 
 运行 Browser-use worker 配置检查 / dry-run：
