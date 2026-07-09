@@ -5,14 +5,16 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from psycopg import Connection
 
 from app.core.config import settings
 from app.core.database import get_db
 from app.repositories.assets import AssetRepository
 from app.schemas.assets import AssetCreate, AssetFileRead, AssetRead
+from app.services.asset_candidates import AssetRetrievalIndex
 from app.services.object_storage import MinioObjectStorage, ObjectStorage, build_asset_object_key, content_type_for_path
+from app.services.qwen3_client import Qwen3Client, Qwen3ClientError
 
 router = APIRouter(prefix="/assets", tags=["assets"])
 
@@ -27,6 +29,30 @@ def get_object_storage() -> ObjectStorage:
         access_key=settings.minio_access_key,
         secret_key=settings.minio_secret_key,
         secure=settings.minio_secure,
+    )
+
+
+def get_asset_retrieval_index() -> AssetRetrievalIndex:
+    try:
+        return AssetRetrievalIndex.from_jsonl_paths(
+            settings.asset_retrieval_documents_path,
+            settings.asset_retrieval_embeddings_path,
+        )
+    except (OSError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Asset retrieval index unavailable: {exc}",
+        ) from exc
+
+
+def get_candidate_qwen3_client() -> Qwen3Client:
+    return Qwen3Client(
+        base_url=settings.qwen3_base_url,
+        api_key=settings.qwen3_api_key,
+        embedding_model=settings.qwen3_embedding_model,
+        rerank_model=settings.qwen3_rerank_model,
+        default_dimensions=settings.qwen3_embedding_dimensions,
+        timeout_seconds=settings.qwen3_timeout_seconds,
     )
 
 
@@ -85,6 +111,77 @@ def asset_stats(
     repository: Annotated[AssetRepository, Depends(get_asset_repository)],
 ) -> dict:
     return repository.stats()
+
+
+@router.get("/candidates")
+def asset_candidates(
+    q: Annotated[str, Query(min_length=1)],
+    index: Annotated[AssetRetrievalIndex, Depends(get_asset_retrieval_index)],
+    client: Annotated[Qwen3Client, Depends(get_candidate_qwen3_client)],
+    top_k: Annotated[int, Query(ge=1, le=50)] = 10,
+    candidate_pool_size: Annotated[int, Query(ge=1, le=100)] = 30,
+    asset_type: str | None = None,
+    maitu_category: str | None = None,
+    usage: str | None = None,
+    subject: str | None = None,
+    rerank: bool = False,
+) -> dict:
+    if not index.entries:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Asset retrieval index is empty")
+    try:
+        vectors = client.embed_texts([q], is_query=True)
+    except Qwen3ClientError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    if not vectors:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Qwen3 returned no query embedding")
+
+    filters = {
+        "asset_type": asset_type,
+        "maitu_category": maitu_category,
+        "usage": usage,
+        "subject": subject,
+    }
+    pool_size = max(top_k, candidate_pool_size) if rerank else top_k
+    candidates = index.search(vectors[0], top_k=pool_size, filters=filters)
+    response_candidates = [candidate.to_response() for candidate in candidates[:top_k]]
+
+    if rerank and candidates:
+        try:
+            rerank_rows = client.rerank(
+                q,
+                [str(candidate.document.get("content") or "") for candidate in candidates],
+                top_n=min(top_k, len(candidates)),
+                return_documents=False,
+            )
+        except Qwen3ClientError as exc:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+        reranked: list[dict] = []
+        used_indices: set[int] = set()
+        for row in rerank_rows:
+            try:
+                index_value = int(row.get("index"))
+            except (TypeError, ValueError):
+                continue
+            if index_value < 0 or index_value >= len(candidates):
+                continue
+            used_indices.add(index_value)
+            score = row.get("relevance_score")
+            reranked.append(candidates[index_value].to_response(rerank_score=float(score) if score is not None else None))
+        for index_value, candidate in enumerate(candidates):
+            if len(reranked) >= top_k:
+                break
+            if index_value not in used_indices:
+                reranked.append(candidate.to_response())
+        response_candidates = reranked[:top_k]
+
+    return {
+        "query": q,
+        "count": len(response_candidates),
+        "embedding_model": client.embedding_model,
+        "rerank_model": client.rerank_model if rerank else None,
+        "filters": {key: value for key, value in filters.items() if value not in (None, "")},
+        "candidates": response_candidates,
+    }
 
 
 @router.get("/{asset_code}", response_model=AssetRead)

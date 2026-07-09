@@ -37,7 +37,7 @@ AssetGraph 是一个面向麦兔软件与数字人直播业务的多模态视频
 - 核心业务对象：`LiveSession`、`VideoSegment`、`DigitalHuman`、`VoiceProfile`、`Product`、`Script`、`ScriptBlock`
 - 后端服务：FastAPI API、PostgreSQL repository、编号生成、测试覆盖
 - 基础设施：PostgreSQL、MinIO、Neo4j、Milvus 本地开发配置
-- 本地 Qwen3 embedding/reranker：通过 `D:/AI-Models/qwen3-service` 共享 HTTP 服务接入 `Qwen3-Embedding-4B` 与 `Qwen3-Reranker-4B`，AssetGraph 后端提供 `/api/rag/embeddings`、`/api/rag/rerank` 和 `/api/rag/qwen3/health`
+- 本地 Qwen3 embedding/reranker：通过 `D:/AI-Models/qwen3-service` 共享 HTTP 服务接入 `Qwen3-Embedding-4B` 与 `Qwen3-Reranker-4B`，AssetGraph 后端提供 `/api/rag/embeddings`、`/api/rag/rerank`、`/api/rag/qwen3/health` 和基于本地 embedding artifact 的 `/api/assets/candidates`
 
 ## 目录结构
 
@@ -110,6 +110,20 @@ python scripts/import_assets.py \
 # 如需同时上传原始文件到 MinIO，增加 --upload-files；建议先用 --limit 小批量验证。
 ```
 
+生成素材检索文本、embedding artifact，并调用候选素材推荐接口：
+
+```bash
+python scripts/build_asset_retrieval_documents.py \
+  --documents-output docs/asset-numbering/asset_retrieval_documents_20260709.jsonl \
+  --summary-output docs/asset-numbering/asset_retrieval_documents_20260709.md \
+  --embeddings-output docs/asset-numbering/asset_retrieval_embeddings_20260709.jsonl \
+  --embed \
+  --embedding-batch-size 8 \
+  --embedding-dimensions 1024
+
+curl "http://127.0.0.1:8000/api/assets/candidates?q=找适合品酒大师商品讲解的视频素材&asset_type=VID&top_k=5"
+```
+
 运行 Browser-use worker 配置检查 / dry-run：
 
 ```bash
@@ -131,5 +145,5 @@ python -m browser_use_worker --once --dry-run
 - `docs/asset-numbering/assetgraph_import_quality_report_20260709.md` / `.json`：通过后端 API 对 131 条已入库素材生成的质量检查报告，覆盖字段缺失、local_file_code 唯一性、标签覆盖率、重复组和分类分布。
 - `docs/asset-numbering/asset_retrieval_documents_20260709.jsonl` / `asset_retrieval_embeddings_20260709.jsonl` / `.md`：由 `/api/assets` 生成的 Agent/RAG 检索文本与 Qwen3 embedding artifact，每条素材一条检索文档，embedding 维度 1024。
 - `docs/browser-use-integration.md`：AssetGraph 与 Browser-use 同仓一体化布局，说明 backend、worker、scripts、infra 和素材目录如何一起部署/迁移。
-- 本地 Qwen3 检索接口：`GET /api/rag/qwen3/health`、`POST /api/rag/embeddings`、`POST /api/rag/rerank`，默认连接 `http://127.0.0.1:8010` 的 D 盘共享模型服务。
+- 本地 Qwen3 检索接口：`GET /api/rag/qwen3/health`、`POST /api/rag/embeddings`、`POST /api/rag/rerank`、`GET /api/assets/candidates`，默认连接 `http://127.0.0.1:8010` 的 D 盘共享模型服务。
 - `docs/worker-protocols/maitu-browser-use-retry-worker.md`：Browser use retry worker 执行协议，定义取任务、执行、成功回写、失败释放和人工介入流程。

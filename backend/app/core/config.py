@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     qwen3_rerank_model: str = "qwen3-reranker-4b-local"
     qwen3_embedding_dimensions: int = 1024
     qwen3_timeout_seconds: float = 600.0
+    asset_retrieval_documents_path: str = "docs/asset-numbering/asset_retrieval_documents_20260709.jsonl"
+    asset_retrieval_embeddings_path: str = "docs/asset-numbering/asset_retrieval_embeddings_20260709.jsonl"
 
     minio_endpoint: str = "localhost:9000"
     minio_access_key: str = "assetgraph"
