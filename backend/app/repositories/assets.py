@@ -58,6 +58,7 @@ class AssetRepository:
         self.connection = connection
 
     def create(self, payload: dict[str, Any]) -> dict[str, Any]:
+        tags = self._normalize_tags(payload.get("tags") or [])
         data = self._filter_writable(payload)
         data["asset_type"] = AssetType(data["asset_type"]).value
         data["asset_code"] = self._next_asset_code(data["asset_type"])
@@ -74,8 +75,12 @@ class AssetRepository:
                 tuple(data[field] for field in fields),
             )
             row = cursor.fetchone()
+            if tags and row is not None:
+                self._attach_tags(cursor, row["id"], tags)
         self.connection.commit()
-        return self._stringify_ids(row)
+        result = self._stringify_ids(row)
+        result["tags"] = tags
+        return result
 
     def get_by_code(self, asset_code: str) -> dict[str, Any] | None:
         with self.connection.cursor(row_factory=dict_row) as cursor:
@@ -252,6 +257,40 @@ class AssetRepository:
             row = cursor.fetchone()
         self.connection.commit()
         return self._stringify_ids(row) if row else None
+
+    @staticmethod
+    def _normalize_tags(tags: list[Any]) -> list[str]:
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for tag in tags:
+            value = str(tag).strip()
+            if not value or value in seen:
+                continue
+            normalized.append(value)
+            seen.add(value)
+        return normalized
+
+    @staticmethod
+    def _attach_tags(cursor: Any, asset_id: Any, tags: list[str]) -> None:
+        for tag in tags:
+            cursor.execute(
+                """
+                INSERT INTO tags (name, tag_type)
+                VALUES (%s, 'imported')
+                ON CONFLICT (name) DO NOTHING
+                """,
+                (tag,),
+            )
+            cursor.execute(
+                """
+                INSERT INTO asset_tags (asset_id, tag_id, source)
+                SELECT %s, id, 'inventory'
+                FROM tags
+                WHERE name = %s
+                ON CONFLICT DO NOTHING
+                """,
+                (asset_id, tag),
+            )
 
     def _next_asset_code(self, asset_type: str) -> str:
         sequence_date = datetime.now(UTC).date()

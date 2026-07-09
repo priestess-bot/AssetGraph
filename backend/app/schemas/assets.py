@@ -65,6 +65,7 @@ class AssetCreate(BaseModel):
     subject: str | None = Field(default=None, max_length=255)
     file_role: str | None = Field(default=None, max_length=128)
     browser_use_hint: str | None = None
+    tags: list[str] = Field(default_factory=list)
     local_relative_path: str | None = None
     duplicate_group: str | None = Field(default=None, max_length=64)
     duplicate_rank: int | None = Field(default=None, ge=1)
