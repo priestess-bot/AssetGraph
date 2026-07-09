@@ -1,10 +1,14 @@
-from typing import Annotated
+from typing import Annotated, Callable
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from psycopg import Connection
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.repositories.maitu import MaituMaterialSlotRepository
+from app.services.asset_candidates import AssetCandidate, AssetRetrievalIndex
+from app.services.qwen3_client import Qwen3Client, Qwen3ClientError
 from app.schemas.maitu import (
     MaituBrowserUseOperationPlanResponse,
     MaituCandidateAssetsResponse,
@@ -31,6 +35,78 @@ router = APIRouter(prefix="/maitu", tags=["maitu"])
 
 def get_maitu_slot_repository(connection: Annotated[Connection, Depends(get_db)]) -> MaituMaterialSlotRepository:
     return MaituMaterialSlotRepository(connection)
+
+
+def get_slot_asset_retrieval_index_factory() -> Callable[[], AssetRetrievalIndex]:
+    def load_index() -> AssetRetrievalIndex:
+        return AssetRetrievalIndex.from_jsonl_paths(
+            settings.asset_retrieval_documents_path,
+            settings.asset_retrieval_embeddings_path,
+        )
+
+    return load_index
+
+
+def get_slot_candidate_qwen3_client_factory() -> Callable[[], Qwen3Client]:
+    def build_client() -> Qwen3Client:
+        return Qwen3Client(
+            base_url=settings.qwen3_base_url,
+            api_key=settings.qwen3_api_key,
+            embedding_model=settings.qwen3_embedding_model,
+            rerank_model=settings.qwen3_rerank_model,
+            default_dimensions=settings.qwen3_embedding_dimensions,
+            timeout_seconds=settings.qwen3_timeout_seconds,
+        )
+
+    return build_client
+
+
+def build_slot_semantic_query(slot: dict, query: str | None = None) -> str:
+    parts = [
+        query,
+        slot.get("slot_name"),
+        slot.get("required_category"),
+        " ".join(slot.get("accepted_asset_types") or []),
+        slot.get("scene_name"),
+        slot.get("layer_name"),
+        slot.get("description"),
+    ]
+    return "；".join(str(part).strip() for part in parts if part)
+
+
+def semantic_candidate_to_response(candidate: AssetCandidate, slot: dict) -> dict:
+    document = candidate.document
+    metadata = document.get("metadata") if isinstance(document.get("metadata"), dict) else {}
+    relative_path = str(metadata.get("local_relative_path") or "")
+    asset_type = str(metadata.get("asset_type") or "")
+    maitu_category = str(metadata.get("maitu_category") or "")
+    reasons = []
+    if maitu_category == slot.get("required_category"):
+        reasons.append(f"maitu_category matches required_category: {slot['required_category']}")
+    if asset_type in (slot.get("accepted_asset_types") or []):
+        reasons.append(f"asset_type accepted: {asset_type}")
+    reasons.append("semantic retrieval matched slot context")
+    return {
+        "asset_code": candidate.asset_code,
+        "asset_type": asset_type,
+        "title": document.get("title"),
+        "original_filename": Path(relative_path).name if relative_path else document.get("title"),
+        "display_code": document.get("display_code"),
+        "local_file_code": document.get("local_file_code"),
+        "maitu_category": maitu_category,
+        "maitu_project_code": metadata.get("maitu_project_code"),
+        "maitu_scene_name": metadata.get("maitu_scene_name"),
+        "maitu_layer_name": metadata.get("maitu_layer_name"),
+        "maitu_slot_name": metadata.get("maitu_slot_name"),
+        "maitu_slot_code": metadata.get("maitu_slot_code"),
+        "layer_width": metadata.get("layer_width"),
+        "layer_height": metadata.get("layer_height"),
+        "replacement_policy": slot.get("replacement_policy"),
+        "match_score": round(candidate.score, 6),
+        "retrieval_score": round(candidate.score, 6),
+        "content_excerpt": str(document.get("content") or "")[:500],
+        "match_reasons": reasons,
+    }
 
 
 @router.post("/slots", response_model=MaituMaterialSlotRead, status_code=status.HTTP_201_CREATED)
@@ -78,13 +154,71 @@ def get_maitu_slot(
 def list_candidate_assets_for_slot(
     slot_code: str,
     repository: Annotated[MaituMaterialSlotRepository, Depends(get_maitu_slot_repository)],
-    limit: int = 20,
-    offset: int = 0,
+    index_factory: Annotated[Callable[[], AssetRetrievalIndex], Depends(get_slot_asset_retrieval_index_factory)],
+    client_factory: Annotated[Callable[[], Qwen3Client], Depends(get_slot_candidate_qwen3_client_factory)],
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    semantic: bool = False,
+    q: str | None = None,
+    candidate_pool_size: Annotated[int, Query(ge=1, le=100)] = 30,
 ) -> dict:
-    row = repository.list_candidate_assets(slot_code, limit=limit, offset=offset)
-    if row is None:
+    if not semantic:
+        row = repository.list_candidate_assets(slot_code, limit=limit, offset=offset)
+        if row is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Maitu material slot not found")
+        return row
+
+    slot = repository.get_by_code(slot_code)
+    if slot is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Maitu material slot not found")
-    return row
+    try:
+        index = index_factory()
+    except (OSError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Asset retrieval index unavailable: {exc}",
+        ) from exc
+    if not index.entries:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Asset retrieval index is empty")
+
+    client = client_factory()
+    semantic_query = build_slot_semantic_query(slot, q)
+    try:
+        vectors = client.embed_texts([semantic_query], is_query=True)
+    except Qwen3ClientError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    if not vectors:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Qwen3 returned no query embedding")
+
+    accepted_asset_types = slot.get("accepted_asset_types") or []
+    base_filters = {"maitu_category": slot.get("required_category")}
+    pool_size = max(limit + offset, candidate_pool_size)
+    candidates: list[AssetCandidate] = []
+    if accepted_asset_types:
+        for asset_type in accepted_asset_types:
+            candidates.extend(
+                index.search(vectors[0], top_k=pool_size, filters={**base_filters, "asset_type": asset_type})
+            )
+    else:
+        candidates = index.search(vectors[0], top_k=pool_size, filters=base_filters)
+
+    deduped: dict[str, AssetCandidate] = {}
+    for candidate in candidates:
+        previous = deduped.get(candidate.asset_code)
+        if previous is None or candidate.score > previous.score:
+            deduped[candidate.asset_code] = candidate
+    ranked = sorted(deduped.values(), key=lambda candidate: candidate.score, reverse=True)
+    assets = [semantic_candidate_to_response(candidate, slot) for candidate in ranked[offset : offset + limit]]
+    return {
+        "slot_code": slot["slot_code"],
+        "required_category": slot["required_category"],
+        "accepted_asset_types": accepted_asset_types,
+        "source": "semantic_retrieval",
+        "semantic_query": semantic_query,
+        "embedding_model": client.embedding_model,
+        "rerank_model": None,
+        "assets": assets,
+    }
 
 
 @router.patch("/slots/{slot_code}", response_model=MaituMaterialSlotRead)

@@ -59,7 +59,9 @@ class MaituCandidateAssetRead(BaseModel):
     asset_code: str
     asset_type: str
     title: str | None = None
-    original_filename: str
+    original_filename: str | None = None
+    display_code: str | None = None
+    local_file_code: str | None = None
     maitu_category: str | None = None
     maitu_project_code: str | None = None
     maitu_scene_name: str | None = None
@@ -70,6 +72,8 @@ class MaituCandidateAssetRead(BaseModel):
     layer_height: float | None = None
     replacement_policy: str | None = None
     match_score: float
+    retrieval_score: float | None = None
+    content_excerpt: str | None = None
     match_reasons: list[str] = Field(default_factory=list)
 
 
@@ -77,6 +81,10 @@ class MaituCandidateAssetsResponse(BaseModel):
     slot_code: str
     required_category: str
     accepted_asset_types: list[str]
+    source: str = "rule_filter"
+    semantic_query: str | None = None
+    embedding_model: str | None = None
+    rerank_model: str | None = None
     assets: list[MaituCandidateAssetRead]
 
 

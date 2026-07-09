@@ -1367,3 +1367,108 @@ def test_candidate_assets_for_missing_slot_returns_404(client: TestClient) -> No
     response = client.get("/api/maitu/slots/MT-SLOT-20260707-999999/candidate-assets")
 
     assert response.status_code == 404
+
+
+class FakeSlotCandidateQwen3Client:
+    embedding_model = "qwen3-embedding-4b-local"
+    rerank_model = "qwen3-reranker-4b-local"
+
+    def embed_texts(self, texts: list[str], *, is_query: bool = False, instruction: str | None = None, dimensions: int | None = None) -> list[list[float]]:
+        assert is_query is True
+        assert "商品讲解视频" in texts[0]
+        assert "product_video" in texts[0]
+        return [[1.0, 0.0, 0.0]]
+
+    def rerank(
+        self,
+        query: str,
+        documents: list[str],
+        *,
+        top_n: int | None = None,
+        instruction: str | None = None,
+        max_length: int | None = None,
+        return_documents: bool = True,
+    ) -> list[dict[str, Any]]:
+        return []
+
+
+def test_semantic_candidate_assets_for_slot_use_slot_context_and_retrieval_index(client: TestClient) -> None:
+    from app.services.asset_candidates import AssetRetrievalIndex
+
+    slot_response = client.post(
+        "/api/maitu/slots",
+        json={
+            "slot_name": "商品讲解视频",
+            "maitu_project_code": "MT-PROJ-20260707-000001",
+            "scene_name": "京东空白直播间",
+            "layer_name": "视频图层",
+            "required_category": "product_video",
+            "accepted_asset_types": ["VID"],
+            "replacement_policy": "keep_layout",
+            "description": "用于品酒大师商品讲解片段。",
+        },
+    )
+    slot_code = slot_response.json()["slot_code"]
+    index = AssetRetrievalIndex(
+        entries=[
+            {
+                "document_id": "asset:AG-VID-20260709-000052:retrieval",
+                "asset_code": "AG-VID-20260709-000052",
+                "display_code": "MT-VID-0024",
+                "local_file_code": "MT-VID-0024",
+                "title": "视频 - 商品讲解视频 - 品酒大师PRO",
+                "content": "品酒大师 商品讲解 视频 PRO",
+                "content_hash": "hash-video",
+                "metadata": {
+                    "asset_type": "VID",
+                    "maitu_category": "product_video",
+                    "usage": "商品讲解视频",
+                    "subject": "品酒大师PRO",
+                    "local_relative_path": "视频/MT-VID-0024.mp4",
+                },
+                "model": "qwen3-embedding-4b-local",
+                "dimension": 3,
+                "vector": [1.0, 0.0, 0.0],
+            },
+            {
+                "document_id": "asset:AG-IMG-20260709-000001:retrieval",
+                "asset_code": "AG-IMG-20260709-000001",
+                "display_code": "MT-IMG-0001",
+                "local_file_code": "MT-IMG-0001",
+                "title": "图片 - 商品主图 - 品酒大师PRO",
+                "content": "品酒大师 商品主图 图片",
+                "content_hash": "hash-image",
+                "metadata": {
+                    "asset_type": "IMG",
+                    "maitu_category": "product_image",
+                    "usage": "商品主图",
+                    "subject": "品酒大师PRO",
+                    "local_relative_path": "图片/MT-IMG-0001.png",
+                },
+                "model": "qwen3-embedding-4b-local",
+                "dimension": 3,
+                "vector": [0.0, 1.0, 0.0],
+            },
+        ]
+    )
+    app.dependency_overrides[maitu.get_slot_asset_retrieval_index_factory] = lambda: lambda: index
+    app.dependency_overrides[maitu.get_slot_candidate_qwen3_client_factory] = lambda: lambda: FakeSlotCandidateQwen3Client()
+    try:
+        response = client.get(
+            f"/api/maitu/slots/{slot_code}/candidate-assets",
+            params={"semantic": True, "limit": 1},
+        )
+    finally:
+        app.dependency_overrides.pop(maitu.get_slot_asset_retrieval_index_factory, None)
+        app.dependency_overrides.pop(maitu.get_slot_candidate_qwen3_client_factory, None)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["source"] == "semantic_retrieval"
+    assert body["semantic_query"]
+    assert body["embedding_model"] == "qwen3-embedding-4b-local"
+    assert body["assets"][0]["asset_code"] == "AG-VID-20260709-000052"
+    assert body["assets"][0]["display_code"] == "MT-VID-0024"
+    assert body["assets"][0]["original_filename"] == "MT-VID-0024.mp4"
+    assert body["assets"][0]["retrieval_score"] == 1.0
+    assert "maitu_category matches required_category: product_video" in body["assets"][0]["match_reasons"]
