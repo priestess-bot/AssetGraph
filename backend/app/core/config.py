@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     qwen3_embedding_dimensions: int = 1024
     qwen3_timeout_seconds: float = 120.0
 
+    minio_endpoint: str = "localhost:9000"
+    minio_access_key: str = "assetgraph"
+    minio_secret_key: str = "assetgraph-secret"
+    minio_bucket: str = "assetgraph"
+    minio_secure: bool = False
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @property
