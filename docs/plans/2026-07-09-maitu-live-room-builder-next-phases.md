@@ -235,23 +235,28 @@ python -m pytest tests/test_maitu_slot_routes.py -q
 
 让 worker 能读取 BuildPlan operations 并做 dry-run 展示，不操作麦兔页面。
 
-## Task 3.1: Worker dry-run 支持 BuildPlan
+## Task 3.1: Worker dry-run 支持 BuildPlan ✅
 
 **CLI:**
 ```bash
 python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --dry-run
 ```
 
-**Expected behavior:**
+**Implemented behavior:**
 - 拉取 operations。
-- 打印每个 operation 的摘要。
+- 打印每个 operation 的 `safe_action` 摘要。
 - 不调用 Browser-use click/input。
+- 不打开浏览器。
 - 不 claim retry queue。
+- `replace_layer_asset` 输出为 `planned_layer_asset_replacement_not_executed`。
+- `add_script_block` 输出为 `planned_script_block_not_executed`。
+- `save_live_room(manual_review)` 输出为 `manual_review_save_not_executed`。
+- 如果 `save_live_room.status != manual_review` 或 instruction 试图“正式开播”，返回 failed。
 
 **Files:**
-- Modify: `workers/browser-use/src/browser_use_worker/runner.py`
-- Modify: `workers/browser-use/src/browser_use_worker/__main__.py`
-- Test: `workers/browser-use/tests/test_runner.py`, `workers/browser-use/tests/test_cli.py`
+- Added: `workers/browser-use/src/browser_use_worker/build_plan_dry_run.py`
+- Modified: `workers/browser-use/src/browser_use_worker/__main__.py`
+- Test: `workers/browser-use/tests/test_build_plan_dry_run.py`, `workers/browser-use/tests/test_cli.py`
 
 ## Task 3.2: Preflight gate blocks mutating operations
 
@@ -417,7 +422,7 @@ Only after Phase 4/5 prove UI stability should create/configure operations be en
 
 ## Sprint 3: Worker dry-run and non-destructive UI
 
-1. `--build-plan-code --dry-run`.
+1. `--build-plan-code --dry-run` ✅
 2. Select scene / open tabs only.
 3. Observe after each action.
 4. Evidence report.
@@ -462,6 +467,7 @@ Real worker smoke, read-only:
 
 ```bash
 cd D:/AssetGraph/workers/browser-use
+python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --dry-run
 python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --preflight-build
 ```
 

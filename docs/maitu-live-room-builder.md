@@ -416,12 +416,23 @@ GET build status 200
 GET operations status 200
 ```
 
-当前 Browser-use worker 已接入 `GET /live-room-build-plans/{build_plan_code}/browser-use-operations` 的只读 preflight：
+当前 Browser-use worker 已接入 `GET /live-room-build-plans/{build_plan_code}/browser-use-operations` 的 BuildPlan dry-run 和只读 preflight：
 
 ```bash
+python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --dry-run
 python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --preflight-build
 python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --preflight-build --skip-browser-probe
 ```
+
+worker dry-run 会：
+
+- 拉取 `MT-BUILD-*` operations。
+- 输出每个 operation 的 `safe_action` 摘要。
+- 将 `replace_layer_asset` 渲染为 `planned_layer_asset_replacement_not_executed`。
+- 将 `add_script_block` 渲染为 `planned_script_block_not_executed`。
+- 将 `save_live_room(manual_review)` 渲染为 `manual_review_save_not_executed`。
+- 如果发现 `save_live_room` 非 `manual_review` 或 instruction 试图点击“正式开播”，直接返回 failed。
+- 不打开浏览器、不点击、不写脚本、不保存、不开播。
 
 preflight 会检查：
 
@@ -438,6 +449,14 @@ preflight 会检查：
 真实 smoke：
 
 ```text
+worker dry-run:
+status dry_run
+ready_to_execute false
+operation_count 17
+planned_mutation_count 8
+manual_review_count 1
+safety_violation_count 0
+
 --skip-browser-probe:
 status warning
 ready_to_execute false

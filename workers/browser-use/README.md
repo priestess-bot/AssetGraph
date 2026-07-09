@@ -28,6 +28,9 @@ python -m browser_use_worker --once --dry-run
 python -m browser_use_worker --plan-code MT-PLAN-20260709-000001 --dry-run
 python -m browser_use_worker --plan-code MT-PLAN-20260709-000001 --preflight
 python -m browser_use_worker --plan-code MT-PLAN-20260709-000001 --preflight --skip-browser-probe
+python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --dry-run
+python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --preflight-build
+python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --preflight-build --skip-browser-probe
 ```
 
 `--preflight --plan-code ...` fetches the replacement plan operation plan and performs read-only safety checks before any mutating Browser-use execution. It validates operation support, Maitu project/scene context, AssetGraph asset lookup, Browser-use-friendly asset fields, local file availability under `--assets-root` (default `D:/AssetGraph/素材`), the current Maitu browser/login shell, and whether the target layer/slot name is visible on the current page. It exits with code `0` when there are no failures and code `2` when a blocking check fails. `ready_to_execute` is only `true` when there are no failures, warnings, or skipped checks.
@@ -35,6 +38,10 @@ python -m browser_use_worker --plan-code MT-PLAN-20260709-000001 --preflight --s
 `--skip-browser-probe` is useful in headless CI or API-only smoke tests: all AssetGraph/local-file checks still run, but the result is a warning and `ready_to_execute=false` because the Maitu browser session was not verified.
 
 `--plan-code ... --dry-run` fetches `/api/maitu/replacement-plans/{plan_code}/browser-use-operations`, validates the operation plan shape, and prints the exact operations Browser-use would execute, including `asset_display_code`, local file code, original filename, and instruction text. It does not claim retry tasks, open Maitu, upload assets, replace layers, or save a project.
+
+`--build-plan-code ... --dry-run` fetches `/api/maitu/live-room-build-plans/{build_plan_code}/browser-use-operations` and prints a safe-action summary for the whole BuildPlan. Read-only operations are rendered as read-only; mutating operations such as `replace_layer_asset` and `add_script_block` are rendered as `planned_*_not_executed`; `save_live_room` must stay `manual_review`. It does not claim retry tasks, open Maitu, click, upload, write scripts, save drafts, or start live streaming.
+
+`--preflight-build --build-plan-code ...` fetches the same BuildPlan operation plan and performs read-only checks against the current Maitu state: login status, target live room id, scene names, active-scene layer names, script tab availability, operation allowlist, save/manual-review status, and unsafe go-live instructions.
 
 `--probe-maitu` is read-only. It calls the local `D:/browser-use` CLI, inspects the current page, opens Maitu home when the active page is unrelated, and prints JSON with `url`, `logged_in`, `login_required`, and `opened_home`. It never uploads assets, replaces layers, or saves a Maitu project.
 

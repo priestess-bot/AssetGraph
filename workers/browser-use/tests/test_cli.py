@@ -245,3 +245,18 @@ def test_build_plan_preflight_cli_can_skip_browser_probe(monkeypatch, capsys) ->
     assert output["status"] == "warning"
     assert output["ready_to_execute"] is False
     assert any(check["name"] == "maitu_current_state_probe" and check["status"] == "skipped" for check in output["checks"])
+
+
+def test_build_plan_code_dry_run_cli_prints_safe_operation_summary(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(worker_main, "AssetGraphClient", FakeAssetGraphClient, raising=False)
+
+    exit_code = worker_main.main(["--build-plan-code", "MT-BUILD-20260709-000001", "--dry-run"])
+
+    assert exit_code == 0
+    output = json.loads(capsys.readouterr().out)
+    assert output["status"] == "dry_run"
+    assert output["ready_to_execute"] is False
+    assert output["build_plan_code"] == "MT-BUILD-20260709-000001"
+    assert output["operation_count"] == 4
+    assert output["operations"][0]["safe_action"] == "read_only_preflight"
+    assert output["operations"][-1]["safe_action"] == "manual_review_save_not_executed"

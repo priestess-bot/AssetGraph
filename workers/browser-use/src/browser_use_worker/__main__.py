@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from dataclasses import asdict
 
 from .browser_cli_session import BrowserUseCliSession
+from .build_plan_dry_run import BuildPlanDryRun
 from .build_plan_preflight import BuildPlanPreflight
 from .client import AssetGraphClient
 from .config import WorkerConfig
@@ -48,6 +49,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     client = AssetGraphClient(config.api_base_url)
+    if args.build_plan_code and args.dry_run:
+        operation_plan = client.get_live_room_build_plan_operation_plan(args.build_plan_code)
+        dry_run = BuildPlanDryRun().run(operation_plan)
+        print(json.dumps(asdict(dry_run), ensure_ascii=False, indent=2))
+        return 0 if dry_run.safety_violation_count == 0 else 2
     if args.preflight_build:
         if not args.build_plan_code:
             raise SystemExit("--preflight-build requires --build-plan-code")

@@ -35,7 +35,8 @@ AssetGraph 是一个面向麦兔软件与数字人直播业务的多模态视频
 - 麦兔素材库与 Browser-use 现场 loop：建立 Observe → Plan → Act → Verify → Learn 闭环；素材库负责稳定编号、检索、语义推荐、蓝图和计划，Browser-use 负责读取麦兔真实页面现场、执行小步 UI 操作、截图验证和结果回写，AssetGraph 再沉淀成功路径、失败类型、重试任务和可复用模板
 - 麦兔从0搭建直播间：将用户选中的参考直播间抽成结构化 Profile，生成 LiveRoomBlueprint / SceneBlueprint / LayerBlueprint，再转换成 BuildPlan 和 Browser-use 操作计划；替换只是 BuildPlan 的子操作之一
 - 麦兔参考直播间/蓝图 API ingestion：提供 `/api/maitu/live-room-blueprints/import-reference`、`GET /api/maitu/live-room-blueprints`、`GET /api/maitu/live-room-blueprints/{blueprint_code}`，把 Browser-use Observe-derived Profile/Blueprint artifact 持久化为后端对象
-- 麦兔 BuildPlan dry-run：提供 `/api/maitu/live-room-build-plans`、`GET /api/maitu/live-room-build-plans/{build_plan_code}`、`GET /api/maitu/live-room-build-plans/{build_plan_code}/browser-use-operations`，把 `MT-BP-*` 蓝图转换为可审阅的 Browser-use 操作序列，默认只规划/预检，不点击正式开播
+- 麦兔 BuildPlan dry-run：提供 `/api/maitu/live-room-build-plans`、`GET /api/maitu/live-room-build-plans/{build_plan_code}`、`GET /api/maitu/live-room-build-plans/{build_plan_code}/browser-use-operations`，把 `MT-BP-*` 蓝图转换为可审阅的 Browser-use 操作序列；worker 支持 `--build-plan-code MT-BUILD-* --dry-run` 打印安全摘要，默认只规划/预检，不点击正式开播
+- 麦兔 BuildPlan 只读 preflight：worker 支持 `--build-plan-code MT-BUILD-* --preflight-build`，拉取 BuildPlan operations 并只读校验登录态、liveRoomId、场景、激活场景图层、直播脚本面板、`save_live_room=manual_review` 与禁开播规则
 - 麦兔自然语言版式微调：提供 `/api/maitu/layout-adjustments` 与 `MT-ADJ-*` 调整计划，把“往右下挪一点/缩小一点/居中/贴右下”等反馈转成 `set_layer_transform` 几何目标、检查项和可验证 operation，模糊反馈进入人工复核
 - 麦兔替换上下文：记录素材对应的麦兔项目、场景、图层、槽位、位置尺寸和 `replacement_policy`，默认保持原布局替换
 - 直播素材索引：通过 `live_code` 聚合一场数字人直播的录屏、切片、封面、字幕、评论导出、脚本和复盘文档等素材
@@ -182,11 +183,18 @@ curl -X POST "http://127.0.0.1:8000/api/maitu/live-room-build-plans" \
 
 curl "http://127.0.0.1:8000/api/maitu/live-room-build-plans/MT-BUILD-20260709-000001/browser-use-operations"
 
+# BuildPlan worker dry-run：拉取 MT-BUILD-* operations 并只打印安全摘要；不打开浏览器、不点击、不保存。
+cd workers/browser-use
+python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --dry-run
+cd ../..
+
 # BuildPlan 只读 preflight：拉取 MT-BUILD-* operations 并校验当前麦兔页面；不点击、不保存、不开播。
+cd workers/browser-use
 python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --preflight-build
 
 # API-only smoke 可跳过浏览器探测；结果应是 warning 且 ready_to_execute=false。
 python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --preflight-build --skip-browser-probe
+cd ../..
 
 # 自然语言版式微调：把用户反馈转成可验证的 set_layer_transform 目标。
 curl -X POST "http://127.0.0.1:8000/api/maitu/layout-adjustments" \
