@@ -90,6 +90,26 @@ pip install -e .
 uvicorn app.main:app --reload
 ```
 
+应用本地 PostgreSQL migration：
+
+```bash
+cd backend
+for f in migrations/*.sql; do docker exec -i assetgraph-postgres psql -U assetgraph -d assetgraph -v ON_ERROR_STOP=1 < "$f"; done
+```
+
+通过后端 API 导入本地麦兔素材 inventory（API-first，不直接写数据库）：
+
+```bash
+python scripts/import_assets.py \
+  --inventory docs/asset-numbering/asset_inventory_20260709.json \
+  --assets-root 素材 \
+  --api-base-url http://127.0.0.1:8000 \
+  --expected-count 131 \
+  --report-output docs/asset-numbering/import_report_20260709_api_metadata_full.json
+
+# 如需同时上传原始文件到 MinIO，增加 --upload-files；建议先用 --limit 小批量验证。
+```
+
 运行 Browser-use worker 配置检查 / dry-run：
 
 ```bash

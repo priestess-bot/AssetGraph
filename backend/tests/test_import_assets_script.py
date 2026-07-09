@@ -159,3 +159,18 @@ def test_import_skips_existing_local_file_code(tmp_path: Path) -> None:
     assert report["skip_count"] == 1
     assert report["create_count"] == 0
     assert report["items"][0]["asset_code"] == "AG-VID-EXISTING"
+
+
+def test_import_skips_upload_for_existing_asset_when_skip_existing_enabled(tmp_path: Path) -> None:
+    assets_root = tmp_path / "素材"
+    inventory_path = write_inventory(tmp_path, [make_item(assets_root)])
+    client = FakeImportClient(existing={"MT-VID-0001": {"asset_code": "AG-VID-EXISTING", "local_file_code": "MT-VID-0001"}})
+
+    report = run_import(
+        ImportOptions(inventory=inventory_path, assets_root=assets_root, dry_run=False, skip_existing=True, upload_files=True),
+        client=client,
+    )
+
+    assert report["skip_count"] == 1
+    assert report["file_upload_count"] == 0
+    assert client.uploads == []

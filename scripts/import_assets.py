@@ -261,7 +261,7 @@ def run_import(options: ImportOptions, *, client: ImportClient | None = None) ->
                 asset_code = str(created["asset_code"])
                 report_item.update({"operation": "created", "reason": "created", "asset_code": asset_code})
 
-            if options.upload_files:
+            if options.upload_files and not existing:
                 client.upload_asset_file(
                     asset_code=asset_code,
                     path=path,

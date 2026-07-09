@@ -1,0 +1,32 @@
+{
+  "mode": "import",
+  "planned_count": 3,
+  "invalid_count": 0,
+  "create_count": 3,
+  "skip_count": 0,
+  "fail_count": 0,
+  "file_upload_count": 3,
+  "items": [
+    {
+      "local_file_code": "DH-AVT-0001-F002",
+      "relative_path": "数字分身/数字分身成品/37200_张裕定制形象260519/DH-AVT-0001-F002_数字分身成品_37200_张裕定制形象260519_成品封面.png",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-IMG-20260709-000001"
+    },
+    {
+      "local_file_code": "DH-AVT-0001-F003",
+      "relative_path": "数字分身/数字分身成品/37200_张裕定制形象260519/DH-AVT-0001-F003_数字分身成品_37200_张裕定制形象260519_成品预览视频.mp4",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-VID-20260709-000001"
+    },
+    {
+      "local_file_code": "DH-AVT-0002-F002",
+      "relative_path": "数字分身/数字分身成品/40222_明月/DH-AVT-0002-F002_数字分身成品_40222_明月_成品封面.png",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-IMG-20260709-000002"
+    }
+  ]
+}
