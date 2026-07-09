@@ -36,7 +36,7 @@ AssetGraph 是一个面向麦兔软件与数字人直播业务的多模态视频
 - 麦兔从0搭建直播间：将用户选中的参考直播间抽成结构化 Profile，生成 LiveRoomBlueprint / SceneBlueprint / LayerBlueprint，再转换成 BuildPlan 和 Browser-use 操作计划；替换只是 BuildPlan 的子操作之一
 - 麦兔参考直播间/蓝图 API ingestion：提供 `/api/maitu/live-room-blueprints/import-reference`、`GET /api/maitu/live-room-blueprints`、`GET /api/maitu/live-room-blueprints/{blueprint_code}`，把 Browser-use Observe-derived Profile/Blueprint artifact 持久化为后端对象
 - 麦兔 BuildPlan dry-run：提供 `/api/maitu/live-room-build-plans`、`GET /api/maitu/live-room-build-plans/{build_plan_code}`、`GET /api/maitu/live-room-build-plans/{build_plan_code}/browser-use-operations`，把 `MT-BP-*` 蓝图转换为可审阅的 Browser-use 操作序列；worker 支持 `--build-plan-code MT-BUILD-* --dry-run` 打印安全摘要，默认只规划/预检，不点击正式开播
-- 麦兔 BuildPlan 剧本上下文自动选材：`strategy=script_context_best_match` / `auto_select_assets=true` 会按 `script_blocks`、图层角色、`required_category`、`accepted_asset_types` 从素材库选 Top-1，写入 `selected_asset_code`、Browser-use 友好编号、本地文件码、匹配分和原因；仍只进入 dry-run/预检，不真实上传替换
+- 麦兔 BuildPlan 剧本上下文自动选材：`strategy=script_context_best_match` / `auto_select_assets=true` 会按 `script_blocks`、图层角色、`required_category`、`accepted_asset_types` 从素材库选 Top-1，写入 `selected_asset_code`、Browser-use 友好编号、本地文件码、匹配分和原因；模板预览 `MT-TPL-*` 只作为风格/结构索引，不能作为背景/装饰等直接图层素材；仍只进入 dry-run/预检，不真实上传替换
 - 麦兔 BuildPlan 只读 preflight：worker 支持 `--build-plan-code MT-BUILD-* --preflight-build`，拉取 BuildPlan operations 并只读校验登录态、liveRoomId、场景、激活场景图层、直播脚本面板、`save_live_room=manual_review` 与禁开播规则
 - 麦兔 BuildPlan 非破坏性 UI 导航：worker 支持 `--build-plan-code MT-BUILD-* --non-destructive-build`，仅在 preflight 全绿后选择已有场景、打开素材页签/直播脚本页签并重新 Observe；仍禁止上传、替换、写脚本、保存和开播
 - 麦兔 BuildPlan 执行证据回写：提供 `POST/GET /api/maitu/live-room-build-plans/{build_plan_code}/execution-results`，worker 支持 `--write-result` 将 blocked/completed 非破坏性执行结果、operation evidence、DOM/screenshot asset code 回写为 `MT-EXEC-*`
@@ -185,6 +185,7 @@ curl -X POST "http://127.0.0.1:8000/api/maitu/live-room-build-plans" \
   -d '{"blueprint_code":"MT-BP-20260709-39826","plan_name":"39826 参考直播间 BuildPlan dry-run","strategy":"reference_rebuild_dry_run"}'
 
 # BuildPlan 剧本上下文自动选材：只写入 selected_asset_* 与 match_reasons；仍不上传、不替换、不保存。
+# 注意：MT-TPL-* 模板预览只作为风格/结构索引，不能作为背景/装饰等直接图层素材。
 curl -X POST "http://127.0.0.1:8000/api/maitu/live-room-build-plans" \
   -H "Content-Type: application/json" \
   -d '{"blueprint_code":"MT-BP-20260709-39826","plan_name":"39826 script-context asset selection","strategy":"script_context_best_match","auto_select_assets":true}'

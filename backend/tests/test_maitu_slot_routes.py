@@ -75,7 +75,49 @@ class FakeMaituMaterialSlotRepository:
                 "match_score": 0.94,
                 "match_reasons": ["maitu_category matches required_category: product_video", "script context mentions 品酒大师PRO"],
             },
+            {
+                "asset_code": "AG-IMG-20260709-000041",
+                "asset_type": "IMG",
+                "title": "模板 - 模板预览 - 张裕618背景_preview",
+                "original_filename": "MT-TPL-0001_模板_模板预览_张裕618背景_preview.png",
+                "display_code": "MT-TPL-0001",
+                "local_file_code": "MT-TPL-0001",
+                "browser_use_hint": "模板预览图，只能作为风格索引，不能直接作为直播间图层素材",
+                "local_relative_path": "模板/302_张裕618背景/MT-TPL-0001_模板_模板预览_张裕618背景_preview.png",
+                "maitu_category": "background_image",
+                "maitu_type": "模板",
+                "usage": "模板预览",
+                "subject": "张裕618背景_preview",
+                "replacement_policy": "keep_layout",
+            },
+            {
+                "asset_code": "AG-IMG-20260709-000070",
+                "asset_type": "IMG",
+                "title": "背景 - 张裕品酒大师主视觉背景",
+                "original_filename": "MT-BG-0001_张裕品酒大师主视觉背景.png",
+                "display_code": "MT-BG-0001",
+                "local_file_code": "MT-BG-0001",
+                "browser_use_hint": "用于麦兔背景素材选择：张裕品酒大师主视觉背景",
+                "local_relative_path": "背景/MT-BG-0001_张裕品酒大师主视觉背景.png",
+                "maitu_category": "background_image",
+                "maitu_type": "背景",
+                "usage": "直播背景",
+                "subject": "张裕品酒大师",
+                "replacement_policy": "keep_layout",
+            },
         ]
+
+    @staticmethod
+    def _is_direct_layer_forbidden_template_asset(asset: dict[str, Any], layer: dict[str, Any]) -> bool:
+        layer_role = str(layer.get("layer_role") or "").lower()
+        required_category = str(layer.get("required_category") or "").lower()
+        if "template" in layer_role or required_category in {"template", "template_style", "template_index"}:
+            return False
+        marker_text = " ".join(
+            str(asset.get(field) or "")
+            for field in ("display_code", "local_file_code", "maitu_type", "usage", "title", "original_filename", "local_relative_path")
+        ).lower()
+        return "mt-tpl" in marker_text or "模板" in marker_text and "预览" in marker_text
 
     def import_reference_blueprint(self, payload: dict[str, Any]) -> dict[str, Any]:
         profile = payload["reference_profile"]
@@ -170,6 +212,7 @@ class FakeMaituMaterialSlotRepository:
                             for asset in self.assets
                             if asset.get("maitu_category") == layer.get("required_category")
                             and (not layer.get("accepted_asset_types") or asset.get("asset_type") in layer.get("accepted_asset_types", []))
+                            and not self._is_direct_layer_forbidden_template_asset(asset, layer)
                         ),
                         None,
                     )
@@ -1999,6 +2042,77 @@ def test_create_live_room_build_plan_with_script_context_selects_assets_for_laye
     operation = next(item for item in operation_plan["operations"] if item["operation_type"] == "replace_layer_asset")
     assert operation["selected_asset_code"] == "AG-VID-20260709-000052"
     assert operation["selected_asset_local_relative_path"] == "视频/MT-VID-0024_品酒大师PRO.mp4"
+
+
+def test_script_context_build_plan_does_not_use_template_preview_as_direct_layer_asset(client: TestClient) -> None:
+    import_response = client.post(
+        "/api/maitu/live-room-blueprints/import-reference",
+        json={
+            "reference_profile": {
+                "profile_code": "MT-REF-20260709-39828",
+                "source": "browser_use_observe",
+                "reference_room_id": "39828",
+                "reference_room_name": "模板索引测试直播间",
+                "platform": "京东",
+                "active_scene_name": "场景01",
+            },
+            "blueprint": {
+                "blueprint_code": "MT-BP-20260709-39828",
+                "reference_profile_code": "MT-REF-20260709-39828",
+                "title": "张裕618背景风格直播间",
+                "platform": "京东",
+                "room_type": "reference_rebuild",
+                "reference_room_id": "39828",
+                "reference_room_name": "模板索引测试直播间",
+                "status": "draft",
+                "scenes": [
+                    {
+                        "scene_code": "MT-SCENE-20260709-000001",
+                        "scene_name": "场景01",
+                        "scene_type": "讲品",
+                        "layers": [
+                            {
+                                "layer_code": "MT-LAYER-20260709-000010",
+                                "layer_name": "背景图层",
+                                "layer_role": "background",
+                                "required_category": "background_image",
+                                "accepted_asset_types": ["IMG"],
+                                "replacement_policy": "keep_layout",
+                            }
+                        ],
+                    }
+                ],
+                "script_blocks": [
+                    {
+                        "script_block_code": "MT-SCRIPT-BLOCK-20260709-000010",
+                        "scene_name": "场景01",
+                        "content": "张裕618背景风格，品酒大师PRO讲解。",
+                    }
+                ],
+                "safety_rules": ["模板只作为风格索引，不能直接插入直播间"],
+            },
+        },
+    )
+    assert import_response.status_code == 201
+
+    create_response = client.post(
+        "/api/maitu/live-room-build-plans",
+        json={
+            "blueprint_code": "MT-BP-20260709-39828",
+            "plan_name": "模板索引不能直接选材",
+            "strategy": "script_context_best_match",
+            "auto_select_assets": True,
+        },
+    )
+
+    assert create_response.status_code == 201
+    plan = create_response.json()
+    operation = next(item for item in plan["operations"] if item["operation_type"] == "replace_layer_asset")
+    assert operation["selected_asset_code"] == "AG-IMG-20260709-000070"
+    assert operation["selected_asset_local_file_code"] == "MT-BG-0001"
+    assert operation["selection_source"] == "script_context_rule_filter"
+    assert "MT-TPL" not in operation["selected_asset_local_file_code"]
+    assert all("模板预览" not in reason for reason in operation["match_reasons"])
 
 
 def test_create_live_room_build_plan_execution_result_and_list_evidence(client: TestClient) -> None:

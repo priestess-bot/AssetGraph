@@ -1682,7 +1682,7 @@ class MaituMaterialSlotRepository:
                 f"""
                 SELECT asset_code, asset_type, title, original_filename, display_code,
                     local_file_code, local_relative_path, browser_use_hint,
-                    maitu_category, maitu_project_code, maitu_scene_name,
+                    maitu_category, maitu_type, maitu_project_code, maitu_scene_name,
                     maitu_layer_name, maitu_slot_name, subject, usage,
                     replacement_policy, description
                 FROM assets
@@ -1693,11 +1693,43 @@ class MaituMaterialSlotRepository:
                 tuple(values),
             )
             rows = cursor.fetchall()
-        scored = [self._score_live_room_asset_candidate(dict(row), layer, scene, script_context) for row in rows]
+        selectable_rows = [
+            dict(row)
+            for row in rows
+            if not self._is_direct_layer_forbidden_template_asset(dict(row), layer)
+        ]
+        scored = [self._score_live_room_asset_candidate(row, layer, scene, script_context) for row in selectable_rows]
         if not scored:
             return None
         scored.sort(key=lambda candidate: (candidate["match_score"], str(candidate.get("asset_code") or "")), reverse=True)
         return scored[0]
+
+    @staticmethod
+    def _is_direct_layer_forbidden_template_asset(asset: dict[str, Any], layer: dict[str, Any]) -> bool:
+        """Return True when an asset is a template/style preview, not a direct layer module.
+
+        Maitu templates (MT-TPL / 模板预览) are style/structure indexes.  They can
+        help choose the component assets that make up a room, but they must not be
+        inserted as a background/sticker/video layer themselves.
+        """
+        layer_role = str(layer.get("layer_role") or "").lower()
+        required_category = str(layer.get("required_category") or "").lower()
+        if "template" in layer_role or required_category in {"template", "template_style", "template_index"}:
+            return False
+        marker_text = " ".join(
+            str(asset.get(field) or "")
+            for field in (
+                "display_code",
+                "local_file_code",
+                "maitu_type",
+                "usage",
+                "title",
+                "original_filename",
+                "local_relative_path",
+                "browser_use_hint",
+            )
+        ).lower()
+        return "mt-tpl" in marker_text or ("模板" in marker_text and "预览" in marker_text)
 
     def _score_live_room_asset_candidate(
         self,

@@ -424,7 +424,9 @@ curl -X POST "http://127.0.0.1:8000/api/maitu/live-room-build-plans" \
   -d '{"blueprint_code":"MT-BP-20260709-39826","plan_name":"39826 script-context asset selection","strategy":"script_context_best_match","auto_select_assets":true}'
 ```
 
-它会把 `script_blocks` 文本、图层角色、`required_category`、`accepted_asset_types` 与素材库元数据做规则化 Top-1 匹配，并把以下字段写入 `replace_layer_asset` operation：
+它会把 `script_blocks` 文本、图层角色、`required_category`、`accepted_asset_types` 与素材库元数据做规则化 Top-1 匹配，并把以下字段写入 `replace_layer_asset` operation。
+
+重要规则：`MT-TPL-*` / `模板预览` 是直播风格与结构索引，不是可直接插入的背景图或装饰图。BuildPlan 直接图层选材会排除模板预览资产；后续应通过模板索引到组成模板的背景、装饰、数字人、商品图、视频、文本等模块，再分别搭建。
 
 ```text
 selected_asset_code
@@ -439,7 +441,7 @@ match_reasons
 selection_source
 ```
 
-真实 smoke：`MT-BUILD-20260709-000002` 生成了 17 个 operations，其中 7 个图层 operation 均写入 selected asset；first selected 为 `AG-IMG-20260709-000069 / MT-DEC-0024`，`match_score=0.9`，匹配原因包含 `script context mentions 品酒大师PRO`。这一步仍然只生成/展示计划，不会上传素材、不替换图层、不保存草稿。
+真实 smoke：`MT-BUILD-20260709-000003` 生成了 17 个 operations，其中 7 个图层 operation 均写入 selected asset；背景图层选择为 `AG-IMG-20260709-000045 / MT-BG-0004`，没有再选择 `MT-TPL-0001` 模板预览图；first selected 为 `AG-IMG-20260709-000069 / MT-DEC-0024`。这一步仍然只生成/展示计划，不会上传素材、不替换图层、不保存草稿。
 
 当前 Browser-use worker 已接入 `GET /live-room-build-plans/{build_plan_code}/browser-use-operations` 的 BuildPlan dry-run、只读 preflight、非破坏性 UI 导航和执行证据回写：
 
