@@ -15,6 +15,7 @@ class FakeMaituMaterialSlotRepository:
         self.plans: dict[str, dict[str, Any]] = {}
         self.executions: dict[str, dict[str, Any]] = {}
         self.retry_tasks: dict[str, dict[str, Any]] = {}
+        self.blueprints: dict[str, dict[str, Any]] = {}
         self.assets: list[dict[str, Any]] = [
             {
                 "asset_code": "AG-IMG-20260707-000001",
@@ -51,6 +52,51 @@ class FakeMaituMaterialSlotRepository:
                 "replacement_policy": "keep_layout",
             },
         ]
+
+    def import_reference_blueprint(self, payload: dict[str, Any]) -> dict[str, Any]:
+        profile = payload["reference_profile"]
+        blueprint = payload["blueprint"]
+        code = blueprint["blueprint_code"]
+        row = {
+            "id": f"86000000-0000-0000-0000-{len(self.blueprints) + 1:012d}",
+            "blueprint_code": code,
+            "reference_profile_code": profile["profile_code"],
+            "title": blueprint["title"],
+            "platform": blueprint.get("platform"),
+            "room_type": blueprint.get("room_type", "reference_rebuild"),
+            "reference_room_id": blueprint.get("reference_room_id") or profile.get("reference_room_id"),
+            "reference_room_name": blueprint.get("reference_room_name") or profile.get("reference_room_name"),
+            "status": blueprint.get("status", "draft"),
+            "description": blueprint.get("description"),
+            "scenes": blueprint.get("scenes", []),
+            "script_blocks": blueprint.get("script_blocks", []),
+            "material_tabs": blueprint.get("material_tabs", []),
+            "workbench_tabs": blueprint.get("workbench_tabs", []),
+            "safety_rules": blueprint.get("safety_rules", []),
+            "reference_profile": profile,
+            "created_at": None,
+            "updated_at": None,
+        }
+        self.blueprints[code] = row
+        return row
+
+    def list_live_room_blueprints(
+        self,
+        *,
+        reference_room_id: str | None = None,
+        status: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        rows = list(self.blueprints.values())
+        if reference_room_id is not None:
+            rows = [row for row in rows if row.get("reference_room_id") == reference_room_id]
+        if status is not None:
+            rows = [row for row in rows if row.get("status") == status]
+        return rows[offset : offset + limit]
+
+    def get_live_room_blueprint_by_code(self, blueprint_code: str) -> dict[str, Any] | None:
+        return self.blueprints.get(blueprint_code)
 
     def create(self, payload: dict[str, Any]) -> dict[str, Any]:
         code = f"MT-SLOT-20260707-{len(self.rows) + 1:06d}"
@@ -1399,6 +1445,107 @@ def test_get_browser_use_operations_for_missing_plan_returns_404(client: TestCli
 
 def test_candidate_assets_for_missing_slot_returns_404(client: TestClient) -> None:
     response = client.get("/api/maitu/slots/MT-SLOT-20260707-999999/candidate-assets")
+
+    assert response.status_code == 404
+
+
+def test_import_reference_live_room_blueprint_and_get_it(client: TestClient) -> None:
+    payload = {
+        "reference_profile": {
+            "profile_code": "MT-REF-20260709-39826",
+            "source": "browser_use_observe",
+            "source_url": "https://live2.maituai.com/LiveRoom?liveRoomId=39826",
+            "reference_room_id": "39826",
+            "reference_room_name": "京东空白直播间-0707-1352",
+            "platform": "京东",
+            "active_scene_name": "场景01",
+            "scenes": [
+                {"scene_name": "场景01", "scene_type": "讲品", "status": "已激活", "active": True, "sort_order": 1},
+                {"scene_name": "场景02", "scene_type": "讲品", "status": "已激活", "active": False, "sort_order": 2},
+            ],
+            "active_scene_layers": [
+                {
+                    "layer_name": "微信图片_20260618221607_11_15",
+                    "layer_role": "background",
+                    "required_category": "background_image",
+                    "accepted_asset_types": ["IMG"],
+                    "replacement_policy": "keep_layout",
+                    "sort_order": 1,
+                }
+            ],
+            "script_texts": ["大家好，今天给大家介绍张裕解百纳品酒大师系列。"],
+        },
+        "blueprint": {
+            "blueprint_code": "MT-BP-20260709-39826",
+            "reference_profile_code": "MT-REF-20260709-39826",
+            "title": "京东空白直播间-0707-1352 重建蓝图",
+            "platform": "京东",
+            "room_type": "reference_rebuild",
+            "reference_room_id": "39826",
+            "reference_room_name": "京东空白直播间-0707-1352",
+            "status": "draft",
+            "description": "由 Browser-use Observe 现场状态自动抽取的 LiveRoomBlueprint 初稿。",
+            "scenes": [
+                {
+                    "scene_code": "MT-SCENE-20260709-000001",
+                    "scene_name": "场景01",
+                    "scene_type": "讲品",
+                    "status": "已激活",
+                    "sort_order": 1,
+                    "goal": "第1段产品讲解",
+                    "reference_active": True,
+                    "layers": [
+                        {
+                            "layer_code": "MT-LAYER-20260709-000001",
+                            "layer_name": "微信图片_20260618221607_11_15",
+                            "layer_role": "background",
+                            "required_category": "background_image",
+                            "accepted_asset_types": ["IMG"],
+                            "replacement_policy": "keep_layout",
+                        }
+                    ],
+                }
+            ],
+            "script_blocks": [
+                {
+                    "script_block_code": "MT-SCRIPT-BLOCK-20260709-000001",
+                    "scene_name": "场景01",
+                    "sort_order": 1,
+                    "content": "大家好，今天给大家介绍张裕解百纳品酒大师系列。",
+                    "source": "reference_room_profile",
+                }
+            ],
+            "safety_rules": ["默认不点击正式开播", "真实执行前必须通过 Browser-use preflight"],
+        },
+    }
+
+    create_response = client.post("/api/maitu/live-room-blueprints/import-reference", json=payload)
+
+    assert create_response.status_code == 201
+    created = create_response.json()
+    assert created["blueprint_code"] == "MT-BP-20260709-39826"
+    assert created["reference_profile_code"] == "MT-REF-20260709-39826"
+    assert created["reference_room_id"] == "39826"
+    assert created["room_type"] == "reference_rebuild"
+    assert created["status"] == "draft"
+    assert created["scenes"][0]["layers"][0]["required_category"] == "background_image"
+    assert created["script_blocks"][0]["scene_name"] == "场景01"
+    assert created["reference_profile"]["active_scene_name"] == "场景01"
+
+    list_response = client.get(
+        "/api/maitu/live-room-blueprints",
+        params={"reference_room_id": "39826", "status": "draft"},
+    )
+    assert list_response.status_code == 200
+    assert list_response.json()[0]["blueprint_code"] == "MT-BP-20260709-39826"
+
+    get_response = client.get("/api/maitu/live-room-blueprints/MT-BP-20260709-39826")
+    assert get_response.status_code == 200
+    assert get_response.json()["reference_room_name"] == "京东空白直播间-0707-1352"
+
+
+def test_get_missing_live_room_blueprint_returns_404(client: TestClient) -> None:
+    response = client.get("/api/maitu/live-room-blueprints/MT-BP-20260709-999999")
 
     assert response.status_code == 404
 

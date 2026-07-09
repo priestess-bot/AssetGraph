@@ -6,6 +6,32 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.schemas.assets import MaituAssetCategory, MaituReplacementPolicy
 
 
+class MaituLiveRoomBlueprintImportCreate(BaseModel):
+    reference_profile: dict[str, Any]
+    blueprint: dict[str, Any]
+
+
+class MaituLiveRoomBlueprintRead(BaseModel):
+    id: str
+    blueprint_code: str
+    reference_profile_code: str
+    title: str
+    platform: str | None = None
+    room_type: str
+    reference_room_id: str | None = None
+    reference_room_name: str | None = None
+    status: str
+    description: str | None = None
+    scenes: list[dict[str, Any]] = Field(default_factory=list)
+    script_blocks: list[dict[str, Any]] = Field(default_factory=list)
+    material_tabs: list[dict[str, Any]] = Field(default_factory=list)
+    workbench_tabs: list[dict[str, Any]] = Field(default_factory=list)
+    safety_rules: list[str] = Field(default_factory=list)
+    reference_profile: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
 class MaituMaterialSlotCreate(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
 

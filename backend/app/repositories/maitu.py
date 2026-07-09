@@ -40,6 +40,167 @@ class MaituMaterialSlotRepository:
     def __init__(self, connection: Connection):
         self.connection = connection
 
+    def import_reference_blueprint(self, payload: dict[str, Any]) -> dict[str, Any]:
+        profile = dict(payload["reference_profile"])
+        blueprint = dict(payload["blueprint"])
+        profile_code = str(profile["profile_code"])
+        blueprint_code = str(blueprint["blueprint_code"])
+        reference_profile_code = str(blueprint.get("reference_profile_code") or profile_code)
+        reference_room_id = blueprint.get("reference_room_id") or profile.get("reference_room_id")
+        reference_room_name = blueprint.get("reference_room_name") or profile.get("reference_room_name")
+        platform = blueprint.get("platform") or profile.get("platform")
+        material_tabs = blueprint.get("material_tabs") or profile.get("material_tabs") or []
+        workbench_tabs = blueprint.get("workbench_tabs") or profile.get("workbench_tabs") or []
+
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                INSERT INTO maitu_reference_room_profiles (
+                    profile_code, source, source_url, page_title, reference_room_id,
+                    reference_room_name, platform, active_scene_name, logged_in,
+                    login_required, scenes, active_scene_layers, material_tabs,
+                    workbench_tabs, script_texts, raw_profile
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (profile_code)
+                DO UPDATE SET
+                    source = EXCLUDED.source,
+                    source_url = EXCLUDED.source_url,
+                    page_title = EXCLUDED.page_title,
+                    reference_room_id = EXCLUDED.reference_room_id,
+                    reference_room_name = EXCLUDED.reference_room_name,
+                    platform = EXCLUDED.platform,
+                    active_scene_name = EXCLUDED.active_scene_name,
+                    logged_in = EXCLUDED.logged_in,
+                    login_required = EXCLUDED.login_required,
+                    scenes = EXCLUDED.scenes,
+                    active_scene_layers = EXCLUDED.active_scene_layers,
+                    material_tabs = EXCLUDED.material_tabs,
+                    workbench_tabs = EXCLUDED.workbench_tabs,
+                    script_texts = EXCLUDED.script_texts,
+                    raw_profile = EXCLUDED.raw_profile,
+                    updated_at = now(),
+                    deleted_at = NULL
+                RETURNING *
+                """,
+                (
+                    profile_code,
+                    profile.get("source") or "browser_use_observe",
+                    profile.get("source_url"),
+                    profile.get("page_title"),
+                    reference_room_id,
+                    reference_room_name,
+                    profile.get("platform"),
+                    profile.get("active_scene_name"),
+                    bool(profile.get("logged_in", False)),
+                    bool(profile.get("login_required", False)),
+                    Jsonb(profile.get("scenes") or []),
+                    Jsonb(profile.get("active_scene_layers") or []),
+                    Jsonb(profile.get("material_tabs") or []),
+                    Jsonb(profile.get("workbench_tabs") or []),
+                    Jsonb(profile.get("script_texts") or []),
+                    Jsonb(profile),
+                ),
+            )
+            profile_row = cursor.fetchone()
+            cursor.execute(
+                """
+                INSERT INTO maitu_live_room_blueprints (
+                    blueprint_code, reference_profile_id, reference_profile_code, title,
+                    platform, room_type, reference_room_id, reference_room_name, status,
+                    description, scenes, script_blocks, material_tabs, workbench_tabs,
+                    safety_rules, raw_blueprint
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (blueprint_code)
+                DO UPDATE SET
+                    reference_profile_id = EXCLUDED.reference_profile_id,
+                    reference_profile_code = EXCLUDED.reference_profile_code,
+                    title = EXCLUDED.title,
+                    platform = EXCLUDED.platform,
+                    room_type = EXCLUDED.room_type,
+                    reference_room_id = EXCLUDED.reference_room_id,
+                    reference_room_name = EXCLUDED.reference_room_name,
+                    status = EXCLUDED.status,
+                    description = EXCLUDED.description,
+                    scenes = EXCLUDED.scenes,
+                    script_blocks = EXCLUDED.script_blocks,
+                    material_tabs = EXCLUDED.material_tabs,
+                    workbench_tabs = EXCLUDED.workbench_tabs,
+                    safety_rules = EXCLUDED.safety_rules,
+                    raw_blueprint = EXCLUDED.raw_blueprint,
+                    updated_at = now(),
+                    deleted_at = NULL
+                RETURNING *
+                """,
+                (
+                    blueprint_code,
+                    profile_row["id"],
+                    reference_profile_code,
+                    blueprint.get("title") or f"参考直播间 {reference_room_id} 重建蓝图",
+                    platform,
+                    blueprint.get("room_type") or "reference_rebuild",
+                    reference_room_id,
+                    reference_room_name,
+                    blueprint.get("status") or "draft",
+                    blueprint.get("description"),
+                    Jsonb(blueprint.get("scenes") or []),
+                    Jsonb(blueprint.get("script_blocks") or []),
+                    Jsonb(material_tabs),
+                    Jsonb(workbench_tabs),
+                    Jsonb(blueprint.get("safety_rules") or []),
+                    Jsonb(blueprint),
+                ),
+            )
+        self.connection.commit()
+        return self.get_live_room_blueprint_by_code(blueprint_code) or {}
+
+    def list_live_room_blueprints(
+        self,
+        *,
+        reference_room_id: str | None = None,
+        status: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        where_clauses = ["b.deleted_at IS NULL", "p.deleted_at IS NULL"]
+        values: list[Any] = []
+        if reference_room_id is not None:
+            where_clauses.append("b.reference_room_id = %s")
+            values.append(reference_room_id)
+        if status is not None:
+            where_clauses.append("b.status = %s")
+            values.append(status)
+        values.extend([limit, offset])
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                f"""
+                SELECT b.*, p.raw_profile AS reference_profile
+                FROM maitu_live_room_blueprints b
+                JOIN maitu_reference_room_profiles p ON p.id = b.reference_profile_id
+                WHERE {' AND '.join(where_clauses)}
+                ORDER BY b.created_at DESC
+                LIMIT %s OFFSET %s
+                """,
+                tuple(values),
+            )
+            rows = cursor.fetchall()
+        return [self._normalize_live_room_blueprint(row) for row in rows]
+
+    def get_live_room_blueprint_by_code(self, blueprint_code: str) -> dict[str, Any] | None:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT b.*, p.raw_profile AS reference_profile
+                FROM maitu_live_room_blueprints b
+                JOIN maitu_reference_room_profiles p ON p.id = b.reference_profile_id
+                WHERE b.blueprint_code = %s AND b.deleted_at IS NULL AND p.deleted_at IS NULL
+                """,
+                (blueprint_code,),
+            )
+            row = cursor.fetchone()
+        return self._normalize_live_room_blueprint(row) if row else None
+
     def create(self, payload: dict[str, Any]) -> dict[str, Any]:
         data = self._filter_writable(payload)
         data["accepted_asset_types"] = self._serialize_asset_types(data.get("accepted_asset_types"))
@@ -1085,6 +1246,20 @@ class MaituMaterialSlotRepository:
             "manual_required": "manual_required",
         }
         return mapping.get(retry_execution_status, retry_execution_status)
+
+    @staticmethod
+    def _normalize_live_room_blueprint(row: dict[str, Any]) -> dict[str, Any]:
+        converted = dict(row)
+        if "id" in converted and converted["id"] is not None:
+            converted["id"] = str(converted["id"])
+        converted.pop("reference_profile_id", None)
+        converted.pop("raw_blueprint", None)
+        for key in ("scenes", "script_blocks", "material_tabs", "workbench_tabs", "safety_rules"):
+            if converted.get(key) is None:
+                converted[key] = []
+        if converted.get("reference_profile") is None:
+            converted["reference_profile"] = {}
+        return converted
 
     @staticmethod
     def _normalize_plan(row: dict[str, Any]) -> dict[str, Any]:

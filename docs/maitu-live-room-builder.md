@@ -334,17 +334,32 @@ Observe 命令只读执行，不点击保存/开播；它输出当前麦兔现�
 
 ### 阶段 B：蓝图建模 API
 
-新增 API：
+已新增 API：
 
 ```http
-POST /api/maitu/live-room-blueprints
-GET  /api/maitu/live-room-blueprints
+POST /api/maitu/live-room-blueprints/import-reference
+GET  /api/maitu/live-room-blueprints?reference_room_id=39826&status=draft
 GET  /api/maitu/live-room-blueprints/{blueprint_code}
-POST /api/maitu/live-room-blueprints/{blueprint_code}/scenes
-POST /api/maitu/live-room-blueprints/{blueprint_code}/layers
 ```
 
-先不执行 UI，只保存计划对象。
+当前实现先不执行 UI，只把 `ReferenceRoomProfile` 与 `LiveRoomBlueprint` 作为后端持久化对象保存：
+
+- `maitu_reference_room_profiles` 保存 Browser-use Observe-derived Profile，包括场景列表、当前激活场景图层、素材页签、Workbench 页签和脚本文本。
+- `maitu_live_room_blueprints` 保存蓝图主体，包括场景蓝图、图层蓝图、脚本块、安全规则和原始 blueprint JSON。
+- `POST /import-reference` 支持按 `profile_code` / `blueprint_code` 幂等 upsert，方便同一参考直播间多次观察后刷新蓝图。
+
+真实 smoke test 已用 `39826 / 京东空白直播间-0707-1352` artifact 调通：
+
+```text
+POST status 201
+blueprint_code MT-BP-20260709-39826
+profile_code MT-REF-20260709-39826
+scene_count 7
+layer_count_scene01 7
+script_blocks 1
+GET list status 200
+GET one status 200
+```
 
 ### 阶段 C：素材/脚本自动填充
 

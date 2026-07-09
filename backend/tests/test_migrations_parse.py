@@ -21,3 +21,15 @@ def test_asset_ingestion_hardening_migration_exists_and_adds_idempotency_constra
     assert "source_system, local_file_code" in sql
     assert "source_relative_path" in sql
     assert "idx_asset_files_asset_role_unique" in sql
+
+
+def test_maitu_live_room_blueprint_migration_exists_and_stores_profile_and_blueprint() -> None:
+    migration = MIGRATIONS_DIR / "008_maitu_live_room_blueprints.sql"
+
+    assert migration.exists()
+    sql = migration.read_text(encoding="utf-8")
+    assert "maitu_reference_room_profiles" in sql
+    assert "maitu_live_room_blueprints" in sql
+    assert "reference_profile_code" in sql
+    assert "scenes JSONB" in sql
+    assert "script_blocks JSONB" in sql

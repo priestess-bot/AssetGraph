@@ -166,3 +166,30 @@ docs/asset-numbering/live_room_blueprint_39826_20260709.md
 - script blocks: 1
 
 当前蓝图只包含激活场景 `场景01` 的已观测图层；其他场景先保留场景顺序和类型，后续需要 Browser-use 逐场景点击观察后再补齐图层。
+
+## 已通过后端 API ingestion
+
+已新增并真实调用：
+
+```http
+POST /api/maitu/live-room-blueprints/import-reference
+GET  /api/maitu/live-room-blueprints?reference_room_id=39826&status=draft
+GET  /api/maitu/live-room-blueprints/MT-BP-20260709-39826
+```
+
+真实 smoke test 返回：
+
+```text
+POST status 201
+blueprint_code MT-BP-20260709-39826
+profile_code MT-REF-20260709-39826
+scene_count 7
+layer_count_scene01 7
+script_blocks 1
+GET list status 200
+list_count 1
+GET one status 200
+room_name 京东空白直播间-0707-1352
+```
+
+这一步把 artifact 层升级为后端持久化对象。下一步可以从 `MT-BP-20260709-39826` 生成 BuildPlan dry-run，而不是继续依赖临时 JSON 文件。

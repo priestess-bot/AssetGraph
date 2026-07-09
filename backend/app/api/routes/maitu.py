@@ -12,6 +12,8 @@ from app.services.qwen3_client import Qwen3Client, Qwen3ClientError
 from app.schemas.maitu import (
     MaituBrowserUseOperationPlanResponse,
     MaituCandidateAssetsResponse,
+    MaituLiveRoomBlueprintImportCreate,
+    MaituLiveRoomBlueprintRead,
     MaituMaterialSlotCreate,
     MaituMaterialSlotRead,
     MaituMaterialSlotUpdate,
@@ -167,6 +169,45 @@ def semantic_candidate_assets_for_slot(
         "rerank_model": None,
         "assets": assets,
     }
+
+
+@router.post(
+    "/live-room-blueprints/import-reference",
+    response_model=MaituLiveRoomBlueprintRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def import_reference_live_room_blueprint(
+    payload: MaituLiveRoomBlueprintImportCreate,
+    repository: Annotated[MaituMaterialSlotRepository, Depends(get_maitu_slot_repository)],
+) -> dict:
+    return repository.import_reference_blueprint(payload.model_dump())
+
+
+@router.get("/live-room-blueprints", response_model=list[MaituLiveRoomBlueprintRead])
+def list_live_room_blueprints(
+    repository: Annotated[MaituMaterialSlotRepository, Depends(get_maitu_slot_repository)],
+    reference_room_id: str | None = None,
+    status: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[dict]:
+    return repository.list_live_room_blueprints(
+        reference_room_id=reference_room_id,
+        status=status,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/live-room-blueprints/{blueprint_code}", response_model=MaituLiveRoomBlueprintRead)
+def get_live_room_blueprint(
+    blueprint_code: str,
+    repository: Annotated[MaituMaterialSlotRepository, Depends(get_maitu_slot_repository)],
+) -> dict:
+    row = repository.get_live_room_blueprint_by_code(blueprint_code)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Maitu live-room blueprint not found")
+    return row
 
 
 @router.post("/slots", response_model=MaituMaterialSlotRead, status_code=status.HTTP_201_CREATED)

@@ -34,6 +34,7 @@ AssetGraph 是一个面向麦兔软件与数字人直播业务的多模态视频
 - Browser use worker 执行协议：文档化 worker 从取任务、执行操作、成功回写、失败释放到人工介入的完整契约
 - 麦兔素材库与 Browser-use 现场 loop：建立 Observe → Plan → Act → Verify → Learn 闭环；素材库负责稳定编号、检索、语义推荐、蓝图和计划，Browser-use 负责读取麦兔真实页面现场、执行小步 UI 操作、截图验证和结果回写，AssetGraph 再沉淀成功路径、失败类型、重试任务和可复用模板
 - 麦兔从0搭建直播间：将用户选中的参考直播间抽成结构化 Profile，生成 LiveRoomBlueprint / SceneBlueprint / LayerBlueprint，再转换成 BuildPlan 和 Browser-use 操作计划；替换只是 BuildPlan 的子操作之一
+- 麦兔参考直播间/蓝图 API ingestion：提供 `/api/maitu/live-room-blueprints/import-reference`、`GET /api/maitu/live-room-blueprints`、`GET /api/maitu/live-room-blueprints/{blueprint_code}`，把 Browser-use Observe-derived Profile/Blueprint artifact 持久化为后端对象
 - 麦兔替换上下文：记录素材对应的麦兔项目、场景、图层、槽位、位置尺寸和 `replacement_policy`，默认保持原布局替换
 - 直播素材索引：通过 `live_code` 聚合一场数字人直播的录屏、切片、封面、字幕、评论导出、脚本和复盘文档等素材
 - 核心业务对象：`LiveSession`、`VideoSegment`、`DigitalHuman`、`VoiceProfile`、`Product`、`Script`、`ScriptBlock`
@@ -153,6 +154,24 @@ cd ../..
   --observed-state docs/asset-numbering/current_maitu_state_39826_20260709.json \
   --output-dir docs/asset-numbering \
   --date-stamp 20260709
+
+# API ingestion：把 Profile/Blueprint artifact 持久化为后端对象。
+./backend/.venv/Scripts/python - <<'PY'
+from pathlib import Path
+import json, urllib.request
+base = 'http://127.0.0.1:8000'
+payload = {
+    'reference_profile': json.loads(Path('docs/asset-numbering/reference_room_profile_39826_20260709.json').read_text(encoding='utf-8')),
+    'blueprint': json.loads(Path('docs/asset-numbering/live_room_blueprint_39826_20260709.json').read_text(encoding='utf-8')),
+}
+req = urllib.request.Request(
+    base + '/api/maitu/live-room-blueprints/import-reference',
+    data=json.dumps(payload, ensure_ascii=False).encode('utf-8'),
+    headers={'Content-Type': 'application/json'},
+    method='POST',
+)
+print(urllib.request.urlopen(req).read().decode('utf-8'))
+PY
 
 # 对指定替换方案直接做 Browser-use 操作计划 dry-run，不领取 retry queue。
 python -m browser_use_worker --plan-code MT-PLAN-20260709-000001 --dry-run
