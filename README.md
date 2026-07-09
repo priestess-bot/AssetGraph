@@ -129,6 +129,7 @@ python -m browser_use_worker --once --dry-run
 - `docs/asset-numbering/asset_inventory_summary_20260709.md`：本地素材扫描结果摘要，统计 131 个素材的类型、麦兔分类、重复组和解析状态。
 - `docs/asset-numbering/asset_inventory_20260709.json` / `.csv`：从 `D:/AssetGraph/素材` 扫描生成的结构化素材清单，每条素材包含 file_code、sha256、maitu_category、tags、browser_use_hint 和后续导入 `POST /api/assets` 的 `asset_create_payload`。
 - `docs/asset-numbering/assetgraph_import_quality_report_20260709.md` / `.json`：通过后端 API 对 131 条已入库素材生成的质量检查报告，覆盖字段缺失、local_file_code 唯一性、标签覆盖率、重复组和分类分布。
+- `docs/asset-numbering/asset_retrieval_documents_20260709.jsonl` / `asset_retrieval_embeddings_20260709.jsonl` / `.md`：由 `/api/assets` 生成的 Agent/RAG 检索文本与 Qwen3 embedding artifact，每条素材一条检索文档，embedding 维度 1024。
 - `docs/browser-use-integration.md`：AssetGraph 与 Browser-use 同仓一体化布局，说明 backend、worker、scripts、infra 和素材目录如何一起部署/迁移。
 - 本地 Qwen3 检索接口：`GET /api/rag/qwen3/health`、`POST /api/rag/embeddings`、`POST /api/rag/rerank`，默认连接 `http://127.0.0.1:8010` 的 D 盘共享模型服务。
 - `docs/worker-protocols/maitu-browser-use-retry-worker.md`：Browser use retry worker 执行协议，定义取任务、执行、成功回写、失败释放和人工介入流程。

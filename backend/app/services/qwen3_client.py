@@ -109,6 +109,8 @@ class Qwen3Client:
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
             raise Qwen3ClientError(f"Qwen3 HTTP {exc.code} {path}: {detail}") from exc
+        except TimeoutError as exc:
+            raise Qwen3ClientError(f"Qwen3 request timed out {path}: {exc}") from exc
         except urllib.error.URLError as exc:
             raise Qwen3ClientError(f"Qwen3 request failed {path}: {exc}") from exc
         if not content:

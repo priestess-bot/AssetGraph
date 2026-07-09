@@ -105,6 +105,17 @@ def test_qwen3_client_reranks_documents(monkeypatch: pytest.MonkeyPatch) -> None
     assert request_json(request)["top_n"] == 2
 
 
+def test_qwen3_client_wraps_socket_timeout_as_client_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    def raise_timeout(_request: Any, timeout: float) -> None:
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr("app.services.qwen3_client.urllib.request.urlopen", raise_timeout)
+    client = Qwen3Client(base_url="http://127.0.0.1:8010", api_key="local-no-auth")
+
+    with pytest.raises(Qwen3ClientError, match="timed out"):
+        client.embed_texts(["cold load may take several minutes"])
+
+
 def test_qwen3_client_rejects_empty_embedding_input() -> None:
     client = Qwen3Client(base_url="http://127.0.0.1:8010", api_key="local-no-auth")
 
