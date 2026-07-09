@@ -32,6 +32,8 @@ AssetGraph 是一个面向麦兔软件与数字人直播业务的多模态视频
 - Browser use 过期领取回收：提供 reclaim-expired API，将超时的 `in_progress` 任务释放回 `pending`，避免 worker 崩溃后任务永久卡死
 - Browser use worker 一站式取活：提供 `/api/maitu/retry-worker/next`，自动回收过期任务、领取下一条任务并返回 Browser use 操作计划
 - Browser use worker 执行协议：文档化 worker 从取任务、执行操作、成功回写、失败释放到人工介入的完整契约
+- 麦兔素材库与 Browser-use 现场联合调度：素材库负责稳定编号、检索、语义推荐、蓝图和计划；Browser-use 负责读取麦兔真实页面现场、执行小步 UI 操作、截图验证和结果回写
+- 麦兔从0搭建直播间：将用户选中的参考直播间抽成结构化 Profile，生成 LiveRoomBlueprint / SceneBlueprint / LayerBlueprint，再转换成 BuildPlan 和 Browser-use 操作计划；替换只是 BuildPlan 的子操作之一
 - 麦兔替换上下文：记录素材对应的麦兔项目、场景、图层、槽位、位置尺寸和 `replacement_policy`，默认保持原布局替换
 - 直播素材索引：通过 `live_code` 聚合一场数字人直播的录屏、切片、封面、字幕、评论导出、脚本和复盘文档等素材
 - 核心业务对象：`LiveSession`、`VideoSegment`、`DigitalHuman`、`VoiceProfile`、`Product`、`Script`、`ScriptBlock`
@@ -157,6 +159,7 @@ python -m browser_use_worker --plan-code MT-PLAN-20260709-000001 --preflight --s
 - `docs/final-goal.md`：项目最终目标，定义数字人直播视频多模态资产图谱的长期愿景、核心对象和 MVP 闭环。
 - `docs/mvp-architecture.md`：MVP 架构、编号规范、数据库表结构、MinIO 路径、Milvus collection、Neo4j schema 和 API 清单。
 - `docs/maitu-function-map.md`：麦兔功能地图与 AssetGraph 建模参考，记录首页、数字分身、素材管理、商品库、直播记录、直播间编辑器、互动配置和场景类型。
+- `docs/maitu-live-room-builder.md`：从0搭建麦兔直播间的能力设计，定义 ReferenceRoomProfile、LiveRoomBlueprint、SceneBlueprint、LayerBlueprint、BuildPlan 和 Browser-use 创建/插入/保存类 operation。
 - `docs/asset-numbering/asset_naming_rules_20260709_v3_browser_use.md`：Browser use 友好的麦兔素材编号与重命名预案，按数字分身/背景/装饰/视频/模版等麦兔真实类型设计，包含用途、主体、角色、标签和重复素材组。
 - `docs/asset-numbering/duplicate_asset_analysis_20260709.md`：麦兔素材重复原因分析，说明数字分身封面/预览、默认音色封面、重复 material_id 指向同一 URL 等来源，并给出去重建模建议。
 - `docs/asset-numbering/rename_execution_summary_20260709.md`：V3 Browser-use 友好素材重命名执行结果，记录执行策略、manifest、回滚清单和复查统计。
