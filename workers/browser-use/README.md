@@ -26,7 +26,13 @@ python -m browser_use_worker --check-config
 python -m browser_use_worker --probe-maitu
 python -m browser_use_worker --once --dry-run
 python -m browser_use_worker --plan-code MT-PLAN-20260709-000001 --dry-run
+python -m browser_use_worker --plan-code MT-PLAN-20260709-000001 --preflight
+python -m browser_use_worker --plan-code MT-PLAN-20260709-000001 --preflight --skip-browser-probe
 ```
+
+`--preflight --plan-code ...` fetches the replacement plan operation plan and performs read-only safety checks before any mutating Browser-use execution. It validates operation support, Maitu project/scene context, AssetGraph asset lookup, Browser-use-friendly asset fields, local file availability under `--assets-root` (default `D:/AssetGraph/素材`), and the current Maitu browser/login shell. It exits with code `0` when there are no failures and code `2` when a blocking check fails. `ready_to_execute` is only `true` when there are no failures, warnings, or skipped checks.
+
+`--skip-browser-probe` is useful in headless CI or API-only smoke tests: all AssetGraph/local-file checks still run, but the result is a warning and `ready_to_execute=false` because the Maitu browser session was not verified.
 
 `--plan-code ... --dry-run` fetches `/api/maitu/replacement-plans/{plan_code}/browser-use-operations`, validates the operation plan shape, and prints the exact operations Browser-use would execute, including `asset_display_code`, local file code, original filename, and instruction text. It does not claim retry tasks, open Maitu, upload assets, replace layers, or save a project.
 

@@ -140,7 +140,58 @@ worker 应 sleep 后重试，不要把 404 视为异常报警。
 
 ---
 
-## 4. 执行 operation_plan
+## 4. 执行前预检（只读）
+
+在真实 Browser use 改动麦兔项目之前，建议先对指定替换方案运行只读预检：
+
+```bash
+cd workers/browser-use
+python -m browser_use_worker --plan-code MT-PLAN-20260709-000001 --preflight
+```
+
+预检会调用：
+
+```http
+GET /api/maitu/replacement-plans/{plan_code}/browser-use-operations
+GET /api/assets/{asset_code}
+```
+
+并检查：
+
+1. `operation_plan.operations` 非空。
+2. `operation_type` 被当前 worker 支持，且不是 `manual_retry_required` / `resolve_missing_slot_asset`。
+3. operation plan 含 `maitu_project_code` 与 `scene_name`。
+4. 每个替换操作都能查到 AssetGraph 素材。
+5. operation 包含 Browser-use 友好字段：`asset_display_code`、`asset_local_file_code`、`asset_original_filename`、`asset_browser_use_hint`。
+6. 本地素材文件存在于 `--assets-root` 下，且大小与 AssetGraph 元数据一致或给出 warning。
+7. Browser-use 当前会话可看到麦兔页面，并且不是登录页。
+
+预检不领取 retry queue，不上传素材，不替换图层，不保存项目。返回 JSON 中：
+
+```json
+{
+  "status": "passed|warning|failed",
+  "ready_to_execute": true,
+  "failure_count": 0,
+  "warning_count": 0,
+  "skipped_count": 0,
+  "checks": []
+}
+```
+
+`ready_to_execute=true` 只表示预检无失败、无 warning、无 skipped；它不是实际替换成功证明。
+
+如只做 API/文件 smoke test，可跳过浏览器探测：
+
+```bash
+python -m browser_use_worker --plan-code MT-PLAN-20260709-000001 --preflight --skip-browser-probe
+```
+
+这会返回 `status=warning` 且 `ready_to_execute=false`，因为麦兔登录态未验证。
+
+---
+
+## 5. 执行 operation_plan
 
 worker 必须按 `operation_plan.operations` 执行。
 
@@ -158,7 +209,7 @@ worker 必须按 `operation_plan.operations` 执行。
 
 ---
 
-## 5. operation_type 处理
+## 6. operation_type 处理
 
 | operation_type | worker 行为 |
 |---|---|
@@ -172,7 +223,7 @@ worker 必须按 `operation_plan.operations` 执行。
 
 ---
 
-## 6. 成功回写
+## 7. 成功回写
 
 ### 请求
 
@@ -201,7 +252,7 @@ screenshot_asset_code = 请求值
 
 ---
 
-## 7. 可恢复失败：release 回队列
+## 8. 可恢复失败：release 回队列
 
 当 worker 认为失败可能通过后续重试恢复，例如：
 
@@ -235,7 +286,7 @@ claim_expires_at = null
 
 ---
 
-## 8. 不可恢复失败 / 人工处理
+## 9. 不可恢复失败 / 人工处理
 
 当 worker 确认自动化无法继续，例如：
 
@@ -270,7 +321,7 @@ retry_attempt_count += 1
 
 ---
 
-## 9. 锁与超时
+## 10. 锁与超时
 
 `POST /api/maitu/retry-worker/next` 会自动先执行过期回收：
 
@@ -293,7 +344,7 @@ GET  /api/maitu/retry-tasks/{retry_task_code}/browser-use-operations
 
 ---
 
-## 10. Worker 错误处理策略
+## 11. Worker 错误处理策略
 
 | 情况 | 处理 |
 |---|---|
@@ -306,7 +357,7 @@ GET  /api/maitu/retry-tasks/{retry_task_code}/browser-use-operations
 
 ---
 
-## 11. 最小 Python 伪代码
+## 12. 最小 Python 伪代码
 
 ```python
 import time
@@ -367,7 +418,7 @@ while True:
 
 ---
 
-## 12. 验收检查清单
+## 13. 验收检查清单
 
 worker 接入前应确认：
 

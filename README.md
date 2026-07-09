@@ -144,6 +144,12 @@ python -m browser_use_worker --once --dry-run
 
 # 对指定替换方案直接做 Browser-use 操作计划 dry-run，不领取 retry queue。
 python -m browser_use_worker --plan-code MT-PLAN-20260709-000001 --dry-run
+
+# 真实执行前做只读安全预检：检查 operation plan、素材编号/文件、本地文件和麦兔登录态。
+python -m browser_use_worker --plan-code MT-PLAN-20260709-000001 --preflight
+
+# API/文件 smoke test 可跳过浏览器探测；此时结果会是 warning 且 ready_to_execute=false。
+python -m browser_use_worker --plan-code MT-PLAN-20260709-000001 --preflight --skip-browser-probe
 ```
 
 ## 文档

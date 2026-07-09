@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from pathlib import Path
 
 from browser_use_worker import __main__ as worker_main
 
@@ -47,15 +48,32 @@ class FakeAssetGraphClient:
         assert plan_code == "MT-PLAN-20260709-000001"
         return {
             "plan_code": plan_code,
+            "maitu_project_code": "MT-PROJ-LOCAL-SMOKE",
+            "scene_name": "本地向量检索验证场景",
             "operations": [
                 {
                     "operation_type": "replace_layer_asset",
                     "slot_code": "MT-SLOT-20260709-000001",
                     "asset_code": "AG-VID-20260709-000052",
                     "asset_display_code": "MT-VID-0024",
+                    "asset_local_file_code": "MT-VID-0024",
+                    "asset_original_filename": "MT-VID-0024_视频_商品讲解视频_品酒大师PRO.mp4",
+                    "asset_local_relative_path": "视频/MT-VID-0024_视频_商品讲解视频_品酒大师PRO.mp4",
+                    "asset_browser_use_hint": "用于麦兔视频素材选择：品酒大师PRO",
                     "instruction": "将素材替换为 MT-VID-0024",
                 }
             ],
+        }
+
+    def get_asset(self, asset_code: str) -> dict:
+        assert asset_code == "AG-VID-20260709-000052"
+        return {
+            "asset_code": asset_code,
+            "display_code": "MT-VID-0024",
+            "local_file_code": "MT-VID-0024",
+            "title": "视频 - 商品讲解视频 - 品酒大师PRO",
+            "local_relative_path": "视频/MT-VID-0024_视频_商品讲解视频_品酒大师PRO.mp4",
+            "file_size": 5,
         }
 
 
@@ -69,3 +87,28 @@ def test_plan_code_dry_run_cli_prints_result_json(monkeypatch, capsys) -> None:
     assert output["status"] == "released"
     assert output["details"]["plan_code"] == "MT-PLAN-20260709-000001"
     assert output["details"]["operations"][0]["asset_display_code"] == "MT-VID-0024"
+
+
+def test_plan_code_preflight_cli_prints_preflight_json(monkeypatch, capsys, tmp_path: Path) -> None:
+    monkeypatch.setattr(worker_main, "AssetGraphClient", FakeAssetGraphClient, raising=False)
+    asset_file = tmp_path / "视频" / "MT-VID-0024_视频_商品讲解视频_品酒大师PRO.mp4"
+    asset_file.parent.mkdir(parents=True)
+    asset_file.write_bytes(b"12345")
+
+    exit_code = worker_main.main(
+        [
+            "--plan-code",
+            "MT-PLAN-20260709-000001",
+            "--preflight",
+            "--skip-browser-probe",
+            "--assets-root",
+            str(tmp_path),
+        ]
+    )
+
+    assert exit_code == 0
+    output = json.loads(capsys.readouterr().out)
+    assert output["status"] == "warning"
+    assert output["failure_count"] == 0
+    assert output["ready_to_execute"] is False
+    assert any(check["name"] == "maitu_browser_probe" and check["status"] == "skipped" for check in output["checks"])
