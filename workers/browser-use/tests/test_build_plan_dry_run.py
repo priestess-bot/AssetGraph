@@ -33,7 +33,13 @@ def build_plan() -> dict:
                 "scene_name": "场景01",
                 "layer_name": "商品图",
                 "replacement_policy": "keep_layout",
-                "instruction": "定位商品图图层并保持原布局。",
+                "selected_asset_code": "AG-VID-20260709-000052",
+                "selected_asset_title": "视频 - 商品讲解视频 - 品酒大师PRO",
+                "selected_asset_display_code": "MT-VID-0024",
+                "selected_asset_local_file_code": "MT-VID-0024",
+                "match_score": 0.94,
+                "match_reasons": ["maitu_category matches required_category: product_video", "script context mentions 品酒大师PRO"],
+                "instruction": "定位商品图图层，计划替换为 MT-VID-0024（视频 - 商品讲解视频 - 品酒大师PRO；AssetGraph编号 AG-VID-20260709-000052），保持原布局。",
             },
             {
                 "operation_type": "add_script_block",
@@ -71,6 +77,10 @@ def test_build_plan_dry_run_renders_safe_operation_summary_without_browser_actio
     assert result.operations[2].safe_action == "planned_layer_asset_replacement_not_executed"
     assert result.operations[2].scene_name == "场景01"
     assert result.operations[2].layer_name == "商品图"
+    assert result.operations[2].selected_asset_code == "AG-VID-20260709-000052"
+    assert result.operations[2].selected_asset_display_code == "MT-VID-0024"
+    assert result.operations[2].match_score == 0.94
+    assert "script context mentions 品酒大师PRO" in (result.operations[2].match_reasons or [])
     assert result.operations[3].safe_action == "planned_script_block_not_executed"
     assert result.operations[3].script_preview == "大家好，今天介绍品酒大师PRO。"
     assert result.operations[4].safe_action == "manual_review_save_not_executed"

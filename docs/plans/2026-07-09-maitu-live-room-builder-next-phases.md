@@ -165,27 +165,28 @@ python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --prefli
 
 让 `replace_layer_asset` 不再只是“规划图层”，而是能基于 LayerBlueprint 自动选择素材，并把 Browser-use 需要的 UI 友好字段写入 operation。
 
-## Task 2.1: 后端 BuildPlan operation 增加选材状态字段
+## Task 2.1: 后端 BuildPlan operation 增加选材状态字段 ✅
 
 **Files:**
-- Modify migration or new migration: `backend/migrations/010_maitu_build_plan_asset_selection.sql`
-- Modify: `backend/app/schemas/maitu.py`
-- Modify: `backend/app/repositories/maitu.py`
+- Added migration: `backend/migrations/012_maitu_build_plan_operation_asset_selection.sql`
+- Modified: `backend/app/schemas/maitu.py`
+- Modified: `backend/app/repositories/maitu.py`
 - Test: `backend/tests/test_maitu_slot_routes.py`
 
 **Fields:**
-- `asset_code`
-- `asset_title`
-- `asset_display_code`
-- `asset_local_file_code`
-- `asset_original_filename`
-- `asset_local_relative_path`
-- `asset_browser_use_hint`
+- `selected_asset_code`
+- `selected_asset_title`
+- `selected_asset_display_code`
+- `selected_asset_local_file_code`
+- `selected_asset_original_filename`
+- `selected_asset_local_relative_path`
+- `selected_asset_browser_use_hint`
 - `match_score`
 - `match_reasons JSONB`
-- `selection_status`: `selected|missing|manual_required`
+- `selection_source`
+- operation `status`: `asset_selected|missing_asset|manual_required|planned`
 
-## Task 2.2: LayerBlueprint → candidate query
+## Task 2.2: LayerBlueprint → candidate query ✅
 
 **Approach:**
 For each layer operation:
@@ -198,12 +199,14 @@ required_category + accepted_asset_types + layer_role + scene_name + layer_name
 
 Start with deterministic rule/semantic artifact endpoint; keep missing assets explicit.
 
-**Acceptance:**
-- 背景层 `微信图片_20260618221607_11_15` 能选中类似 `MT-BG-0004`。
-- 数字人层暂时可标为 `manual_required`，避免误选主播。
-- 未选中素材不阻断 BuildPlan 生成，但 operation status 应是 `missing_asset` 或 `manual_required`。
+Implemented in this sprint as `strategy=script_context_best_match` / `auto_select_assets=true`: combine `script_blocks`, layer role/name/category, scene context, and asset metadata, then choose Top-1 per `replace_layer_asset` operation.
 
-## Task 2.3: Browser-use operation payload enrichment
+**Acceptance:**
+- 真实 `MT-BP-20260709-39826` smoke 生成 `MT-BUILD-20260709-000002`：17 operations，7 个图层 operation 均写入 selected asset。
+- first selected：`AG-IMG-20260709-000069 / MT-DEC-0024`，`match_score=0.9`，原因包含 `script context mentions 品酒大师PRO`。
+- 未选中素材不阻断 BuildPlan 生成，operation status 会是 `missing_asset`。
+
+## Task 2.3: Browser-use operation payload enrichment ✅
 
 **Output example:**
 ```json
@@ -211,12 +214,14 @@ Start with deterministic rule/semantic artifact endpoint; keep missing assets ex
   "operation_type": "replace_layer_asset",
   "scene_name": "场景01",
   "layer_name": "微信图片_20260618221607_11_15",
-  "asset_code": "AG-IMG-...",
-  "asset_display_code": "MT-BG-0004",
-  "asset_local_file_code": "MT-BG-0004",
-  "asset_original_filename": "...png",
-  "asset_local_relative_path": "背景/MT-BG-0004.png",
-  "asset_browser_use_hint": "用于麦兔背景素材选择...",
+  "selected_asset_code": "AG-IMG-...",
+  "selected_asset_display_code": "MT-BG-0004",
+  "selected_asset_local_file_code": "MT-BG-0004",
+  "selected_asset_original_filename": "...png",
+  "selected_asset_local_relative_path": "背景/MT-BG-0004.png",
+  "selected_asset_browser_use_hint": "用于麦兔背景素材选择...",
+  "match_score": 0.9,
+  "match_reasons": ["maitu_category matches required_category", "script context mentions ..."],
   "replacement_policy": "keep_layout"
 }
 ```
@@ -418,11 +423,11 @@ Only after Phase 4/5 prove UI stability should create/configure operations be en
 
 ## Sprint 2: Asset selection enrichment
 
-1. DB/API fields for selected assets on build operations.
-2. Candidate selection from LayerBlueprint context.
-3. Enriched Browser-use payload.
-4. Real smoke: background layer gets a selected asset; digital human remains manual if uncertain.
-5. Docs + commit.
+1. DB/API fields for selected assets on build operations ✅
+2. Candidate selection from LayerBlueprint + script context ✅
+3. Enriched Browser-use payload ✅
+4. Real smoke: 39826 BuildPlan selected 7/7 layer assets with `script_context_best_match` ✅
+5. Docs + commit ✅
 
 ## Sprint 3: Worker dry-run and non-destructive UI
 

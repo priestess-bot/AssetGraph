@@ -37,6 +37,8 @@ class MaituLiveRoomBuildPlanCreate(BaseModel):
     plan_name: str | None = Field(default=None, max_length=255)
     strategy: str = Field(default="reference_rebuild_dry_run", max_length=64)
     description: str | None = None
+    auto_select_assets: bool = False
+    selection_query: str | None = None
 
 
 class MaituLiveRoomBuildPlanOperationRead(BaseModel):
@@ -50,6 +52,16 @@ class MaituLiveRoomBuildPlanOperationRead(BaseModel):
     required_category: str | None = None
     accepted_asset_types: list[str] = Field(default_factory=list)
     replacement_policy: str | None = None
+    selected_asset_code: str | None = None
+    selected_asset_title: str | None = None
+    selected_asset_display_code: str | None = None
+    selected_asset_local_file_code: str | None = None
+    selected_asset_original_filename: str | None = None
+    selected_asset_local_relative_path: str | None = None
+    selected_asset_browser_use_hint: str | None = None
+    match_score: float | None = None
+    match_reasons: list[str] = Field(default_factory=list)
+    selection_source: str | None = None
     script_block_code: str | None = None
     script_block_content: str | None = None
     instruction: str

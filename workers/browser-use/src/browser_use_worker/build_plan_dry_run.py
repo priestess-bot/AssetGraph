@@ -15,6 +15,13 @@ class BuildPlanDryRunOperation:
     scene_name: str | None = None
     layer_name: str | None = None
     replacement_policy: str | None = None
+    selected_asset_code: str | None = None
+    selected_asset_title: str | None = None
+    selected_asset_display_code: str | None = None
+    selected_asset_local_file_code: str | None = None
+    match_score: float | None = None
+    match_reasons: list[str] | None = None
+    selection_source: str | None = None
     script_block_code: str | None = None
     script_preview: str | None = None
     instruction: str | None = None
@@ -124,6 +131,13 @@ class BuildPlanDryRun:
             scene_name=self._optional_string(operation.get("scene_name")),
             layer_name=self._optional_string(operation.get("layer_name")),
             replacement_policy=self._optional_string(operation.get("replacement_policy")),
+            selected_asset_code=self._optional_string(operation.get("selected_asset_code")),
+            selected_asset_title=self._optional_string(operation.get("selected_asset_title")),
+            selected_asset_display_code=self._optional_string(operation.get("selected_asset_display_code")),
+            selected_asset_local_file_code=self._optional_string(operation.get("selected_asset_local_file_code")),
+            match_score=self._optional_float(operation.get("match_score")),
+            match_reasons=[str(item) for item in operation.get("match_reasons", [])] if isinstance(operation.get("match_reasons"), list) else None,
+            selection_source=self._optional_string(operation.get("selection_source")),
             script_block_code=self._optional_string(operation.get("script_block_code")),
             script_preview=self._preview(operation.get("script_block_content")),
             instruction=instruction,
@@ -179,6 +193,15 @@ class BuildPlanDryRun:
             return None
         try:
             return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _optional_float(value: Any) -> float | None:
+        if value is None:
+            return None
+        try:
+            return float(value)
         except (TypeError, ValueError):
             return None
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -209,7 +210,12 @@ class MaituMaterialSlotRepository:
             return None
         build_plan_code = self._next_build_plan_code()
         plan_name = payload.get("plan_name") or f"{blueprint['title']} BuildPlan"
-        operations = self._build_live_room_operations_from_blueprint(blueprint)
+        auto_select_assets = bool(payload.get("auto_select_assets")) or payload.get("strategy") == "script_context_best_match"
+        operations = self._build_live_room_operations_from_blueprint(
+            blueprint,
+            auto_select_assets=auto_select_assets,
+            selection_query=payload.get("selection_query") or payload.get("description"),
+        )
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
                 """
@@ -236,9 +242,13 @@ class MaituMaterialSlotRepository:
                         build_plan_id, build_plan_code, operation_type, operation_name,
                         sort_order, status, scene_name, layer_name, layer_role,
                         required_category, accepted_asset_types, replacement_policy,
+                        selected_asset_code, selected_asset_title, selected_asset_display_code,
+                        selected_asset_local_file_code, selected_asset_original_filename,
+                        selected_asset_local_relative_path, selected_asset_browser_use_hint,
+                        match_score, match_reasons, selection_source,
                         script_block_code, script_block_content, instruction, details
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         plan["id"],
@@ -253,6 +263,16 @@ class MaituMaterialSlotRepository:
                         operation.get("required_category"),
                         Jsonb(operation.get("accepted_asset_types") or []),
                         operation.get("replacement_policy"),
+                        operation.get("selected_asset_code"),
+                        operation.get("selected_asset_title"),
+                        operation.get("selected_asset_display_code"),
+                        operation.get("selected_asset_local_file_code"),
+                        operation.get("selected_asset_original_filename"),
+                        operation.get("selected_asset_local_relative_path"),
+                        operation.get("selected_asset_browser_use_hint"),
+                        operation.get("match_score"),
+                        Jsonb(operation.get("match_reasons") or []),
+                        operation.get("selection_source"),
                         operation.get("script_block_code"),
                         operation.get("script_block_content"),
                         operation["instruction"],
@@ -1464,7 +1484,11 @@ class MaituMaterialSlotRepository:
                 """
                 SELECT operation_type, operation_name, sort_order, status, scene_name,
                     layer_name, layer_role, required_category, accepted_asset_types,
-                    replacement_policy, script_block_code, script_block_content,
+                    replacement_policy, selected_asset_code, selected_asset_title,
+                    selected_asset_display_code, selected_asset_local_file_code,
+                    selected_asset_original_filename, selected_asset_local_relative_path,
+                    selected_asset_browser_use_hint, match_score, match_reasons,
+                    selection_source, script_block_code, script_block_content,
                     instruction, details
                 FROM maitu_live_room_build_plan_operations
                 WHERE build_plan_code = %s
@@ -1475,8 +1499,14 @@ class MaituMaterialSlotRepository:
             rows = cursor.fetchall()
         return [self._normalize_live_room_build_plan_operation(row) for row in rows]
 
-    @staticmethod
-    def _build_live_room_operations_from_blueprint(blueprint: dict[str, Any]) -> list[dict[str, Any]]:
+    def _build_live_room_operations_from_blueprint(
+        self,
+        blueprint: dict[str, Any],
+        *,
+        auto_select_assets: bool = False,
+        selection_query: str | None = None,
+    ) -> list[dict[str, Any]]:
+        script_context = self._build_live_room_script_context(blueprint, selection_query)
         operations: list[dict[str, Any]] = [
             {
                 "operation_type": "preflight_build_plan",
@@ -1511,25 +1541,26 @@ class MaituMaterialSlotRepository:
             for layer in scene.get("layers", []):
                 layer_name = layer.get("layer_name")
                 replacement_policy = layer.get("replacement_policy") or "keep_layout"
-                operations.append(
-                    {
-                        "operation_type": "replace_layer_asset",
-                        "operation_name": f"规划图层 {layer_name}",
-                        "sort_order": sort_order,
-                        "status": "planned",
-                        "scene_name": scene_name,
-                        "layer_name": layer_name,
-                        "layer_role": layer.get("layer_role"),
-                        "required_category": layer.get("required_category"),
-                        "accepted_asset_types": layer.get("accepted_asset_types") or [],
-                        "replacement_policy": replacement_policy,
-                        "instruction": (
-                            f"在场景 {scene_name} 定位图层 {layer_name}，后续按 {replacement_policy} "
-                            "策略匹配素材并保持原布局。"
-                        ),
-                        "details": {"layer_code": layer.get("layer_code"), "material_tab": layer.get("material_tab")},
-                    }
-                )
+                operation = {
+                    "operation_type": "replace_layer_asset",
+                    "operation_name": f"规划图层 {layer_name}",
+                    "sort_order": sort_order,
+                    "status": "planned",
+                    "scene_name": scene_name,
+                    "layer_name": layer_name,
+                    "layer_role": layer.get("layer_role"),
+                    "required_category": layer.get("required_category"),
+                    "accepted_asset_types": layer.get("accepted_asset_types") or [],
+                    "replacement_policy": replacement_policy,
+                    "instruction": (
+                        f"在场景 {scene_name} 定位图层 {layer_name}，后续按 {replacement_policy} "
+                        "策略匹配素材并保持原布局。"
+                    ),
+                    "details": {"layer_code": layer.get("layer_code"), "material_tab": layer.get("material_tab")},
+                }
+                if auto_select_assets:
+                    self._attach_selected_asset_to_build_operation(operation, layer, scene, script_context)
+                operations.append(operation)
                 sort_order += 10
         for block in blueprint.get("script_blocks", []):
             operations.append(
@@ -1560,6 +1591,178 @@ class MaituMaterialSlotRepository:
             }
         )
         return operations
+
+    @staticmethod
+    def _build_live_room_script_context(blueprint: dict[str, Any], selection_query: str | None = None) -> str:
+        parts: list[str] = [selection_query or "", blueprint.get("title") or "", blueprint.get("description") or ""]
+        for scene in blueprint.get("scenes", []) or []:
+            parts.extend([scene.get("scene_name") or "", scene.get("goal") or "", scene.get("scene_type") or ""])
+            for layer in scene.get("layers", []) or []:
+                parts.extend([
+                    layer.get("layer_name") or "",
+                    layer.get("layer_role") or "",
+                    layer.get("required_category") or "",
+                    layer.get("material_tab") or "",
+                ])
+        for block in blueprint.get("script_blocks", []) or []:
+            parts.extend([block.get("scene_name") or "", block.get("content") or ""])
+        return "；".join(str(part).strip() for part in parts if str(part or "").strip())
+
+    def _attach_selected_asset_to_build_operation(
+        self,
+        operation: dict[str, Any],
+        layer: dict[str, Any],
+        scene: dict[str, Any],
+        script_context: str,
+    ) -> None:
+        candidate = self._select_asset_for_live_room_layer(layer, scene, script_context)
+        if candidate is None:
+            operation["status"] = "missing_asset"
+            operation["selection_source"] = "script_context_rule_filter"
+            operation["match_reasons"] = []
+            operation["details"] = {**operation.get("details", {}), "asset_selection": {"status": "missing_asset"}}
+            operation["instruction"] += " 当前素材库未找到匹配素材；请补充素材或人工选择后再执行。"
+            return
+
+        selected_fields = {
+            "selected_asset_code": candidate.get("asset_code"),
+            "selected_asset_title": candidate.get("title"),
+            "selected_asset_display_code": candidate.get("display_code"),
+            "selected_asset_local_file_code": candidate.get("local_file_code"),
+            "selected_asset_original_filename": candidate.get("original_filename"),
+            "selected_asset_local_relative_path": candidate.get("local_relative_path"),
+            "selected_asset_browser_use_hint": candidate.get("browser_use_hint"),
+            "match_score": candidate.get("match_score"),
+            "match_reasons": candidate.get("match_reasons") or [],
+            "selection_source": "script_context_rule_filter",
+        }
+        operation.update(selected_fields)
+        operation["status"] = "asset_selected"
+        display_code = candidate.get("display_code") or candidate.get("local_file_code") or candidate.get("asset_code")
+        title = candidate.get("title") or "未命名素材"
+        operation["instruction"] = (
+            f"在场景 {operation.get('scene_name')} 定位图层 {operation.get('layer_name')}，"
+            f"计划替换为 {display_code}（{title}；AssetGraph编号 {candidate.get('asset_code')}），"
+            f"替换策略为 {operation.get('replacement_policy') or 'keep_layout'}；保持原图层位置和尺寸不变。"
+        )
+        if candidate.get("original_filename"):
+            operation["instruction"] += f" 素材文件名：{candidate['original_filename']}。"
+        if candidate.get("browser_use_hint"):
+            operation["instruction"] += f" 选择提示：{candidate['browser_use_hint']}。"
+        operation["details"] = {
+            **operation.get("details", {}),
+            "asset_selection": {
+                "status": "selected",
+                "source": "script_context_rule_filter",
+                "asset_code": candidate.get("asset_code"),
+                "display_code": display_code,
+                "match_score": candidate.get("match_score"),
+                "match_reasons": candidate.get("match_reasons") or [],
+            },
+        }
+
+    def _select_asset_for_live_room_layer(
+        self,
+        layer: dict[str, Any],
+        scene: dict[str, Any],
+        script_context: str,
+    ) -> dict[str, Any] | None:
+        required_category = layer.get("required_category")
+        if not required_category:
+            return None
+        accepted_asset_types = [str(item) for item in (layer.get("accepted_asset_types") or [])]
+        where_clauses = ["deleted_at IS NULL", "maitu_category = %s"]
+        values: list[Any] = [required_category]
+        if accepted_asset_types:
+            placeholders = ", ".join(["%s"] * len(accepted_asset_types))
+            where_clauses.append(f"asset_type IN ({placeholders})")
+            values.extend(accepted_asset_types)
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                f"""
+                SELECT asset_code, asset_type, title, original_filename, display_code,
+                    local_file_code, local_relative_path, browser_use_hint,
+                    maitu_category, maitu_project_code, maitu_scene_name,
+                    maitu_layer_name, maitu_slot_name, subject, usage,
+                    replacement_policy, description
+                FROM assets
+                WHERE {' AND '.join(where_clauses)}
+                ORDER BY created_at DESC
+                LIMIT 100
+                """,
+                tuple(values),
+            )
+            rows = cursor.fetchall()
+        scored = [self._score_live_room_asset_candidate(dict(row), layer, scene, script_context) for row in rows]
+        if not scored:
+            return None
+        scored.sort(key=lambda candidate: (candidate["match_score"], str(candidate.get("asset_code") or "")), reverse=True)
+        return scored[0]
+
+    def _score_live_room_asset_candidate(
+        self,
+        asset: dict[str, Any],
+        layer: dict[str, Any],
+        scene: dict[str, Any],
+        script_context: str,
+    ) -> dict[str, Any]:
+        score = 0.0
+        reasons: list[str] = []
+        required_category = layer.get("required_category")
+        accepted_asset_types = [str(item) for item in (layer.get("accepted_asset_types") or [])]
+        if asset.get("maitu_category") == required_category:
+            score += 0.55
+            reasons.append(f"maitu_category matches required_category: {required_category}")
+        if not accepted_asset_types or asset.get("asset_type") in accepted_asset_types:
+            score += 0.20
+            reasons.append(f"asset_type accepted: {asset.get('asset_type')}")
+        if scene.get("scene_name") and asset.get("maitu_scene_name") == scene.get("scene_name"):
+            score += 0.05
+            reasons.append(f"scene_name matches: {scene.get('scene_name')}")
+        if layer.get("layer_name") and asset.get("maitu_layer_name") == layer.get("layer_name"):
+            score += 0.05
+            reasons.append(f"layer_name matches: {layer.get('layer_name')}")
+
+        asset_text = " ".join(
+            str(asset.get(field) or "")
+            for field in ("title", "original_filename", "display_code", "local_file_code", "browser_use_hint", "subject", "usage", "description")
+        ).lower()
+        for token in self._selection_tokens(script_context):
+            if token.lower() in asset_text:
+                score += 0.15
+                reasons.append(f"script context mentions {token}")
+                break
+        layer_role = str(layer.get("layer_role") or "").lower()
+        if "product" in layer_role and ("product" in asset_text or "商品" in asset_text):
+            score += 0.05
+            reasons.append("layer_role product matches asset usage/title")
+        if "digital_human" in layer_role and asset.get("asset_type") in {"VID", "IMG"}:
+            score += 0.03
+            reasons.append("digital human layer accepts avatar material")
+
+        asset["match_score"] = round(min(score, 1.0), 4)
+        asset["match_reasons"] = reasons
+        return asset
+
+    @staticmethod
+    def _selection_tokens(text: str) -> list[str]:
+        tokens = re.findall(r"[A-Za-z]+\d*|\d+[A-Za-z]*", text or "")
+        priority = []
+        for token in tokens:
+            normalized = token.strip()
+            if len(normalized) >= 2 and normalized.upper() not in {"MT", "IMG", "VID", "PROD"}:
+                priority.append(normalized)
+        for keyword in ("品酒大师PRO", "品酒大师MASTER", "品酒大师SUPER", "品酒大师PLUS", "张裕", "解百纳"):
+            if keyword in (text or ""):
+                priority.insert(0, keyword)
+        seen: set[str] = set()
+        result: list[str] = []
+        for token in priority:
+            key = token.lower()
+            if key not in seen:
+                seen.add(key)
+                result.append(token)
+        return result[:8]
 
     def _fetch_asset_operation_metadata(self, asset_code: str) -> dict[str, Any] | None:
         with self.connection.cursor(row_factory=dict_row) as cursor:
@@ -1728,6 +1931,10 @@ class MaituMaterialSlotRepository:
         converted = dict(row)
         if converted.get("accepted_asset_types") is None:
             converted["accepted_asset_types"] = []
+        if converted.get("match_reasons") is None:
+            converted["match_reasons"] = []
+        if isinstance(converted.get("match_score"), Decimal):
+            converted["match_score"] = float(converted["match_score"])
         if converted.get("details") is None:
             converted["details"] = {}
         return converted

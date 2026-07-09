@@ -54,6 +54,27 @@ class FakeMaituMaterialSlotRepository:
                 "layer_height": None,
                 "replacement_policy": "keep_layout",
             },
+            {
+                "asset_code": "AG-VID-20260709-000052",
+                "asset_type": "VID",
+                "title": "视频 - 商品讲解视频 - 品酒大师PRO",
+                "original_filename": "MT-VID-0024_品酒大师PRO.mp4",
+                "display_code": "MT-VID-0024",
+                "local_file_code": "MT-VID-0024",
+                "browser_use_hint": "用于麦兔视频素材选择：品酒大师PRO 商品讲解视频",
+                "local_relative_path": "视频/MT-VID-0024_品酒大师PRO.mp4",
+                "maitu_category": "product_video",
+                "maitu_project_code": None,
+                "maitu_scene_name": None,
+                "maitu_layer_name": None,
+                "maitu_slot_name": None,
+                "maitu_slot_code": None,
+                "layer_width": None,
+                "layer_height": None,
+                "replacement_policy": "keep_layout",
+                "match_score": 0.94,
+                "match_reasons": ["maitu_category matches required_category: product_video", "script context mentions 品酒大师PRO"],
+            },
         ]
 
     def import_reference_blueprint(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -129,21 +150,51 @@ class FakeMaituMaterialSlotRepository:
             )
             sort_order += 10
             for layer in scene.get("layers", []):
-                operations.append(
-                    {
-                        "operation_type": "replace_layer_asset",
-                        "operation_name": f"规划图层 {layer.get('layer_name')}",
-                        "sort_order": sort_order,
-                        "status": "planned",
-                        "scene_name": scene.get("scene_name"),
-                        "layer_name": layer.get("layer_name"),
-                        "layer_role": layer.get("layer_role"),
-                        "required_category": layer.get("required_category"),
-                        "accepted_asset_types": layer.get("accepted_asset_types", []),
-                        "replacement_policy": layer.get("replacement_policy", "keep_layout"),
-                        "instruction": f"在场景 {scene.get('scene_name')} 定位图层 {layer.get('layer_name')}，后续按 {layer.get('replacement_policy', 'keep_layout')} 策略匹配素材并保持原布局。",
-                    }
-                )
+                operation = {
+                    "operation_type": "replace_layer_asset",
+                    "operation_name": f"规划图层 {layer.get('layer_name')}",
+                    "sort_order": sort_order,
+                    "status": "planned",
+                    "scene_name": scene.get("scene_name"),
+                    "layer_name": layer.get("layer_name"),
+                    "layer_role": layer.get("layer_role"),
+                    "required_category": layer.get("required_category"),
+                    "accepted_asset_types": layer.get("accepted_asset_types", []),
+                    "replacement_policy": layer.get("replacement_policy", "keep_layout"),
+                    "instruction": f"在场景 {scene.get('scene_name')} 定位图层 {layer.get('layer_name')}，后续按 {layer.get('replacement_policy', 'keep_layout')} 策略匹配素材并保持原布局。",
+                }
+                if payload.get("auto_select_assets") or payload.get("strategy") == "script_context_best_match":
+                    candidate = next(
+                        (
+                            asset
+                            for asset in self.assets
+                            if asset.get("maitu_category") == layer.get("required_category")
+                            and (not layer.get("accepted_asset_types") or asset.get("asset_type") in layer.get("accepted_asset_types", []))
+                        ),
+                        None,
+                    )
+                    if candidate:
+                        operation.update(
+                            {
+                                "status": "asset_selected",
+                                "selected_asset_code": candidate.get("asset_code"),
+                                "selected_asset_title": candidate.get("title"),
+                                "selected_asset_display_code": candidate.get("display_code"),
+                                "selected_asset_local_file_code": candidate.get("local_file_code"),
+                                "selected_asset_original_filename": candidate.get("original_filename"),
+                                "selected_asset_local_relative_path": candidate.get("local_relative_path"),
+                                "selected_asset_browser_use_hint": candidate.get("browser_use_hint"),
+                                "match_score": candidate.get("match_score", 0.9),
+                                "match_reasons": candidate.get("match_reasons", []),
+                                "selection_source": "script_context_rule_filter",
+                                "instruction": (
+                                    f"在场景 {scene.get('scene_name')} 定位图层 {layer.get('layer_name')}，计划替换为 "
+                                    f"{candidate.get('display_code') or candidate.get('local_file_code')}（{candidate.get('title')}；"
+                                    f"AssetGraph编号 {candidate.get('asset_code')}），替换策略为 {layer.get('replacement_policy', 'keep_layout')}；保持原图层位置和尺寸不变。"
+                                ),
+                            }
+                        )
+                operations.append(operation)
                 sort_order += 10
         for block in blueprint.get("script_blocks", []):
             operations.append(
@@ -1863,6 +1914,91 @@ def test_create_live_room_build_plan_from_blueprint_and_get_browser_use_operatio
     assert operations["reference_room_name"] == "京东空白直播间-0707-1352"
     assert operations["operations"][0]["operation_type"] == "preflight_build_plan"
     assert operations["operations"][-1]["operation_type"] == "save_live_room"
+
+
+def test_create_live_room_build_plan_with_script_context_selects_assets_for_layer_operations(client: TestClient) -> None:
+    import_response = client.post(
+        "/api/maitu/live-room-blueprints/import-reference",
+        json={
+            "reference_profile": {
+                "profile_code": "MT-REF-20260709-39827",
+                "source": "browser_use_observe",
+                "reference_room_id": "39827",
+                "reference_room_name": "品酒大师PRO测试直播间",
+                "platform": "京东",
+                "active_scene_name": "场景01",
+            },
+            "blueprint": {
+                "blueprint_code": "MT-BP-20260709-39827",
+                "reference_profile_code": "MT-REF-20260709-39827",
+                "title": "品酒大师PRO测试直播间 重建蓝图",
+                "platform": "京东",
+                "room_type": "reference_rebuild",
+                "reference_room_id": "39827",
+                "reference_room_name": "品酒大师PRO测试直播间",
+                "status": "draft",
+                "scenes": [
+                    {
+                        "scene_code": "MT-SCENE-20260709-000001",
+                        "scene_name": "场景01",
+                        "scene_type": "讲品",
+                        "sort_order": 1,
+                        "layers": [
+                            {
+                                "layer_code": "MT-LAYER-20260709-000009",
+                                "layer_name": "商品讲解视频",
+                                "layer_role": "product_video",
+                                "required_category": "product_video",
+                                "accepted_asset_types": ["VID"],
+                                "replacement_policy": "keep_layout",
+                            }
+                        ],
+                    }
+                ],
+                "script_blocks": [
+                    {
+                        "script_block_code": "MT-SCRIPT-BLOCK-20260709-000009",
+                        "scene_name": "场景01",
+                        "sort_order": 1,
+                        "content": "大家好，今天给大家介绍张裕解百纳品酒大师PRO，入口柔顺，适合新手。",
+                    }
+                ],
+                "safety_rules": ["默认不点击正式开播"],
+            },
+        },
+    )
+    assert import_response.status_code == 201
+
+    create_response = client.post(
+        "/api/maitu/live-room-build-plans",
+        json={
+            "blueprint_code": "MT-BP-20260709-39827",
+            "plan_name": "品酒大师PRO BuildPlan script selection",
+            "strategy": "script_context_best_match",
+            "auto_select_assets": True,
+        },
+    )
+
+    assert create_response.status_code == 201
+    plan = create_response.json()
+    layer_operation = next(operation for operation in plan["operations"] if operation["operation_type"] == "replace_layer_asset")
+    assert layer_operation["status"] == "asset_selected"
+    assert layer_operation["selected_asset_code"] == "AG-VID-20260709-000052"
+    assert layer_operation["selected_asset_title"] == "视频 - 商品讲解视频 - 品酒大师PRO"
+    assert layer_operation["selected_asset_display_code"] == "MT-VID-0024"
+    assert layer_operation["selected_asset_local_file_code"] == "MT-VID-0024"
+    assert layer_operation["match_score"] >= 0.9
+    assert "script context mentions 品酒大师PRO" in layer_operation["match_reasons"]
+    assert "AG-VID-20260709-000052" in layer_operation["instruction"]
+
+    operations_response = client.get(
+        f"/api/maitu/live-room-build-plans/{plan['build_plan_code']}/browser-use-operations"
+    )
+    assert operations_response.status_code == 200
+    operation_plan = operations_response.json()
+    operation = next(item for item in operation_plan["operations"] if item["operation_type"] == "replace_layer_asset")
+    assert operation["selected_asset_code"] == "AG-VID-20260709-000052"
+    assert operation["selected_asset_local_relative_path"] == "视频/MT-VID-0024_品酒大师PRO.mp4"
 
 
 def test_create_live_room_build_plan_execution_result_and_list_evidence(client: TestClient) -> None:

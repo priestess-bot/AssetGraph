@@ -68,3 +68,14 @@ def test_maitu_live_room_build_execution_result_migration_exists_and_stores_evid
     assert "build_plan_code" in sql
     assert "execution_code" in sql
     assert "dom_snapshot_asset_code" in sql
+
+
+def test_maitu_live_room_build_operation_selection_migration_exists_and_stores_selected_assets() -> None:
+    migration = MIGRATIONS_DIR / "012_maitu_build_plan_operation_asset_selection.sql"
+
+    assert migration.exists()
+    sql = migration.read_text(encoding="utf-8")
+    assert "selected_asset_code" in sql
+    assert "selected_asset_local_file_code" in sql
+    assert "match_reasons JSONB" in sql
+    assert "selection_source" in sql
