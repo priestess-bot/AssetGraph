@@ -1,0 +1,106 @@
+{
+  "library_code": "MAITU_LIVE_ROOM_TEMPLATE_LIBRARY",
+  "library_name": "麦兔直播间模板库",
+  "description": "可复用麦兔直播间结构模板；模板预览图只作风格索引，真实搭建必须按模块还原。",
+  "templates": [
+    {
+      "template_code": "MT-TEMPLATE-38336-ZHANGYU-SUMMER",
+      "template_name": "张裕夏日主题",
+      "template_status": "active_baseline",
+      "template_role": "first_template_and_minimum_quality_line",
+      "source_type": "maitu_live_room_readonly_observation",
+      "source_live_room_id": "38336",
+      "source_url": "https://live2.maituai.com/LiveRoom?liveRoomId=38336",
+      "platform": "京东",
+      "platform_code": 4,
+      "video_size": "1080*1920",
+      "room_type": "ts_real_driver",
+      "live_room_mode": "normal",
+      "quality_baseline": true,
+      "read_only_verified": true,
+      "safe_execution_boundary": "draft_only_never_click_go_live",
+      "artifact_paths": {
+        "baseline_markdown": "docs/maitu-live-room-templates/38336-zhangyu-summer-baseline.md",
+        "baseline_json": "docs/maitu-live-room-templates/38336-zhangyu-summer-baseline.json",
+        "readonly_screenshot": "docs/maitu-live-room-runs/38336-zhangyu-summer-readonly-entry.png",
+        "blueprint_import_payload": "docs/maitu-live-room-templates/38336-zhangyu-summer-blueprint-import.json"
+      },
+      "stats": {
+        "topic_count": 10,
+        "scene_count": 38,
+        "scene_type_counts": {
+          "讲品": 7,
+          "特写": 15,
+          "过渡": 1,
+          "未标注": 15
+        },
+        "script_block_count": 38,
+        "script_char_min": 62,
+        "script_char_max": 589,
+        "script_char_avg": 225.7,
+        "unique_visual_material_count": 31,
+        "visual_material_placement_count": 307
+      },
+      "layout_families": [
+        {
+          "name": "讲品/品牌主视觉布局",
+          "scene_fit": [
+            "讲品",
+            "未标注讲品"
+          ],
+          "required_modules": [
+            "全屏背景",
+            "AI贴片白",
+            "张裕定制形象260519",
+            "转盘动图",
+            "张裕买赠",
+            "前景",
+            "AI贴片黑",
+            "标题+logo",
+            "直播脚本"
+          ]
+        },
+        {
+          "name": "特写/产品视频布局",
+          "scene_fit": [
+            "特写",
+            "过渡"
+          ],
+          "required_modules": [
+            "背景-3",
+            "商品 decorative_video",
+            "张裕定制形象260519",
+            "底图",
+            "gif-01",
+            "png",
+            "icon",
+            "logo",
+            "张裕百年",
+            "直播脚本"
+          ]
+        }
+      ],
+      "qualification_rules": [
+        "未来京东葡萄酒直播间至少应达到本模板的信息密度：多商品、多场景、逐商品脚本，而不是单背景+单脚本。",
+        "必须按模块搭建：背景/底图、品牌标题与 logo、前景/装饰、商品贴片/动图、数字人、商品特写视频、直播脚本。模板预览图只作风格索引，不能直接作为直播间素材。",
+        "画布基准为 1080x1920 竖屏；每个场景都要有明确图层层级、坐标、尺寸和脚本文案。",
+        "常规讲品场景要包含数字人和品牌视觉体系；特写场景要包含商品视频或产品细节素材；过渡场景用于商品/段落切换。",
+        "真实执行时只允许搭建到草稿/自动保存边界，禁止点击正式开播。"
+      ],
+      "tags": [
+        "麦兔",
+        "京东",
+        "张裕",
+        "葡萄酒",
+        "夏日主题",
+        "模板库",
+        "及格线",
+        "多商品",
+        "多场景",
+        "数字人直播"
+      ]
+    }
+  ],
+  "default_baseline_template_code": "MT-TEMPLATE-38336-ZHANGYU-SUMMER",
+  "template_count": 1
+}
