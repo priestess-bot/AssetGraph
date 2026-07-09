@@ -167,6 +167,92 @@ class AssetRepository:
             rows = cursor.fetchall()
         return [self._stringify_ids(row) for row in rows]
 
+    def get_by_local_file_code(self, source_system: str, local_file_code: str) -> dict[str, Any] | None:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT *
+                FROM assets
+                WHERE source_system = %s
+                  AND local_file_code = %s
+                  AND deleted_at IS NULL
+                """,
+                (source_system, local_file_code),
+            )
+            row = cursor.fetchone()
+        return self._stringify_ids(row) if row else None
+
+    def create_file_record(self, asset_code: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT id
+                FROM assets
+                WHERE asset_code = %s AND deleted_at IS NULL
+                """,
+                (asset_code,),
+            )
+            asset = cursor.fetchone()
+            if asset is None:
+                return None
+
+            data = {
+                "asset_id": asset["id"],
+                "asset_code": asset_code,
+                "file_role": payload.get("file_role", "original"),
+                "bucket_name": payload["bucket_name"],
+                "object_key": payload["object_key"],
+                "mime_type": payload.get("mime_type"),
+                "file_size": payload.get("file_size"),
+                "checksum_sha256": payload.get("checksum_sha256"),
+                "source_relative_path": payload.get("source_relative_path"),
+                "local_file_code": payload.get("local_file_code"),
+                "storage_status": payload.get("storage_status", "stored"),
+            }
+            fields = tuple(data.keys())
+            columns = ", ".join(fields)
+            placeholders = ", ".join(["%s"] * len(fields))
+            cursor.execute(
+                f"""
+                INSERT INTO asset_files ({columns})
+                VALUES ({placeholders})
+                RETURNING *
+                """,
+                tuple(data[field] for field in fields),
+            )
+            row = cursor.fetchone()
+        self.connection.commit()
+        return self._stringify_ids(row) if row else None
+
+    def list_file_records(self, asset_code: str) -> list[dict[str, Any]]:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT *
+                FROM asset_files
+                WHERE asset_code = %s
+                ORDER BY created_at DESC
+                """,
+                (asset_code,),
+            )
+            rows = cursor.fetchall()
+        return [self._stringify_ids(row) for row in rows]
+
+    def update_status(self, asset_code: str, status: str) -> dict[str, Any] | None:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                UPDATE assets
+                SET status = %s, updated_at = now()
+                WHERE asset_code = %s AND deleted_at IS NULL
+                RETURNING *
+                """,
+                (status, asset_code),
+            )
+            row = cursor.fetchone()
+        self.connection.commit()
+        return self._stringify_ids(row) if row else None
+
     def _next_asset_code(self, asset_type: str) -> str:
         sequence_date = datetime.now(UTC).date()
         with self.connection.cursor() as cursor:
@@ -189,7 +275,7 @@ class AssetRepository:
     @staticmethod
     def _stringify_ids(row: dict[str, Any]) -> dict[str, Any]:
         converted = dict(row)
-        for field in ("id", "project_id", "created_by"):
+        for field in ("id", "project_id", "created_by", "asset_id"):
             if field in converted and converted[field] is not None:
                 converted[field] = str(converted[field])
         return converted
