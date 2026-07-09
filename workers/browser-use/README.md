@@ -2,7 +2,7 @@
 
 This worker lives in the same repository as AssetGraph so the API, RAG ingestion code, local asset inventory, and Maitu browser automation protocol can be deployed or migrated together.
 
-Current status: scaffold plus tested Maitu executor abstraction. It implements the queue/claim/release/result protocol boundary and a `MaituBrowserUseExecutor` that dispatches AssetGraph operation plans to a thin browser session interface. A concrete browser-use runtime is still intentionally not bound.
+Current status: scaffold plus tested Maitu executor abstraction and a read-only Browser-use CLI session probe. It implements the queue/claim/release/result protocol boundary, dispatches AssetGraph operation plans to a thin browser session interface, and can verify the current Maitu page/login state without uploading, replacing, or saving anything. Mutating browser automation is still intentionally not bound.
 
 ## Responsibilities
 
@@ -23,8 +23,11 @@ Browser-use worker:
 ```bash
 cd workers/browser-use
 python -m browser_use_worker --check-config
+python -m browser_use_worker --probe-maitu
 python -m browser_use_worker --once --dry-run
 ```
+
+`--probe-maitu` is read-only. It calls the local `D:/browser-use` CLI, inspects the current page, opens Maitu home when the active page is unrelated, and prints JSON with `url`, `logged_in`, `login_required`, and `opened_home`. It never uploads assets, replaces layers, or saves a Maitu project.
 
 Environment variables:
 
@@ -42,7 +45,18 @@ The worker should run on a machine/session that can open the Maitu web UI and ke
 
 ## Real browser-use integration point
 
-The tested execution boundary is:
+Implemented read-only session:
+
+```text
+BrowserUseCliSession
+  -> uv run browser-use state
+  -> falls back to browser-use eval for title/url/body text
+  -> opens Maitu home if the active page is unrelated
+  -> detects logged-in dashboard vs login page
+  -> refuses upload/replace/save operations
+```
+
+The tested execution boundary for future mutating automation is:
 
 ```text
 MaituBrowserUseExecutor

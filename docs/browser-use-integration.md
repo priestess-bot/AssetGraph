@@ -88,7 +88,7 @@ worker 不应该直接拥有素材推荐逻辑，也不应该自行生成替换�
 
 ## 5. 当前 worker 状态
 
-当前 worker 已有可测试的 Maitu executor 抽象层，但不直接启动真实 browser-use 自动化。
+当前 worker 已有可测试的 Maitu executor 抽象层，并已接入第一版只读 Browser-use CLI 探测会话；仍不执行上传、替换、保存等真实变更操作。
 
 已支持：
 
@@ -98,6 +98,9 @@ claim-next 请求 payload 组装
 AssetGraph asset metadata 读取
 MaituBrowserUseExecutor 操作分发
 MaituBrowserSession 抽象接口
+BrowserUseCliSession 只读页面探测
+--probe-maitu 登录态/页面状态检查
+麦兔登录页 vs 已登录后台识别
 retry_replace_layer_asset
 retry_asset_upload_and_replace
 retry_save_project
@@ -112,8 +115,7 @@ dry-run 校验 operation_plan
 尚未接入：
 
 ```text
-真实 browser-use runtime
-麦兔页面打开/登录态管理
+真实上传/替换/保存执行
 页面 selector 操作
 截图上传为 AssetGraph asset
 ```
@@ -129,13 +131,27 @@ cd backend
 uvicorn app.main:app --reload
 ```
 
-worker 配置检查 / dry-run：
+worker 配置检查 / 只读页面探测 / dry-run：
 
 ```bash
 cd workers/browser-use
 python -m browser_use_worker --check-config
+python -m browser_use_worker --probe-maitu
 python -m browser_use_worker --once --dry-run
 ```
+
+`--probe-maitu` 只读取当前 browser-use 页面状态，必要时打开麦兔首页，并输出：
+
+```json
+{
+  "url": "https://live2.maituai.com/LiveManage",
+  "logged_in": true,
+  "login_required": false,
+  "opened_home": false
+}
+```
+
+它不会点击上传控件、替换素材或保存项目。
 
 环境变量：
 
@@ -151,8 +167,8 @@ BROWSER_USE_MAX_ATTEMPTS=3
 
 ## 7. 后续接入真实 browser-use 的步骤
 
-1. 在 `workers/browser-use` 中实现真实 `MaituBrowserSession`。
-2. session 使用 browser-use / Playwright 完成麦兔页面 selector 操作。
+1. 在 `workers/browser-use` 中将 `BrowserUseCliSession` 从只读探测扩展为真实执行 session。
+2. 使用 browser-use / Playwright 完成麦兔页面 selector 操作。
 3. 明确浏览器 profile / cookies / 登录态保存位置。
 4. 将本地素材路径从 `asset.local_relative_path` / `local_file_code` 解析为可上传文件。
 5. 将截图保存并通过 AssetGraph 上传/入库，返回 `screenshot_asset_code`。
