@@ -86,6 +86,26 @@ class AssetCreate(BaseModel):
     replacement_policy: MaituReplacementPolicy | None = MaituReplacementPolicy.KEEP_LAYOUT
 
 
+class AssetFileRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    asset_id: str
+    asset_code: str
+    file_role: str
+    bucket_name: str
+    object_key: str
+    mime_type: str | None = None
+    file_size: int | None = None
+    checksum_sha256: str | None = None
+    width: int | None = None
+    height: int | None = None
+    duration_seconds: float | None = None
+    source_relative_path: str | None = None
+    local_file_code: str | None = None
+    storage_status: str = "stored"
+
+
 class AssetRead(AssetCreate):
     model_config = ConfigDict(from_attributes=True, use_enum_values=True)
 
