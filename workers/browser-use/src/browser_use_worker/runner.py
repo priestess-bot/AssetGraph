@@ -18,6 +18,7 @@ class OperationExecutionResult:
     error_message: str | None = None
     screenshot_asset_code: str | None = None
     retry_instruction: str | None = None
+    details: dict[str, Any] | None = None
 
 
 class BrowserUseExecutor(Protocol):
@@ -42,10 +43,29 @@ class DryRunBrowserUseExecutor:
                 error_message="operation_plan.operations is empty",
                 retry_instruction="Regenerate the retry task operation plan before browser-use execution.",
             )
-        retry_task_code = operation_plan.get("retry_task_code", "unknown")
+        plan_identifier = operation_plan.get("retry_task_code") or operation_plan.get("plan_code") or "unknown"
+        operation_summaries = [
+            {
+                "operation_type": operation.get("operation_type"),
+                "slot_code": operation.get("slot_code"),
+                "slot_name": operation.get("slot_name"),
+                "asset_code": operation.get("asset_code"),
+                "asset_display_code": operation.get("asset_display_code"),
+                "asset_local_file_code": operation.get("asset_local_file_code"),
+                "asset_original_filename": operation.get("asset_original_filename"),
+                "instruction": operation.get("instruction"),
+            }
+            for operation in operations
+        ]
         return OperationExecutionResult(
             status="released",
-            summary=f"Dry run validated {len(operations)} operation(s) for {retry_task_code}; real browser-use execution not enabled.",
+            summary=f"Dry run validated {len(operations)} operation(s) for {plan_identifier}; real browser-use execution not enabled.",
+            details={
+                "plan_code": operation_plan.get("plan_code"),
+                "retry_task_code": operation_plan.get("retry_task_code"),
+                "operation_count": len(operations),
+                "operations": operation_summaries,
+            },
         )
 
 
@@ -104,6 +124,11 @@ class BrowserUseWorker:
                 retry_instruction=result.retry_instruction,
             )
         return True
+
+    def run_plan_once(self, plan_code: str) -> OperationExecutionResult:
+        operation_plan = self.client.get_replacement_plan_operation_plan(plan_code)
+        LOGGER.info("Loaded replacement plan operation plan %s", plan_code)
+        return self.executor.execute_operation_plan(operation_plan)
 
     def run_forever(self) -> None:
         while True:

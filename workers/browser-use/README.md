@@ -25,7 +25,10 @@ cd workers/browser-use
 python -m browser_use_worker --check-config
 python -m browser_use_worker --probe-maitu
 python -m browser_use_worker --once --dry-run
+python -m browser_use_worker --plan-code MT-PLAN-20260709-000001 --dry-run
 ```
+
+`--plan-code ... --dry-run` fetches `/api/maitu/replacement-plans/{plan_code}/browser-use-operations`, validates the operation plan shape, and prints the exact operations Browser-use would execute, including `asset_display_code`, local file code, original filename, and instruction text. It does not claim retry tasks, open Maitu, upload assets, replace layers, or save a project.
 
 `--probe-maitu` is read-only. It calls the local `D:/browser-use` CLI, inspects the current page, opens Maitu home when the active page is unrelated, and prints JSON with `url`, `logged_in`, `login_required`, and `opened_home`. It never uploads assets, replaces layers, or saves a Maitu project.
 

@@ -141,6 +141,9 @@ curl "http://127.0.0.1:8000/api/maitu/replacement-plans/MT-PLAN-20260709-000001/
 cd workers/browser-use
 python -m browser_use_worker --check-config
 python -m browser_use_worker --once --dry-run
+
+# 对指定替换方案直接做 Browser-use 操作计划 dry-run，不领取 retry queue。
+python -m browser_use_worker --plan-code MT-PLAN-20260709-000001 --dry-run
 ```
 
 ## 文档

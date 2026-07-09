@@ -17,6 +17,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--once", action="store_true", help="Run a single claim/execute/write-back cycle")
     parser.add_argument("--dry-run", action="store_true", help="Validate operation plans but do not operate Maitu")
     parser.add_argument("--probe-maitu", action="store_true", help="Run a read-only browser-use probe of the current Maitu page")
+    parser.add_argument("--plan-code", help="Fetch a replacement plan operation plan and execute/dry-run it once")
     parser.add_argument("--check-config", action="store_true", help="Print resolved configuration and exit without calling AssetGraph")
     parser.add_argument("--log-level", default="INFO", help="Python logging level")
     return parser.parse_args(argv)
@@ -43,7 +44,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         client=AssetGraphClient(config.api_base_url),
         executor=executor,
     )
-    if args.once:
+    if args.plan_code:
+        result = worker.run_plan_once(args.plan_code)
+        print(json.dumps(asdict(result), ensure_ascii=False, indent=2))
+    elif args.once:
         worker.run_once()
     else:
         worker.run_forever()

@@ -22,3 +22,18 @@ def test_get_asset_uses_asset_endpoint() -> None:
 
     assert result == {"asset_code": "AG-VID-20260709-000001"}
     assert client.calls == [("GET", "/api/assets/AG-VID-20260709-000001", None)]
+
+
+def test_get_replacement_plan_operation_plan_uses_browser_use_endpoint() -> None:
+    client = RecordingClient()
+
+    result = client.get_replacement_plan_operation_plan("MT-PLAN-20260709-000001")
+
+    assert result == {"asset_code": "AG-VID-20260709-000001"}
+    assert client.calls == [
+        (
+            "GET",
+            "/api/maitu/replacement-plans/MT-PLAN-20260709-000001/browser-use-operations",
+            None,
+        )
+    ]

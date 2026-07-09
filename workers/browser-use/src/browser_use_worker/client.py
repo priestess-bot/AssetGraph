@@ -32,6 +32,9 @@ class AssetGraphClient:
                 return None
             raise
 
+    def get_replacement_plan_operation_plan(self, plan_code: str) -> dict[str, Any]:
+        return self._request_json("GET", f"/api/maitu/replacement-plans/{plan_code}/browser-use-operations")
+
     def release_retry_task(self, retry_task_code: str, *, status: str, result_summary: str) -> dict[str, Any]:
         return self._request_json(
             "POST",

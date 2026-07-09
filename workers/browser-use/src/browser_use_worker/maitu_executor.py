@@ -107,7 +107,7 @@ class MaituBrowserUseExecutor:
         operation_type = operation.get("operation_type")
         asset = self._load_asset(operation.get("asset_code"))
 
-        if operation_type == "retry_replace_layer_asset":
+        if operation_type in {"replace_layer_asset", "retry_replace_layer_asset"}:
             self._require_asset(operation, asset)
             self.session.replace_layer_asset(operation, asset)
             return

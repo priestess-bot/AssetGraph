@@ -9,6 +9,7 @@ from browser_use_worker.runner import BrowserUseWorker, DryRunBrowserUseExecutor
 class FakeClient:
     def __init__(self, bundle: dict[str, Any] | None) -> None:
         self.bundle = bundle
+        self.plan: dict[str, Any] = {}
         self.claim_payloads: list[dict[str, Any]] = []
         self.releases: list[tuple[str, str, str]] = []
         self.results: list[tuple[str, dict[str, Any]]] = []
@@ -24,6 +25,9 @@ class FakeClient:
     def write_retry_execution_result(self, retry_task_code: str, **payload: Any) -> dict[str, Any]:
         self.results.append((retry_task_code, payload))
         return {}
+
+    def get_replacement_plan_operation_plan(self, plan_code: str) -> dict[str, Any]:
+        return self.plan
 
 
 class SucceedingExecutor:
@@ -83,6 +87,42 @@ def test_dry_run_releases_claimed_task() -> None:
     assert client.releases[0][1] == "pending"
     assert "Dry run validated" in client.releases[0][2]
     assert client.results == []
+
+
+def test_dry_run_replacement_plan_returns_operation_details() -> None:
+    operation_plan = {
+        "plan_code": "MT-PLAN-20260709-000001",
+        "operations": [
+            {
+                "operation_type": "replace_layer_asset",
+                "slot_code": "MT-SLOT-20260709-000001",
+                "asset_code": "AG-VID-20260709-000052",
+                "asset_display_code": "MT-VID-0024",
+                "instruction": "将素材替换为 MT-VID-0024",
+            }
+        ],
+    }
+    result = DryRunBrowserUseExecutor().execute_operation_plan(operation_plan)
+
+    assert result.status == "released"
+    assert "MT-PLAN-20260709-000001" in result.summary
+    assert result.details["operation_count"] == 1
+    assert result.details["operations"][0]["asset_display_code"] == "MT-VID-0024"
+
+
+def test_worker_can_dry_run_replacement_plan_by_code() -> None:
+    client = FakeClient(None)
+    client.plan = {
+        "plan_code": "MT-PLAN-20260709-000001",
+        "operations": [{"operation_type": "replace_layer_asset", "slot_code": "MT-SLOT-1"}],
+    }
+    config = WorkerConfig(api_base_url="http://assetgraph", worker_id="worker-1", dry_run=True)
+    worker = BrowserUseWorker(config=config, client=client, executor=DryRunBrowserUseExecutor())
+
+    result = worker.run_plan_once("MT-PLAN-20260709-000001")
+
+    assert result.status == "released"
+    assert result.details["plan_code"] == "MT-PLAN-20260709-000001"
 
 
 def test_successful_executor_writes_success_result() -> None:

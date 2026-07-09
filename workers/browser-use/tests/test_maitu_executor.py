@@ -94,6 +94,23 @@ def test_maitu_executor_replaces_layer_asset_and_saves_project() -> None:
     ]
 
 
+def test_maitu_executor_executes_replacement_plan_operation_type() -> None:
+    session = FakeMaituSession()
+    executor = MaituBrowserUseExecutor(
+        asset_client=FakeAssetClient({"AG-VID-20260709-000001": asset()}),
+        session=session,
+    )
+    plan = operation_plan("replace_layer_asset")
+    plan["plan_code"] = "MT-PLAN-20260709-000001"
+    plan.pop("retry_task_code")
+
+    result = executor.execute_operation_plan(plan)
+
+    assert result.status == "succeeded"
+    assert ("replace_layer_asset", {"slot_code": "MT-SLOT-20260709-000001", "asset_code": "AG-VID-20260709-000001"}) in session.calls
+    assert ("capture_screenshot", "MT-PLAN-20260709-000001") in session.calls
+
+
 def test_maitu_executor_uploads_asset_before_replace() -> None:
     session = FakeMaituSession()
     executor = MaituBrowserUseExecutor(
