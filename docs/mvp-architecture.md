@@ -33,6 +33,7 @@ AssetGraph 面向麦兔软件与数字人直播业务的多模态视频资产管
 | 对象存储 | MinIO | 存储原始素材、缩略图、转码文件、抽帧、字幕等文件 |
 | 结构化数据库 | PostgreSQL | 存储素材元数据、编号、标签、任务状态、权限、项目归属 |
 | 向量数据库 | Milvus | 存储文本、图片、视频帧、音频转写等 embedding |
+| 本地检索模型 | Qwen3-Embedding-4B / Qwen3-Reranker-4B 共享服务 | 通过 `D:/AI-Models/qwen3-service` 暴露 embedding 与 rerank HTTP API，AssetGraph 后端默认连接 `http://127.0.0.1:8010` |
 | 图数据库 | Neo4j | 存储素材、人物、地点、事件、品牌、项目、场景等关系 |
 
 ## 3. MVP 范围
@@ -751,7 +752,17 @@ GET /api/assets/{asset_code}/similar
 
 基于 Milvus 向量召回相似素材，可写入 Neo4j `SIMILAR_TO` 关系。
 
-### 11.5 图谱关系
+### 11.5 本地 Qwen3 embedding / rerank
+
+```http
+GET  /api/rag/qwen3/health
+POST /api/rag/embeddings
+POST /api/rag/rerank
+```
+
+职责：AssetGraph 后端通过 D 盘共享模型服务调用 `Qwen3-Embedding-4B` 与 `Qwen3-Reranker-4B`。`/api/rag/embeddings` 默认请求 1024 维向量，后续写入 Milvus；`/api/rag/rerank` 用于候选素材、脚本片段和检索结果的精排。默认服务地址为 `http://127.0.0.1:8010`，模型权重位于 `D:/AI-Models/Qwen3-4B/`。
+
+### 11.6 图谱关系
 
 ```http
 GET /api/assets/{asset_code}/graph
@@ -759,7 +770,7 @@ GET /api/assets/{asset_code}/graph
 
 返回素材相关节点和关系，用于前端图谱展示。
 
-### 11.6 解析任务状态
+### 11.7 解析任务状态
 
 ```http
 GET /api/assets/{asset_code}/jobs
@@ -767,7 +778,7 @@ GET /api/assets/{asset_code}/jobs
 
 返回入库后处理任务的状态和错误信息。
 
-### 11.7 创建直播场次
+### 11.8 创建直播场次
 
 ```http
 POST /api/lives
@@ -785,7 +796,7 @@ POST /api/lives
 }
 ```
 
-### 11.8 直播素材列表
+### 11.9 直播素材列表
 
 ```http
 GET /api/lives/{live_code}/assets
@@ -793,7 +804,7 @@ GET /api/lives/{live_code}/assets
 
 通过直播编号返回组成该场直播的所有素材，支持按 `relation_type`、时间线、素材类型过滤。
 
-### 11.9 关联直播素材
+### 11.10 关联直播素材
 
 ```http
 POST /api/lives/{live_code}/assets
@@ -801,7 +812,7 @@ POST /api/lives/{live_code}/assets
 
 职责：将已有素材或新上传素材关联到直播场次，写入 `live_assets`，保留素材在麦兔直播间中的场景/图层/槽位替换上下文，并同步 Neo4j `LiveSession -> Asset` 关系。
 
-### 11.10 麦兔素材槽位
+### 11.11 麦兔素材槽位
 
 ```http
 POST /api/maitu/slots
@@ -814,7 +825,7 @@ DELETE /api/maitu/slots/{slot_code}
 
 职责：管理麦兔模板中的可替换素材槽位。Agent 可先查询槽位要求，再按 `required_category`、`accepted_asset_types`、场景、图层和尺寸去检索匹配素材。`candidate-assets` 接口会根据槽位自动返回候选素材、匹配分和匹配原因。
 
-### 11.11 麦兔素材替换方案
+### 11.12 麦兔素材替换方案
 
 ```http
 POST /api/maitu/replacement-plans

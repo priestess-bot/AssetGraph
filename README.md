@@ -37,6 +37,7 @@ AssetGraph 是一个面向麦兔软件与数字人直播业务的多模态视频
 - 核心业务对象：`LiveSession`、`VideoSegment`、`DigitalHuman`、`VoiceProfile`、`Product`、`Script`、`ScriptBlock`
 - 后端服务：FastAPI API、PostgreSQL repository、编号生成、测试覆盖
 - 基础设施：PostgreSQL、MinIO、Neo4j、Milvus 本地开发配置
+- 本地 Qwen3 embedding/reranker：通过 `D:/AI-Models/qwen3-service` 共享 HTTP 服务接入 `Qwen3-Embedding-4B` 与 `Qwen3-Reranker-4B`，AssetGraph 后端提供 `/api/rag/embeddings`、`/api/rag/rerank` 和 `/api/rag/qwen3/health`
 
 ## 目录结构
 
@@ -73,6 +74,14 @@ cp .env.example .env
 docker compose -f infra/docker-compose.yml up -d
 ```
 
+启动本地 Qwen3 embedding/reranker 共享服务：
+
+```bash
+cd /d/AI-Models/qwen3-service
+./start_qwen3_service.sh
+curl http://127.0.0.1:8010/health
+```
+
 启动后端开发服务：
 
 ```bash
@@ -100,4 +109,5 @@ python -m browser_use_worker --once --dry-run
 - `docs/asset-numbering/asset_inventory_summary_20260709.md`：本地素材扫描结果摘要，统计 131 个素材的类型、麦兔分类、重复组和解析状态。
 - `docs/asset-numbering/asset_inventory_20260709.json` / `.csv`：从 `D:/AssetGraph/素材` 扫描生成的结构化素材清单，每条素材包含 file_code、sha256、maitu_category、tags、browser_use_hint 和后续导入 `POST /api/assets` 的 `asset_create_payload`。
 - `docs/browser-use-integration.md`：AssetGraph 与 Browser-use 同仓一体化布局，说明 backend、worker、scripts、infra 和素材目录如何一起部署/迁移。
+- 本地 Qwen3 检索接口：`GET /api/rag/qwen3/health`、`POST /api/rag/embeddings`、`POST /api/rag/rerank`，默认连接 `http://127.0.0.1:8010` 的 D 盘共享模型服务。
 - `docs/worker-protocols/maitu-browser-use-retry-worker.md`：Browser use retry worker 执行协议，定义取任务、执行、成功回写、失败释放和人工介入流程。

@@ -12,6 +12,13 @@ class Settings(BaseSettings):
     postgres_user: str = "assetgraph"
     postgres_password: str = "assetgraph"
 
+    qwen3_base_url: str = "http://127.0.0.1:8010"
+    qwen3_api_key: str = "local-no-auth"
+    qwen3_embedding_model: str = "qwen3-embedding-4b-local"
+    qwen3_rerank_model: str = "qwen3-reranker-4b-local"
+    qwen3_embedding_dimensions: int = 1024
+    qwen3_timeout_seconds: float = 120.0
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @property
