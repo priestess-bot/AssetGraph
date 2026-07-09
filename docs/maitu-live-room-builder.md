@@ -302,11 +302,14 @@ reference_room_profile.json
 - script_text[]
 ```
 
-当前已完成一版 Markdown 映射和 Browser-use Observe JSON artifact：
+当前已完成一版 Markdown 映射、Browser-use Observe JSON artifact，以及 Plan 环最小版抽取器：
 
 ```text
 docs/asset-numbering/maitu_reference_room_39826_mapping_20260709.md
 docs/asset-numbering/current_maitu_state_39826_20260709.json
+docs/asset-numbering/reference_room_profile_39826_20260709.json
+docs/asset-numbering/live_room_blueprint_39826_20260709.json
+docs/asset-numbering/live_room_blueprint_39826_20260709.md
 ```
 
 Observe 命令：
@@ -316,7 +319,16 @@ cd workers/browser-use
 python -m browser_use_worker --observe-maitu
 ```
 
-该命令只读执行，不点击保存/开播；它输出当前麦兔现场状态，包括登录态、URL、直播间 ID、直播间名称、场景、图层、素材页签、Workbench 页签和脚本文本。
+Plan 抽取命令：
+
+```bash
+./backend/.venv/Scripts/python scripts/extract_maitu_reference_room.py \
+  --observed-state docs/asset-numbering/current_maitu_state_39826_20260709.json \
+  --output-dir docs/asset-numbering \
+  --date-stamp 20260709
+```
+
+Observe 命令只读执行，不点击保存/开播；它输出当前麦兔现场状态，包括登录态、URL、直播间 ID、直播间名称、场景、图层、素材页签、Workbench 页签和脚本文本。Plan 抽取器把该状态沉淀为 `ReferenceRoomProfile` 和 `LiveRoomBlueprint` 初稿，保留场景顺序、当前激活场景图层、图层角色/素材分类推断、脚本块和执行安全规则。
 
 下一步应补 API ingestion。
 

@@ -137,3 +137,32 @@ summary: Preflight passed: 9 passed, 0 warning(s), 0 failure(s), 0 skipped.
 ```
 
 这说明新的真实 plan 已经和当前麦兔页面、场景、图层、本地素材文件对齐；但仍未执行真实替换/保存。
+
+## 已生成 ReferenceRoomProfile / LiveRoomBlueprint artifact
+
+2026-07-09 已把 Browser-use Observe 输出升级为 Plan 环输入：
+
+```text
+docs/asset-numbering/reference_room_profile_39826_20260709.json
+docs/asset-numbering/live_room_blueprint_39826_20260709.json
+docs/asset-numbering/live_room_blueprint_39826_20260709.md
+```
+
+抽取命令：
+
+```bash
+./backend/.venv/Scripts/python scripts/extract_maitu_reference_room.py \
+  --observed-state docs/asset-numbering/current_maitu_state_39826_20260709.json \
+  --output-dir docs/asset-numbering \
+  --date-stamp 20260709
+```
+
+结果摘要：
+
+- profile_code: `MT-REF-20260709-39826`
+- blueprint_code: `MT-BP-20260709-39826`
+- scenes: 7
+- active scene layers: 7
+- script blocks: 1
+
+当前蓝图只包含激活场景 `场景01` 的已观测图层；其他场景先保留场景顺序和类型，后续需要 Browser-use 逐场景点击观察后再补齐图层。

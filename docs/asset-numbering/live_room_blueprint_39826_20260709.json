@@ -1,0 +1,261 @@
+{
+  "blueprint_code": "MT-BP-20260709-39826",
+  "reference_profile_code": "MT-REF-20260709-39826",
+  "title": "京东空白直播间-0707-1352 重建蓝图",
+  "platform": "京东",
+  "room_type": "reference_rebuild",
+  "reference_room_id": "39826",
+  "reference_room_name": "京东空白直播间-0707-1352",
+  "status": "draft",
+  "description": "由 Browser-use Observe 现场状态自动抽取的 LiveRoomBlueprint 初稿；仅用于规划，不会点击保存或开播。",
+  "scenes": [
+    {
+      "scene_code": "MT-SCENE-20260709-000001",
+      "scene_name": "场景01",
+      "scene_type": "讲品",
+      "status": "已激活",
+      "sort_order": 1,
+      "goal": "第1段产品讲解",
+      "estimated_duration_seconds": 30,
+      "reference_active": true,
+      "layers": [
+        {
+          "layer_name": "前景",
+          "active": false,
+          "sort_order": 1,
+          "layer_index": 0,
+          "layer_role": "foreground_frame",
+          "required_category": "floating_sticker",
+          "accepted_asset_types": [
+            "IMG"
+          ],
+          "material_tab": "装饰",
+          "replacement_policy": "keep_layout",
+          "layer_code": "MT-LAYER-20260709-000001",
+          "scene_name": "场景01"
+        },
+        {
+          "layer_name": "品酒大师(PRO）",
+          "active": false,
+          "sort_order": 2,
+          "layer_index": 1,
+          "layer_role": "digital_human",
+          "required_category": "digital_human_video",
+          "accepted_asset_types": [
+            "IMG",
+            "VID"
+          ],
+          "material_tab": "数字分身",
+          "replacement_policy": "keep_layout",
+          "layer_code": "MT-LAYER-20260709-000002",
+          "scene_name": "场景01"
+        },
+        {
+          "layer_name": "png",
+          "active": false,
+          "sort_order": 3,
+          "layer_index": 2,
+          "layer_role": "decoration",
+          "required_category": "floating_sticker",
+          "accepted_asset_types": [
+            "IMG"
+          ],
+          "material_tab": "装饰",
+          "replacement_policy": "keep_layout",
+          "layer_code": "MT-LAYER-20260709-000003",
+          "scene_name": "场景01"
+        },
+        {
+          "layer_name": "gif-01",
+          "active": false,
+          "sort_order": 4,
+          "layer_index": 3,
+          "layer_role": "animated_sticker",
+          "required_category": "floating_sticker",
+          "accepted_asset_types": [
+            "IMG"
+          ],
+          "material_tab": "装饰",
+          "replacement_policy": "keep_layout",
+          "layer_code": "MT-LAYER-20260709-000004",
+          "scene_name": "场景01"
+        },
+        {
+          "layer_name": "标题+logo",
+          "active": false,
+          "sort_order": 5,
+          "layer_index": 4,
+          "layer_role": "logo_title",
+          "required_category": "floating_sticker",
+          "accepted_asset_types": [
+            "IMG"
+          ],
+          "material_tab": "装饰",
+          "replacement_policy": "keep_layout",
+          "layer_code": "MT-LAYER-20260709-000005",
+          "scene_name": "场景01"
+        },
+        {
+          "layer_name": "珠珠-亲和",
+          "active": false,
+          "sort_order": 6,
+          "layer_index": 5,
+          "layer_role": "digital_human",
+          "required_category": "digital_human_video",
+          "accepted_asset_types": [
+            "IMG",
+            "VID"
+          ],
+          "material_tab": "数字分身",
+          "replacement_policy": "keep_layout",
+          "layer_code": "MT-LAYER-20260709-000006",
+          "scene_name": "场景01"
+        },
+        {
+          "layer_name": "微信图片_20260618221607_11_15",
+          "active": false,
+          "sort_order": 7,
+          "layer_index": 6,
+          "layer_role": "background",
+          "required_category": "background_image",
+          "accepted_asset_types": [
+            "IMG"
+          ],
+          "material_tab": "背景",
+          "replacement_policy": "keep_layout",
+          "layer_code": "MT-LAYER-20260709-000007",
+          "scene_name": "场景01"
+        }
+      ]
+    },
+    {
+      "scene_code": "MT-SCENE-20260709-000002",
+      "scene_name": "场景02",
+      "scene_type": "讲品",
+      "status": "已激活",
+      "sort_order": 2,
+      "goal": "第2段产品讲解",
+      "estimated_duration_seconds": 30,
+      "reference_active": false,
+      "layers": []
+    },
+    {
+      "scene_code": "MT-SCENE-20260709-000003",
+      "scene_name": "场景03",
+      "scene_type": "讲品",
+      "status": "已激活",
+      "sort_order": 3,
+      "goal": "第3段产品讲解",
+      "estimated_duration_seconds": 30,
+      "reference_active": false,
+      "layers": []
+    },
+    {
+      "scene_code": "MT-SCENE-20260709-000004",
+      "scene_name": "场景04",
+      "scene_type": "讲品",
+      "status": "已激活",
+      "sort_order": 4,
+      "goal": "第4段产品讲解",
+      "estimated_duration_seconds": 30,
+      "reference_active": false,
+      "layers": []
+    },
+    {
+      "scene_code": "MT-SCENE-20260709-000005",
+      "scene_name": "场景05",
+      "scene_type": "讲品",
+      "status": "已激活",
+      "sort_order": 5,
+      "goal": "第5段产品讲解",
+      "estimated_duration_seconds": 30,
+      "reference_active": false,
+      "layers": []
+    },
+    {
+      "scene_code": "MT-SCENE-20260709-000006",
+      "scene_name": "场景06",
+      "scene_type": "讲品",
+      "status": "已激活",
+      "sort_order": 6,
+      "goal": "第6段产品讲解",
+      "estimated_duration_seconds": 30,
+      "reference_active": false,
+      "layers": []
+    },
+    {
+      "scene_code": "MT-SCENE-20260709-000007",
+      "scene_name": "场景07",
+      "scene_type": "讲品",
+      "status": "已激活",
+      "sort_order": 7,
+      "goal": "第7段产品讲解",
+      "estimated_duration_seconds": 30,
+      "reference_active": false,
+      "layers": []
+    }
+  ],
+  "script_blocks": [
+    {
+      "script_block_code": "MT-SCRIPT-BLOCK-20260709-000001",
+      "scene_name": "场景01",
+      "sort_order": 1,
+      "content": "大家好，今天给大家介绍张裕解百纳品酒大师系列。从适合第一次喝红酒的PRO，到品质旗舰MASTER，再到高端礼赠SUPER，一分钟带大家了解三款酒的区别。如果你第一次接触葡萄酒，我推荐从品酒大师PRO开始。入口柔顺，果香清新，百年张裕品牌保障，新手也能轻松接受。",
+      "source": "reference_room_profile"
+    }
+  ],
+  "material_tabs": [
+    {
+      "name": "数字分身",
+      "active": true,
+      "sort_order": 1
+    },
+    {
+      "name": "背景",
+      "active": false,
+      "sort_order": 2
+    },
+    {
+      "name": "装饰",
+      "active": false,
+      "sort_order": 3
+    },
+    {
+      "name": "视频",
+      "active": false,
+      "sort_order": 4
+    },
+    {
+      "name": "文本",
+      "active": false,
+      "sort_order": 5
+    },
+    {
+      "name": "模版",
+      "active": false,
+      "sort_order": 6
+    }
+  ],
+  "workbench_tabs": [
+    {
+      "name": "直播脚本",
+      "active": true,
+      "sort_order": 1
+    },
+    {
+      "name": "直播互动",
+      "active": false,
+      "sort_order": 2
+    },
+    {
+      "name": "账号授权",
+      "active": false,
+      "sort_order": 3
+    }
+  ],
+  "safety_rules": [
+    "默认不点击正式开播",
+    "真实执行前必须通过 Browser-use preflight 校验当前 URL、直播间、场景和图层",
+    "每次只执行一个小而可验证的 UI 操作，并回写截图或页面状态证据"
+  ]
+}

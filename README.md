@@ -147,6 +147,13 @@ python -m browser_use_worker --once --dry-run
 # Observe 环：结构化读取当前麦兔现场状态（直播间、场景、图层、素材页签、脚本文本）。
 python -m browser_use_worker --observe-maitu
 
+# Plan 环最小版：把 Observe JSON 转成 ReferenceRoomProfile + LiveRoomBlueprint artifact。
+cd ../..
+./backend/.venv/Scripts/python scripts/extract_maitu_reference_room.py \
+  --observed-state docs/asset-numbering/current_maitu_state_39826_20260709.json \
+  --output-dir docs/asset-numbering \
+  --date-stamp 20260709
+
 # 对指定替换方案直接做 Browser-use 操作计划 dry-run，不领取 retry queue。
 python -m browser_use_worker --plan-code MT-PLAN-20260709-000001 --dry-run
 
@@ -162,7 +169,7 @@ python -m browser_use_worker --plan-code MT-PLAN-20260709-000001 --preflight --s
 - `docs/final-goal.md`：项目最终目标，定义数字人直播视频多模态资产图谱的长期愿景、核心对象和 MVP 闭环。
 - `docs/mvp-architecture.md`：MVP 架构、编号规范、数据库表结构、MinIO 路径、Milvus collection、Neo4j schema 和 API 清单。
 - `docs/maitu-function-map.md`：麦兔功能地图与 AssetGraph 建模参考，记录首页、数字分身、素材管理、商品库、直播记录、直播间编辑器、互动配置和场景类型。
-- `docs/maitu-live-room-builder.md`：从0搭建麦兔直播间的能力设计，定义 ReferenceRoomProfile、LiveRoomBlueprint、SceneBlueprint、LayerBlueprint、BuildPlan 和 Browser-use 创建/插入/保存类 operation。
+- `docs/maitu-live-room-builder.md`：从0搭建麦兔直播间的能力设计，定义 ReferenceRoomProfile、LiveRoomBlueprint、SceneBlueprint、LayerBlueprint、BuildPlan 和 Browser-use 创建/插入/保存类 operation；`scripts/extract_maitu_reference_room.py` 可把 Observe JSON 转成参考直播间 Profile/蓝图 artifact。
 - `docs/asset-numbering/asset_naming_rules_20260709_v3_browser_use.md`：Browser use 友好的麦兔素材编号与重命名预案，按数字分身/背景/装饰/视频/模版等麦兔真实类型设计，包含用途、主体、角色、标签和重复素材组。
 - `docs/asset-numbering/duplicate_asset_analysis_20260709.md`：麦兔素材重复原因分析，说明数字分身封面/预览、默认音色封面、重复 material_id 指向同一 URL 等来源，并给出去重建模建议。
 - `docs/asset-numbering/rename_execution_summary_20260709.md`：V3 Browser-use 友好素材重命名执行结果，记录执行策略、manifest、回滚清单和复查统计。
