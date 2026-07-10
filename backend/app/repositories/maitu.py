@@ -2237,6 +2237,47 @@ class MaituMaterialSlotRepository:
             },
         }
 
+    def select_assets_for_script_asset_need(
+        self,
+        need: dict[str, Any],
+        scene: dict[str, Any],
+        *,
+        limit: int = 1,
+    ) -> list[dict[str, Any]]:
+        required_category = need.get("required_category")
+        if not required_category:
+            return []
+        accepted_asset_types = [str(item) for item in (need.get("accepted_asset_types") or []) if str(item) != "TEXT"]
+        where_clauses = ["deleted_at IS NULL", "maitu_category = %s"]
+        values: list[Any] = [required_category]
+        if accepted_asset_types:
+            placeholders = ", ".join(["%s"] * len(accepted_asset_types))
+            where_clauses.append(f"asset_type IN ({placeholders})")
+            values.extend(accepted_asset_types)
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                f"""
+                SELECT asset_code, asset_type, title, original_filename, display_code,
+                    local_file_code, local_relative_path, browser_use_hint,
+                    maitu_category, maitu_type, maitu_project_code, maitu_scene_name,
+                    maitu_layer_name, maitu_slot_name, subject, usage,
+                    replacement_policy, description
+                FROM assets
+                WHERE {' AND '.join(where_clauses)}
+                ORDER BY created_at DESC
+                LIMIT 200
+                """,
+                tuple(values),
+            )
+            rows = cursor.fetchall()
+        candidates = [
+            self._score_script_asset_need_candidate(dict(row), need, scene)
+            for row in rows
+            if not self._is_direct_layer_forbidden_template_asset(dict(row), need)
+        ]
+        candidates.sort(key=lambda candidate: (candidate["match_score"], str(candidate.get("asset_code") or "")), reverse=True)
+        return candidates[:limit]
+
     def select_asset_for_template_component(
         self,
         component: dict[str, Any],
@@ -2314,6 +2355,69 @@ class MaituMaterialSlotRepository:
             )
         ).lower()
         return "mt-tpl" in marker_text or ("模板" in marker_text and "预览" in marker_text)
+
+    def _score_script_asset_need_candidate(
+        self,
+        asset: dict[str, Any],
+        need: dict[str, Any],
+        scene: dict[str, Any],
+    ) -> dict[str, Any]:
+        score = 0.0
+        reasons: list[str] = []
+        required_category = need.get("required_category")
+        accepted_asset_types = [str(item) for item in (need.get("accepted_asset_types") or []) if str(item) != "TEXT"]
+        if asset.get("maitu_category") == required_category:
+            score += 0.55
+            reasons.append(f"maitu_category matches required_category: {required_category}")
+        if not accepted_asset_types or asset.get("asset_type") in accepted_asset_types:
+            score += 0.20
+            reasons.append(f"asset_type accepted: {asset.get('asset_type')}")
+
+        asset_text = " ".join(
+            str(asset.get(field) or "")
+            for field in (
+                "title",
+                "original_filename",
+                "display_code",
+                "local_file_code",
+                "browser_use_hint",
+                "subject",
+                "usage",
+                "description",
+            )
+        )
+        keyword_hits = []
+        for keyword in need.get("keywords") or []:
+            token = str(keyword).strip()
+            if token and token in asset_text:
+                keyword_hits.append(token)
+        for keyword in self._dedupe_texts(keyword_hits)[:3]:
+            score += 0.10
+            reasons.append(f"keyword matches asset: {keyword}")
+
+        scene_keywords = " ".join(str(item) for item in (scene.get("keywords") or []))
+        for token in self._selection_tokens("；".join([scene.get("script") or "", scene_keywords])):
+            if token and token in asset_text and token not in keyword_hits:
+                score += 0.05
+                reasons.append(f"scene context matches asset: {token}")
+                break
+
+        if need.get("priority") == "high":
+            score += 0.02
+        asset["match_score"] = round(min(score, 1.0), 4)
+        asset["match_reasons"] = self._dedupe_texts(reasons)
+        return asset
+
+    @staticmethod
+    def _dedupe_texts(values: list[str]) -> list[str]:
+        seen: set[str] = set()
+        result: list[str] = []
+        for value in values:
+            text = str(value or "").strip()
+            if text and text not in seen:
+                seen.add(text)
+                result.append(text)
+        return result
 
     def _score_live_room_asset_candidate(
         self,

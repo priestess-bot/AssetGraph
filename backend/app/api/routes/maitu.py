@@ -10,6 +10,7 @@ from app.repositories.maitu import MaituMaterialSlotRepository
 from app.services.asset_candidates import AssetCandidate, AssetRetrievalIndex
 from app.services.qwen3_client import Qwen3Client, Qwen3ClientError
 from app.services.script_asset_need_planner import ScriptAssetNeedPlanner
+from app.services.script_asset_selector import ScriptAssetSelector
 from app.services.script_scene_planner import ScriptScenePlanner
 from app.services.script_scene_template_matcher import ScriptSceneTemplateMatcher
 from app.schemas.maitu import (
@@ -38,6 +39,8 @@ from app.schemas.maitu import (
     MaituMaterialSlotUpdate,
     MaituScriptAssetNeedCreate,
     MaituScriptAssetNeedPlanRead,
+    MaituScriptAssetSelectionCreate,
+    MaituScriptAssetSelectionPlanRead,
     MaituScriptScenePlanCreate,
     MaituScriptScenePlanRead,
     MaituReplacementPlanCreate,
@@ -103,6 +106,17 @@ def create_script_asset_needs(payload: MaituScriptAssetNeedCreate) -> dict:
         [scene.model_dump() for scene in payload.scenes],
         include_default_host=payload.include_default_host,
         include_script_text_need=payload.include_script_text_need,
+    )
+
+
+@router.post("/script-asset-selections", response_model=MaituScriptAssetSelectionPlanRead, status_code=status.HTTP_201_CREATED)
+def create_script_asset_selections(
+    payload: MaituScriptAssetSelectionCreate,
+    repository: Annotated[MaituMaterialSlotRepository, Depends(get_maitu_slot_repository)],
+) -> dict:
+    return ScriptAssetSelector(repository).select(
+        [scene.model_dump() for scene in payload.scenes],
+        max_candidates_per_need=payload.max_candidates_per_need,
     )
 
 

@@ -60,6 +60,78 @@ class FakeMaituMaterialSlotRepository:
                 "replacement_policy": "keep_layout",
             },
             {
+                "asset_code": "AG-IMG-20260710-000101",
+                "asset_type": "IMG",
+                "title": "龙谕龙8商品主图-整箱瓶身",
+                "original_filename": "longyu-long8-product.png",
+                "display_code": "MT-IMG-LONGYU8",
+                "local_file_code": "MT-IMG-LONGYU8",
+                "browser_use_hint": "用于麦兔商品图素材选择：龙谕龙8 瓶身和整箱主图",
+                "local_relative_path": "图片/MT-IMG-LONGYU8_龙谕龙8商品主图.png",
+                "maitu_category": "product_image",
+                "subject": "龙谕龙8",
+                "usage": "商品主图",
+                "replacement_policy": "keep_layout",
+            },
+            {
+                "asset_code": "AG-IMG-20260710-000102",
+                "asset_type": "IMG",
+                "title": "宁夏贺兰山东麓葡萄园产区背景",
+                "original_filename": "ningxia-helan-vineyard-bg.png",
+                "display_code": "MT-BG-HELANS",
+                "local_file_code": "MT-BG-HELANS",
+                "browser_use_hint": "用于麦兔背景素材选择：宁夏贺兰山东麓葡萄园产区背景",
+                "local_relative_path": "背景/MT-BG-HELANS_宁夏贺兰山东麓葡萄园.png",
+                "maitu_category": "background_image",
+                "maitu_type": "背景",
+                "subject": "宁夏 贺兰山东麓 葡萄园",
+                "usage": "产区背景",
+                "replacement_policy": "keep_layout",
+            },
+            {
+                "asset_code": "AG-IMG-20260710-000103",
+                "asset_type": "IMG",
+                "title": "商品卡优惠下单提示贴片",
+                "original_filename": "promo-product-card.png",
+                "display_code": "MT-STICKER-PROMO",
+                "local_file_code": "MT-STICKER-PROMO",
+                "browser_use_hint": "用于麦兔贴片素材选择：优惠 商品卡 下单提示",
+                "local_relative_path": "贴片/MT-STICKER-PROMO_商品卡优惠.png",
+                "maitu_category": "floating_sticker",
+                "maitu_type": "贴片",
+                "subject": "优惠 商品卡 下单",
+                "usage": "促单贴片",
+                "replacement_policy": "keep_layout",
+            },
+            {
+                "asset_code": "AG-VID-20260710-000104",
+                "asset_type": "VID",
+                "title": "龙谕龙8酒体倒酒品鉴视频",
+                "original_filename": "longyu-long8-tasting.mp4",
+                "display_code": "MT-VID-LONGYU8",
+                "local_file_code": "MT-VID-LONGYU8",
+                "browser_use_hint": "用于麦兔视频素材选择：龙谕龙8 酒体 倒酒 品鉴",
+                "local_relative_path": "视频/MT-VID-LONGYU8_龙谕龙8品鉴.mp4",
+                "maitu_category": "product_video",
+                "subject": "龙谕龙8 酒体 口感",
+                "usage": "品鉴视频",
+                "replacement_policy": "keep_layout",
+            },
+            {
+                "asset_code": "AG-VID-20260710-000105",
+                "asset_type": "VID",
+                "title": "张裕主播数字人",
+                "original_filename": "changyu-host-avatar.mp4",
+                "display_code": "MT-DH-CHANGYU",
+                "local_file_code": "MT-DH-CHANGYU",
+                "browser_use_hint": "用于麦兔数字人素材选择：张裕主播数字人",
+                "local_relative_path": "数字人/MT-DH-CHANGYU_张裕主播.mp4",
+                "maitu_category": "digital_human_video",
+                "subject": "张裕 主播 数字人",
+                "usage": "主播讲解",
+                "replacement_policy": "keep_layout",
+            },
+            {
                 "asset_code": "AG-VID-20260709-000052",
                 "asset_type": "VID",
                 "title": "视频 - 商品讲解视频 - 品酒大师PRO",
@@ -443,6 +515,15 @@ class FakeMaituMaterialSlotRepository:
                 "instruction": f"预检蓝图 {blueprint['blueprint_code']}：确认当前麦兔页面、登录态、直播间和场景仍匹配，不点击正式开播。",
             }
         ]
+        script_context = "；".join(
+            str(part)
+            for part in [
+                blueprint.get("title"),
+                blueprint.get("description"),
+                *[block.get("content") for block in blueprint.get("script_blocks", [])],
+            ]
+            if part
+        )
         sort_order = 10
         for scene in blueprint.get("scenes", []):
             operations.append(
@@ -471,16 +552,7 @@ class FakeMaituMaterialSlotRepository:
                     "instruction": f"在场景 {scene.get('scene_name')} 定位图层 {layer.get('layer_name')}，后续按 {layer.get('replacement_policy', 'keep_layout')} 策略匹配素材并保持原布局。",
                 }
                 if payload.get("auto_select_assets") or payload.get("strategy") == "script_context_best_match":
-                    candidate = next(
-                        (
-                            asset
-                            for asset in self.assets
-                            if asset.get("maitu_category") == layer.get("required_category")
-                            and (not layer.get("accepted_asset_types") or asset.get("asset_type") in layer.get("accepted_asset_types", []))
-                            and not self._is_direct_layer_forbidden_template_asset(asset, layer)
-                        ),
-                        None,
-                    )
+                    candidate = self.select_asset_for_template_component(layer, scene, script_context)
                     if candidate:
                         operation.update(
                             {
@@ -939,6 +1011,48 @@ class FakeMaituMaterialSlotRepository:
             candidates.append({**asset, "match_score": round(min(score, 1.0), 4), "match_reasons": reasons})
         candidates.sort(key=lambda row: (row["match_score"], row.get("asset_code") or ""), reverse=True)
         return candidates[0] if candidates else None
+
+    def select_assets_for_script_asset_need(
+        self,
+        need: dict[str, Any],
+        scene: dict[str, Any],
+        *,
+        limit: int = 1,
+    ) -> list[dict[str, Any]]:
+        required_category = need.get("required_category")
+        if not required_category:
+            return []
+        accepted_asset_types = [item for item in (need.get("accepted_asset_types") or []) if item != "TEXT"]
+        candidates = []
+        for asset in self.assets:
+            if asset.get("maitu_category") != required_category:
+                continue
+            if accepted_asset_types and asset.get("asset_type") not in accepted_asset_types:
+                continue
+            if self._is_direct_layer_forbidden_template_asset(asset, need):
+                continue
+            score = 0.55
+            reasons = [f"maitu_category matches required_category: {required_category}"]
+            if not accepted_asset_types or asset.get("asset_type") in accepted_asset_types:
+                score += 0.2
+                reasons.append(f"asset_type accepted: {asset.get('asset_type')}")
+            asset_text = " ".join(
+                str(asset.get(field) or "")
+                for field in ("title", "original_filename", "display_code", "local_file_code", "browser_use_hint", "subject", "usage")
+            )
+            keyword_hits = []
+            for keyword in need.get("keywords") or []:
+                token = str(keyword)
+                if token and token in asset_text:
+                    keyword_hits.append(token)
+            for keyword in keyword_hits[:3]:
+                score += 0.1
+                reasons.append(f"keyword matches asset: {keyword}")
+            if need.get("priority") == "high":
+                score += 0.02
+            candidates.append({**asset, "match_score": round(min(score, 1.0), 4), "match_reasons": reasons})
+        candidates.sort(key=lambda row: (row["match_score"], row.get("asset_code") or ""), reverse=True)
+        return candidates[:limit]
 
     def resolve_plan_slots(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
         slot_codes = payload.get("slot_codes") or list(self.rows.keys())
@@ -1629,6 +1743,96 @@ def test_create_script_asset_needs_marks_sparse_scene_for_review(client: TestCli
     assert body["scenes"][0]["asset_needs"][0]["need_type"] == "script_text"
 
 
+def test_create_script_asset_selections_selects_assets_for_content_needs(client: TestClient) -> None:
+    scene_response = client.post(
+        "/api/maitu/script-scene-plans",
+        json={
+            "script_text": """
+            开场：大家好，欢迎来到张裕直播间，今天先用夏日主题带大家看龙谕龙8。
+
+            产品亮点：龙谕龙8来自宁夏贺兰山东麓，有贺兰山挡风沙、黄河滋养葡萄，入口口感饱满。
+
+            促单：现在下单有组合优惠，喜欢干红的朋友可以先点商品卡。
+            """,
+            "target_scene_count": 3,
+            "default_scene_duration_seconds": 45,
+        },
+    )
+    assert scene_response.status_code == 201
+    needs_response = client.post("/api/maitu/script-asset-needs", json={"scenes": scene_response.json()["scenes"]})
+    assert needs_response.status_code == 201
+
+    response = client.post("/api/maitu/script-asset-selections", json={"scenes": needs_response.json()["scenes"]})
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["source"] == "script_content_asset_selection_rule_v1"
+    assert body["scene_count"] == 3
+    assert body["missing_count"] == 0
+    assert body["manual_review_required"] is False
+
+    product_scene = body["scenes"][1]
+    selections_by_need = {selection["need_type"]: selection for selection in product_scene["asset_selections"]}
+    assert selections_by_need["product_image"]["status"] == "selected"
+    assert selections_by_need["product_image"]["selected_asset_code"] == "AG-IMG-20260710-000101"
+    assert selections_by_need["product_image"]["selected_asset_display_code"] == "MT-IMG-LONGYU8"
+    assert "keyword matches asset: 龙谕龙8" in selections_by_need["product_image"]["match_reasons"]
+
+    assert selections_by_need["background_image"]["selected_asset_code"] == "AG-IMG-20260710-000102"
+    assert selections_by_need["background_image"]["selected_asset_local_file_code"] == "MT-BG-HELANS"
+    assert any("贺兰山东麓" in reason for reason in selections_by_need["background_image"]["match_reasons"])
+
+    assert selections_by_need["product_video"]["selected_asset_code"] == "AG-VID-20260710-000104"
+    assert selections_by_need["script_text"]["status"] == "generated_content"
+
+    conversion_scene = body["scenes"][2]
+    conversion_selections = {selection["need_type"]: selection for selection in conversion_scene["asset_selections"]}
+    assert conversion_selections["promotion_sticker"]["selected_asset_code"] == "AG-IMG-20260710-000103"
+    assert conversion_selections["digital_human"]["selected_asset_code"] == "AG-VID-20260710-000105"
+
+
+def test_create_script_asset_selections_marks_missing_assets_for_manual_review(client: TestClient) -> None:
+    response = client.post(
+        "/api/maitu/script-asset-selections",
+        json={
+            "scenes": [
+                {
+                    "scene_index": 0,
+                    "scene_name": "虚拟场景",
+                    "scene_goal": "explanation",
+                    "duration_seconds": 30,
+                    "script": "这里需要一个仓库里不存在的特殊三维包装素材。",
+                    "keywords": ["特殊三维包装"],
+                    "asset_needs": [
+                        {
+                            "need_type": "special_3d_packshot",
+                            "required_category": "special_3d_packshot",
+                            "accepted_asset_types": ["VID"],
+                            "description": "特殊三维包装旋转视频",
+                            "keywords": ["特殊三维包装"],
+                            "priority": "high",
+                            "suggested_layer_role": "supporting_visual",
+                            "reason": "测试缺口报告",
+                        }
+                    ],
+                    "manual_review": False,
+                    "review_reasons": [],
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["manual_review_required"] is True
+    assert body["missing_count"] == 1
+    scene = body["scenes"][0]
+    assert scene["manual_review"] is True
+    assert "missing_asset:special_3d_packshot" in scene["review_reasons"]
+    assert scene["asset_selections"][0]["status"] == "missing_asset"
+    assert scene["missing_asset_needs"][0]["need_type"] == "special_3d_packshot"
+
+
 def test_create_script_scene_template_matches_maps_each_script_scene_to_one_template_and_assets(client: TestClient) -> None:
     import_response = client.post(
         "/api/maitu/live-room-blueprints/import-reference",
@@ -1772,8 +1976,8 @@ def test_create_script_scene_template_matches_maps_each_script_scene_to_one_temp
     assert product_match["matched_template_scene_name"] == "产品讲解"
     assert product_match["component_selections"][0]["component_template_code"] == "MT-LAYER-STAGE3-VIDEO"
     assert product_match["component_selections"][0]["status"] == "selected"
-    assert product_match["component_selections"][0]["selected_asset_code"] == "AG-VID-20260709-000052"
-    assert product_match["component_selections"][0]["selected_asset_display_code"] == "MT-VID-0024"
+    assert product_match["component_selections"][0]["selected_asset_code"] == "AG-VID-20260710-000104"
+    assert product_match["component_selections"][0]["selected_asset_display_code"] == "MT-VID-LONGYU8"
 
     opening_selection = body["matches"][0]["component_selections"][0]
     assert opening_selection["selected_asset_code"] == "AG-IMG-20260709-000070"

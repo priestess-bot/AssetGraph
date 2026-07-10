@@ -67,6 +67,57 @@ class MaituScriptAssetNeedPlanRead(BaseModel):
     scenes: list[MaituScriptAssetNeedSceneRead] = Field(default_factory=list)
 
 
+class MaituScriptAssetSelectionCreate(BaseModel):
+    scenes: list[MaituScriptAssetNeedSceneRead] = Field(..., min_length=1)
+    max_candidates_per_need: int = Field(default=1, ge=1, le=20)
+
+
+class MaituScriptAssetSelectionRead(BaseModel):
+    need_type: str
+    required_category: str
+    accepted_asset_types: list[str] = Field(default_factory=list)
+    description: str
+    keywords: list[str] = Field(default_factory=list)
+    priority: str
+    status: str
+    selected_asset_code: str | None = None
+    selected_asset_type: str | None = None
+    selected_asset_title: str | None = None
+    selected_asset_display_code: str | None = None
+    selected_asset_local_file_code: str | None = None
+    selected_asset_original_filename: str | None = None
+    selected_asset_local_relative_path: str | None = None
+    selected_asset_browser_use_hint: str | None = None
+    match_score: float | None = None
+    match_reasons: list[str] = Field(default_factory=list)
+    selection_source: str | None = None
+    candidate_count: int = 0
+
+
+class MaituScriptAssetSelectionSceneRead(BaseModel):
+    scene_index: int
+    scene_name: str
+    scene_goal: str
+    duration_seconds: int
+    script: str
+    keywords: list[str] = Field(default_factory=list)
+    asset_selections: list[MaituScriptAssetSelectionRead] = Field(default_factory=list)
+    selected_count: int = 0
+    missing_count: int = 0
+    missing_asset_needs: list[MaituScriptAssetNeedRead] = Field(default_factory=list)
+    manual_review: bool = False
+    review_reasons: list[str] = Field(default_factory=list)
+
+
+class MaituScriptAssetSelectionPlanRead(BaseModel):
+    source: str
+    scene_count: int
+    selected_count: int = 0
+    missing_count: int = 0
+    manual_review_required: bool = False
+    scenes: list[MaituScriptAssetSelectionSceneRead] = Field(default_factory=list)
+
+
 class MaituScriptSceneTemplateMatchCreate(BaseModel):
     scenes: list[MaituScriptSceneRead] = Field(..., min_length=1)
     blueprint_code: str | None = Field(default=None, max_length=64)
