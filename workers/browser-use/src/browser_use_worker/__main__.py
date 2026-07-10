@@ -16,6 +16,7 @@ from .client import AssetGraphClient
 from .config import WorkerConfig
 from .jd_metrics import capture_jd_live_metric_sample
 from .live_scene_fill import LiveSceneFillRunner, build_live_scene_fill_execution_payload
+from .maitu_material_resolver import MaituMaterialResolutionResult, MaituMaterialResolver
 from .preflight import ReplacementPlanPreflight
 from .runner import BrowserUseWorker, DryRunBrowserUseExecutor
 from .script_layout_draft_executor import (
@@ -37,8 +38,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--preflight-build", action="store_true", help="Run read-only safety checks for --build-plan-code before mutating Maitu")
     parser.add_argument("--non-destructive-build", action="store_true", help="Run only low-risk BuildPlan UI navigation after a green preflight")
     parser.add_argument("--live-scene-fill", action="store_true", help="Fill the first planned BuildPlan scene into an existing draft room default clip")
-    parser.add_argument("--script-layout-draft-execute", action="store_true", help="Execute a script-layout BuildPlan JSON file into a safe draft; use --dry-run for in-memory smoke")
+    parser.add_argument(
+        "--script-layout-draft-execute",
+        action="store_true",
+        help="Execute a script-layout BuildPlan JSON file into a safe draft; real runs require --resolve-maitu-materials, use --dry-run for in-memory smoke",
+    )
     parser.add_argument("--script-layout-build-plan-file", help="Path to a script-layout-build-plans JSON response for --script-layout-draft-execute")
+    parser.add_argument("--resolve-maitu-materials", action="store_true", help="Resolve selected AssetGraph assets against Maitu and upload only when no existing material matches")
+    parser.add_argument("--resolved-plan-file", help="Optional path for the BuildPlan JSON after Maitu material resolution")
     parser.add_argument("--target-live-room-id", help="Target Maitu draft liveRoomId for --live-scene-fill or --script-layout-draft-execute")
     parser.add_argument("--write-result", action="store_true", help="Write direct-plan execution/evidence result back to AssetGraph")
     parser.add_argument("--capture-jd-metrics", action="store_true", help="Capture JD live dashboard metrics and write samples to AssetGraph")
@@ -59,6 +66,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.check_config:
         print(json.dumps(asdict(config), ensure_ascii=False, indent=2))
         return 0
+    if args.script_layout_draft_execute and not args.dry_run and not args.resolve_maitu_materials:
+        raise SystemExit(
+            "Real --script-layout-draft-execute requires --resolve-maitu-materials so the complete plan is validated before draft mutation"
+        )
     if args.probe_maitu:
         probe = BrowserUseCliSession().probe_current_page(open_if_needed=True)
         print(json.dumps(asdict(probe), ensure_ascii=True, indent=2))
@@ -69,6 +80,60 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     client = AssetGraphClient(config.api_base_url)
+    resolved_operation_plan: dict | None = None
+    material_resolution: MaituMaterialResolutionResult | None = None
+    if args.resolve_maitu_materials:
+        if not args.script_layout_build_plan_file:
+            raise SystemExit("--resolve-maitu-materials requires --script-layout-build-plan-file")
+        plan_path = Path(args.script_layout_build_plan_file)
+        source_operation_plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        if args.dry_run:
+            raise SystemExit("--resolve-maitu-materials cannot run with --dry-run because binding write-back/upload is a real action")
+        material_resolution = MaituMaterialResolver(
+            asset_client=client,
+            session=BrowserUseCliSession(),
+            assets_root=args.assets_root,
+        ).resolve_plan(source_operation_plan)
+        resolved_operation_plan = material_resolution.operation_plan
+        if args.resolved_plan_file:
+            resolved_path = Path(args.resolved_plan_file)
+            resolved_path.parent.mkdir(parents=True, exist_ok=True)
+            resolved_path.write_text(json.dumps(resolved_operation_plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        if (
+            material_resolution.status != "resolved"
+            or bool(material_resolution.issues)
+            or material_resolution.manual_required_count > 0
+        ):
+            print(json.dumps(asdict(material_resolution), ensure_ascii=False, indent=2))
+            return 2
+        unresolved_material_operations = [
+            operation
+            for operation in (resolved_operation_plan.get("operations") or [])
+            if isinstance(operation, dict)
+            and operation.get("operation_type") == "insert_asset_layer"
+            and (
+                not str(operation.get("asset_code") or "").strip()
+                or operation.get("material_resolution_status")
+                not in {"reused_assetgraph_binding", "matched_existing_maitu_material", "uploaded_to_maitu"}
+                or not MaituMaterialResolver.operation_has_executable_binding(operation)
+            )
+        ]
+        if unresolved_material_operations:
+            print(
+                json.dumps(
+                    {
+                        "status": "blocked_invalid_material_resolution",
+                        "manual_required_count": len(unresolved_material_operations),
+                        "operation_plan": resolved_operation_plan,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+            return 2
+        if not args.script_layout_draft_execute:
+            print(json.dumps(asdict(material_resolution), ensure_ascii=False, indent=2))
+            return 0
     if args.capture_jd_metrics:
         if not args.jd_metric_session_code:
             raise SystemExit("--capture-jd-metrics requires --jd-metric-session-code")
@@ -97,7 +162,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if not args.script_layout_build_plan_file:
             raise SystemExit("--script-layout-draft-execute requires --script-layout-build-plan-file")
         plan_path = Path(args.script_layout_build_plan_file)
-        operation_plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        operation_plan = resolved_operation_plan or json.loads(plan_path.read_text(encoding="utf-8"))
         target_live_room_id = args.target_live_room_id or operation_plan.get("target_live_room_id")
         if args.dry_run:
             session = InMemoryScriptLayoutDraftSession(live_room_id=str(target_live_room_id or "DRY-RUN-ROOM"))

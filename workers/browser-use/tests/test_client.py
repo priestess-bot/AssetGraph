@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from browser_use_worker.client import AssetGraphClient
+import pytest
+
+from browser_use_worker.client import AssetGraphClient, AssetGraphClientError
 
 
 class RecordingClient(AssetGraphClient):
@@ -22,6 +24,36 @@ def test_get_asset_uses_asset_endpoint() -> None:
 
     assert result == {"asset_code": "AG-VID-20260709-000001"}
     assert client.calls == [("GET", "/api/assets/AG-VID-20260709-000001", None)]
+
+
+def test_update_asset_maitu_material_binding_uses_binding_endpoint() -> None:
+    client = RecordingClient()
+    payload = {
+        "maitu_material_id": 41043,
+        "source_material_type": "decorative_video",
+        "source_material_url": "https://static.example/video.mp4",
+    }
+
+    result = client.update_asset_maitu_material_binding("AG-VID-20260709-000056", payload)
+
+    assert result == {"asset_code": "AG-VID-20260709-000001"}
+    assert client.calls == [
+        (
+            "PATCH",
+            "/api/assets/AG-VID-20260709-000056/maitu-material-binding",
+            payload,
+        )
+    ]
+
+
+@pytest.mark.parametrize("asset_code", ["../admin", "AG-IMG/OTHER", "AG-IMG?x=1", "AG-IMG#fragment", ""])
+def test_asset_paths_reject_non_segment_asset_codes(asset_code: str) -> None:
+    client = RecordingClient()
+
+    with pytest.raises(AssetGraphClientError):
+        client.update_asset_maitu_material_binding(asset_code, {"maitu_material_id": 1})
+
+    assert client.calls == []
 
 
 def test_get_replacement_plan_operation_plan_uses_browser_use_endpoint() -> None:

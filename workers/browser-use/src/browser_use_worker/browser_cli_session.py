@@ -4,9 +4,12 @@ import json
 import os
 import re
 import subprocess
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import unquote, urlparse
 
 from .jd_metrics import JdLiveDashboardParser, JdLiveDashboardState
 from .maitu_executor import MaituBrowserExecutionError, MaituBrowserSession
@@ -75,14 +78,22 @@ class MaituCurrentState:
 
 
 class BrowserUseCliSession(MaituBrowserSession):
-    """Read-only Maitu session backed by the local browser-use CLI.
+    """Visible Maitu session backed by the local browser-use CLI.
 
-    This first concrete session intentionally probes browser/page state only.  It
-    does not click upload/save/replace controls, so it is safe to use for mapping
-    login status and the Maitu page shell before wiring mutating automation.
+    Read/probe operations remain non-destructive. Mutating methods are narrowly
+    scoped to safe draft editing and Stage 5D regular image/video upload; final
+    save/go-live controls are never clicked by this session.
     """
 
     PAGE_SUMMARY_SCRIPT = "(() => JSON.stringify({title:document.title,href:location.href,text:document.body?.innerText||''}))()"
+    IMAGE_UPLOAD_LAYER_TYPES = {
+        "background_image",
+        "product_image",
+        "promotion_sticker",
+        "brand_logo_title",
+    }
+    VISUAL_UPLOAD_LAYER_TYPES = {"supporting_visual"}
+    VIDEO_UPLOAD_LAYER_TYPES = {"product_video"}
     CURRENT_STATE_SCRIPT = r"""
 (() => {
   const rect = (el) => { const r = el.getBoundingClientRect(); return {x:Math.round(r.x), y:Math.round(r.y), w:Math.round(r.width), h:Math.round(r.height)}; };
@@ -218,6 +229,268 @@ class BrowserUseCliSession(MaituBrowserSession):
             url=summary.get("href", ""),
             text=summary.get("text", ""),
         )
+
+    def list_maitu_materials(self) -> list[dict[str, Any]]:
+        script = """
+(() => {
+  const token = localStorage.getItem('token') || '';
+  const unwrap = (r) => (r && typeof r === 'object' && r.success === true && 'data' in r) ? r.data : r;
+  const pageItems = (r, path) => {
+    const value = unwrap(r);
+    if (Array.isArray(value)) return value;
+    if (value && Array.isArray(value.items)) return value.items;
+    throw new Error('Unexpected inventory response schema for ' + path);
+  };
+  function xhr(path) {
+    const x = new XMLHttpRequest();
+    x.open('GET', 'https://api.maituai.com/' + path, false);
+    if (token) x.setRequestHeader('Authorization', token);
+    x.send(null);
+    let data = null;
+    try { data = x.responseText ? JSON.parse(x.responseText) : null; } catch (e) { data = {raw:x.responseText}; }
+    if (!(x.status >= 200 && x.status < 300)) throw new Error('GET ' + path + ' failed ' + x.status);
+    return data;
+  }
+  function allPages(basePath) {
+    const result = [];
+    const limit = 100;
+    for (let page = 0; page < 100; page += 1) {
+      const path = basePath + '&offset=' + (page * limit) + '&limit=' + limit;
+      const batch = pageItems(xhr(path), path);
+      result.push(...batch);
+      if (batch.length < limit) return result;
+    }
+    throw new Error('Maitu inventory pagination exceeded safety limit for ' + basePath);
+  }
+  const materials = allPages('materials?is_pub=false');
+  const digitalHumans = allPages('materials/digital_human?access_rule=private');
+  return JSON.stringify({materials, digital_humans: digitalHumans});
+})()
+""".strip()
+        payload = self._eval_json(script)
+        materials = self._validated_material_inventory(payload.get("materials"), collection_name="materials")
+        digital_humans = self._validated_material_inventory(
+            payload.get("digital_humans"),
+            collection_name="digital_humans",
+        )
+        return [*materials, *digital_humans]
+
+    def upload_maitu_material(
+        self,
+        *,
+        asset: dict[str, Any],
+        local_path: Path,
+        layer_type: str | None,
+    ) -> dict[str, Any]:
+        path = Path(local_path)
+        suffix = path.suffix.lower()
+        planned_layer_type = str(layer_type or "").strip().lower()
+        planned_kind = (
+            "video"
+            if planned_layer_type in self.VIDEO_UPLOAD_LAYER_TYPES
+            else "image"
+            if planned_layer_type in self.IMAGE_UPLOAD_LAYER_TYPES
+            else "visual"
+            if planned_layer_type in self.VISUAL_UPLOAD_LAYER_TYPES
+            else None
+        )
+        suffix_kind = (
+            "video"
+            if suffix in {".mp4", ".mov", ".m4v", ".avi"}
+            else "image"
+            if suffix in {".png", ".jpg", ".jpeg", ".gif"}
+            else None
+        )
+        if planned_kind == "visual":
+            planned_kind = suffix_kind
+        if not path.is_file():
+            raise MaituBrowserExecutionError(
+                f"Local asset file does not exist: {path}",
+                retryable=False,
+                retry_instruction="Verify AssetGraph local_relative_path before retrying Maitu upload.",
+            )
+        if planned_kind is None or suffix_kind is None or planned_kind != suffix_kind:
+            raise MaituBrowserExecutionError(
+                f"Maitu upload type mismatch: layer_type={layer_type!r}, file_suffix={suffix!r}",
+                retryable=False,
+                retry_instruction="Use a supported layer type and a local file whose extension matches the planned image/video kind.",
+            )
+        is_video = planned_kind == "video"
+        is_image = planned_kind == "image"
+        expected_file_key = self._normalize_material_name(path.name)
+        if not expected_file_key:
+            raise MaituBrowserExecutionError(
+                f"Maitu upload filename has no stable match key: {path.name!r}",
+                retryable=False,
+                retry_instruction="Rename the local file to include letters, digits, or CJK characters before retrying upload.",
+            )
+        expected_suffix_pattern = re.compile(re.escape(expected_file_key) + r"\d{3,4}$")
+
+        self.open_url("https://live2.maituai.com/MaterialManage")
+        self._wait_for_material_manage()
+        if is_video:
+            target_tab = "视频"
+        elif "background" in str(layer_type or "").lower():
+            target_tab = "背景"
+        else:
+            target_tab = "装饰"
+        self._click_existing_text_target(
+            target=target_tab,
+            selectors=('div', 'button'),
+            action_name="select_material_upload_tab",
+        )
+        self._verify_material_upload_target(target_tab=target_tab, kind="video" if is_video else "image")
+        state_output = self._call_browser_use(["state"])
+        input_indices = self._file_input_indices(state_output, kind="video" if is_video else "image")
+        if len(input_indices) != 1:
+            raise MaituBrowserExecutionError(
+                f"Maitu {target_tab} page exposed {len(input_indices)} matching file inputs; refusing an ambiguous upload target.",
+                retryable=True,
+                retry_instruction="Re-open 素材管理 and verify exactly one visible upload control before retrying.",
+            )
+        input_index = input_indices[0]
+        before_materials = self.list_maitu_materials()
+        before_material_ids: set[int] = set()
+        for material in before_materials:
+            material_id = material.get("id")
+            try:
+                if material_id is not None:
+                    before_material_ids.add(int(material_id))
+            except (TypeError, ValueError) as exc:
+                raise MaituBrowserExecutionError(
+                    f"Maitu inventory returned a non-numeric material id: {material_id!r}",
+                    retryable=True,
+                    retry_instruction="Refresh the complete material inventory before retrying upload.",
+                ) from exc
+        self._verify_material_upload_target(target_tab=target_tab, kind="video" if is_video else "image")
+        self._call_browser_use(["upload", str(input_index), str(path)])
+
+        for _attempt in range(10):
+            time.sleep(2)
+            materials = self.list_maitu_materials()
+            candidates: list[dict[str, Any]] = []
+            for material in materials:
+                material_id = material.get("id")
+                try:
+                    numeric_id = int(material_id)
+                except (TypeError, ValueError):
+                    continue
+                if numeric_id in before_material_ids:
+                    continue
+                material_type = str(material.get("type") or "").lower()
+                if is_video and material_type not in {"video", "decorative_video"}:
+                    continue
+                if is_image and material_type != "image":
+                    continue
+                material_keys = {
+                    self._normalize_material_name(material.get("name")),
+                    self._normalize_material_name(self._url_basename(material.get("url"))),
+                }
+                if any(key and (key == expected_file_key or expected_suffix_pattern.fullmatch(key)) for key in material_keys):
+                    candidates.append(material)
+            if len(candidates) == 1:
+                return candidates[0]
+            if len(candidates) > 1:
+                raise MaituBrowserExecutionError(
+                    f"Maitu upload readback is ambiguous for {path.name}: {len(candidates)} new records matched.",
+                    retryable=False,
+                    retry_instruction="Review the newly created Maitu records and bind the intended material manually.",
+                )
+        raise MaituBrowserExecutionError(
+            f"Maitu upload completed but no material record was found for {path.name}.",
+            retryable=True,
+            retry_instruction="Check 素材管理 processing state and retry resolution after the material appears.",
+        )
+
+    def _wait_for_material_manage(self) -> None:
+        script = """
+(() => {
+  const text = document.body?.innerText || '';
+  const ready = location.origin === 'https://live2.maituai.com'
+    && location.pathname === '/MaterialManage'
+    && text.includes('素材管理')
+    && text.includes('背景')
+    && text.includes('装饰')
+    && text.includes('视频');
+  return JSON.stringify({ready, href: location.href});
+})()
+""".strip()
+        last_result: dict[str, Any] = {}
+        for _attempt in range(5):
+            last_result = self._parse_json_object(self._call_browser_use(["eval", script])) or {}
+            if last_result.get("ready"):
+                return
+            time.sleep(0.5)
+        raise MaituBrowserExecutionError(
+            f"Maitu MaterialManage did not become ready: {last_result.get('href') or 'unknown page'}",
+            retryable=True,
+            retry_instruction="Wait for 素材管理 to finish loading in the visible browser and retry.",
+        )
+
+    def _verify_material_upload_target(self, *, target_tab: str, kind: str) -> None:
+        args = json.dumps({"targetTab": target_tab, "kind": kind}, ensure_ascii=False)
+        script = """
+(() => {
+  const args = __ARGS__;
+  const visible = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+  const tabs = [...document.querySelectorAll('div[class*=MaterialManage__tabBox]')]
+    .filter(visible)
+    .filter((el) => (el.innerText || el.textContent || '').trim() === args.targetTab);
+  const activeTabs = tabs.filter((el) => String(el.className).includes('active'));
+  const kindInputs = [...document.querySelectorAll('input[type=file]')].filter((el) => {
+    const accept = String(el.accept || '').toLowerCase();
+    return args.kind === 'video' ? accept.includes('video/') : accept.includes('image/');
+  });
+  const inputs = kindInputs.filter((el) => Boolean(el.closest('div[class*=MaterialManage__container]')));
+  return JSON.stringify({
+    verified: location.origin === 'https://live2.maituai.com'
+      && location.pathname === '/MaterialManage'
+      && tabs.length === 1
+      && activeTabs.length === 1
+      && kindInputs.length === 1
+      && inputs.length === 1,
+    href: location.href,
+    tab_count: tabs.length,
+    active_tab_count: activeTabs.length,
+    kind_input_count: kindInputs.length,
+    input_count: inputs.length,
+  });
+})()
+""".strip().replace("__ARGS__", args)
+        result = self._parse_json_object(self._call_browser_use(["eval", script])) or {}
+        if not result.get("verified"):
+            raise MaituBrowserExecutionError(
+                f"Maitu upload target verification failed: {result}",
+                retryable=True,
+                retry_instruction="Verify the exact live2.maituai.com MaterialManage origin, active tab, and unique upload input.",
+            )
+
+    @staticmethod
+    def _file_input_indices(state_output: str, *, kind: str) -> list[int]:
+        indices: list[int] = []
+        for match in re.finditer(r"\[(\d+)\]<input\b([^>]*)>", state_output):
+            attributes = match.group(2).lower()
+            if "type=file" not in attributes:
+                continue
+            accepts_video = "video/" in attributes
+            accepts_image = "image/" in attributes
+            if (kind == "video" and accepts_video) or (kind == "image" and accepts_image):
+                indices.append(int(match.group(1)))
+        return indices
+
+    @staticmethod
+    def _url_basename(value: Any) -> str:
+        text = str(value or "").strip()
+        if not text:
+            return ""
+        return Path(unquote(urlparse(text).path)).name
+
+    @staticmethod
+    def _normalize_material_name(value: Any) -> str:
+        text = unquote(str(value or "")).strip().lower()
+        text = Path(text).name
+        text = re.sub(r"\.(?:png|jpe?g|gif|webp|mp4|mov|m4v|avi)$", "", text, flags=re.IGNORECASE)
+        return re.sub(r"[^0-9a-z\u4e00-\u9fff]+", "", text)
 
     def read_live_room(self, live_room_id: str) -> dict[str, Any]:
         args = {
@@ -432,8 +705,38 @@ class BrowserUseCliSession(MaituBrowserSession):
 """.strip().replace("__ARGS__", json.dumps(args, ensure_ascii=False))
         return self._eval_json(script)
 
+    @classmethod
+    def _resolved_operation_material_type(cls, operation: dict[str, Any]) -> str | None:
+        layer_type = str(operation.get("layer_type") or "").strip().lower()
+        source_type = str(operation.get("source_material_type") or "").strip().lower()
+        if layer_type in cls.IMAGE_UPLOAD_LAYER_TYPES:
+            return "image" if source_type == "image" else None
+        if layer_type in cls.VIDEO_UPLOAD_LAYER_TYPES:
+            return "video" if source_type in {"video", "decorative_video"} else None
+        if layer_type in cls.VISUAL_UPLOAD_LAYER_TYPES:
+            if source_type == "image":
+                return "image"
+            if source_type in {"video", "decorative_video"}:
+                return "video"
+            return None
+        if layer_type == "digital_human":
+            return "digital_human" if source_type == "digital_human" else None
+        return None
+
     def insert_asset_layer(self, *, live_room_id: str, clip_id: int, operation: dict[str, Any]) -> dict[str, Any]:
-        args = {"liveRoomId": str(live_room_id), "clipId": int(clip_id), "operation": operation}
+        material_type = self._resolved_operation_material_type(operation)
+        if material_type is None:
+            raise MaituBrowserExecutionError(
+                "Resolved Maitu binding type is incompatible with the planned layer type.",
+                retryable=False,
+                retry_instruction="Re-run Stage 5D material resolution and do not execute a wrong-type asset binding.",
+            )
+        args = {
+            "liveRoomId": str(live_room_id),
+            "clipId": int(clip_id),
+            "materialType": material_type,
+            "operation": operation,
+        }
         script = """
 (() => {
   const args = __ARGS__;
@@ -456,7 +759,11 @@ class BrowserUseCliSession(MaituBrowserSession):
   const materialId = op.material_id || op.maitu_material_id || null;
   const digitalHumanImageId = op.digital_human_image_id || null;
   const speakerId = op.speaker_id || null;
-  if (!sourceUrl && !materialId && !digitalHumanImageId && !speakerId) {
+  const materialType = args.materialType;
+  const bindingComplete = materialType === 'digital_human'
+    ? Boolean(digitalHumanImageId && speakerId)
+    : Boolean(sourceUrl && materialId);
+  if (!bindingComplete) {
     return JSON.stringify({
       status: 'manual_required',
       reason: 'missing_maitu_material_binding',
@@ -467,10 +774,6 @@ class BrowserUseCliSession(MaituBrowserSession):
       go_live_clicked: false,
     });
   }
-  const layerType = String(op.layer_type || op.need_type || 'image');
-  const materialType = layerType.includes('video') ? 'video'
-    : layerType.includes('digital_human') ? 'digital_human'
-    : 'image';
   const style = {left: op.x || 0, top: op.y || 0, width: op.width || null, height: op.height || null, zIndex: op.z_index || 1, fit: op.fit || 'contain'};
   const payload = {
     type: materialType,
@@ -646,7 +949,7 @@ class BrowserUseCliSession(MaituBrowserSession):
     .filter(isVisible)
     .map((el, i) => {{
       const text = textOf(el);
-      const firstLine = text.split(/\n/).map((line) => line.trim()).find(Boolean) || '';
+      const firstLine = text.split(/\\n/).map((line) => line.trim()).find(Boolean) || '';
       return {{el, i, text, firstLine, className: String(el.className)}};
     }})
     .filter((item) => item.text);
@@ -701,6 +1004,32 @@ class BrowserUseCliSession(MaituBrowserSession):
             active_workbench_tab=next((tab.name for tab in workbench_tabs if tab.active), None),
             script_texts=script_texts,
         )
+
+    @staticmethod
+    def _validated_material_inventory(value: Any, *, collection_name: str) -> list[dict[str, Any]]:
+        if not isinstance(value, list):
+            raise MaituBrowserExecutionError(
+                f"Maitu inventory collection {collection_name!r} is not a list.",
+                retryable=True,
+                retry_instruction="Refresh 素材管理 and retry only after the complete inventory schema is available.",
+            )
+        records: list[dict[str, Any]] = []
+        for index, item in enumerate(value):
+            material_id = item.get("id") if isinstance(item, dict) else None
+            material_type = str(item.get("type") or "").strip() if isinstance(item, dict) else ""
+            try:
+                numeric_id = int(material_id)
+                valid_id = not isinstance(material_id, bool) and numeric_id > 0 and str(material_id).strip() == str(numeric_id)
+            except (TypeError, ValueError):
+                valid_id = False
+            if not isinstance(item, dict) or not valid_id or not material_type:
+                raise MaituBrowserExecutionError(
+                    f"Maitu inventory collection {collection_name!r} has an invalid record at index {index}.",
+                    retryable=True,
+                    retry_instruction="Refresh 素材管理 and retry only after every inventory record has a numeric id and type.",
+                )
+            records.append(item)
+        return records
 
     @staticmethod
     def _list_payload(value: Any) -> list[dict[str, Any]]:

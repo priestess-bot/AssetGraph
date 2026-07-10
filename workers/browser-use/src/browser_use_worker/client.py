@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import re
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import quote
 
 
 class AssetGraphClientError(RuntimeError):
@@ -25,12 +27,17 @@ class AssetGraphClient:
             raise
 
     def get_asset(self, asset_code: str) -> dict[str, Any] | None:
+        asset_segment = self._asset_code_segment(asset_code)
         try:
-            return self._request_json("GET", f"/api/assets/{asset_code}")
+            return self._request_json("GET", f"/api/assets/{asset_segment}")
         except AssetGraphClientError as exc:
             if "HTTP 404" in str(exc):
                 return None
             raise
+
+    def update_asset_maitu_material_binding(self, asset_code: str, payload: dict[str, Any]) -> dict[str, Any]:
+        asset_segment = self._asset_code_segment(asset_code)
+        return self._request_json("PATCH", f"/api/assets/{asset_segment}/maitu-material-binding", payload)
 
     def get_replacement_plan_operation_plan(self, plan_code: str) -> dict[str, Any]:
         return self._request_json("GET", f"/api/maitu/replacement-plans/{plan_code}/browser-use-operations")
@@ -81,6 +88,13 @@ class AssetGraphClient:
             f"/api/maitu/retry-tasks/{retry_task_code}/execution-results",
             {key: value for key, value in payload.items() if value is not None},
         )
+
+    @staticmethod
+    def _asset_code_segment(asset_code: str) -> str:
+        value = str(asset_code or "").strip()
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", value):
+            raise AssetGraphClientError(f"Invalid AssetGraph asset_code path segment: {value!r}")
+        return quote(value, safe="")
 
     def _request_json(self, method: str, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         body = None

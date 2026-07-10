@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+from pathlib import Path
 from typing import Sequence
 
 import pytest
@@ -259,6 +260,7 @@ def test_script_layout_draft_api_methods_use_browser_use_eval() -> None:
         operation={
             "layer_id": "scene-00-background_image",
             "layer_type": "background_image",
+            "source_material_type": "image",
             "asset_code": "AG-IMG-BG",
             "asset_local_relative_path": "背景/bg.png",
             "x": 0,
@@ -286,6 +288,80 @@ def test_script_layout_draft_api_methods_use_browser_use_eval() -> None:
     assert all("go_live_clicked" in command[4] for command in runner.commands)
 
 
+@pytest.mark.parametrize(
+    ("layer_type", "source_type", "expected"),
+    [
+        ("product_image", "image", "image"),
+        ("product_video", "decorative_video", "video"),
+        ("supporting_visual", "image", "image"),
+        ("supporting_visual", "video", "video"),
+        ("digital_human", "digital_human", "digital_human"),
+        ("product_image", "decorative_video", None),
+    ],
+)
+def test_resolved_operation_material_type_is_layer_and_source_type_safe(
+    layer_type: str,
+    source_type: str,
+    expected: str | None,
+) -> None:
+    assert (
+        BrowserUseCliSession._resolved_operation_material_type(
+            {"layer_type": layer_type, "source_material_type": source_type}
+        )
+        == expected
+    )
+
+
+def test_insert_asset_layer_uses_resolved_source_type_for_polymorphic_and_strict_video_layers() -> None:
+    session, runner = make_session(['{"status":"inserted"}', '{"status":"inserted"}'])
+    binding = {
+        "asset_code": "AG-VID-SHARED",
+        "maitu_material_id": 42601,
+        "source_material_type": "decorative_video",
+        "source_material_url": "https://static.example/shared.mp4",
+    }
+
+    supporting_result = session.insert_asset_layer(
+        live_room_id="47000002",
+        clip_id=416425,
+        operation={**binding, "layer_type": "supporting_visual"},
+    )
+    strict_video_result = session.insert_asset_layer(
+        live_room_id="47000002",
+        clip_id=416425,
+        operation={**binding, "layer_type": "product_video"},
+    )
+
+    assert supporting_result["status"] == "inserted"
+    assert strict_video_result["status"] == "inserted"
+    assert len(runner.commands) == 2
+    assert all('"materialType": "video"' in command[4] for command in runner.commands)
+    assert all("type: materialType" in command[4] for command in runner.commands)
+
+
+@pytest.mark.parametrize("layer_type", ["background_image", "product_image", "product_video"])
+def test_insert_asset_layer_rejects_digital_human_binding_for_strict_image_or_video_layer(layer_type: str) -> None:
+    session, runner = make_session([])
+
+    with pytest.raises(MaituBrowserExecutionError) as exc_info:
+        session.insert_asset_layer(
+            live_room_id="47000002",
+            clip_id=416425,
+            operation={
+                "asset_code": "AG-DH-WRONG-LAYER",
+                "layer_type": layer_type,
+                "source_material_type": "digital_human",
+                "maitu_material_id": 40222,
+                "source_material_url": "https://static.example/dh.png",
+                "speaker_id": 4224,
+                "digital_human_image_id": 8856,
+            },
+        )
+
+    assert "incompatible" in str(exc_info.value)
+    assert runner.commands == []
+
+
 def test_non_destructive_scene_and_tab_clicks_use_browser_use_eval() -> None:
     session, runner = make_session([
         '{"clicked":true,"target":"场景02"}',
@@ -306,6 +382,16 @@ def test_non_destructive_scene_and_tab_clicks_use_browser_use_eval() -> None:
     assert "直播脚本" in runner.commands[2][4]
 
 
+def test_non_destructive_text_click_keeps_newline_regex_escaped_for_browser_eval() -> None:
+    session, runner = make_session(['{"clicked":true,"target":"视频"}'])
+
+    session._click_existing_text_target(target="视频", selectors=("div", "button"), action_name="test")
+
+    script = runner.commands[0][4]
+    assert "text.split(/\\n/)" in script
+    assert "text.split(/\n/)" not in script
+
+
 def test_non_destructive_click_raises_when_target_is_missing() -> None:
     session, _runner = make_session(['{"clicked":false,"reason":"target_not_found","target":"场景99"}'])
 
@@ -314,6 +400,257 @@ def test_non_destructive_click_raises_when_target_is_missing() -> None:
 
     assert exc_info.value.retryable is False
     assert "场景99" in str(exc_info.value)
+
+
+def test_list_maitu_materials_combines_regular_and_digital_human_records() -> None:
+    inventory_payload = {
+        "materials": [
+            {"id": 41043, "name": "6月29日 (2)-9051.mp4", "type": "decorative_video"},
+        ],
+        "digital_humans": [
+            {
+                "id": 37200,
+                "name": "张裕定制形象260519",
+                "type": "digital_human",
+                "speaker_id": 3760,
+                "digital_human_image_id": 7717,
+            }
+        ],
+    }
+    session, runner = make_session(["result: " + json.dumps(inventory_payload, ensure_ascii=False)])
+
+    materials = session.list_maitu_materials()
+
+    assert [material["id"] for material in materials] == [41043, 37200]
+    assert materials[1]["digital_human_image_id"] == 7717
+    assert len(runner.commands) == 1
+    assert runner.commands[0][:4] == ("uv", "run", "browser-use", "eval")
+    assert "allPages('materials?is_pub=false')" in runner.commands[0][4]
+    assert "allPages('materials/digital_human?access_rule=private')" in runner.commands[0][4]
+    assert "page * limit" in runner.commands[0][4]
+    assert "Unexpected inventory response schema" in runner.commands[0][4]
+
+
+def test_list_maitu_materials_rejects_malformed_inventory_record() -> None:
+    session, _runner = make_session(
+        [
+            "result: "
+            + json.dumps(
+                {"materials": [{"id": "not-a-number", "name": "坏记录", "type": "image"}], "digital_humans": []},
+                ensure_ascii=False,
+            )
+        ]
+    )
+
+    with pytest.raises(MaituBrowserExecutionError) as exc_info:
+        session.list_maitu_materials()
+
+    assert "invalid record" in str(exc_info.value)
+
+
+def test_upload_maitu_material_uses_visible_material_page_file_input_and_reads_back(monkeypatch, tmp_path) -> None:
+    image_path = tmp_path / "新品主图.png"
+    image_path.write_bytes(b"image")
+    inventory_payload = {
+        "materials": [
+            {
+                "id": 50001,
+                "name": "新品主图.png",
+                "type": "image",
+                "url": "https://static.example/new-product.png",
+            }
+        ],
+        "digital_humans": [],
+    }
+    session, runner = make_session(
+        [
+            "opened material page",
+            '{"ready":true,"href":"https://live2.maituai.com/MaterialManage"}',
+            '{"clicked":true,"target":"装饰"}',
+            '{"verified":true,"href":"https://live2.maituai.com/MaterialManage","tab_count":1,"active_tab_count":1,"input_count":1}',
+            "|SHADOW(open)|*[561]<input type=file accept=video/mp4,video/quicktime />\n"
+            "|SHADOW(open)|*[562]<input type=file accept=image/jpeg,image/png,image/gif />",
+            "result: " + json.dumps({"materials": [], "digital_humans": []}, ensure_ascii=False),
+            '{"verified":true,"href":"https://live2.maituai.com/MaterialManage","tab_count":1,"active_tab_count":1,"input_count":1}',
+            "uploaded file",
+            "result: " + json.dumps(inventory_payload, ensure_ascii=False),
+        ]
+    )
+    monkeypatch.setattr("browser_use_worker.browser_cli_session.time.sleep", lambda _seconds: None)
+
+    uploaded = session.upload_maitu_material(
+        asset={"asset_code": "AG-IMG-1", "subject": "新品主图", "original_filename": "新品主图.png"},
+        local_path=image_path,
+        layer_type="product_image",
+    )
+
+    assert uploaded["id"] == 50001
+    assert uploaded["url"].endswith("new-product.png")
+    assert runner.commands[0] == (
+        "uv",
+        "run",
+        "browser-use",
+        "--headed",
+        "open",
+        "https://live2.maituai.com/MaterialManage",
+    )
+    assert runner.commands[1][:4] == ("uv", "run", "browser-use", "eval")
+    assert "MaterialManage" in runner.commands[1][4]
+    assert runner.commands[2][:4] == ("uv", "run", "browser-use", "eval")
+    assert "装饰" in runner.commands[2][4]
+    assert runner.commands[3][:4] == ("uv", "run", "browser-use", "eval")
+    assert "location.origin === 'https://live2.maituai.com'" in runner.commands[3][4]
+    assert "MaterialManage__container" in runner.commands[3][4]
+    assert "kindInputs.length === 1" in runner.commands[3][4]
+    assert runner.commands[4] == ("uv", "run", "browser-use", "state")
+    assert runner.commands[5][:4] == ("uv", "run", "browser-use", "eval")
+    assert runner.commands[6][:4] == ("uv", "run", "browser-use", "eval")
+    assert "location.origin === 'https://live2.maituai.com'" in runner.commands[6][4]
+    assert runner.commands[7] == ("uv", "run", "browser-use", "upload", "562", str(image_path))
+
+
+def test_upload_video_selects_new_video_record_not_existing_same_subject_image(monkeypatch, tmp_path) -> None:
+    video_path = tmp_path / "MT-VID-0024_视频_商品讲解视频_品酒大师PRO.mp4"
+    video_path.write_bytes(b"video")
+    existing_image = {
+        "id": 40999,
+        "name": "品酒大师(PRO）",
+        "type": "image",
+        "url": "https://static.example/product-pro.png",
+    }
+    uploaded_video = {
+        "id": 42601,
+        "name": "MT-VID-0024_视频_商品讲解视频_品酒大师PRO-836.mp4",
+        "type": "decorative_video",
+        "url": "https://static.example/product-pro-836.mp4",
+    }
+    before_payload = {"materials": [existing_image], "digital_humans": []}
+    after_payload = {"materials": [uploaded_video, existing_image], "digital_humans": []}
+    session, runner = make_session(
+        [
+            "opened material page",
+            '{"ready":true,"href":"https://live2.maituai.com/MaterialManage"}',
+            '{"clicked":true,"target":"视频"}',
+            '{"verified":true,"href":"https://live2.maituai.com/MaterialManage","tab_count":1,"active_tab_count":1,"input_count":1}',
+            "|SHADOW(open)|*[561]<input type=file accept=video/mp4,video/quicktime />\n"
+            "|SHADOW(open)|*[562]<input type=file accept=image/jpeg,image/png,image/gif />",
+            "result: " + json.dumps(before_payload, ensure_ascii=False),
+            '{"verified":true,"href":"https://live2.maituai.com/MaterialManage","tab_count":1,"active_tab_count":1,"input_count":1}',
+            "uploaded file",
+            "result: " + json.dumps(after_payload, ensure_ascii=False),
+        ]
+    )
+    monkeypatch.setattr("browser_use_worker.browser_cli_session.time.sleep", lambda _seconds: None)
+
+    uploaded = session.upload_maitu_material(
+        asset={
+            "asset_code": "AG-VID-1",
+            "subject": "品酒大师PRO",
+            "original_filename": video_path.name,
+        },
+        local_path=video_path,
+        layer_type="product_video",
+    )
+
+    assert uploaded["id"] == 42601
+    assert uploaded["type"] == "decorative_video"
+    assert runner.commands[7] == ("uv", "run", "browser-use", "upload", "561", str(video_path))
+
+
+def test_upload_rejects_file_extension_layer_type_conflict(tmp_path) -> None:
+    image_path = tmp_path / "wrong.png"
+    image_path.write_bytes(b"image")
+    session, runner = make_session([])
+
+    with pytest.raises(MaituBrowserExecutionError) as exc_info:
+        session.upload_maitu_material(asset={"asset_code": "AG-WRONG"}, local_path=image_path, layer_type="product_video")
+
+    assert exc_info.value.retryable is False
+    assert "type mismatch" in str(exc_info.value)
+    assert runner.commands == []
+
+
+def test_upload_rejects_filename_without_stable_readback_key_before_side_effect(tmp_path: Path) -> None:
+    image_path = tmp_path / "---.png"
+    image_path.write_bytes(b"image")
+    session, runner = make_session([])
+
+    with pytest.raises(MaituBrowserExecutionError) as exc_info:
+        session.upload_maitu_material(asset={"asset_code": "AG-EMPTY-NAME"}, local_path=image_path, layer_type="product_image")
+
+    assert "stable match key" in str(exc_info.value)
+    assert runner.commands == []
+
+
+def test_upload_target_verification_rejects_wrong_origin() -> None:
+    session, _runner = make_session(
+        ['{"verified":false,"href":"https://evil.example/MaterialManage","tab_count":1,"active_tab_count":1,"input_count":1}']
+    )
+
+    with pytest.raises(MaituBrowserExecutionError):
+        session._verify_material_upload_target(target_tab="视频", kind="video")
+
+
+def test_upload_reverifies_trusted_target_immediately_before_local_file_upload(tmp_path: Path) -> None:
+    image_path = tmp_path / "新品主图.png"
+    image_path.write_bytes(b"image")
+    session, runner = make_session(
+        [
+            "opened material page",
+            '{"ready":true,"href":"https://live2.maituai.com/MaterialManage"}',
+            '{"clicked":true,"target":"装饰"}',
+            '{"verified":true,"href":"https://live2.maituai.com/MaterialManage","tab_count":1,"active_tab_count":1,"input_count":1}',
+            "*[562]<input type=file accept=image/jpeg,image/png,image/gif />",
+            "result: " + json.dumps({"materials": [], "digital_humans": []}),
+            '{"verified":false,"href":"https://evil.example/MaterialManage","tab_count":1,"active_tab_count":1,"input_count":1}',
+        ]
+    )
+
+    with pytest.raises(MaituBrowserExecutionError):
+        session.upload_maitu_material(asset={"asset_code": "AG-IMG-1"}, local_path=image_path, layer_type="product_image")
+
+    assert not any("upload" in command for command in runner.commands)
+
+
+def test_file_input_indices_preserve_ambiguity_for_fail_closed_upload() -> None:
+    state = (
+        "*[10]<input type=file accept=image/png,image/jpeg />\n"
+        "*[11]<input type=file accept=image/png,image/jpeg />"
+    )
+
+    assert BrowserUseCliSession._file_input_indices(state, kind="image") == [10, 11]
+
+
+def test_upload_readback_rejects_multiple_new_matching_records(monkeypatch, tmp_path) -> None:
+    image_path = tmp_path / "新品主图.png"
+    image_path.write_bytes(b"image")
+    after_payload = {
+        "materials": [
+            {"id": 1, "name": "新品主图-1111.png", "type": "image", "url": "https://static.example/a.png"},
+            {"id": 2, "name": "新品主图-2222.png", "type": "image", "url": "https://static.example/b.png"},
+        ],
+        "digital_humans": [],
+    }
+    session, _runner = make_session(
+        [
+            "opened material page",
+            '{"ready":true,"href":"https://live2.maituai.com/MaterialManage"}',
+            '{"clicked":true,"target":"装饰"}',
+            '{"verified":true,"href":"https://live2.maituai.com/MaterialManage","tab_count":1,"active_tab_count":1,"input_count":1}',
+            "*[562]<input type=file accept=image/jpeg,image/png,image/gif />",
+            "result: " + json.dumps({"materials": [], "digital_humans": []}),
+            '{"verified":true,"href":"https://live2.maituai.com/MaterialManage","tab_count":1,"active_tab_count":1,"input_count":1}',
+            "uploaded file",
+            "result: " + json.dumps(after_payload, ensure_ascii=False),
+        ]
+    )
+    monkeypatch.setattr("browser_use_worker.browser_cli_session.time.sleep", lambda _seconds: None)
+
+    with pytest.raises(MaituBrowserExecutionError) as exc_info:
+        session.upload_maitu_material(asset={"asset_code": "AG-IMG-1"}, local_path=image_path, layer_type="product_image")
+
+    assert exc_info.value.retryable is False
+    assert "ambiguous" in str(exc_info.value)
 
 
 def test_subprocess_runner_scrubs_parent_python_environment(monkeypatch) -> None:

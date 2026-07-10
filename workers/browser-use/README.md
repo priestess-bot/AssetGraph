@@ -2,7 +2,7 @@
 
 This worker lives in the same repository as AssetGraph so the API, RAG ingestion code, local asset inventory, and Maitu browser automation protocol can be deployed or migrated together.
 
-Current status: scaffold plus tested Maitu executor abstraction and a read-only Browser-use CLI session probe. It implements the queue/claim/release/result protocol boundary, dispatches AssetGraph operation plans to a thin browser session interface, and can verify the current Maitu page/login state without uploading, replacing, or saving anything. Mutating browser automation is still intentionally not bound.
+Current status: tested AssetGraph/Maitu execution worker with read-only probes, BuildPlan safety gates, content-driven draft execution, and Stage 5D material resolution. Before a real draft build it can reuse verified AssetGraph bindings, deduplicate against the authenticated Maitu material inventory, upload missing regular image/video assets through the visible 素材管理 UI, read back the newly created type-compatible record, and persist the verified binding. Ambiguous matches, missing files, unsupported digital-human uploads, and upload/readback failures remain manual-only and stop combined resolution/execution before draft mutations.
 
 ## Responsibilities
 
@@ -34,6 +34,8 @@ python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --prefli
 python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --non-destructive-build
 python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --non-destructive-build --write-result
 python -m browser_use_worker --script-layout-build-plan-file /tmp/script-layout-build-plan.json --script-layout-draft-execute --dry-run
+python -m browser_use_worker --resolve-maitu-materials --script-layout-build-plan-file /tmp/script-layout-build-plan.json --resolved-plan-file /tmp/resolved-build-plan.json
+python -m browser_use_worker --resolve-maitu-materials --script-layout-build-plan-file /tmp/script-layout-build-plan.json --resolved-plan-file /tmp/resolved-build-plan.json --script-layout-draft-execute --target-live-room-id 40173
 ```
 
 `--preflight --plan-code ...` fetches the replacement plan operation plan and performs read-only safety checks before any mutating Browser-use execution. It validates operation support, Maitu project/scene context, AssetGraph asset lookup, Browser-use-friendly asset fields, local file availability under `--assets-root` (default `D:/AssetGraph/素材`), the current Maitu browser/login shell, and whether the target layer/slot name is visible on the current page. It exits with code `0` when there are no failures and code `2` when a blocking check fails. `ready_to_execute` is only `true` when there are no failures, warnings, or skipped checks.
@@ -50,7 +52,9 @@ python -m browser_use_worker --script-layout-build-plan-file /tmp/script-layout-
 
 `--write-result` can be added to `--non-destructive-build` to POST `/api/maitu/live-room-build-plans/{build_plan_code}/execution-results`. A preflight-blocked run writes a `blocked` `MT-EXEC-*` record with a synthetic `preflight_gate` operation result; a completed low-risk run writes one operation result per action, including details and optional screenshot/DOM asset references.
 
-`--script-layout-draft-execute --script-layout-build-plan-file ...` runs the Stage 5A/5B content-driven draft executor against a `POST /api/maitu/script-layout-build-plans` JSON response. With `--dry-run` it uses an in-memory Maitu room for local smoke testing: ready operations are executed against the in-memory draft, `placeholder_required` remains manual-only, `save_draft` remains a review gate, and `ready_for_go_live=false` is always preserved. Without `--dry-run` it uses the Browser-use session boundary: it can map the first planned scene to the default clip, create later draft scenes, write scripts, and verify scenes through the Maitu API. Selected AssetGraph assets still require a real Maitu material binding (`source_material_url` / `material_id` / digital-human ids); when that binding is missing the worker records `manual_required_asset_binding` instead of inserting a fake layer. It still must not click 正式开播.
+`--script-layout-draft-execute --script-layout-build-plan-file ...` runs the Stage 5A/5B content-driven draft executor against a `POST /api/maitu/script-layout-build-plans` JSON response. With `--dry-run` it uses an in-memory Maitu room for local smoke testing: ready operations are executed against the in-memory draft, `placeholder_required` remains manual-only, `save_draft` remains a review gate, and `ready_for_go_live=false` is always preserved. A real, non-dry-run draft execution must also pass `--resolve-maitu-materials`; raw plans are never sent directly to `ScriptLayoutDraftRunner`. After the Stage 5D whole-plan and material gate passes, the worker uses the Browser-use session boundary: it can map the first planned scene to the default clip, create later draft scenes, write scripts, and verify scenes through the Maitu API. Selected AssetGraph assets require a real Maitu material binding (`source_material_url` / `material_id` / digital-human ids); when that binding is missing the worker blocks before any draft operation instead of inserting a fake layer. It still must not click 正式开播.
+
+`--resolve-maitu-materials` adds the Stage 5D material gate before draft execution. It validates the complete operation plan and every unique `insert_asset_layer.asset_code` before side effects; unsupported/go-live operations and blocking placeholders fail closed. Regular bindings require a positive Maitu material ID, a type-compatible source type, and an authoritative HTTPS source URL; digital-human bindings require a digital-human source type plus positive speaker and image IDs. Stored material IDs are revalidated against the complete, schema-checked paginated Maitu inventory. A unique verified match is written back through `PATCH /api/assets/{asset_code}/maitu-material-binding`; missing regular images/videos are uploaded only through the unique compatible file input on the active tab at the exact `https://live2.maituai.com/MaterialManage` origin, and the target is reverified immediately before local-file upload. Only a newly created, type-compatible, filename-matching record is accepted. A local digital-human training video is never uploaded as a regular video substitute. Ambiguity, malformed inventory/plan/API responses, missing files, local file/layer type mismatch, unsupported digital-human creation, upload errors, or unverifiable readback/writeback set `manual_required` and make the combined resolver/draft command exit `2` before executing any draft operation.
 
 `--probe-maitu` is read-only. It calls the local `D:/browser-use` CLI, inspects the current page, opens Maitu home when the active page is unrelated, and prints JSON with `url`, `logged_in`, `login_required`, and `opened_home`. It never uploads assets, replaces layers, or saves a Maitu project.
 
@@ -70,16 +74,18 @@ The worker should run on a machine/session that can open the Maitu web UI and ke
 
 ## Real browser-use integration point
 
-Implemented read-only / non-destructive session:
+Implemented visible Browser-use CLI session:
 
 ```text
 BrowserUseCliSession
-  -> uv run browser-use state
+  -> uv run browser-use state / eval / open / upload
   -> falls back to browser-use eval for title/url/body text
-  -> opens Maitu home if the active page is unrelated
+  -> opens Maitu home or 素材管理 when the active page is unrelated
   -> detects logged-in dashboard vs login page
-  -> can click only existing scene/material/workbench tabs after green preflight
-  -> refuses upload/replace/save operations
+  -> can click existing scene/material/workbench tabs after safety checks
+  -> can upload regular image/video materials only for Stage 5D resolution
+  -> reads back Maitu inventory and accepts only a newly created compatible record
+  -> does not click 正式开播
 ```
 
 The tested execution boundary for future mutating automation is:
