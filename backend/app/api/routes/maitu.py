@@ -9,6 +9,7 @@ from app.core.database import get_db
 from app.repositories.maitu import MaituMaterialSlotRepository
 from app.services.asset_candidates import AssetCandidate, AssetRetrievalIndex
 from app.services.qwen3_client import Qwen3Client, Qwen3ClientError
+from app.services.script_asset_need_planner import ScriptAssetNeedPlanner
 from app.services.script_scene_planner import ScriptScenePlanner
 from app.services.script_scene_template_matcher import ScriptSceneTemplateMatcher
 from app.schemas.maitu import (
@@ -35,6 +36,8 @@ from app.schemas.maitu import (
     MaituMaterialSlotCreate,
     MaituMaterialSlotRead,
     MaituMaterialSlotUpdate,
+    MaituScriptAssetNeedCreate,
+    MaituScriptAssetNeedPlanRead,
     MaituScriptScenePlanCreate,
     MaituScriptScenePlanRead,
     MaituReplacementPlanCreate,
@@ -91,6 +94,15 @@ def create_script_scene_plan(payload: MaituScriptScenePlanCreate) -> dict:
         payload.script_text,
         target_scene_count=payload.target_scene_count,
         default_scene_duration_seconds=payload.default_scene_duration_seconds,
+    )
+
+
+@router.post("/script-asset-needs", response_model=MaituScriptAssetNeedPlanRead, status_code=status.HTTP_201_CREATED)
+def create_script_asset_needs(payload: MaituScriptAssetNeedCreate) -> dict:
+    return ScriptAssetNeedPlanner().plan(
+        [scene.model_dump() for scene in payload.scenes],
+        include_default_host=payload.include_default_host,
+        include_script_text_need=payload.include_script_text_need,
     )
 
 

@@ -1554,6 +1554,81 @@ def test_create_script_scene_plan_marks_ambiguous_short_script_for_review(client
     assert "too_short" in body["scenes"][0]["review_reasons"]
 
 
+def test_create_script_asset_needs_extracts_content_driven_needs_from_script_scenes(client: TestClient) -> None:
+    scene_response = client.post(
+        "/api/maitu/script-scene-plans",
+        json={
+            "script_text": """
+            开场：大家好，欢迎来到张裕直播间，今天先用夏日主题带大家看龙谕龙8。
+
+            产品亮点：龙谕龙8来自宁夏贺兰山东麓，有贺兰山挡风沙、黄河滋养葡萄，口感饱满。
+
+            促单：现在下单有组合优惠，喜欢干红的朋友可以先点商品卡。
+            """,
+            "target_scene_count": 3,
+            "default_scene_duration_seconds": 45,
+        },
+    )
+    assert scene_response.status_code == 201
+    scenes = scene_response.json()["scenes"]
+
+    response = client.post("/api/maitu/script-asset-needs", json={"scenes": scenes})
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["source"] == "script_content_asset_need_rule_v1"
+    assert body["scene_count"] == 3
+    assert body["manual_review_required"] is False
+
+    product_scene = body["scenes"][1]
+    needs_by_type = {need["need_type"]: need for need in product_scene["asset_needs"]}
+    assert needs_by_type["product_image"]["required_category"] == "product_image"
+    assert needs_by_type["product_image"]["accepted_asset_types"] == ["IMG"]
+    assert "龙谕龙8" in needs_by_type["product_image"]["keywords"]
+    assert needs_by_type["product_image"]["priority"] == "high"
+
+    assert needs_by_type["background_image"]["required_category"] == "background_image"
+    assert {"宁夏", "贺兰山东麓", "葡萄园"}.issubset(set(needs_by_type["background_image"]["keywords"]))
+    assert "产区" in needs_by_type["background_image"]["description"]
+
+    assert needs_by_type["supporting_visual"]["required_category"] == "floating_sticker"
+    assert {"贺兰山", "黄河"}.issubset(set(needs_by_type["supporting_visual"]["keywords"]))
+    assert needs_by_type["script_text"]["required_category"] == "script_text"
+    assert needs_by_type["digital_human"]["required_category"] == "digital_human_video"
+
+    conversion_scene = body["scenes"][2]
+    conversion_needs = {need["need_type"]: need for need in conversion_scene["asset_needs"]}
+    assert conversion_needs["promotion_sticker"]["required_category"] == "floating_sticker"
+    assert {"优惠", "商品卡"}.issubset(set(conversion_needs["promotion_sticker"]["keywords"]))
+
+
+def test_create_script_asset_needs_marks_sparse_scene_for_review(client: TestClient) -> None:
+    response = client.post(
+        "/api/maitu/script-asset-needs",
+        json={
+            "scenes": [
+                {
+                    "scene_index": 0,
+                    "scene_name": "场景01",
+                    "scene_goal": "explanation",
+                    "duration_seconds": 30,
+                    "script": "今天继续聊。",
+                    "keywords": [],
+                    "manual_review": False,
+                    "review_reasons": [],
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["manual_review_required"] is True
+    assert body["scenes"][0]["manual_review"] is True
+    assert "insufficient_content_for_asset_needs" in body["scenes"][0]["review_reasons"]
+    assert body["scenes"][0]["asset_needs"][0]["need_type"] == "script_text"
+
+
 def test_create_script_scene_template_matches_maps_each_script_scene_to_one_template_and_assets(client: TestClient) -> None:
     import_response = client.post(
         "/api/maitu/live-room-blueprints/import-reference",

@@ -31,6 +31,42 @@ class MaituScriptScenePlanRead(BaseModel):
     scenes: list[MaituScriptSceneRead] = Field(default_factory=list)
 
 
+class MaituScriptAssetNeedCreate(BaseModel):
+    scenes: list[MaituScriptSceneRead] = Field(..., min_length=1)
+    include_default_host: bool = True
+    include_script_text_need: bool = True
+
+
+class MaituScriptAssetNeedRead(BaseModel):
+    need_type: str
+    required_category: str
+    accepted_asset_types: list[str] = Field(default_factory=list)
+    description: str
+    keywords: list[str] = Field(default_factory=list)
+    priority: str
+    suggested_layer_role: str | None = None
+    reason: str | None = None
+
+
+class MaituScriptAssetNeedSceneRead(BaseModel):
+    scene_index: int
+    scene_name: str
+    scene_goal: str
+    duration_seconds: int
+    script: str
+    keywords: list[str] = Field(default_factory=list)
+    asset_needs: list[MaituScriptAssetNeedRead] = Field(default_factory=list)
+    manual_review: bool = False
+    review_reasons: list[str] = Field(default_factory=list)
+
+
+class MaituScriptAssetNeedPlanRead(BaseModel):
+    source: str
+    scene_count: int
+    manual_review_required: bool = False
+    scenes: list[MaituScriptAssetNeedSceneRead] = Field(default_factory=list)
+
+
 class MaituScriptSceneTemplateMatchCreate(BaseModel):
     scenes: list[MaituScriptSceneRead] = Field(..., min_length=1)
     blueprint_code: str | None = Field(default=None, max_length=64)
