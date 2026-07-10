@@ -85,15 +85,22 @@ class BuildPlanDryRun:
         elif not raw_operations:
             safety_violation_count += 1
 
-        status = "failed" if safety_violation_count else "dry_run"
-        if status == "failed":
+        if safety_violation_count:
+            status = "failed"
             summary = (
                 f"BuildPlan dry run found {safety_violation_count} safety issue(s); "
                 "no Browser-use actions were executed."
             )
-        else:
+        elif manual_review_count:
+            status = "dry_run_with_manual_review"
             summary = (
-                f"BuildPlan dry run would render {len(rendered)} operation(s); "
+                f"BuildPlan dry run rendered {len(rendered)} operation(s) with "
+                f"{manual_review_count} manual-review gate(s); no Browser-use actions were executed."
+            )
+        else:
+            status = "dry_run"
+            summary = (
+                f"BuildPlan dry run rendered {len(rendered)} operation(s) with no blocking or manual-review outcome; "
                 "no Browser-use actions were executed."
             )
 

@@ -124,10 +124,8 @@ class MaituBrowserUseExecutor:
 
         if operation_type == "recover_login_then_retry":
             self.session.recover_login()
-            if asset is not None:
-                self.session.replace_layer_asset(operation, asset)
-            else:
-                self.session.execute_generic_operation(operation, asset)
+            self._require_asset(operation, asset)
+            self.session.replace_layer_asset(operation, asset)
             return
 
         if operation_type == "manual_retry_required":
@@ -144,7 +142,11 @@ class MaituBrowserUseExecutor:
                 retry_instruction=operation.get("instruction") or "Select a valid replacement asset before retrying.",
             )
 
-        self.session.execute_generic_operation(operation, asset)
+        raise MaituBrowserExecutionError(
+            f"Unsupported operation type: {operation_type}",
+            retryable=False,
+            retry_instruction="Regenerate the operation plan with an explicitly supported operation type.",
+        )
 
     def _load_asset(self, asset_code: str | None) -> dict[str, Any] | None:
         if not asset_code:

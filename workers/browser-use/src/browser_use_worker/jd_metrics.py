@@ -4,6 +4,7 @@ import re
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import urlparse
 
 CORE_METRIC_NAMES = [
     "online_viewers",
@@ -239,12 +240,28 @@ def build_jd_live_metric_sample_payload(
 
 
 def _dashboard_url_from_session(session: dict[str, Any]) -> str | None:
-    if session.get("dashboard_url"):
-        return str(session["dashboard_url"])
-    config = session.get("config")
-    if isinstance(config, dict) and config.get("dashboard_url"):
-        return str(config["dashboard_url"])
-    return None
+    raw_url = session.get("dashboard_url")
+    if not raw_url:
+        config = session.get("config")
+        if isinstance(config, dict):
+            raw_url = config.get("dashboard_url")
+    if not raw_url:
+        return None
+    url = str(raw_url)
+    try:
+        parsed = urlparse(url)
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError("dashboard_url must be a trusted JD dashboard HTTPS URL") from exc
+    if (
+        parsed.scheme != "https"
+        or parsed.hostname not in {"jm.jd.com", "jlive.jd.com"}
+        or port not in {None, 443}
+        or parsed.username is not None
+        or parsed.password is not None
+    ):
+        raise ValueError("dashboard_url must be a trusted JD dashboard HTTPS URL")
+    return url
 
 
 def _has_core_numeric_metrics(metrics: dict[str, Any]) -> bool:

@@ -233,7 +233,9 @@ class BrowserUseCliSession(MaituBrowserSession):
     def list_maitu_materials(self) -> list[dict[str, Any]]:
         script = """
 (() => {
-  const token = localStorage.getItem('token') || '';
+  const token = (localStorage.getItem('token') || '').trim();
+  if (location.origin !== 'https://live2.maituai.com') throw new Error('unexpected Maitu origin: ' + location.origin);
+  if (!token) throw new Error('missing authenticated Maitu token');
   const unwrap = (r) => (r && typeof r === 'object' && r.success === true && 'data' in r) ? r.data : r;
   const pageItems = (r, path) => {
     const value = unwrap(r);
@@ -500,7 +502,9 @@ class BrowserUseCliSession(MaituBrowserSession):
         script = """
 (() => {
   const args = __ARGS__;
-  const token = localStorage.getItem('token') || '';
+  const token = (localStorage.getItem('token') || '').trim();
+  if (location.origin !== 'https://live2.maituai.com') throw new Error('unexpected Maitu origin: ' + location.origin);
+  if (!token) throw new Error('missing authenticated Maitu token');
   const unwrap = (r) => (r && typeof r === 'object' && r.success === true && 'data' in r) ? r.data : r;
   function xhr(method, path, body) {
     const x = new XMLHttpRequest();
@@ -514,7 +518,8 @@ class BrowserUseCliSession(MaituBrowserSession):
     return data;
   }
   const room = unwrap(xhr('GET', args.roomPath));
-  return JSON.stringify(room);
+  if (!room || typeof room !== 'object' || Array.isArray(room)) throw new Error('working live room response is not an object');
+  return JSON.stringify({...room, _assetgraph_read_environment:'working'});
 })()
 """.strip().replace("__ARGS__", json.dumps(args, ensure_ascii=False))
         return self._eval_json(script)
@@ -524,7 +529,9 @@ class BrowserUseCliSession(MaituBrowserSession):
         script = """
 (() => {
   const args = __ARGS__;
-  const token = localStorage.getItem('token') || '';
+  const token = (localStorage.getItem('token') || '').trim();
+  if (location.origin !== 'https://live2.maituai.com') throw new Error('unexpected Maitu origin: ' + location.origin);
+  if (!token) throw new Error('missing authenticated Maitu token');
   const unwrap = (r) => (r && typeof r === 'object' && r.success === true && 'data' in r) ? r.data : r;
   function xhr(method, path, body) {
     const x = new XMLHttpRequest();
@@ -575,7 +582,9 @@ class BrowserUseCliSession(MaituBrowserSession):
         script = """
 (() => {
   const args = __ARGS__;
-  const token = localStorage.getItem('token') || '';
+  const token = (localStorage.getItem('token') || '').trim();
+  if (location.origin !== 'https://live2.maituai.com') throw new Error('unexpected Maitu origin: ' + location.origin);
+  if (!token) throw new Error('missing authenticated Maitu token');
   const unwrap = (r) => (r && typeof r === 'object' && r.success === true && 'data' in r) ? r.data : r;
   const arr = (x) => Array.isArray(x) ? x : [];
   function xhr(method, path, body, allowFail=false) {
@@ -621,7 +630,7 @@ class BrowserUseCliSession(MaituBrowserSession):
   const refClip = refClips.find((clip) => String(clip.id) === String(args.referenceClipId));
   if (!refClip) throw new Error('reference clip not found: ' + args.referenceClipId);
   const visualMaterials = arr(refClip.clip_materials).filter((m) => m.type !== 'text' && m.type !== 'audio');
-  const count = args.componentOperations.length || visualMaterials.length;
+  const count = args.componentOperations.length;
   const selectedVisuals = visualMaterials.slice(0, count).map((m) => visualPayload(m, args.targetClipId));
   const cumulative = [];
   for (let i = 0; i < selectedVisuals.length; i += 1) {
@@ -630,20 +639,35 @@ class BrowserUseCliSession(MaituBrowserSession):
   }
   const targetBeforeText = unwrap(xhr('GET', 'live_rooms/' + args.liveRoomId + '?env=working&include_qa_clips=true').data);
   const targetClipBeforeText = arr(((targetBeforeText.topics || [])[0] || {}).clips).find((clip) => String(clip.id) === String(args.targetClipId));
-  for (const material of arr(targetClipBeforeText && targetClipBeforeText.clip_materials)) {
-    if (material.type === 'text' || material.type === 'audio') {
-      xhr('DELETE', 'clip_materials/' + material.id, {}, true);
-    }
-  }
+  const existingTexts = arr(targetClipBeforeText && targetClipBeforeText.clip_materials).filter((material) => material.type === 'text');
   let textMaterial = null;
   if (args.scriptContent) {
-    textMaterial = unwrap(xhr('POST', 'clip_materials', {type:'text', clip_id:args.targetClipId, content:args.scriptContent, order_num:0}).data);
+    if (existingTexts.length > 0) {
+      const primary = existingTexts[0];
+      textMaterial = unwrap(xhr('PUT', 'clip_materials/' + primary.id, {...primary, content:args.scriptContent, clip_id:args.targetClipId}).data);
+      for (const duplicate of existingTexts.slice(1)) {
+        xhr('DELETE', 'clip_materials/' + duplicate.id, {});
+      }
+    } else {
+      textMaterial = unwrap(xhr('POST', 'clip_materials', {type:'text', clip_id:args.targetClipId, content:args.scriptContent, order_num:0}).data);
+    }
+  } else {
+    for (const existingText of existingTexts) {
+      xhr('DELETE', 'clip_materials/' + existingText.id, {});
+    }
   }
   const verifiedRoom = unwrap(xhr('GET', 'live_rooms/' + args.liveRoomId + '?env=working&include_qa_clips=true').data);
   const verifiedClip = arr(((verifiedRoom.topics || [])[0] || {}).clips).find((clip) => String(clip.id) === String(args.targetClipId)) || {};
   const materials = arr(verifiedClip.clip_materials);
   const visuals = materials.filter((m) => m.type !== 'text' && m.type !== 'audio');
   const texts = materials.filter((m) => m.type === 'text');
+  const matchingTexts = texts.filter((m) => m.content === args.scriptContent);
+  if (args.scriptContent && (texts.length !== 1 || matchingTexts.length !== 1)) {
+    throw new Error('template script write readback was not unique and authoritative');
+  }
+  if (!args.scriptContent && texts.length !== 0) {
+    throw new Error('template script clear readback still contains text materials');
+  }
   return JSON.stringify({
     live_room_id: args.liveRoomId,
     target_clip_id: args.targetClipId,
@@ -652,7 +676,9 @@ class BrowserUseCliSession(MaituBrowserSession):
     visual_count: visuals.length,
     text_count: texts.length,
     layer_names: visuals.map((m) => m.name || ''),
-    text_material_id: textMaterial && textMaterial.id,
+    text_material_id: (textMaterial && textMaterial.id) || (matchingTexts[0] && matchingTexts[0].id),
+    script_content_verified: true,
+    go_live_clicked: false,
   });
 })()
 """.strip().replace("__ARGS__", json.dumps(args, ensure_ascii=False))
@@ -663,7 +689,9 @@ class BrowserUseCliSession(MaituBrowserSession):
         script = """
 (() => {
   const args = __ARGS__;
-  const token = localStorage.getItem('token') || '';
+  const token = (localStorage.getItem('token') || '').trim();
+  if (location.origin !== 'https://live2.maituai.com') throw new Error('unexpected Maitu origin: ' + location.origin);
+  if (!token) throw new Error('missing authenticated Maitu token');
   const unwrap = (r) => (r && typeof r === 'object' && r.success === true && 'data' in r) ? r.data : r;
   const arr = (x) => Array.isArray(x) ? x : [];
   function xhr(method, path, body, allowFail=false) {
@@ -741,7 +769,9 @@ class BrowserUseCliSession(MaituBrowserSession):
 (() => {
   const args = __ARGS__;
   const op = args.operation || {};
-  const token = localStorage.getItem('token') || '';
+  const token = (localStorage.getItem('token') || '').trim();
+  if (location.origin !== 'https://live2.maituai.com') throw new Error('unexpected Maitu origin: ' + location.origin);
+  if (!token) throw new Error('missing authenticated Maitu token');
   const unwrap = (r) => (r && typeof r === 'object' && r.success === true && 'data' in r) ? r.data : r;
   function xhr(method, path, body, allowFail=false) {
     const x = new XMLHttpRequest();
@@ -812,7 +842,9 @@ class BrowserUseCliSession(MaituBrowserSession):
 (() => {
   const args = __ARGS__;
   const op = args.operation || {};
-  const token = localStorage.getItem('token') || '';
+  const token = (localStorage.getItem('token') || '').trim();
+  if (location.origin !== 'https://live2.maituai.com') throw new Error('unexpected Maitu origin: ' + location.origin);
+  if (!token) throw new Error('missing authenticated Maitu token');
   const unwrap = (r) => (r && typeof r === 'object' && r.success === true && 'data' in r) ? r.data : r;
   const arr = (x) => Array.isArray(x) ? x : [];
   function xhr(method, path, body, allowFail=false) {
@@ -854,7 +886,9 @@ class BrowserUseCliSession(MaituBrowserSession):
         script = """
 (() => {
   const args = __ARGS__;
-  const token = localStorage.getItem('token') || '';
+  const token = (localStorage.getItem('token') || '').trim();
+  if (location.origin !== 'https://live2.maituai.com') throw new Error('unexpected Maitu origin: ' + location.origin);
+  if (!token) throw new Error('missing authenticated Maitu token');
   const unwrap = (r) => (r && typeof r === 'object' && r.success === true && 'data' in r) ? r.data : r;
   const arr = (x) => Array.isArray(x) ? x : [];
   function xhr(method, path, body, allowFail=false) {
@@ -871,13 +905,24 @@ class BrowserUseCliSession(MaituBrowserSession):
   const room = unwrap(xhr('GET', 'live_rooms/' + args.liveRoomId + '?env=working&include_qa_clips=true').data);
   const clips = arr((arr(room.topics)[0] || {}).clips);
   const clip = clips.find((item) => String(item.id) === String(args.clipId)) || {};
-  for (const material of arr(clip.clip_materials)) {
-    if (material.type === 'text' || material.type === 'audio') {
-      xhr('DELETE', 'clip_materials/' + material.id, {}, true);
+  const existingTexts = arr(clip.clip_materials).filter((material) => material.type === 'text');
+  let textMaterial = null;
+  if (existingTexts.length > 0) {
+    const primary = existingTexts[0];
+    textMaterial = unwrap(xhr('PUT', 'clip_materials/' + primary.id, {...primary, content:args.scriptText, clip_id:args.clipId}).data);
+    for (const duplicate of existingTexts.slice(1)) {
+      xhr('DELETE', 'clip_materials/' + duplicate.id, {});
     }
+  } else {
+    textMaterial = unwrap(xhr('POST', 'clip_materials', {type:'text', clip_id:args.clipId, content:args.scriptText, order_num:0}).data);
   }
-  const textMaterial = unwrap(xhr('POST', 'clip_materials', {type:'text', clip_id:args.clipId, content:args.scriptText, order_num:0}).data);
-  return JSON.stringify({status:'written', live_room_id:args.liveRoomId, clip_id:args.clipId, scene_name:args.sceneName, text_material_id:textMaterial && textMaterial.id, script_length:(args.scriptText || '').length, go_live_clicked:false});
+  const verifyRoom = unwrap(xhr('GET', 'live_rooms/' + args.liveRoomId + '?env=working&include_qa_clips=true').data);
+  const verifyClip = arr((arr(verifyRoom.topics)[0] || {}).clips).find((item) => String(item.id) === String(args.clipId)) || {};
+  const verifiedTexts = arr(verifyClip.clip_materials).filter((material) => material.type === 'text');
+  if (verifiedTexts.length !== 1 || verifiedTexts[0].content !== args.scriptText) {
+    throw new Error('script write readback was not unique and authoritative');
+  }
+  return JSON.stringify({status:'written', live_room_id:args.liveRoomId, clip_id:args.clipId, scene_name:args.sceneName, text_material_id:(textMaterial && textMaterial.id) || verifiedTexts[0].id, script_length:(args.scriptText || '').length, script_content_verified:true, go_live_clicked:false});
 })()
 """.strip().replace("__ARGS__", json.dumps(args, ensure_ascii=False))
         return self._eval_json(script)
@@ -887,7 +932,9 @@ class BrowserUseCliSession(MaituBrowserSession):
         script = """
 (() => {
   const args = __ARGS__;
-  const token = localStorage.getItem('token') || '';
+  const token = (localStorage.getItem('token') || '').trim();
+  if (location.origin !== 'https://live2.maituai.com') throw new Error('unexpected Maitu origin: ' + location.origin);
+  if (!token) throw new Error('missing authenticated Maitu token');
   const unwrap = (r) => (r && typeof r === 'object' && r.success === true && 'data' in r) ? r.data : r;
   const arr = (x) => Array.isArray(x) ? x : [];
   function xhr(method, path, body) {
@@ -1171,7 +1218,18 @@ class BrowserUseCliSession(MaituBrowserSession):
 
     @staticmethod
     def _is_maitu_url(url: str) -> bool:
-        return "maituai.com" in url.lower()
+        try:
+            parsed = urlparse(url)
+            port = parsed.port
+        except ValueError:
+            return False
+        return (
+            parsed.scheme == "https"
+            and parsed.hostname == "live2.maituai.com"
+            and port in {None, 443}
+            and parsed.username is None
+            and parsed.password is None
+        )
 
     @staticmethod
     def _looks_like_login(url: str, text: str) -> bool:
@@ -1184,7 +1242,7 @@ class BrowserUseCliSession(MaituBrowserSession):
     @staticmethod
     def _looks_like_logged_in(title: str, url: str, text: str) -> bool:
         combined = "\n".join([title, url, text])
-        return "maituai.com" in url.lower() and any(
+        return BrowserUseCliSession._is_maitu_url(url) and any(
             marker in combined
             for marker in (
                 "MyTwins",

@@ -210,7 +210,11 @@ def test_read_jd_live_dashboard_state_opens_dashboard_url_and_extracts_metrics()
 
 
 def test_live_scene_fill_api_methods_use_browser_use_eval() -> None:
-    room_payload = {"id": 40173, "topics": [{"clips": [{"id": 416425, "name": "未命名", "order_num": 0}]}]}
+    room_payload = {
+        "id": 40173,
+        "_assetgraph_read_environment": "working",
+        "topics": [{"clips": [{"id": 416425, "name": "未命名", "order_num": 0}]}],
+    }
     rename_payload = {"clip_id": 416425, "name": "商品01-场景01"}
     fill_payload = {"target_clip_id": 416425, "visual_count": 2, "text_count": 1, "layer_names": ["背景", "标题+logo"]}
     session, runner = make_session([
@@ -233,10 +237,18 @@ def test_live_scene_fill_api_methods_use_browser_use_eval() -> None:
 
     assert len(runner.commands) == 3
     assert all(command[:4] == ("uv", "run", "browser-use", "eval") for command in runner.commands)
+    assert all("(localStorage.getItem('token') || '').trim()" in command[4] for command in runner.commands)
     assert "live_rooms/40173" in runner.commands[0][4]
+    assert "_assetgraph_read_environment:'working'" in runner.commands[0][4]
     assert "clips/416425" in runner.commands[1][4]
     assert "replace_clip_materials" in runner.commands[2][4]
+    assert "const count = args.componentOperations.length;" in runner.commands[2][4]
+    assert "|| visualMaterials.length" not in runner.commands[2][4]
     assert "localStorage.getItem('token')" in runner.commands[2][4]
+    assert "material.type === 'audio'" not in runner.commands[2][4]
+    assert "xhr('PUT', 'clip_materials/'" in runner.commands[2][4]
+    assert "matchingTexts.length !== 1" in runner.commands[2][4]
+    assert "go_live_clicked: false" in runner.commands[2][4]
 
 
 def test_script_layout_draft_api_methods_use_browser_use_eval() -> None:
@@ -285,7 +297,42 @@ def test_script_layout_draft_api_methods_use_browser_use_eval() -> None:
     assert "'PUT', 'clip_materials/'" in runner.commands[2][4]
     assert "'POST', 'clip_materials'" in runner.commands[3][4]
     assert "'live_rooms/' + args.liveRoomId" in runner.commands[4][4]
+    assert all("location.origin !== 'https://live2.maituai.com'" in command[4] for command in runner.commands)
+    assert all("(localStorage.getItem('token') || '').trim()" in command[4] for command in runner.commands)
+    assert all("if (!token)" in command[4] for command in runner.commands)
+    assert "material.type === 'audio'" not in runner.commands[3][4]
+    assert "xhr('PUT', 'clip_materials/'" in runner.commands[3][4]
+    assert "verifiedTexts.length !== 1 || verifiedTexts[0].content !== args.scriptText" in runner.commands[3][4]
     assert all("go_live_clicked" in command[4] for command in runner.commands)
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("https://live2.maituai.com/", True),
+        ("https://live2.maituai.com/MaterialManage", True),
+        ("https://live2.maituai.com:443/MaterialManage", True),
+        ("http://live2.maituai.com/", False),
+        ("https://live2.maituai.com:444/", False),
+        ("https://user@live2.maituai.com/", False),
+        ("https://maituai.com.evil.test/MyTwins", False),
+        ("https://evil.test/?next=live2.maituai.com", False),
+        ("javascript:https://live2.maituai.com", False),
+    ],
+)
+def test_maitu_url_detection_requires_exact_https_origin(url: str, expected: bool) -> None:
+    assert BrowserUseCliSession._is_maitu_url(url) is expected
+
+
+def test_logged_in_detection_rejects_lookalike_maitu_url() -> None:
+    assert (
+        BrowserUseCliSession._looks_like_logged_in(
+            "MyTwins 麦兔",
+            "https://maituai.com.evil.test/MyTwins",
+            "素材管理 直播间",
+        )
+        is False
+    )
 
 
 @pytest.mark.parametrize(

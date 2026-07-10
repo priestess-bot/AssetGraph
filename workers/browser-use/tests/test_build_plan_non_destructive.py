@@ -130,7 +130,7 @@ def test_non_destructive_runner_executes_only_allowed_low_risk_actions_after_gre
 
     result = BuildPlanNonDestructiveRunner(session=action_session).run(build_plan(), preflight)
 
-    assert result.status == "completed"
+    assert result.status == "completed_with_manual_review"
     assert result.ready_for_mutation is False
     assert result.build_plan_code == "MT-BUILD-20260709-000001"
     assert result.allowed_action_count == 3
@@ -165,7 +165,7 @@ def test_build_non_destructive_execution_payload_maps_actions_to_api_shape() -> 
 
     payload = build_non_destructive_execution_payload(result)
 
-    assert payload["execution_status"] == "completed"
+    assert payload["execution_status"] == "completed_with_manual_review"
     assert payload["mode"] == "non_destructive"
     assert payload["result_summary"] == result.summary
     assert payload["operation_results"][1]["operation_index"] == 1
@@ -279,7 +279,7 @@ def test_scene_build_plan_non_destructive_opens_tabs_but_blocks_scene_creation_i
 
     result = BuildPlanNonDestructiveRunner(session=action_session).run(scene_build_plan(), preflight)
 
-    assert result.status == "completed"
+    assert result.status == "completed_with_manual_review"
     assert result.allowed_action_count == 2
     assert result.blocked_mutation_count == 4
     assert result.failure_count == 0

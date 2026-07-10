@@ -4,6 +4,8 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+import pytest
+
 from browser_use_worker import __main__ as worker_main
 
 
@@ -98,6 +100,19 @@ def test_probe_maitu_cli_prints_page_probe_json(monkeypatch, capsys) -> None:
     assert output["url"] == "https://live2.maituai.com/Home"
 
 
+def test_probe_maitu_cli_returns_nonzero_when_login_is_required(monkeypatch, capsys) -> None:
+    class LoggedOutSession(FakeBrowserUseCliSession):
+        def probe_current_page(self, *, open_if_needed: bool) -> FakeProbe:
+            return FakeProbe(logged_in=False, login_required=True)
+
+    monkeypatch.setattr(worker_main, "BrowserUseCliSession", LoggedOutSession, raising=False)
+
+    exit_code = worker_main.main(["--probe-maitu"])
+
+    assert exit_code == 2
+    assert json.loads(capsys.readouterr().out)["login_required"] is True
+
+
 def test_observe_maitu_cli_prints_current_state_json(monkeypatch, capsys) -> None:
     monkeypatch.setattr(worker_main, "BrowserUseCliSession", FakeBrowserUseCliSession, raising=False)
 
@@ -109,6 +124,19 @@ def test_observe_maitu_cli_prints_current_state_json(monkeypatch, capsys) -> Non
     assert output["live_room_name"] == "京东空白直播间-0707-1352"
     assert output["platform"] == "京东版"
     assert output["active_scene_name"] == "场景01"
+
+
+def test_observe_maitu_cli_returns_nonzero_when_not_logged_in(monkeypatch, capsys) -> None:
+    class LoggedOutSession(FakeBrowserUseCliSession):
+        def read_current_state(self, *, open_if_needed: bool) -> FakeCurrentState:
+            return FakeCurrentState(logged_in=False, login_required=True)
+
+    monkeypatch.setattr(worker_main, "BrowserUseCliSession", LoggedOutSession, raising=False)
+
+    exit_code = worker_main.main(["--observe-maitu"])
+
+    assert exit_code == 2
+    assert json.loads(capsys.readouterr().out)["logged_in"] is False
 
 
 class FakeAssetGraphClient:
@@ -229,6 +257,20 @@ def test_plan_code_dry_run_cli_prints_result_json(monkeypatch, capsys) -> None:
     assert output["details"]["operations"][0]["asset_display_code"] == "MT-VID-0024"
 
 
+def test_plan_code_dry_run_returns_nonzero_when_plan_requires_manual_intervention(monkeypatch, capsys) -> None:
+    class EmptyPlanClient(FakeAssetGraphClient):
+        def get_replacement_plan_operation_plan(self, plan_code: str) -> dict:
+            return {"plan_code": plan_code, "operations": []}
+
+    monkeypatch.setattr(worker_main, "AssetGraphClient", EmptyPlanClient, raising=False)
+
+    exit_code = worker_main.main(["--plan-code", "MT-PLAN-EMPTY", "--dry-run"])
+
+    assert exit_code == 2
+    output = json.loads(capsys.readouterr().out)
+    assert output["status"] == "manual_required"
+
+
 def test_plan_code_preflight_cli_prints_preflight_json(monkeypatch, capsys, tmp_path: Path) -> None:
     monkeypatch.setattr(worker_main, "AssetGraphClient", FakeAssetGraphClient, raising=False)
     asset_file = tmp_path / "视频" / "MT-VID-0024_视频_商品讲解视频_品酒大师PRO.mp4"
@@ -246,7 +288,7 @@ def test_plan_code_preflight_cli_prints_preflight_json(monkeypatch, capsys, tmp_
         ]
     )
 
-    assert exit_code == 0
+    assert exit_code == 2
     output = json.loads(capsys.readouterr().out)
     assert output["status"] == "warning"
     assert output["failure_count"] == 0
@@ -278,7 +320,7 @@ def test_build_plan_preflight_cli_can_skip_browser_probe(monkeypatch, capsys) ->
         "--skip-browser-probe",
     ])
 
-    assert exit_code == 0
+    assert exit_code == 2
     output = json.loads(capsys.readouterr().out)
     assert output["status"] == "warning"
     assert output["ready_to_execute"] is False
@@ -290,9 +332,9 @@ def test_build_plan_code_dry_run_cli_prints_safe_operation_summary(monkeypatch, 
 
     exit_code = worker_main.main(["--build-plan-code", "MT-BUILD-20260709-000001", "--dry-run"])
 
-    assert exit_code == 0
+    assert exit_code == 2
     output = json.loads(capsys.readouterr().out)
-    assert output["status"] == "dry_run"
+    assert output["status"] == "dry_run_with_manual_review"
     assert output["ready_to_execute"] is False
     assert output["build_plan_code"] == "MT-BUILD-20260709-000001"
     assert output["operation_count"] == 5
@@ -306,9 +348,9 @@ def test_build_plan_non_destructive_cli_runs_only_allowed_low_risk_actions(monke
 
     exit_code = worker_main.main(["--build-plan-code", "MT-BUILD-20260709-000001", "--non-destructive-build"])
 
-    assert exit_code == 0
+    assert exit_code == 2
     output = json.loads(capsys.readouterr().out)
-    assert output["status"] == "completed"
+    assert output["status"] == "completed_with_manual_review"
     assert output["ready_for_mutation"] is False
     assert output["allowed_action_count"] == 3
     assert output["blocked_mutation_count"] == 3
@@ -329,11 +371,11 @@ def test_build_plan_non_destructive_cli_can_write_execution_result(monkeypatch, 
         "--write-result",
     ])
 
-    assert exit_code == 0
+    assert exit_code == 2
     output = json.loads(capsys.readouterr().out)
-    assert output["worker_result"]["status"] == "completed"
+    assert output["worker_result"]["status"] == "completed_with_manual_review"
     assert output["execution_result"]["execution_code"] == "MT-EXEC-20260709-000001"
-    assert output["execution_result"]["execution_status"] == "completed"
+    assert output["execution_result"]["execution_status"] == "completed_with_manual_review"
     assert FakeAssetGraphClient.writes[0][0] == "MT-BUILD-20260709-000001"
     written_payload = FakeAssetGraphClient.writes[0][1]
     assert written_payload["mode"] == "non_destructive"
@@ -408,7 +450,7 @@ def test_script_layout_draft_execute_cli_reads_plan_file_and_runs_in_memory_dry_
         "--dry-run",
     ])
 
-    assert exit_code == 0
+    assert exit_code == 2
     output = json.loads(capsys.readouterr().out)
     assert output["status"] == "completed_with_manual_review"
     assert output["target_live_room_id"] == "SMOKE-ROOM-STAGE5A"
@@ -419,45 +461,20 @@ def test_script_layout_draft_execute_cli_reads_plan_file_and_runs_in_memory_dry_
     assert output["actions"][-1]["action_type"] == "manual_review_save_not_clicked"
 
 
-def test_script_layout_draft_execute_cli_can_write_execution_result(monkeypatch, tmp_path: Path, capsys) -> None:
+def test_script_layout_draft_dry_run_refuses_production_execution_result_writeback(monkeypatch) -> None:
     FakeAssetGraphClient.writes = []
     monkeypatch.setattr(worker_main, "AssetGraphClient", FakeAssetGraphClient, raising=False)
-    plan_file = tmp_path / "script-layout-build-plan.json"
-    plan_file.write_text(
-        json.dumps(
-            {
-                "build_plan_code": "MT-BUILD-CONTENT-20260710-000001",
-                "source": "script_content_layout_build_plan_rule_v1",
-                "status": "draft_with_placeholders",
-                "target_live_room_id": "SMOKE-ROOM-STAGE5A",
-                "manual_review_required": True,
-                "operations": [
-                    {"operation_type": "preflight_content_build_plan", "operation_name": "预检", "status": "ready"},
-                    {"operation_type": "fill_default_scene", "operation_name": "填充默认场景", "status": "ready", "scene_index": 0, "scene_name": "开场"},
-                    {"operation_type": "write_script", "operation_name": "写脚本", "status": "ready", "scene_index": 0, "scene_name": "开场", "script_text": "欢迎来到张裕直播间。"},
-                    {"operation_type": "verify_scene", "operation_name": "验证", "status": "ready", "scene_index": 0, "scene_name": "开场"},
-                    {"operation_type": "save_draft", "operation_name": "保存草稿", "status": "manual_review"},
-                ],
-            },
-            ensure_ascii=False,
-        ),
-        encoding="utf-8",
-    )
 
-    exit_code = worker_main.main([
-        "--script-layout-build-plan-file",
-        str(plan_file),
-        "--script-layout-draft-execute",
-        "--dry-run",
-        "--write-result",
-    ])
+    with pytest.raises(SystemExit) as exc_info:
+        worker_main.main(
+            [
+                "--script-layout-build-plan-file",
+                "must-not-be-read.json",
+                "--script-layout-draft-execute",
+                "--dry-run",
+                "--write-result",
+            ]
+        )
 
-    assert exit_code == 0
-    output = json.loads(capsys.readouterr().out)
-    assert output["worker_result"]["status"] == "completed_with_manual_review"
-    assert output["execution_result"]["execution_code"] == "MT-EXEC-20260709-000001"
-    assert FakeAssetGraphClient.writes[0][0] == "MT-BUILD-CONTENT-20260710-000001"
-    written_payload = FakeAssetGraphClient.writes[0][1]
-    assert written_payload["mode"] == "script_layout_draft"
-    assert written_payload["ready_for_go_live"] is False
-    assert written_payload["operation_results"][1]["operation_type"] == "fill_default_scene"
+    assert "simulations must not update production execution state" in str(exc_info.value)
+    assert FakeAssetGraphClient.writes == []

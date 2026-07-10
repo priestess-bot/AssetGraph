@@ -11,6 +11,7 @@ class FakeScriptLayoutDraftSession:
         self.calls: list[tuple[str, object]] = []
         self.room = {
             "id": "47000002",
+            "_assetgraph_read_environment": "working",
             "topics": [
                 {
                     "id": 1,
@@ -271,6 +272,234 @@ def test_script_layout_draft_runner_blocks_strict_blocked_plan_without_browser_c
     assert session.calls == []
 
 
+def test_script_layout_draft_runner_stops_after_first_failed_operation() -> None:
+    class FailingRenameSession(FakeScriptLayoutDraftSession):
+        def rename_clip(self, clip_id: int, name: str) -> dict:
+            self.calls.append(("rename_clip", {"clip_id": clip_id, "name": name}))
+            raise RuntimeError("rename failed after an uncertain remote response")
+
+    session = FailingRenameSession()
+    plan = {
+        "status": "ready",
+        "target_live_room_id": "47000002",
+        "operations": [
+            {"operation_type": "preflight_content_build_plan", "status": "ready"},
+            {
+                "operation_type": "fill_default_scene",
+                "status": "ready",
+                "scene_index": 0,
+                "scene_name": "开场",
+            },
+            {
+                "operation_type": "create_scene",
+                "status": "ready",
+                "scene_index": 1,
+                "scene_name": "不得执行",
+            },
+        ],
+    }
+
+    result = ScriptLayoutDraftRunner(session=session).run(plan)
+
+    assert result.status == "failed"
+    assert result.failure_count == 1
+    assert [action.operation_type for action in result.actions] == [
+        "preflight_content_build_plan",
+        "fill_default_scene",
+    ]
+    assert not any(call[0] == "create_scene" for call in session.calls)
+
+
+def test_script_layout_draft_runner_requires_ready_preflight_as_first_operation() -> None:
+    session = FakeScriptLayoutDraftSession()
+    plan = {
+        "status": "ready",
+        "target_live_room_id": "47000002",
+        "operations": [
+            {
+                "operation_type": "fill_default_scene",
+                "status": "ready",
+                "scene_index": 0,
+                "scene_name": "不得执行",
+            },
+            {"operation_type": "preflight_content_build_plan", "status": "ready"},
+        ],
+    }
+
+    result = ScriptLayoutDraftRunner(session=session).run(plan)
+
+    assert result.status == "failed"
+    assert result.failure_count == 1
+    assert "first operation" in result.summary
+    assert session.calls == []
+
+
+def test_script_layout_draft_runner_rejects_non_ready_mutation_status() -> None:
+    session = FakeScriptLayoutDraftSession()
+    plan = {
+        "status": "ready",
+        "target_live_room_id": "47000002",
+        "operations": [
+            {"operation_type": "preflight_content_build_plan", "status": "ready"},
+            {
+                "operation_type": "fill_default_scene",
+                "status": "manual_review",
+                "scene_index": 0,
+                "scene_name": "不得执行",
+            },
+        ],
+    }
+
+    result = ScriptLayoutDraftRunner(session=session).run(plan)
+
+    assert result.status == "failed"
+    assert result.failure_count == 1
+    assert "status must be ready" in result.actions[-1].summary
+    assert not any(call[0] == "rename_clip" for call in session.calls)
+
+
+def test_script_layout_draft_runner_requires_authoritative_working_environment() -> None:
+    session = FakeScriptLayoutDraftSession()
+    session.room.pop("_assetgraph_read_environment")
+    plan = {
+        "status": "ready",
+        "target_live_room_id": "47000002",
+        "operations": [
+            {"operation_type": "preflight_content_build_plan", "status": "ready"},
+            {
+                "operation_type": "fill_default_scene",
+                "status": "ready",
+                "scene_index": 0,
+                "scene_name": "不得执行",
+            },
+        ],
+    }
+
+    result = ScriptLayoutDraftRunner(session=session).run(plan)
+
+    assert result.status == "failed"
+    assert "working/draft" in result.actions[0].summary
+    assert not any(call[0] == "rename_clip" for call in session.calls)
+
+
+def test_script_layout_draft_runner_rejects_target_room_override_mismatch_before_session_calls() -> None:
+    session = FakeScriptLayoutDraftSession()
+    plan = {
+        "status": "ready",
+        "target_live_room_id": "47000002",
+        "operations": [
+            {"operation_type": "preflight_content_build_plan", "status": "ready"},
+        ],
+    }
+
+    result = ScriptLayoutDraftRunner(session=session).run(plan, target_live_room_id="47000099")
+
+    assert result.status == "failed"
+    assert result.failure_count == 1
+    assert result.manual_review_required is True
+    assert "does not match" in result.summary
+    assert session.calls == []
+
+
+def test_script_layout_draft_runner_clears_room_cache_between_runs() -> None:
+    session = FakeScriptLayoutDraftSession()
+    runner = ScriptLayoutDraftRunner(session=session)
+    first_plan = {
+        "status": "ready",
+        "target_live_room_id": "47000002",
+        "operations": [
+            {
+                "operation_type": "preflight_content_build_plan",
+                "status": "ready",
+                "target_live_room_id": "47000002",
+            }
+        ],
+    }
+
+    first_result = runner.run(first_plan)
+    session.room["id"] = "47000003"
+    second_plan = {
+        "status": "ready",
+        "target_live_room_id": "47000003",
+        "operations": [
+            {
+                "operation_type": "preflight_content_build_plan",
+                "status": "ready",
+                "target_live_room_id": "47000003",
+            }
+        ],
+    }
+    second_result = runner.run(second_plan)
+
+    assert first_result.status == "completed"
+    assert second_result.status == "completed"
+    assert [call for call in session.calls if call[0] == "read_live_room"] == [
+        ("read_live_room", "47000002"),
+        ("read_live_room", "47000003"),
+    ]
+
+
+def test_script_layout_draft_runner_rejects_authoritative_room_id_mismatch() -> None:
+    class WrongRoomSession(FakeScriptLayoutDraftSession):
+        def read_live_room(self, live_room_id: str) -> dict:
+            self.calls.append(("read_live_room", live_room_id))
+            return {
+                "id": "47000999",
+                "topics": [{"clips": [{"id": 1, "name": "未命名", "order_num": 0}]}],
+            }
+
+    session = WrongRoomSession()
+    plan = {
+        "status": "ready",
+        "target_live_room_id": "47000002",
+        "operations": [
+            {"operation_type": "preflight_content_build_plan", "status": "ready"},
+            {
+                "operation_type": "create_scene",
+                "status": "ready",
+                "scene_index": 1,
+                "scene_name": "不得执行",
+            },
+        ],
+    }
+
+    result = ScriptLayoutDraftRunner(session=session).run(plan)
+
+    assert result.status == "failed"
+    assert result.failure_count == 1
+    assert "room id" in result.actions[0].summary.lower()
+    assert not any(call[0] == "create_scene" for call in session.calls)
+
+
+def test_script_layout_draft_runner_rejects_active_live_room_before_mutation() -> None:
+    class ActiveLiveRoomSession(FakeScriptLayoutDraftSession):
+        def read_live_room(self, live_room_id: str) -> dict:
+            room = super().read_live_room(live_room_id)
+            return {**room, "status": "live"}
+
+    session = ActiveLiveRoomSession()
+    plan = {
+        "status": "ready",
+        "target_live_room_id": "47000002",
+        "operations": [
+            {"operation_type": "preflight_content_build_plan", "status": "ready"},
+            {
+                "operation_type": "fill_default_scene",
+                "status": "ready",
+                "scene_index": 0,
+                "scene_name": "不得执行",
+            },
+        ],
+    }
+
+    result = ScriptLayoutDraftRunner(session=session).run(plan)
+
+    assert result.status == "failed"
+    assert result.failure_count == 1
+    assert "currently live" in result.actions[0].summary.lower()
+    assert not any(call[0] == "rename_clip" for call in session.calls)
+
+
 def test_script_layout_draft_execution_payload_maps_action_results() -> None:
     result = ScriptLayoutDraftRunner(session=FakeScriptLayoutDraftSession()).run(content_build_plan())
 
@@ -306,3 +535,32 @@ def test_script_layout_draft_runner_skips_ready_asset_when_maitu_binding_is_miss
     assert position_action.status == "skipped"
     assert position_action.action_type == "manual_required_position_binding"
     assert result.ready_for_go_live is False
+
+
+def test_script_layout_draft_skipped_binding_marks_result_manual_review() -> None:
+    class MissingBindingSession(FakeScriptLayoutDraftSession):
+        def insert_asset_layer(self, *, live_room_id: str, clip_id: int, operation: dict) -> dict:
+            return {"status": "manual_required", "reason": "missing_maitu_material_binding"}
+
+    plan = {
+        "status": "ready",
+        "target_live_room_id": "47000002",
+        "manual_review_required": False,
+        "operations": [
+            {"operation_type": "preflight_content_build_plan", "status": "ready"},
+            {"operation_type": "fill_default_scene", "status": "ready", "scene_index": 0, "scene_name": "开场"},
+            {
+                "operation_type": "insert_asset_layer",
+                "status": "ready",
+                "scene_index": 0,
+                "scene_name": "开场",
+                "asset_code": "AG-IMG-MISSING",
+            },
+        ],
+    }
+
+    result = ScriptLayoutDraftRunner(session=MissingBindingSession()).run(plan)
+
+    assert result.status == "completed_with_manual_review"
+    assert result.manual_review_required is True
+    assert result.actions[-1].status == "skipped"

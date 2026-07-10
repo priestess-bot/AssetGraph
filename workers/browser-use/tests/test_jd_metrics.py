@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
+import pytest
+
 from browser_use_worker.jd_metrics import (
     JdLiveDashboardParser,
     JdLiveDashboardState,
@@ -185,6 +187,48 @@ def test_capture_jd_live_metric_sample_reads_dashboard_and_writes_sample() -> No
     assert client.written_samples[0][0] == "JD-METRIC-20260710-000001"
     assert client.written_samples[0][1]["online_viewers"] == 128
     assert client.written_samples[0][1]["scene_name"] == "商品01-场景01"
+
+
+@pytest.mark.parametrize(
+    "dashboard_url",
+    [
+        "http://jm.jd.com/live-data",
+        "https://jm.jd.com:444/live-data",
+        "https://user@jm.jd.com/live-data",
+        "https://jm.jd.com.evil.test/live-data",
+        "https://evil.test/?next=jlive.jd.com",
+        "file:///C:/Users/59521/.ssh/id_rsa",
+    ],
+)
+def test_capture_jd_live_metric_sample_rejects_untrusted_dashboard_url_before_browser_navigation(
+    dashboard_url: str,
+) -> None:
+    metric_session = {
+        "capture_session_code": "JD-METRIC-20260710-000001",
+        "dashboard_url": dashboard_url,
+    }
+    client = FakeAssetGraphClient(metric_session)
+    browser_session = FakeBrowserSession(
+        JdLiveDashboardState(
+            title="unused",
+            url=dashboard_url,
+            text="unused",
+            logged_in=False,
+            login_required=False,
+            metrics={},
+            raw_metrics={},
+        )
+    )
+
+    with pytest.raises(ValueError, match="trusted JD dashboard"):
+        capture_jd_live_metric_sample(
+            client,
+            "JD-METRIC-20260710-000001",
+            browser_session=browser_session,
+        )
+
+    assert browser_session.opened_urls == []
+    assert client.written_samples == []
 
 
 def test_capture_jd_live_metric_sample_writes_blocked_sample_when_dashboard_has_no_core_metrics() -> None:

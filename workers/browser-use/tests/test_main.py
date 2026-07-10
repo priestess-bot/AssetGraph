@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +18,7 @@ from browser_use_worker.maitu_material_resolver import (
 class FakeAssetGraphClient:
     def __init__(self, _base_url: str) -> None:
         self.samples: list[tuple[str, dict[str, Any]]] = []
+        self.session_updates: list[tuple[str, dict[str, Any]]] = []
 
     def get_jd_live_metric_session(self, capture_session_code: str) -> dict[str, Any]:
         return {
@@ -31,6 +32,7 @@ class FakeAssetGraphClient:
         return {"capture_session_code": capture_session_code, "sample_index": len(self.samples) - 1, **payload}
 
     def update_jd_live_metric_session(self, capture_session_code: str, payload: dict[str, Any]) -> dict[str, Any]:
+        self.session_updates.append((capture_session_code, dict(payload)))
         return {"capture_session_code": capture_session_code, **payload}
 
 
@@ -70,18 +72,76 @@ def test_main_captures_jd_metric_samples_with_interval(monkeypatch, capsys) -> N
 
     assert exit_code == 0
     assert len(fake_client.samples) == 2
+    assert fake_client.session_updates[-1][1]["status"] == "completed"
     assert sleeps == [15]
     output = capsys.readouterr().out
     assert "JD-METRIC-20260710-000001" in output
     assert '"online_viewers": 128' in output
 
 
+def test_main_returns_nonzero_and_marks_metric_session_blocked_when_capture_is_blocked(monkeypatch, capsys) -> None:
+    fake_client = FakeAssetGraphClient("http://assetgraph")
+    monkeypatch.setattr(worker_main, "AssetGraphClient", lambda base_url: fake_client)
+    monkeypatch.setattr(worker_main, "BrowserUseCliSession", lambda: FakeBrowserUseCliSession())
+    monkeypatch.setattr(
+        worker_main,
+        "capture_jd_live_metric_sample",
+        lambda *_args, **_kwargs: {
+            "status": "blocked",
+            "raw_metrics": {"ready_to_capture": False, "failure_type": "login_required"},
+        },
+    )
+
+    exit_code = worker_main.main(
+        [
+            "--capture-jd-metrics",
+            "--jd-metric-session-code",
+            "JD-METRIC-BLOCKED",
+        ]
+    )
+
+    assert exit_code == 2
+    assert fake_client.session_updates[-1][1]["status"] == "blocked"
+    assert '"status": "blocked"' in capsys.readouterr().out
+
+
+def test_main_marks_metric_session_failed_when_capture_raises(monkeypatch, capsys) -> None:
+    fake_client = FakeAssetGraphClient("http://assetgraph")
+    monkeypatch.setattr(worker_main, "AssetGraphClient", lambda base_url: fake_client)
+    monkeypatch.setattr(worker_main, "BrowserUseCliSession", lambda: FakeBrowserUseCliSession())
+
+    def fail_capture(*_args, **_kwargs):
+        raise RuntimeError("dashboard read failed")
+
+    monkeypatch.setattr(worker_main, "capture_jd_live_metric_sample", fail_capture)
+
+    exit_code = worker_main.main(
+        [
+            "--capture-jd-metrics",
+            "--jd-metric-session-code",
+            "JD-METRIC-FAILED",
+        ]
+    )
+
+    assert exit_code == 2
+    assert fake_client.session_updates[-1][1]["status"] == "failed"
+    output = json.loads(capsys.readouterr().out)
+    assert output["status"] == "failed"
+    assert "dashboard read failed" in output["result_summary"]
+
+
 def test_main_runs_live_scene_fill_and_writes_execution_result(monkeypatch, capsys) -> None:
     operation_plan = {
         "build_plan_code": "MT-BUILD-20260710-000001",
         "reference_room_id": "38336",
+        "target_live_room_id": "40173",
         "operations": [
-            {"operation_type": "preflight_scene_build_plan", "operation_name": "预检"},
+            {
+                "operation_type": "preflight_scene_build_plan",
+                "operation_name": "预检",
+                "status": "ready",
+                "details": {"safety_gate": True, "target_live_room_id": "40173"},
+            },
             {
                 "operation_type": "create_scene_from_template",
                 "operation_name": "创建场景",
@@ -109,7 +169,11 @@ def test_main_runs_live_scene_fill_and_writes_execution_result(monkeypatch, caps
 
     class FakeMaituSession(FakeBrowserUseCliSession):
         def read_live_room(self, live_room_id: str) -> dict[str, Any]:
-            return {"topics": [{"clips": [{"id": 416425, "name": "未命名", "order_num": 0}]}]}
+            return {
+                "id": live_room_id,
+                "_assetgraph_read_environment": "working",
+                "topics": [{"clips": [{"id": 416425, "name": "未命名", "order_num": 0}]}],
+            }
 
         def rename_clip(self, clip_id: int, name: str) -> dict[str, Any]:
             return {"clip_id": clip_id, "name": name}
@@ -131,12 +195,42 @@ def test_main_runs_live_scene_fill_and_writes_execution_result(monkeypatch, caps
         ]
     )
 
-    assert exit_code == 0
+    assert exit_code == 2
     assert fake_client.execution_payloads[0][0] == "MT-BUILD-20260710-000001"
     assert fake_client.execution_payloads[0][1]["mode"] == "live_scene_fill"
     assert fake_client.execution_payloads[0][1]["operation_results"][1]["details"]["target_clip_id"] == 416425
     output = capsys.readouterr().out
     assert "MT-EXEC-20260710-000100" in output
+
+
+def test_main_rejects_live_scene_fill_target_mismatch_before_browser_start(monkeypatch) -> None:
+    class TargetMismatchClient(FakeAssetGraphClient):
+        def get_live_room_build_plan_operation_plan(self, _build_plan_code: str) -> dict[str, Any]:
+            return {"target_live_room_id": "50002", "operations": []}
+
+    browser_started = False
+
+    def forbidden_browser():
+        nonlocal browser_started
+        browser_started = True
+        raise AssertionError("browser must not start before the live-scene target gate")
+
+    monkeypatch.setattr(worker_main, "AssetGraphClient", TargetMismatchClient)
+    monkeypatch.setattr(worker_main, "BrowserUseCliSession", forbidden_browser)
+
+    with pytest.raises(SystemExit) as exc_info:
+        worker_main.main(
+            [
+                "--build-plan-code",
+                "MT-BUILD-TARGET-MISMATCH",
+                "--live-scene-fill",
+                "--target-live-room-id",
+                "40173",
+            ]
+        )
+
+    assert "does not match" in str(exc_info.value)
+    assert browser_started is False
 
 
 def test_main_resolves_maitu_materials_and_writes_resolved_plan(monkeypatch, capsys, tmp_path: Path) -> None:
@@ -219,10 +313,108 @@ def test_main_resolves_maitu_materials_and_writes_resolved_plan(monkeypatch, cap
     assert '"status": "resolved"' in output
 
 
-@pytest.mark.parametrize("extra_args", [[], ["--probe-maitu"], ["--observe-maitu"]])
+@pytest.mark.parametrize(
+    "argv",
+    [
+        [
+            "--live-scene-fill",
+            "--dry-run",
+            "--build-plan-code",
+            "MT-BUILD-DRY-RUN-BLOCKED",
+            "--target-live-room-id",
+            "40173",
+        ],
+        [
+            "--script-layout-draft-execute",
+            "--dry-run",
+            "--write-result",
+            "--script-layout-build-plan-file",
+            "must-not-be-read.json",
+            "--target-live-room-id",
+            "DRY-RUN-ROOM",
+        ],
+        ["--once", "--dry-run"],
+        ["--capture-jd-metrics", "--jd-metric-session-code", "JD-METRIC-MUST-NOT-RUN", "--dry-run"],
+        ["--non-destructive-build", "--build-plan-code", "MT-BUILD-MUST-NOT-RUN", "--dry-run"],
+        ["--dry-run"],
+    ],
+)
+def test_main_rejects_dry_run_combinations_that_would_create_real_side_effects_before_clients_start(
+    monkeypatch,
+    argv: list[str],
+) -> None:
+    started: list[str] = []
+
+    def forbidden_constructor(name: str):
+        def construct(*_args, **_kwargs):
+            started.append(name)
+            raise AssertionError(f"{name} must not start for rejected dry-run combinations")
+
+        return construct
+
+    monkeypatch.setattr(worker_main, "AssetGraphClient", forbidden_constructor("AssetGraphClient"))
+    monkeypatch.setattr(worker_main, "BrowserUseCliSession", forbidden_constructor("BrowserUseCliSession"))
+    monkeypatch.setattr(worker_main, "LiveSceneFillRunner", forbidden_constructor("LiveSceneFillRunner"))
+    monkeypatch.setattr(worker_main, "ScriptLayoutDraftRunner", forbidden_constructor("ScriptLayoutDraftRunner"))
+
+    with pytest.raises(SystemExit) as exc_info:
+        worker_main.main(argv)
+
+    assert "dry-run" in str(exc_info.value).lower()
+    assert started == []
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["--probe-maitu", "--observe-maitu"],
+        [
+            "--capture-jd-metrics",
+            "--jd-metric-session-code",
+            "JD-METRIC-CONFLICT",
+            "--live-scene-fill",
+            "--build-plan-code",
+            "MT-BUILD-CONFLICT",
+            "--target-live-room-id",
+            "40173",
+        ],
+    ],
+)
+def test_main_rejects_conflicting_cli_modes_before_clients_or_browser_start(
+    monkeypatch,
+    argv: list[str],
+) -> None:
+    started: list[str] = []
+
+    def forbidden_constructor(name: str):
+        def construct(*_args, **_kwargs):
+            started.append(name)
+            raise AssertionError(f"{name} must not start for conflicting CLI modes")
+
+        return construct
+
+    monkeypatch.setattr(worker_main, "AssetGraphClient", forbidden_constructor("AssetGraphClient"))
+    monkeypatch.setattr(worker_main, "BrowserUseCliSession", forbidden_constructor("BrowserUseCliSession"))
+
+    with pytest.raises(SystemExit) as exc_info:
+        worker_main.main(argv)
+
+    assert "conflicting" in str(exc_info.value).lower()
+    assert started == []
+
+
+@pytest.mark.parametrize(
+    ("extra_args", "expected_message"),
+    [
+        ([], "requires --resolve-maitu-materials"),
+        (["--probe-maitu"], "Conflicting CLI modes"),
+        (["--observe-maitu"], "Conflicting CLI modes"),
+    ],
+)
 def test_main_rejects_real_draft_execution_without_full_material_resolution(
     monkeypatch,
     extra_args: list[str],
+    expected_message: str,
 ) -> None:
     started: list[str] = []
 
@@ -249,11 +441,67 @@ def test_main_rejects_real_draft_execution_without_full_material_resolution(
             ]
         )
 
-    assert "requires --resolve-maitu-materials" in str(exc_info.value)
+    assert expected_message in str(exc_info.value)
     assert started == []
 
 
-def test_main_still_allows_in_memory_draft_dry_run_without_material_resolver(capsys, tmp_path: Path) -> None:
+@pytest.mark.parametrize("plan_target", [None, "50002"])
+def test_main_rejects_unbound_or_mismatched_real_draft_target_before_resolver_side_effects(
+    monkeypatch,
+    tmp_path: Path,
+    plan_target: str | None,
+) -> None:
+    started: list[str] = []
+    plan_path = tmp_path / "target-gate-plan.json"
+    payload: dict[str, Any] = {"operations": []}
+    if plan_target is not None:
+        payload["target_live_room_id"] = plan_target
+    plan_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    def forbidden_constructor(name: str):
+        def construct(*_args, **_kwargs):
+            started.append(name)
+            raise AssertionError(f"{name} must not start before the bound target-room gate")
+
+        return construct
+
+    monkeypatch.setattr(worker_main, "AssetGraphClient", forbidden_constructor("AssetGraphClient"))
+    monkeypatch.setattr(worker_main, "BrowserUseCliSession", forbidden_constructor("BrowserUseCliSession"))
+    monkeypatch.setattr(worker_main, "MaituMaterialResolver", forbidden_constructor("MaituMaterialResolver"))
+    monkeypatch.setattr(worker_main, "ScriptLayoutDraftRunner", forbidden_constructor("ScriptLayoutDraftRunner"))
+
+    with pytest.raises(SystemExit) as exc_info:
+        worker_main.main(
+            [
+                "--resolve-maitu-materials",
+                "--script-layout-draft-execute",
+                "--script-layout-build-plan-file",
+                str(plan_path),
+                "--target-live-room-id",
+                "50001",
+            ]
+        )
+
+    assert "target" in str(exc_info.value).lower()
+    assert started == []
+
+
+def test_main_still_allows_in_memory_draft_dry_run_without_material_resolver(
+    monkeypatch,
+    capsys,
+    tmp_path: Path,
+) -> None:
+    started: list[str] = []
+
+    def forbidden_constructor(name: str):
+        def construct(*_args, **_kwargs):
+            started.append(name)
+            raise AssertionError(f"{name} must not start during in-memory dry-run")
+
+        return construct
+
+    monkeypatch.setattr(worker_main, "AssetGraphClient", forbidden_constructor("AssetGraphClient"))
+    monkeypatch.setattr(worker_main, "BrowserUseCliSession", forbidden_constructor("BrowserUseCliSession"))
     plan_path = tmp_path / "dry-run-plan.json"
     plan_path.write_text(
         json.dumps(
@@ -278,13 +526,22 @@ def test_main_still_allows_in_memory_draft_dry_run_without_material_resolver(cap
         ]
     )
 
-    assert exit_code == 0
+    assert exit_code == 2
+    assert started == []
     assert '"ready_for_go_live": false' in capsys.readouterr().out
 
 
 def test_main_fail_closes_before_draft_execution_when_material_resolution_is_manual(monkeypatch, capsys, tmp_path: Path) -> None:
     plan_path = tmp_path / "plan.json"
-    plan_path.write_text(json.dumps({"operations": [{"operation_type": "insert_asset_layer", "asset_code": "AG-MISSING"}]}), encoding="utf-8")
+    plan_path.write_text(
+        json.dumps(
+            {
+                "target_live_room_id": "50001",
+                "operations": [{"operation_type": "insert_asset_layer", "asset_code": "AG-MISSING"}],
+            }
+        ),
+        encoding="utf-8",
+    )
     runner_started = False
 
     class ManualResolver:
@@ -340,7 +597,10 @@ def test_main_fail_closes_on_nonempty_resolver_issues_even_when_count_is_zero(mo
         "source_material_url": "https://static.example/gift.png",
         "material_resolution_status": "matched_existing_maitu_material",
     }
-    plan_path.write_text(json.dumps({"operations": [resolved_operation]}), encoding="utf-8")
+    plan_path.write_text(
+        json.dumps({"target_live_room_id": "50001", "operations": [resolved_operation]}),
+        encoding="utf-8",
+    )
     runner_started = False
 
     class IssueResolver:
@@ -396,9 +656,10 @@ def test_main_fail_closes_on_nonempty_resolver_issues_even_when_count_is_zero(mo
 def test_main_fail_closes_when_resolver_claims_resolved_but_binding_is_incomplete(monkeypatch, capsys, tmp_path: Path) -> None:
     plan_path = tmp_path / "plan.json"
     source_plan = {
+        "target_live_room_id": "50001",
         "operations": [
             {"operation_type": "insert_asset_layer", "asset_code": "AG-IMG-1", "layer_type": "product_image"}
-        ]
+        ],
     }
     plan_path.write_text(json.dumps(source_plan), encoding="utf-8")
     runner_started = False
@@ -458,8 +719,12 @@ def test_main_fail_closes_when_resolver_claims_resolved_but_binding_is_incomplet
 
 def test_main_passes_resolved_plan_into_draft_execution(monkeypatch, capsys, tmp_path: Path) -> None:
     plan_path = tmp_path / "plan.json"
-    source_plan = {"operations": [{"operation_type": "insert_asset_layer", "asset_code": "AG-IMG-1"}]}
+    source_plan = {
+        "target_live_room_id": "50002",
+        "operations": [{"operation_type": "insert_asset_layer", "asset_code": "AG-IMG-1"}],
+    }
     resolved_plan = {
+        "target_live_room_id": "50002",
         "operations": [
             {
                 "operation_type": "insert_asset_layer",
@@ -497,6 +762,8 @@ def test_main_passes_resolved_plan_into_draft_execution(monkeypatch, capsys, tmp
     class GreenRunResult:
         status: str = "completed"
         failure_count: int = 0
+        manual_review_required: bool = False
+        actions: list[Any] = field(default_factory=list)
 
     class CapturingRunner:
         def __init__(self, *, session: Any) -> None:

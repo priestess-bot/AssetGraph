@@ -65,7 +65,7 @@ def build_plan() -> dict:
 def test_build_plan_dry_run_renders_safe_operation_summary_without_browser_actions() -> None:
     result = BuildPlanDryRun().run(build_plan())
 
-    assert result.status == "dry_run"
+    assert result.status == "dry_run_with_manual_review"
     assert result.build_plan_code == "MT-BUILD-20260709-000001"
     assert result.operation_count == 5
     assert result.planned_mutation_count == 2
@@ -84,7 +84,7 @@ def test_build_plan_dry_run_renders_safe_operation_summary_without_browser_actio
     assert result.operations[3].safe_action == "planned_script_block_not_executed"
     assert result.operations[3].script_preview == "大家好，今天介绍品酒大师PRO。"
     assert result.operations[4].safe_action == "manual_review_save_not_executed"
-    assert "would render 5" in result.summary
+    assert "rendered 5" in result.summary
 
 
 def test_build_plan_dry_run_flags_unsafe_go_live_instruction() -> None:
@@ -168,7 +168,7 @@ def scene_build_plan() -> dict:
 def test_scene_build_plan_dry_run_renders_template_component_operations_without_browser_actions() -> None:
     result = BuildPlanDryRun().run(scene_build_plan())
 
-    assert result.status == "dry_run"
+    assert result.status == "dry_run_with_manual_review"
     assert result.build_plan_code == "MT-BUILD-20260710-000001"
     assert result.operation_count == 5
     assert result.planned_mutation_count == 3

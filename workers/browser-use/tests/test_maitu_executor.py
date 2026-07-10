@@ -139,7 +139,7 @@ def test_maitu_executor_recover_login_then_retries_operation() -> None:
     assert call_names == ["ensure_ready", "recover_login", "replace_layer_asset", "save_project", "capture_screenshot"]
 
 
-def test_maitu_executor_routes_generic_operation_to_session() -> None:
+def test_maitu_executor_rejects_generic_operation_without_explicit_safe_handler() -> None:
     session = FakeMaituSession()
     executor = MaituBrowserUseExecutor(
         asset_client=FakeAssetClient({"AG-VID-20260709-000001": asset()}),
@@ -148,8 +148,9 @@ def test_maitu_executor_routes_generic_operation_to_session() -> None:
 
     result = executor.execute_operation_plan(operation_plan("retry_browser_use_operation"))
 
-    assert result.status == "succeeded"
-    assert ("execute_generic_operation", {"operation_type": "retry_browser_use_operation", "asset_code": "AG-VID-20260709-000001"}) in session.calls
+    assert result.status == "manual_required"
+    assert "unsupported operation type" in (result.error_message or "").lower()
+    assert not any(name == "execute_generic_operation" for name, _ in session.calls)
 
 
 def test_maitu_executor_missing_asset_requires_manual_intervention() -> None:

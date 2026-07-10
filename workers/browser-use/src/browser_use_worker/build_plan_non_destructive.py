@@ -123,7 +123,13 @@ class BuildPlanNonDestructiveRunner:
             }
         )
         failure_count = sum(1 for action in actions if action.status == "failed")
-        status = "failed" if failure_count else "completed"
+        manual_review_required = blocked_mutation_count > 0 or any(action.status in {"blocked", "skipped"} for action in actions)
+        if failure_count:
+            status = "failed"
+        elif manual_review_required:
+            status = "completed_with_manual_review"
+        else:
+            status = "completed"
         return BuildPlanNonDestructiveResult(
             status=status,
             ready_for_mutation=False,

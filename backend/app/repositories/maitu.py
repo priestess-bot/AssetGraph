@@ -442,6 +442,7 @@ class MaituMaterialSlotRepository:
             components,
             script_query=payload["script_query"],
             target_script_content=payload.get("target_script_content"),
+            target_live_room_id=payload.get("target_live_room_id"),
         )
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
@@ -531,14 +532,26 @@ class MaituMaterialSlotRepository:
         if plan is None:
             return None
         blueprint = self.get_live_room_blueprint_by_code(plan["blueprint_code"])
+        operations = plan.get("operations", [])
+        preflight = next(
+            (
+                operation
+                for operation in operations
+                if isinstance(operation, dict)
+                and operation.get("operation_type") in {"preflight_scene_build_plan", "preflight_build_plan"}
+            ),
+            None,
+        )
+        preflight_details = preflight.get("details") if isinstance(preflight, dict) and isinstance(preflight.get("details"), dict) else {}
         return {
             "build_plan_code": plan["build_plan_code"],
             "blueprint_code": plan["blueprint_code"],
             "reference_room_id": blueprint.get("reference_room_id") if blueprint else None,
             "reference_room_name": blueprint.get("reference_room_name") if blueprint else None,
+            "target_live_room_id": preflight_details.get("target_live_room_id"),
             "executor": plan["executor"],
             "target_app": plan["target_app"],
-            "operations": plan.get("operations", []),
+            "operations": operations,
         }
 
     def create_live_room_build_plan_execution_result(self, build_plan_code: str, payload: dict[str, Any]) -> dict[str, Any] | None:
@@ -2056,6 +2069,7 @@ class MaituMaterialSlotRepository:
         *,
         script_query: str,
         target_script_content: str | None = None,
+        target_live_room_id: str | None = None,
     ) -> list[dict[str, Any]]:
         scene_name = scene["scene_name"]
         scene_template_code = scene["scene_template_code"]
@@ -2072,6 +2086,7 @@ class MaituMaterialSlotRepository:
                 ),
                 "details": {
                     "safety_gate": True,
+                    "target_live_room_id": target_live_room_id,
                     "scene_template_code": scene_template_code,
                     "template_library_code": scene.get("template_library_code"),
                     "script_query": script_query,

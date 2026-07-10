@@ -60,6 +60,15 @@ class LiveSceneFillRunner:
     existing default clip. It does not click or authorize 正式开播.
     """
 
+    SUPPORTED_OPERATION_TYPES = {
+        "preflight_scene_build_plan",
+        "preflight_build_plan",
+        "create_scene_from_template",
+        "insert_template_component",
+        "add_script_block",
+        "save_live_room",
+    }
+
     def __init__(self, *, session: MaituLiveSceneFillSession) -> None:
         self.session = session
 
@@ -67,7 +76,44 @@ class LiveSceneFillRunner:
         operations = operation_plan.get("operations") if isinstance(operation_plan.get("operations"), list) else []
         build_plan_code = self._optional_string(operation_plan.get("build_plan_code"))
         reference_room_id = self._optional_string(operation_plan.get("reference_room_id"))
+        plan_target_live_room_id = self._optional_string(operation_plan.get("target_live_room_id"))
         actions: list[LiveSceneFillActionResult] = []
+        if plan_target_live_room_id != target_live_room_id:
+            return self._failed_result(
+                build_plan_code,
+                target_live_room_id,
+                actions,
+                f"BuildPlan target room {plan_target_live_room_id!r} does not match requested target {target_live_room_id!r}.",
+            )
+        unsupported_types = [
+            operation.get("operation_type") if isinstance(operation, dict) else None
+            for operation in operations
+            if not isinstance(operation, dict)
+            or operation.get("operation_type") not in self.SUPPORTED_OPERATION_TYPES
+        ]
+        if unsupported_types:
+            return self._failed_result(
+                build_plan_code,
+                target_live_room_id,
+                actions,
+                f"Unsupported live scene fill operation type(s): {unsupported_types}",
+            )
+        preflight_operation = operations[0] if operations and isinstance(operations[0], dict) else None
+        preflight_type = preflight_operation.get("operation_type") if preflight_operation else None
+        preflight_details = preflight_operation.get("details") if isinstance(preflight_operation, dict) else None
+        if (
+            preflight_type not in {"preflight_scene_build_plan", "preflight_build_plan"}
+            or preflight_operation.get("status") != "ready"
+            or not isinstance(preflight_details, dict)
+            or preflight_details.get("safety_gate") is not True
+            or self._optional_string(preflight_details.get("target_live_room_id")) != target_live_room_id
+        ):
+            return self._failed_result(
+                build_plan_code,
+                target_live_room_id,
+                actions,
+                "Live scene fill requires operations[0] to be a ready preflight with safety_gate=true and the exact bound target room.",
+            )
         scene_operation = self._first_operation(operations, "create_scene_from_template")
         if scene_operation is None:
             return self._failed_result(build_plan_code, target_live_room_id, actions, "Missing create_scene_from_template operation.")
@@ -81,21 +127,41 @@ class LiveSceneFillRunner:
                 "BuildPlan is missing scene_name, reference_room_id, or reference_clip_id.",
             )
 
-        preflight_operation = self._first_operation(operations, "preflight_scene_build_plan") or self._first_operation(operations, "preflight_build_plan")
-        if preflight_operation:
-            actions.append(
-                LiveSceneFillActionResult(
-                    operation_index=operations.index(preflight_operation),
-                    operation_type=self._optional_string(preflight_operation.get("operation_type")) or "preflight_scene_build_plan",
-                    operation_name=self._optional_string(preflight_operation.get("operation_name")),
-                    action_type="preflight_already_passed",
-                    status="skipped",
-                    summary="Live scene fill assumes preflight was already reviewed before mutation.",
-                    details={"go_live_clicked": False},
-                )
+        actions.append(
+            LiveSceneFillActionResult(
+                operation_index=0,
+                operation_type=self._optional_string(preflight_operation.get("operation_type")) or "preflight_scene_build_plan",
+                operation_name=self._optional_string(preflight_operation.get("operation_name")),
+                action_type="preflight_gate_validated",
+                status="completed",
+                summary="Validated the first-operation safety gate and exact BuildPlan target before mutation.",
+                details={"target_live_room_id": target_live_room_id, "go_live_clicked": False},
             )
+        )
 
         room = self.session.read_live_room(target_live_room_id)
+        authoritative_room_id = self._optional_string(room.get("id"))
+        if authoritative_room_id != target_live_room_id:
+            return self._failed_result(
+                build_plan_code,
+                target_live_room_id,
+                actions,
+                f"Authoritative room id {authoritative_room_id!r} does not match requested target {target_live_room_id!r}.",
+            )
+        if room.get("_assetgraph_read_environment") != "working":
+            return self._failed_result(
+                build_plan_code,
+                target_live_room_id,
+                actions,
+                "Target room was not read from the authoritative working/draft environment.",
+            )
+        if self._room_is_active_live(room):
+            return self._failed_result(
+                build_plan_code,
+                target_live_room_id,
+                actions,
+                "Target room is currently live; refusing live scene fill mutation.",
+            )
         default_clip = self._default_clip(room)
         if default_clip is None:
             return self._failed_result(build_plan_code, target_live_room_id, actions, "Target room has no default clip to fill.")
@@ -134,6 +200,29 @@ class LiveSceneFillRunner:
             component_operations=component_operations,
             script_content=script_content,
         )
+        try:
+            readback_clip_id = int(fill_details.get("target_clip_id"))
+            readback_visual_count = int(fill_details.get("visual_count"))
+            readback_text_count = int(fill_details.get("text_count"))
+        except (TypeError, ValueError):
+            return self._failed_result(
+                build_plan_code,
+                target_live_room_id,
+                actions,
+                "Live scene fill readback is missing authoritative target/count fields.",
+            )
+        expected_text_count = 1 if script_content else 0
+        if (
+            readback_clip_id != target_clip_id
+            or readback_visual_count != len(component_operations)
+            or readback_text_count != expected_text_count
+        ):
+            return self._failed_result(
+                build_plan_code,
+                target_live_room_id,
+                actions,
+                "Live scene fill readback does not match the planned target clip, visual count, or script count.",
+            )
 
         for operation in component_operations:
             actions.append(
@@ -194,10 +283,19 @@ class LiveSceneFillRunner:
                 )
             )
 
-        visual_count = int(fill_details.get("visual_count") or len(component_operations))
-        text_count = int(fill_details.get("text_count") or (1 if script_content else 0))
+        visual_count = readback_visual_count
+        text_count = readback_text_count
         failure_count = sum(1 for action in actions if action.status == "failed")
-        status = "failed" if failure_count else "completed"
+        manual_review_required = any(
+            action.status == "skipped" or action.action_type == "manual_review_save_not_clicked"
+            for action in actions
+        )
+        if failure_count:
+            status = "failed"
+        elif manual_review_required:
+            status = "completed_with_manual_review"
+        else:
+            status = "completed"
         return LiveSceneFillResult(
             status=status,
             build_plan_code=build_plan_code,
@@ -250,6 +348,15 @@ class LiveSceneFillRunner:
         if not clips:
             return None
         return sorted(clips, key=lambda clip: int(clip.get("order_num") or 0))[0]
+
+    @staticmethod
+    def _room_is_active_live(room: dict[str, Any]) -> bool:
+        active_values = {"1", "true", "yes", "live", "living", "on_air", "started", "running", "broadcasting"}
+        return any(
+            value is True or (value is not None and str(value).strip().lower() in active_values)
+            for key in ("is_live", "living", "is_living", "status", "live_status", "room_status")
+            if (value := room.get(key)) is not None
+        )
 
     @staticmethod
     def _optional_string(value: Any) -> str | None:

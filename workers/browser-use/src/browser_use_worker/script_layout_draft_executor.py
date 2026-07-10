@@ -74,9 +74,30 @@ class ScriptLayoutDraftRunner:
         self._clip_ids_by_scene: dict[int, int] = {}
 
     def run(self, operation_plan: dict[str, Any], *, target_live_room_id: str | None = None) -> ScriptLayoutDraftResult:
+        self._room_cache = None
+        self._clip_ids_by_scene.clear()
         plan_status = self._optional_string(operation_plan.get("status"))
         operations = operation_plan.get("operations") if isinstance(operation_plan.get("operations"), list) else []
-        live_room_id = target_live_room_id or self._optional_string(operation_plan.get("target_live_room_id"))
+        plan_live_room_id = self._optional_string(operation_plan.get("target_live_room_id"))
+        requested_live_room_id = self._optional_string(target_live_room_id)
+        if plan_live_room_id and requested_live_room_id and plan_live_room_id != requested_live_room_id:
+            return ScriptLayoutDraftResult(
+                status="failed",
+                target_live_room_id=requested_live_room_id,
+                ready_for_go_live=False,
+                manual_review_required=True,
+                summary=(
+                    f"Requested target live room {requested_live_room_id} does not match "
+                    f"the BuildPlan target {plan_live_room_id}."
+                ),
+                operation_count=len(operations),
+                executed_action_count=0,
+                skipped_action_count=0,
+                placeholder_count=0,
+                failure_count=1,
+                actions=[],
+            )
+        live_room_id = requested_live_room_id or plan_live_room_id
         if plan_status == "blocked_missing_required_assets":
             return ScriptLayoutDraftResult(
                 status="blocked",
@@ -105,6 +126,34 @@ class ScriptLayoutDraftRunner:
                 failure_count=1,
                 actions=[],
             )
+        first_operation = operations[0] if operations else None
+        preflight_room_id = (
+            self._optional_string(first_operation.get("target_live_room_id"))
+            if isinstance(first_operation, dict)
+            else None
+        )
+        if (
+            not isinstance(first_operation, dict)
+            or first_operation.get("operation_type") != "preflight_content_build_plan"
+            or first_operation.get("status") != "ready"
+            or (preflight_room_id is not None and preflight_room_id != live_room_id)
+        ):
+            return ScriptLayoutDraftResult(
+                status="failed",
+                target_live_room_id=live_room_id,
+                ready_for_go_live=False,
+                manual_review_required=True,
+                summary=(
+                    "Script layout draft requires the first operation to be a ready "
+                    "preflight_content_build_plan bound to the target room."
+                ),
+                operation_count=len(operations),
+                executed_action_count=0,
+                skipped_action_count=0,
+                placeholder_count=0,
+                failure_count=1,
+                actions=[],
+            )
 
         actions: list[ScriptLayoutDraftActionResult] = []
         for index, operation in enumerate(operations):
@@ -119,15 +168,18 @@ class ScriptLayoutDraftRunner:
                         summary="Operation entry is not an object; refusing to execute it.",
                     )
                 )
-                continue
-            actions.append(self._run_operation(index, operation, live_room_id))
+                break
+            action = self._run_operation(index, operation, live_room_id)
+            actions.append(action)
+            if action.status == "failed":
+                break
 
         executed_action_count = sum(1 for action in actions if action.status == "completed")
         skipped_action_count = sum(1 for action in actions if action.status == "skipped")
         placeholder_count = sum(1 for action in actions if action.operation_type == "placeholder_required")
         failure_count = sum(1 for action in actions if action.status == "failed")
         manual_review_required = bool(operation_plan.get("manual_review_required")) or placeholder_count > 0 or any(
-            action.action_type == "manual_review_save_not_clicked" for action in actions
+            action.status == "skipped" or action.action_type == "manual_review_save_not_clicked" for action in actions
         )
         if failure_count:
             status = "failed"
@@ -154,6 +206,22 @@ class ScriptLayoutDraftRunner:
 
     def _run_operation(self, index: int, operation: dict[str, Any], live_room_id: str) -> ScriptLayoutDraftActionResult:
         operation_type = self._optional_string(operation.get("operation_type"))
+        operation_status = self._optional_string(operation.get("status"))
+        if operation_type in {
+            "preflight_content_build_plan",
+            "fill_default_scene",
+            "create_scene",
+            "insert_asset_layer",
+            "position_asset_layer",
+            "write_script",
+            "verify_scene",
+        } and operation_status != "ready":
+            return self._failed_action(
+                index,
+                operation,
+                "operation_status_gate",
+                f"operation status must be ready before execution, got {operation_status!r}",
+            )
         if operation_type == "preflight_content_build_plan":
             return self._preflight(index, operation, live_room_id)
         if operation_type == "fill_default_scene":
@@ -188,6 +256,28 @@ class ScriptLayoutDraftRunner:
             room = self._read_room(live_room_id)
         except Exception as exc:  # pragma: no cover - runtime boundary
             return self._failed_action(index, operation, "read_live_room", str(exc))
+        authoritative_room_id = self._optional_string(room.get("id"))
+        if authoritative_room_id != live_room_id:
+            return self._failed_action(
+                index,
+                operation,
+                "read_live_room",
+                f"authoritative room id {authoritative_room_id!r} does not match requested room id {live_room_id!r}",
+            )
+        if room.get("_assetgraph_read_environment") != "working":
+            return self._failed_action(
+                index,
+                operation,
+                "read_live_room",
+                "target room was not read from the authoritative working/draft environment",
+            )
+        if self._room_is_active_live(room):
+            return self._failed_action(
+                index,
+                operation,
+                "read_live_room",
+                "target room is currently live; refusing to mutate an active live room",
+            )
         default_clip = self._default_clip(room)
         if default_clip is None:
             return ScriptLayoutDraftActionResult(
@@ -496,6 +586,15 @@ class ScriptLayoutDraftRunner:
         return sorted(clips, key=lambda clip: int(clip.get("order_num") or 0))[0]
 
     @staticmethod
+    def _room_is_active_live(room: dict[str, Any]) -> bool:
+        active_values = {"1", "true", "yes", "live", "living", "on_air", "started", "running", "broadcasting"}
+        return any(
+            value is True or (value is not None and str(value).strip().lower() in active_values)
+            for key in ("is_live", "living", "is_living", "status", "live_status", "room_status")
+            if (value := room.get(key)) is not None
+        )
+
+    @staticmethod
     def _optional_string(value: Any) -> str | None:
         if value is None:
             return None
@@ -519,6 +618,7 @@ class InMemoryScriptLayoutDraftSession:
         self.live_room_id = live_room_id
         self.room: dict[str, Any] = {
             "id": live_room_id,
+            "_assetgraph_read_environment": "working",
             "topics": [{"id": 1, "clips": [{"id": 1, "name": "未命名", "order_num": 0, "clip_materials": []}]}],
         }
         self._next_clip_id = 2

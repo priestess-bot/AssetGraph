@@ -457,6 +457,7 @@ class MaituLiveRoomSceneBuildPlanCreate(BaseModel):
     status: str | None = Field(default=None, max_length=32)
     script_query: str = Field(..., min_length=1)
     target_script_content: str | None = Field(default=None, min_length=1)
+    target_live_room_id: str | None = Field(default=None, min_length=1, max_length=64)
     plan_name: str | None = Field(default=None, max_length=255)
     strategy: str = Field(default="template_scene_dry_run", max_length=64)
     description: str | None = None
@@ -509,6 +510,7 @@ class MaituLiveRoomBuildPlanOperationPlanResponse(BaseModel):
     blueprint_code: str
     reference_room_id: str | None = None
     reference_room_name: str | None = None
+    target_live_room_id: str | None = None
     executor: str = "browser_use"
     target_app: str = "maitu"
     operations: list[MaituLiveRoomBuildPlanOperationRead] = Field(default_factory=list)

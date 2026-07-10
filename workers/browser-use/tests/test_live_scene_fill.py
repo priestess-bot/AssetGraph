@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from browser_use_worker.live_scene_fill import LiveSceneFillRunner, build_live_scene_fill_execution_payload
 
 
@@ -8,6 +10,7 @@ class FakeLiveSceneFillSession:
         self.calls: list[tuple[str, object]] = []
         self.room = {
             "id": 40173,
+            "_assetgraph_read_environment": "working",
             "name": "龙谕龙8单场景测试",
             "topics": [
                 {
@@ -76,13 +79,14 @@ def single_scene_build_plan() -> dict:
         "blueprint_code": "MT-BP-20260709-38336-TEMPLATE",
         "reference_room_id": "38336",
         "reference_room_name": "张裕夏日主题",
+        "target_live_room_id": "40173",
         "operations": [
             {
                 "operation_type": "preflight_scene_build_plan",
                 "operation_name": "只读预检单场景搭建计划",
                 "sort_order": 1,
                 "status": "ready",
-                "details": {"safety_gate": True},
+                "details": {"safety_gate": True, "target_live_room_id": "40173"},
             },
             {
                 "operation_type": "create_scene_from_template",
@@ -130,7 +134,7 @@ def test_live_scene_fill_uses_default_clip_for_first_planned_scene() -> None:
 
     result = LiveSceneFillRunner(session=session).run(single_scene_build_plan(), target_live_room_id="40173")
 
-    assert result.status == "completed"
+    assert result.status == "completed_with_manual_review"
     assert result.target_clip_id == 416425
     assert result.target_scene_name == "商品01-场景01"
     assert result.visual_count == 2
@@ -156,13 +160,116 @@ def test_live_scene_fill_uses_default_clip_for_first_planned_scene() -> None:
     assert result.actions[-1].action_type == "manual_review_save_not_clicked"
 
 
+@pytest.mark.parametrize(
+    "room_patch",
+    [
+        {"id": 99999},
+        {"is_live": True},
+        {"living": True},
+        {"is_live": "true"},
+        {"status": "live"},
+        {"live_status": "running"},
+    ],
+)
+def test_live_scene_fill_rejects_wrong_or_active_target_room_before_mutation(room_patch: dict) -> None:
+    session = FakeLiveSceneFillSession()
+    session.room.update(room_patch)
+
+    result = LiveSceneFillRunner(session=session).run(single_scene_build_plan(), target_live_room_id="40173")
+
+    assert result.status == "failed"
+    assert result.failure_count == 1
+    assert not any(call[0] in {"rename_clip", "fill_clip_from_template"} for call in session.calls)
+
+
+def test_live_scene_fill_requires_authoritative_working_environment_before_mutation() -> None:
+    session = FakeLiveSceneFillSession()
+    session.room.pop("_assetgraph_read_environment")
+
+    result = LiveSceneFillRunner(session=session).run(single_scene_build_plan(), target_live_room_id="40173")
+
+    assert result.status == "failed"
+    assert "working/draft" in result.summary
+    assert not any(call[0] in {"rename_clip", "fill_clip_from_template"} for call in session.calls)
+
+
+def test_live_scene_fill_rejects_build_plan_target_mismatch_before_session_calls() -> None:
+    session = FakeLiveSceneFillSession()
+    plan = single_scene_build_plan()
+    plan["target_live_room_id"] = "99999"
+
+    result = LiveSceneFillRunner(session=session).run(plan, target_live_room_id="40173")
+
+    assert result.status == "failed"
+    assert "BuildPlan target room" in result.summary
+    assert session.calls == []
+
+
+def test_live_scene_fill_requires_preflight_as_first_operation_before_session_calls() -> None:
+    session = FakeLiveSceneFillSession()
+    plan = single_scene_build_plan()
+    preflight = plan["operations"].pop(0)
+    plan["operations"].append(preflight)
+
+    result = LiveSceneFillRunner(session=session).run(plan, target_live_room_id="40173")
+
+    assert result.status == "failed"
+    assert "operations[0]" in result.summary
+    assert session.calls == []
+
+
+def test_live_scene_fill_rejects_unknown_operations_before_browser_calls() -> None:
+    session = FakeLiveSceneFillSession()
+    plan = single_scene_build_plan()
+    plan["operations"].insert(1, {"operation_type": "go_live", "status": "ready"})
+
+    result = LiveSceneFillRunner(session=session).run(plan, target_live_room_id="40173")
+
+    assert result.status == "failed"
+    assert "unsupported" in result.summary.lower()
+    assert session.calls == []
+
+
+def test_live_scene_fill_requires_explicit_green_preflight_marker() -> None:
+    session = FakeLiveSceneFillSession()
+    plan = single_scene_build_plan()
+    plan["operations"][0]["details"]["safety_gate"] = False
+
+    result = LiveSceneFillRunner(session=session).run(plan, target_live_room_id="40173")
+
+    assert result.status == "failed"
+    assert "preflight" in result.summary.lower()
+    assert session.calls == []
+
+
+def test_live_scene_fill_fails_when_authoritative_readback_counts_do_not_match_plan() -> None:
+    class WrongReadbackSession(FakeLiveSceneFillSession):
+        def fill_clip_from_template(self, **kwargs) -> dict:
+            super().fill_clip_from_template(**kwargs)
+            return {
+                "target_clip_id": kwargs["target_clip_id"],
+                "visual_count": 0,
+                "text_count": 0,
+                "layer_names": [],
+            }
+
+    session = WrongReadbackSession()
+    result = LiveSceneFillRunner(session=session).run(single_scene_build_plan(), target_live_room_id="40173")
+
+    assert result.status == "failed"
+    assert result.failure_count == 1
+    assert result.visual_count == 0
+    assert "readback" in result.summary.lower()
+    assert not any(action.operation_type == "insert_template_component" for action in result.actions)
+
+
 def test_live_scene_fill_execution_payload_records_completed_components_and_manual_save_skip() -> None:
     result = LiveSceneFillRunner(session=FakeLiveSceneFillSession()).run(single_scene_build_plan(), target_live_room_id="40173")
 
     payload = build_live_scene_fill_execution_payload(result)
 
     assert payload["executor"] == "browser_use"
-    assert payload["execution_status"] == "completed"
+    assert payload["execution_status"] == "completed_with_manual_review"
     assert payload["mode"] == "live_scene_fill"
     assert payload["operation_results"][1]["operation_type"] == "create_scene_from_template"
     assert payload["operation_results"][1]["status"] == "completed"

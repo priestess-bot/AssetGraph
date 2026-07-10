@@ -59,6 +59,55 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _selected_cli_modes(args: argparse.Namespace) -> list[str]:
+    modes = [
+        name
+        for name, selected in (
+            ("probe_maitu", args.probe_maitu),
+            ("observe_maitu", args.observe_maitu),
+            ("capture_jd_metrics", args.capture_jd_metrics),
+            ("script_layout", args.resolve_maitu_materials or args.script_layout_draft_execute),
+            ("live_scene_fill", args.live_scene_fill),
+            ("non_destructive_build", args.non_destructive_build),
+            ("preflight_build", args.preflight_build),
+            ("replacement_preflight", args.preflight),
+            ("queue_once", args.once),
+        )
+        if selected
+    ]
+    if args.plan_code and not args.preflight:
+        modes.append("replacement_plan")
+    if args.build_plan_code and args.dry_run and not any(
+        (args.live_scene_fill, args.non_destructive_build, args.preflight_build)
+    ):
+        modes.append("build_plan_dry_run")
+    return modes
+
+
+def _require_bound_draft_target(operation_plan: dict, requested_live_room_id: str | None) -> str:
+    raw_plan_live_room_id = operation_plan.get("target_live_room_id")
+    plan_live_room_id = str(raw_plan_live_room_id).strip() if raw_plan_live_room_id is not None else ""
+    if not plan_live_room_id or raw_plan_live_room_id != plan_live_room_id:
+        raise SystemExit("Real script-layout draft execution requires a canonical target_live_room_id bound into the BuildPlan")
+    if requested_live_room_id is not None and requested_live_room_id != plan_live_room_id:
+        raise SystemExit(
+            f"Requested target live room {requested_live_room_id} does not match the BuildPlan target {plan_live_room_id}"
+        )
+    return plan_live_room_id
+
+
+def _require_bound_live_scene_target(operation_plan: dict, requested_live_room_id: str) -> str:
+    raw_plan_live_room_id = operation_plan.get("target_live_room_id")
+    plan_live_room_id = str(raw_plan_live_room_id).strip() if raw_plan_live_room_id is not None else ""
+    if not plan_live_room_id or raw_plan_live_room_id != plan_live_room_id:
+        raise SystemExit("Real live-scene-fill execution requires a canonical target_live_room_id bound into the BuildPlan")
+    if requested_live_room_id != plan_live_room_id:
+        raise SystemExit(
+            f"Requested target live room {requested_live_room_id} does not match the BuildPlan target {plan_live_room_id}"
+        )
+    return plan_live_room_id
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     logging.basicConfig(level=getattr(logging, args.log_level.upper()), format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -66,6 +115,33 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.check_config:
         print(json.dumps(asdict(config), ensure_ascii=False, indent=2))
         return 0
+    if args.dry_run and args.live_scene_fill:
+        raise SystemExit("--live-scene-fill cannot run with --dry-run; use BuildPlan dry-run instead of a mutating runner")
+    if args.dry_run and args.write_result:
+        raise SystemExit("--dry-run cannot use --write-result because simulations must not update production execution state")
+    if args.dry_run and args.resolve_maitu_materials:
+        raise SystemExit("--resolve-maitu-materials cannot run with --dry-run because binding write-back/upload is a real action")
+    if args.dry_run and args.once:
+        raise SystemExit("--once cannot run with --dry-run because claiming or releasing a retry task writes queue state")
+    if args.dry_run and args.capture_jd_metrics:
+        raise SystemExit("--capture-jd-metrics cannot run with --dry-run because metric capture writes production session/sample state")
+    if args.dry_run and args.non_destructive_build:
+        raise SystemExit("--non-destructive-build cannot run with --dry-run because it opens and operates a real browser session")
+    if args.dry_run and not any(
+        (
+            args.probe_maitu,
+            args.observe_maitu,
+            args.plan_code,
+            args.build_plan_code,
+            args.preflight,
+            args.preflight_build,
+            args.script_layout_draft_execute,
+        )
+    ):
+        raise SystemExit("--dry-run requires an explicit read-only plan, preflight, probe, observe, or in-memory script-layout mode")
+    selected_modes = _selected_cli_modes(args)
+    if len(selected_modes) > 1:
+        raise SystemExit(f"Conflicting CLI modes: {', '.join(selected_modes)}")
     if args.script_layout_draft_execute and not args.dry_run and not args.resolve_maitu_materials:
         raise SystemExit(
             "Real --script-layout-draft-execute requires --resolve-maitu-materials so the complete plan is validated before draft mutation"
@@ -73,13 +149,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.probe_maitu:
         probe = BrowserUseCliSession().probe_current_page(open_if_needed=True)
         print(json.dumps(asdict(probe), ensure_ascii=True, indent=2))
-        return 0
+        return 0 if probe.logged_in and not probe.login_required else 2
     if args.observe_maitu:
         state = BrowserUseCliSession().read_current_state(open_if_needed=True)
         print(json.dumps(asdict(state), ensure_ascii=False, indent=2))
-        return 0
+        return 0 if state.logged_in and not state.login_required else 2
 
-    client = AssetGraphClient(config.api_base_url)
+    client: AssetGraphClient | None = None
+
+    def assetgraph_client() -> AssetGraphClient:
+        nonlocal client
+        if client is None:
+            client = AssetGraphClient(config.api_base_url)
+        return client
+
     resolved_operation_plan: dict | None = None
     material_resolution: MaituMaterialResolutionResult | None = None
     if args.resolve_maitu_materials:
@@ -87,10 +170,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise SystemExit("--resolve-maitu-materials requires --script-layout-build-plan-file")
         plan_path = Path(args.script_layout_build_plan_file)
         source_operation_plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        if args.script_layout_draft_execute:
+            _require_bound_draft_target(source_operation_plan, args.target_live_room_id)
         if args.dry_run:
             raise SystemExit("--resolve-maitu-materials cannot run with --dry-run because binding write-back/upload is a real action")
         material_resolution = MaituMaterialResolver(
-            asset_client=client,
+            asset_client=assetgraph_client(),
             session=BrowserUseCliSession(),
             assets_root=args.assets_root,
         ).resolve_plan(source_operation_plan)
@@ -139,34 +224,58 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise SystemExit("--capture-jd-metrics requires --jd-metric-session-code")
         if args.max_samples < 1:
             raise SystemExit("--max-samples must be >= 1")
+        api_client = assetgraph_client()
         browser_session = BrowserUseCliSession()
-        client.update_jd_live_metric_session(
+        api_client.update_jd_live_metric_session(
             args.jd_metric_session_code,
             {"status": "running", "result_summary": "JD live metric capture running with foreground agent sync"},
         )
-        for sample_index in range(args.max_samples):
-            result = capture_jd_live_metric_sample(
-                client,
-                args.jd_metric_session_code,
-                browser_session=browser_session,
-            )
-            print(json.dumps(result, ensure_ascii=False, indent=2))
-            if sample_index < args.max_samples - 1 and args.capture_interval_seconds > 0:
-                time.sleep(args.capture_interval_seconds)
-        client.update_jd_live_metric_session(
-            args.jd_metric_session_code,
-            {"status": "completed", "result_summary": f"Captured {args.max_samples} JD live metric sample(s)"},
+        capture_blocked = False
+        try:
+            for sample_index in range(args.max_samples):
+                result = capture_jd_live_metric_sample(
+                    api_client,
+                    args.jd_metric_session_code,
+                    browser_session=browser_session,
+                )
+                raw_metrics = result.get("raw_metrics") if isinstance(result, dict) else None
+                if isinstance(result, dict) and (
+                    result.get("status") == "blocked"
+                    or (isinstance(raw_metrics, dict) and raw_metrics.get("ready_to_capture") is False)
+                ):
+                    capture_blocked = True
+                print(json.dumps(result, ensure_ascii=False, indent=2))
+                if sample_index < args.max_samples - 1 and args.capture_interval_seconds > 0:
+                    time.sleep(args.capture_interval_seconds)
+        except Exception as exc:
+            failure = {"status": "failed", "result_summary": f"JD live metric capture failed: {exc}"}
+            try:
+                api_client.update_jd_live_metric_session(args.jd_metric_session_code, failure)
+            except Exception:
+                logging.getLogger(__name__).exception("Failed to persist JD metric session failure state")
+            print(json.dumps(failure, ensure_ascii=False, indent=2))
+            return 2
+        final_status = "blocked" if capture_blocked else "completed"
+        result_summary = (
+            f"JD metric capture blocked in one or more of {args.max_samples} sample(s)"
+            if capture_blocked
+            else f"Captured {args.max_samples} JD live metric sample(s)"
         )
-        return 0
+        api_client.update_jd_live_metric_session(
+            args.jd_metric_session_code,
+            {"status": final_status, "result_summary": result_summary},
+        )
+        return 2 if capture_blocked else 0
     if args.script_layout_draft_execute:
         if not args.script_layout_build_plan_file:
             raise SystemExit("--script-layout-draft-execute requires --script-layout-build-plan-file")
         plan_path = Path(args.script_layout_build_plan_file)
         operation_plan = resolved_operation_plan or json.loads(plan_path.read_text(encoding="utf-8"))
-        target_live_room_id = args.target_live_room_id or operation_plan.get("target_live_room_id")
         if args.dry_run:
+            target_live_room_id = args.target_live_room_id or operation_plan.get("target_live_room_id")
             session = InMemoryScriptLayoutDraftSession(live_room_id=str(target_live_room_id or "DRY-RUN-ROOM"))
         else:
+            target_live_room_id = _require_bound_draft_target(operation_plan, args.target_live_room_id)
             session = BrowserUseCliSession()
         result = ScriptLayoutDraftRunner(session=session).run(
             operation_plan,
@@ -176,73 +285,95 @@ def main(argv: Sequence[str] | None = None) -> int:
             build_plan_code = operation_plan.get("build_plan_code")
             if not build_plan_code:
                 raise SystemExit("--script-layout-draft-execute --write-result requires build_plan_code in the JSON plan")
-            execution_result = client.write_live_room_build_plan_execution_result(
+            execution_result = assetgraph_client().write_live_room_build_plan_execution_result(
                 str(build_plan_code),
                 build_script_layout_draft_execution_payload(result),
             )
             print(json.dumps({"worker_result": asdict(result), "execution_result": execution_result}, ensure_ascii=False, indent=2))
         else:
             print(json.dumps(asdict(result), ensure_ascii=False, indent=2))
-        return 0 if result.failure_count == 0 else 2
+        unattended_success = (
+            result.status == "completed"
+            and result.failure_count == 0
+            and not result.manual_review_required
+            and all(action.status == "completed" for action in result.actions)
+        )
+        return 0 if unattended_success else 2
     if args.live_scene_fill:
         if not args.build_plan_code:
             raise SystemExit("--live-scene-fill requires --build-plan-code")
         if not args.target_live_room_id:
             raise SystemExit("--live-scene-fill requires --target-live-room-id")
-        operation_plan = client.get_live_room_build_plan_operation_plan(args.build_plan_code)
+        api_client = assetgraph_client()
+        operation_plan = api_client.get_live_room_build_plan_operation_plan(args.build_plan_code)
+        _require_bound_live_scene_target(operation_plan, args.target_live_room_id)
         result = LiveSceneFillRunner(session=BrowserUseCliSession()).run(
             operation_plan,
             target_live_room_id=args.target_live_room_id,
         )
         payload = build_live_scene_fill_execution_payload(result)
-        execution_result = client.write_live_room_build_plan_execution_result(args.build_plan_code, payload)
+        execution_result = api_client.write_live_room_build_plan_execution_result(args.build_plan_code, payload)
         print(json.dumps({"worker_result": asdict(result), "execution_result": execution_result}, ensure_ascii=False, indent=2))
-        return 0 if result.failure_count == 0 else 2
+        unattended_success = (
+            result.status == "completed"
+            and result.failure_count == 0
+            and all(action.status == "completed" for action in result.actions)
+        )
+        return 0 if unattended_success else 2
     if args.build_plan_code and args.dry_run:
-        operation_plan = client.get_live_room_build_plan_operation_plan(args.build_plan_code)
+        operation_plan = assetgraph_client().get_live_room_build_plan_operation_plan(args.build_plan_code)
         dry_run = BuildPlanDryRun().run(operation_plan)
         print(json.dumps(asdict(dry_run), ensure_ascii=False, indent=2))
-        return 0 if dry_run.safety_violation_count == 0 else 2
+        clean_simulation = dry_run.safety_violation_count == 0 and dry_run.manual_review_count == 0
+        return 0 if clean_simulation else 2
     if args.non_destructive_build:
         if not args.build_plan_code:
             raise SystemExit("--non-destructive-build requires --build-plan-code")
         if args.skip_browser_probe:
             raise SystemExit("--non-destructive-build cannot use --skip-browser-probe; it requires a real green preflight")
-        operation_plan = client.get_live_room_build_plan_operation_plan(args.build_plan_code)
+        api_client = assetgraph_client()
+        operation_plan = api_client.get_live_room_build_plan_operation_plan(args.build_plan_code)
         session = BrowserUseCliSession()
         preflight = BuildPlanPreflight(session=session).run(operation_plan)
         result = BuildPlanNonDestructiveRunner(session=session).run(operation_plan, preflight)
         if args.write_result:
-            execution_result = client.write_live_room_build_plan_execution_result(
+            execution_result = api_client.write_live_room_build_plan_execution_result(
                 args.build_plan_code,
                 build_non_destructive_execution_payload(result),
             )
             print(json.dumps({"worker_result": asdict(result), "execution_result": execution_result}, ensure_ascii=False, indent=2))
         else:
             print(json.dumps(asdict(result), ensure_ascii=False, indent=2))
-        return 0 if result.failure_count == 0 else 2
+        unattended_success = (
+            result.status == "completed"
+            and result.failure_count == 0
+            and result.blocked_mutation_count == 0
+            and all(action.status == "executed" for action in result.actions)
+        )
+        return 0 if unattended_success else 2
     if args.preflight_build:
         if not args.build_plan_code:
             raise SystemExit("--preflight-build requires --build-plan-code")
-        operation_plan = client.get_live_room_build_plan_operation_plan(args.build_plan_code)
+        operation_plan = assetgraph_client().get_live_room_build_plan_operation_plan(args.build_plan_code)
         preflight = BuildPlanPreflight(
             session=None if args.skip_browser_probe else BrowserUseCliSession(),
             probe_browser=not args.skip_browser_probe,
         ).run(operation_plan)
         print(json.dumps(asdict(preflight), ensure_ascii=False, indent=2))
-        return 0 if preflight.failure_count == 0 else 2
+        return 0 if preflight.ready_to_execute else 2
     if args.preflight:
         if not args.plan_code:
             raise SystemExit("--preflight requires --plan-code")
-        operation_plan = client.get_replacement_plan_operation_plan(args.plan_code)
+        api_client = assetgraph_client()
+        operation_plan = api_client.get_replacement_plan_operation_plan(args.plan_code)
         preflight = ReplacementPlanPreflight(
-            asset_client=client,
+            asset_client=api_client,
             assets_root=args.assets_root,
             session=None if args.skip_browser_probe else BrowserUseCliSession(),
             probe_browser=not args.skip_browser_probe,
         ).run(operation_plan)
         print(json.dumps(asdict(preflight), ensure_ascii=False, indent=2))
-        return 0 if preflight.failure_count == 0 else 2
+        return 0 if preflight.ready_to_execute else 2
 
     executor = DryRunBrowserUseExecutor()
     if not config.dry_run:
@@ -251,13 +382,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     worker = BrowserUseWorker(
         config=config,
-        client=client,
+        client=assetgraph_client(),
         executor=executor,
     )
     if args.plan_code:
         result = worker.run_plan_once(args.plan_code)
         print(json.dumps(asdict(result), ensure_ascii=False, indent=2))
-    elif args.once:
+        return 0 if result.status in {"released", "succeeded"} else 2
+    if args.once:
         worker.run_once()
     else:
         worker.run_forever()

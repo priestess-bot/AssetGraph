@@ -639,6 +639,7 @@ class FakeMaituMaterialSlotRepository:
                 "instruction": "预检单场景模板和禁开播规则；此计划为 dry-run，不直接操作麦兔。",
                 "details": {
                     "safety_gate": True,
+                    "target_live_room_id": payload.get("target_live_room_id"),
                     "scene_template_code": scene["scene_template_code"],
                     "template_library_code": scene.get("template_library_code"),
                     "script_query": payload["script_query"],
@@ -749,11 +750,13 @@ class FakeMaituMaterialSlotRepository:
         plan = self.build_plans.get(build_plan_code)
         if plan is None:
             return None
+        preflight_details = plan["operations"][0].get("details") or {}
         return {
             "build_plan_code": plan["build_plan_code"],
             "blueprint_code": plan["blueprint_code"],
             "reference_room_id": self.blueprints[plan["blueprint_code"]].get("reference_room_id"),
             "reference_room_name": self.blueprints[plan["blueprint_code"]].get("reference_room_name"),
+            "target_live_room_id": preflight_details.get("target_live_room_id"),
             "executor": plan["executor"],
             "target_app": plan["target_app"],
             "operations": plan["operations"],
@@ -4018,6 +4021,7 @@ def test_create_single_scene_build_plan_from_script_uses_template_component_inde
             "reference_room_id": "38336",
             "script_query": "龙谕的葡萄园，在宁夏贺兰山东麓",
             "target_script_content": "今天我们用张裕夏日主题的结构讲龙谕龙8，突出贺兰山东麓风土。",
+            "target_live_room_id": "40173",
             "plan_name": "龙谕龙8 单场景复刻 dry-run",
         },
     )
@@ -4036,6 +4040,7 @@ def test_create_single_scene_build_plan_from_script_uses_template_component_inde
         "add_script_block",
         "save_live_room",
     ]
+    assert plan["operations"][0]["details"]["target_live_room_id"] == "40173"
     assert all(operation.get("scene_name") in {None, "商品01-场景01"} for operation in plan["operations"])
     assert "不应进入计划的特写视频" not in json.dumps(plan["operations"], ensure_ascii=False)
     background_operation = next(
@@ -4054,7 +4059,9 @@ def test_create_single_scene_build_plan_from_script_uses_template_component_inde
         "/api/maitu/live-room-build-plans/MT-BUILD-20260709-000001/browser-use-operations"
     )
     assert operations_response.status_code == 200
-    operations = operations_response.json()["operations"]
+    operation_plan = operations_response.json()
+    assert operation_plan["target_live_room_id"] == "40173"
+    operations = operation_plan["operations"]
     assert operations[1]["details"]["scene_template_code"] == "MT-TPL-SCENE-38336-001"
     assert operations[-1]["status"] == "manual_review"
 
