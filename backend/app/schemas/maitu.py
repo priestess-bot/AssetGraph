@@ -164,6 +164,18 @@ class MaituLiveRoomBuildPlanCreate(BaseModel):
     selection_query: str | None = None
 
 
+class MaituLiveRoomSceneBuildPlanCreate(BaseModel):
+    blueprint_code: str | None = Field(default=None, max_length=64)
+    reference_room_id: str | None = Field(default=None, max_length=64)
+    template_library_code: str | None = Field(default=None, max_length=64)
+    status: str | None = Field(default=None, max_length=32)
+    script_query: str = Field(..., min_length=1)
+    target_script_content: str | None = Field(default=None, min_length=1)
+    plan_name: str | None = Field(default=None, max_length=255)
+    strategy: str = Field(default="template_scene_dry_run", max_length=64)
+    description: str | None = None
+
+
 class MaituLiveRoomBuildPlanOperationRead(BaseModel):
     operation_type: str
     operation_name: str

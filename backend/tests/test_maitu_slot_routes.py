@@ -541,6 +541,133 @@ class FakeMaituMaterialSlotRepository:
         self.build_plans[code] = plan
         return plan
 
+    def create_live_room_scene_build_plan(self, payload: dict[str, Any]) -> dict[str, Any] | None:
+        scenes = self.list_live_room_template_scenes(
+            blueprint_code=payload.get("blueprint_code"),
+            reference_room_id=payload.get("reference_room_id"),
+            template_library_code=payload.get("template_library_code"),
+            status=payload.get("status"),
+            q=payload["script_query"],
+            limit=1,
+            offset=0,
+        )
+        if not scenes:
+            return None
+        scene = scenes[0]
+        components = self.list_live_room_template_scene_components(scene["scene_template_code"]) or []
+        code = f"MT-BUILD-20260709-{len(self.build_plans) + 1:06d}"
+        operations: list[dict[str, Any]] = [
+            {
+                "operation_type": "preflight_scene_build_plan",
+                "operation_name": "只读预检单场景搭建计划",
+                "sort_order": 1,
+                "status": "ready",
+                "instruction": "预检单场景模板和禁开播规则；此计划为 dry-run，不直接操作麦兔。",
+                "details": {
+                    "safety_gate": True,
+                    "scene_template_code": scene["scene_template_code"],
+                    "template_library_code": scene.get("template_library_code"),
+                    "script_query": payload["script_query"],
+                },
+            },
+            {
+                "operation_type": "create_scene_from_template",
+                "operation_name": f"按模板创建单场景 {scene['scene_name']}",
+                "sort_order": 10,
+                "status": "planned",
+                "scene_name": scene["scene_name"],
+                "instruction": f"按模板场景 {scene['scene_name']} 复刻结构；只生成计划，不点击正式开播。",
+                "details": {
+                    "scene_template_code": scene["scene_template_code"],
+                    "template_library_code": scene.get("template_library_code"),
+                    "scene_type": scene.get("scene_type"),
+                    "reference_product_name": scene.get("reference_product_name"),
+                    "reference_item_id": scene.get("reference_item_id"),
+                    "reference_clip_id": scene.get("reference_clip_id"),
+                    "component_count": len(components),
+                },
+            },
+        ]
+        sort_order = 20
+        for component in components:
+            component_name = component.get("component_name") or component.get("layer_name")
+            operations.append(
+                {
+                    "operation_type": "insert_template_component",
+                    "operation_name": f"插入模板组件 {component_name}",
+                    "sort_order": sort_order,
+                    "status": "planned",
+                    "scene_name": scene["scene_name"],
+                    "layer_name": component.get("layer_name") or component_name,
+                    "layer_role": component.get("layer_role") or component.get("component_role"),
+                    "required_category": component.get("required_category"),
+                    "accepted_asset_types": component.get("accepted_asset_types", []),
+                    "replacement_policy": component.get("replacement_policy", "keep_layout"),
+                    "instruction": f"在单场景 {scene['scene_name']} 中插入/配置组件 {component_name}，保持模板坐标、尺寸和层级。",
+                    "details": {
+                        "scene_template_code": scene["scene_template_code"],
+                        "component_template_code": component.get("component_template_code"),
+                        "component_type": component.get("component_type"),
+                        "component_role": component.get("component_role"),
+                        "material_id": component.get("material_id"),
+                        "material_tab": component.get("material_tab"),
+                        "source_material_type": component.get("source_material_type"),
+                        "geometry": component.get("geometry", {}),
+                        "z_index": component.get("z_index"),
+                        "speaker_id": component.get("speaker_id"),
+                        "digital_human_image_id": component.get("digital_human_image_id"),
+                        "source_material_url": component.get("source_material_url"),
+                        "source_cover_url": component.get("source_cover_url"),
+                    },
+                }
+            )
+            sort_order += 10
+        operations.append(
+            {
+                "operation_type": "add_script_block",
+                "operation_name": f"写入单场景脚本 {scene.get('script_block_code')}",
+                "sort_order": sort_order,
+                "status": "planned",
+                "scene_name": scene["scene_name"],
+                "script_block_code": scene.get("script_block_code"),
+                "script_block_content": payload.get("target_script_content") or scene.get("script_content") or payload["script_query"],
+                "instruction": f"在单场景 {scene['scene_name']} 的直播脚本区域写入目标脚本，并回读确认文本一致。",
+                "details": {
+                    "scene_template_code": scene["scene_template_code"],
+                    "script_query": payload["script_query"],
+                    "source_template_script_content": scene.get("script_content"),
+                    "script_sort_order": scene.get("script_sort_order"),
+                },
+            }
+        )
+        operations.append(
+            {
+                "operation_type": "save_live_room",
+                "operation_name": "保存单场景直播间草稿",
+                "sort_order": 999,
+                "status": "manual_review",
+                "scene_name": scene["scene_name"],
+                "instruction": "只在组件和脚本回读验证通过后保存草稿；禁止点击正式开播。",
+                "details": {"requires_human_or_preflight_pass": True, "scene_template_code": scene["scene_template_code"]},
+            }
+        )
+        plan = {
+            "id": f"87000000-0000-0000-0000-{len(self.build_plans) + 1:012d}",
+            "build_plan_code": code,
+            "blueprint_code": scene["blueprint_code"],
+            "plan_name": payload.get("plan_name") or f"{scene['scene_name']} SceneBuildPlan dry-run",
+            "target_app": "maitu",
+            "executor": "browser_use",
+            "status": "draft",
+            "strategy": payload.get("strategy", "template_scene_dry_run"),
+            "description": payload.get("description"),
+            "operations": operations,
+            "created_at": None,
+            "updated_at": None,
+        }
+        self.build_plans[code] = plan
+        return plan
+
     def get_live_room_build_plan_by_code(self, build_plan_code: str) -> dict[str, Any] | None:
         return self.build_plans.get(build_plan_code)
 
@@ -2429,6 +2556,154 @@ def test_template_scene_component_index_can_be_queried_as_first_class_resources(
     assert components[0]["component_role"] == "background"
     assert components[0]["geometry"] == {"left": 0, "top": 0, "width": 1080, "height": 1919, "scale": None}
     assert components[1]["speaker_id"] == 3760
+
+
+def test_create_single_scene_build_plan_from_script_uses_template_component_index(client: TestClient) -> None:
+    payload = {
+        "reference_profile": {
+            "profile_code": "MT-REF-20260709-38336-TEMPLATE",
+            "source": "maitu_template_library_readonly_observe",
+            "reference_room_id": "38336",
+            "reference_room_name": "张裕夏日主题",
+            "platform": "京东",
+        },
+        "blueprint": {
+            "blueprint_code": "MT-BP-20260709-38336-TEMPLATE",
+            "reference_profile_code": "MT-REF-20260709-38336-TEMPLATE",
+            "title": "张裕夏日主题 模板库基准蓝图",
+            "platform": "京东",
+            "room_type": "template_library_baseline",
+            "reference_room_id": "38336",
+            "reference_room_name": "张裕夏日主题",
+            "status": "template_baseline",
+            "template_library_code": "MT-TEMPLATE-38336-ZHANGYU-SUMMER",
+            "scenes": [
+                {
+                    "scene_code": "MT-TPL-SCENE-38336-001",
+                    "scene_name": "商品01-场景01",
+                    "scene_type": "讲品",
+                    "sort_order": 1,
+                    "reference_product_name": "龙谕 龙8 干红葡萄酒 750ml*4瓶 整箱装",
+                    "reference_item_id": "100029295221",
+                    "reference_clip_id": "390051",
+                    "layers": [
+                        {
+                            "layer_code": "MT-TPL-LAYER-38336-001-01",
+                            "layer_name": "微信图片_20260618221607_11_15",
+                            "layer_role": "background",
+                            "required_category": "background_image",
+                            "accepted_asset_types": ["IMG"],
+                            "material_tab": "背景",
+                            "source_material_type": "image",
+                            "material_id": 40131,
+                            "left_position": 0,
+                            "top_position": 0,
+                            "width": 1080,
+                            "height": 1919,
+                            "z_index": 1,
+                            "replacement_policy": "keep_layout",
+                        },
+                        {
+                            "layer_code": "MT-TPL-LAYER-38336-001-02",
+                            "layer_name": "张裕定制形象260519",
+                            "layer_role": "digital_human",
+                            "required_category": "digital_human_video",
+                            "accepted_asset_types": ["IMG", "VID"],
+                            "material_tab": "数字分身",
+                            "source_material_type": "digital_human",
+                            "material_id": 37200,
+                            "left_position": 106,
+                            "top_position": 464,
+                            "width": 856,
+                            "height": 1540,
+                            "z_index": 3,
+                            "speaker_id": 3760,
+                            "digital_human_image_id": 7717,
+                            "replacement_policy": "keep_layout",
+                        },
+                    ],
+                },
+                {
+                    "scene_code": "MT-TPL-SCENE-38336-002",
+                    "scene_name": "商品01-场景02",
+                    "scene_type": "特写",
+                    "layers": [
+                        {
+                            "layer_code": "MT-TPL-LAYER-38336-002-01",
+                            "layer_name": "不应进入计划的特写视频",
+                            "layer_role": "product_video",
+                            "required_category": "product_video",
+                            "accepted_asset_types": ["VID"],
+                            "source_material_type": "decorative_video",
+                            "material_id": 37318,
+                        }
+                    ],
+                },
+            ],
+            "script_blocks": [
+                {
+                    "script_block_code": "MT-TPL-SCRIPT-38336-001",
+                    "scene_name": "商品01-场景01",
+                    "sort_order": 1,
+                    "content": "龙谕的葡萄园，在宁夏贺兰山东麓。那里有父亲山贺兰山，也有母亲河黄河。",
+                },
+                {
+                    "script_block_code": "MT-TPL-SCRIPT-38336-002",
+                    "scene_name": "商品01-场景02",
+                    "sort_order": 2,
+                    "content": "这是一段商品细节特写，不包含查询关键词。",
+                },
+            ],
+        },
+    }
+    assert client.post("/api/maitu/live-room-blueprints/import-reference", json=payload).status_code == 201
+
+    create_response = client.post(
+        "/api/maitu/live-room-scene-build-plans",
+        json={
+            "reference_room_id": "38336",
+            "script_query": "龙谕的葡萄园，在宁夏贺兰山东麓",
+            "target_script_content": "今天我们用张裕夏日主题的结构讲龙谕龙8，突出贺兰山东麓风土。",
+            "plan_name": "龙谕龙8 单场景复刻 dry-run",
+        },
+    )
+
+    assert create_response.status_code == 201
+    plan = create_response.json()
+    assert plan["build_plan_code"] == "MT-BUILD-20260709-000001"
+    assert plan["blueprint_code"] == "MT-BP-20260709-38336-TEMPLATE"
+    assert plan["strategy"] == "template_scene_dry_run"
+    operation_types = [operation["operation_type"] for operation in plan["operations"]]
+    assert operation_types == [
+        "preflight_scene_build_plan",
+        "create_scene_from_template",
+        "insert_template_component",
+        "insert_template_component",
+        "add_script_block",
+        "save_live_room",
+    ]
+    assert all(operation.get("scene_name") in {None, "商品01-场景01"} for operation in plan["operations"])
+    assert "不应进入计划的特写视频" not in json.dumps(plan["operations"], ensure_ascii=False)
+    background_operation = next(
+        operation for operation in plan["operations"] if operation.get("layer_role") == "background"
+    )
+    assert background_operation["layer_name"] == "微信图片_20260618221607_11_15"
+    assert background_operation["details"]["scene_template_code"] == "MT-TPL-SCENE-38336-001"
+    assert background_operation["details"]["component_template_code"] == "MT-TPL-LAYER-38336-001-01"
+    assert background_operation["details"]["geometry"] == {"left": 0, "top": 0, "width": 1080, "height": 1919, "scale": None}
+    script_operation = next(operation for operation in plan["operations"] if operation["operation_type"] == "add_script_block")
+    assert script_operation["script_block_code"] == "MT-TPL-SCRIPT-38336-001"
+    assert script_operation["script_block_content"] == "今天我们用张裕夏日主题的结构讲龙谕龙8，突出贺兰山东麓风土。"
+    assert script_operation["details"]["source_template_script_content"].startswith("龙谕的葡萄园")
+
+    operations_response = client.get(
+        "/api/maitu/live-room-build-plans/MT-BUILD-20260709-000001/browser-use-operations"
+    )
+    assert operations_response.status_code == 200
+    operations = operations_response.json()["operations"]
+    assert operations[1]["details"]["scene_template_code"] == "MT-TPL-SCENE-38336-001"
+    assert operations[-1]["status"] == "manual_review"
+
 
 
 def test_create_live_room_build_plan_from_blueprint_and_get_browser_use_operations(client: TestClient) -> None:

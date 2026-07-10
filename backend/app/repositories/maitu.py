@@ -417,6 +417,97 @@ class MaituMaterialSlotRepository:
         self.connection.commit()
         return self.get_live_room_build_plan_by_code(build_plan_code) or self._normalize_live_room_build_plan(plan)
 
+    def create_live_room_scene_build_plan(self, payload: dict[str, Any]) -> dict[str, Any] | None:
+        scenes = self.list_live_room_template_scenes(
+            blueprint_code=payload.get("blueprint_code"),
+            reference_room_id=payload.get("reference_room_id"),
+            template_library_code=payload.get("template_library_code"),
+            status=payload.get("status"),
+            q=payload["script_query"],
+            limit=1,
+            offset=0,
+        )
+        if not scenes:
+            return None
+        scene = scenes[0]
+        blueprint = self.get_live_room_blueprint_by_code(scene["blueprint_code"])
+        if blueprint is None:
+            return None
+        components = self.list_live_room_template_scene_components(scene["scene_template_code"]) or []
+        build_plan_code = self._next_build_plan_code()
+        plan_name = payload.get("plan_name") or f"{scene['scene_name']} SceneBuildPlan dry-run"
+        operations = self._build_single_scene_template_operations(
+            scene,
+            components,
+            script_query=payload["script_query"],
+            target_script_content=payload.get("target_script_content"),
+        )
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                INSERT INTO maitu_live_room_build_plans (
+                    build_plan_code, blueprint_code, plan_name, target_app, executor,
+                    status, strategy, description
+                )
+                VALUES (%s, %s, %s, 'maitu', 'browser_use', 'draft', %s, %s)
+                RETURNING *
+                """,
+                (
+                    build_plan_code,
+                    scene["blueprint_code"],
+                    plan_name,
+                    payload.get("strategy", "template_scene_dry_run"),
+                    payload.get("description") or f"单场景 dry-run：基于 {scene['scene_name']} 的模板组件索引生成。",
+                ),
+            )
+            plan = cursor.fetchone()
+            for operation in operations:
+                cursor.execute(
+                    """
+                    INSERT INTO maitu_live_room_build_plan_operations (
+                        build_plan_id, build_plan_code, operation_type, operation_name,
+                        sort_order, status, scene_name, layer_name, layer_role,
+                        required_category, accepted_asset_types, replacement_policy,
+                        selected_asset_code, selected_asset_title, selected_asset_display_code,
+                        selected_asset_local_file_code, selected_asset_original_filename,
+                        selected_asset_local_relative_path, selected_asset_browser_use_hint,
+                        match_score, match_reasons, selection_source,
+                        script_block_code, script_block_content, instruction, details
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        plan["id"],
+                        build_plan_code,
+                        operation["operation_type"],
+                        operation["operation_name"],
+                        operation["sort_order"],
+                        operation["status"],
+                        operation.get("scene_name"),
+                        operation.get("layer_name"),
+                        operation.get("layer_role"),
+                        operation.get("required_category"),
+                        Jsonb(operation.get("accepted_asset_types") or []),
+                        operation.get("replacement_policy"),
+                        operation.get("selected_asset_code"),
+                        operation.get("selected_asset_title"),
+                        operation.get("selected_asset_display_code"),
+                        operation.get("selected_asset_local_file_code"),
+                        operation.get("selected_asset_original_filename"),
+                        operation.get("selected_asset_local_relative_path"),
+                        operation.get("selected_asset_browser_use_hint"),
+                        operation.get("match_score"),
+                        Jsonb(operation.get("match_reasons") or []),
+                        operation.get("selection_source"),
+                        operation.get("script_block_code"),
+                        operation.get("script_block_content"),
+                        operation["instruction"],
+                        Jsonb(operation.get("details") or {}),
+                    ),
+                )
+        self.connection.commit()
+        return self.get_live_room_build_plan_by_code(build_plan_code) or self._normalize_live_room_build_plan(plan)
+
     def get_live_room_build_plan_by_code(self, build_plan_code: str) -> dict[str, Any] | None:
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
@@ -1723,6 +1814,125 @@ class MaituMaterialSlotRepository:
                 "status": "manual_review",
                 "instruction": "仅在所有前置操作验证通过后保存直播间草稿；默认不点击正式开播。",
                 "details": {"requires_human_or_preflight_pass": True},
+            }
+        )
+        return operations
+
+    @staticmethod
+    def _build_single_scene_template_operations(
+        scene: dict[str, Any],
+        components: list[dict[str, Any]],
+        *,
+        script_query: str,
+        target_script_content: str | None = None,
+    ) -> list[dict[str, Any]]:
+        scene_name = scene["scene_name"]
+        scene_template_code = scene["scene_template_code"]
+        script_content = target_script_content or scene.get("script_content") or script_query
+        operations: list[dict[str, Any]] = [
+            {
+                "operation_type": "preflight_scene_build_plan",
+                "operation_name": "只读预检单场景搭建计划",
+                "sort_order": 1,
+                "status": "ready",
+                "instruction": (
+                    f"预检单场景模板 {scene_template_code} / {scene_name}：确认目标直播间草稿、登录态、"
+                    "组件数量和禁开播规则；此计划为 dry-run，不直接操作麦兔。"
+                ),
+                "details": {
+                    "safety_gate": True,
+                    "scene_template_code": scene_template_code,
+                    "template_library_code": scene.get("template_library_code"),
+                    "script_query": script_query,
+                },
+            },
+            {
+                "operation_type": "create_scene_from_template",
+                "operation_name": f"按模板创建单场景 {scene_name}",
+                "sort_order": 10,
+                "status": "planned",
+                "scene_name": scene_name,
+                "instruction": (
+                    f"在新直播间草稿中创建/选择一个新场景，按模板场景 {scene_name} "
+                    f"({scene_template_code}) 复刻结构；只生成计划，不点击正式开播。"
+                ),
+                "details": {
+                    "scene_template_code": scene_template_code,
+                    "template_library_code": scene.get("template_library_code"),
+                    "scene_type": scene.get("scene_type"),
+                    "reference_product_name": scene.get("reference_product_name"),
+                    "reference_item_id": scene.get("reference_item_id"),
+                    "reference_clip_id": scene.get("reference_clip_id"),
+                    "component_count": len(components),
+                },
+            },
+        ]
+        sort_order = 20
+        for component in components:
+            component_name = component.get("component_name") or component.get("layer_name")
+            layer_role = component.get("layer_role") or component.get("component_role")
+            replacement_policy = component.get("replacement_policy") or "keep_layout"
+            operations.append(
+                {
+                    "operation_type": "insert_template_component",
+                    "operation_name": f"插入模板组件 {component_name}",
+                    "sort_order": sort_order,
+                    "status": "planned",
+                    "scene_name": scene_name,
+                    "layer_name": component.get("layer_name") or component_name,
+                    "layer_role": layer_role,
+                    "required_category": component.get("required_category"),
+                    "accepted_asset_types": component.get("accepted_asset_types") or [],
+                    "replacement_policy": replacement_policy,
+                    "instruction": (
+                        f"在单场景 {scene_name} 中插入/配置组件 {component_name}，角色 {layer_role}，"
+                        f"保持模板坐标、尺寸和层级；替换策略 {replacement_policy}。"
+                    ),
+                    "details": {
+                        "scene_template_code": scene_template_code,
+                        "component_template_code": component.get("component_template_code"),
+                        "component_type": component.get("component_type"),
+                        "component_role": component.get("component_role"),
+                        "material_id": component.get("material_id"),
+                        "material_tab": component.get("material_tab"),
+                        "source_material_type": component.get("source_material_type"),
+                        "geometry": component.get("geometry") or {},
+                        "z_index": component.get("z_index"),
+                        "speaker_id": component.get("speaker_id"),
+                        "digital_human_image_id": component.get("digital_human_image_id"),
+                        "source_material_url": component.get("source_material_url"),
+                        "source_cover_url": component.get("source_cover_url"),
+                    },
+                }
+            )
+            sort_order += 10
+        operations.append(
+            {
+                "operation_type": "add_script_block",
+                "operation_name": f"写入单场景脚本 {scene.get('script_block_code')}",
+                "sort_order": sort_order,
+                "status": "planned",
+                "scene_name": scene_name,
+                "script_block_code": scene.get("script_block_code"),
+                "script_block_content": script_content,
+                "instruction": f"在单场景 {scene_name} 的直播脚本区域写入目标脚本，并回读确认文本一致。",
+                "details": {
+                    "scene_template_code": scene_template_code,
+                    "script_query": script_query,
+                    "source_template_script_content": scene.get("script_content"),
+                    "script_sort_order": scene.get("script_sort_order"),
+                },
+            }
+        )
+        operations.append(
+            {
+                "operation_type": "save_live_room",
+                "operation_name": "保存单场景直播间草稿",
+                "sort_order": 999,
+                "status": "manual_review",
+                "scene_name": scene_name,
+                "instruction": "只在组件和脚本回读验证通过后保存草稿；禁止点击正式开播。",
+                "details": {"requires_human_or_preflight_pass": True, "scene_template_code": scene_template_code},
             }
         )
         return operations

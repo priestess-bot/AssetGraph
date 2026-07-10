@@ -20,6 +20,7 @@ from app.schemas.maitu import (
     MaituLiveRoomBuildPlanOperationPlanResponse,
     MaituLiveRoomBuildPlanRead,
     MaituLiveRoomComponentSearchResultRead,
+    MaituLiveRoomSceneBuildPlanCreate,
     MaituLiveRoomTemplateComponentRead,
     MaituLiveRoomTemplateSceneRead,
     MaituLayoutAdjustmentCreate,
@@ -287,6 +288,17 @@ def create_live_room_build_plan(
     row = repository.create_live_room_build_plan(payload.model_dump(exclude_none=True))
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Maitu live-room blueprint not found")
+    return row
+
+
+@router.post("/live-room-scene-build-plans", response_model=MaituLiveRoomBuildPlanRead, status_code=status.HTTP_201_CREATED)
+def create_live_room_scene_build_plan(
+    payload: MaituLiveRoomSceneBuildPlanCreate,
+    repository: Annotated[MaituMaterialSlotRepository, Depends(get_maitu_slot_repository)],
+) -> dict:
+    row = repository.create_live_room_scene_build_plan(payload.model_dump(exclude_none=True))
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Maitu live-room template scene not found")
     return row
 
 

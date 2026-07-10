@@ -91,3 +91,30 @@ curl --get 'http://127.0.0.1:8000/api/maitu/live-room-blueprints/scene-component
 - `matched_script_blocks`：命中的剧本块。
 - `components`：该场景去重后的组件清单。
 - `component_placements`：该场景每个图层的完整摆放信息，包含素材名、类型、角色、`material_id`、坐标、尺寸、层级、数字人/音色关联等。
+
+## 生成单场景搭建计划 dry-run
+
+后端 `POST /api/maitu/live-room-scene-build-plans` 支持用一段剧本先匹配一个模板场景，再基于该场景的组件索引生成单场景 BuildPlan。该接口只生成可审阅计划，不真实上传、插入、保存或开播。
+
+示例：
+
+```bash
+curl -X POST 'http://127.0.0.1:8000/api/maitu/live-room-scene-build-plans' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "reference_room_id": "38336",
+    "script_query": "龙谕的葡萄园，在宁夏贺兰山东麓",
+    "target_script_content": "今天我们用张裕夏日主题的结构讲龙谕龙8，突出贺兰山东麓风土。",
+    "plan_name": "龙谕龙8 单场景复刻 dry-run"
+  }'
+```
+
+期望操作序列：
+
+```text
+preflight_scene_build_plan
+create_scene_from_template
+insert_template_component * N
+add_script_block
+save_live_room(manual_review)
+```
