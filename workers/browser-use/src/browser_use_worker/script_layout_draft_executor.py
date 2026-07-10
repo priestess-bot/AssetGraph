@@ -273,6 +273,22 @@ class ScriptLayoutDraftRunner:
             result = self.session.insert_asset_layer(live_room_id=live_room_id, clip_id=clip_id, operation=operation)
         except Exception as exc:  # pragma: no cover - runtime boundary
             return self._failed_action(index, operation, "insert_asset_layer", str(exc), scene_index=scene_index)
+        if self._optional_string(result.get("status")) in {"manual_required", "skipped"}:
+            return ScriptLayoutDraftActionResult(
+                operation_index=index,
+                operation_type="insert_asset_layer",
+                operation_name=self._optional_string(operation.get("operation_name")),
+                action_type="manual_required_asset_binding",
+                status="skipped",
+                summary="Selected AssetGraph asset is not yet bound to a Maitu material/source URL; no fake layer was inserted.",
+                scene_index=scene_index,
+                scene_name=self._optional_string(operation.get("scene_name")),
+                clip_id=clip_id,
+                layer_id=self._optional_string(operation.get("layer_id")),
+                layer_type=self._optional_string(operation.get("layer_type")),
+                asset_code=asset_code,
+                details={"insert_result": result, "manual_required": True, "go_live_clicked": False},
+            )
         return ScriptLayoutDraftActionResult(
             operation_index=index,
             operation_type="insert_asset_layer",
@@ -298,6 +314,22 @@ class ScriptLayoutDraftRunner:
             result = self.session.position_asset_layer(live_room_id=live_room_id, clip_id=clip_id, operation=operation)
         except Exception as exc:  # pragma: no cover - runtime boundary
             return self._failed_action(index, operation, "position_asset_layer", str(exc), scene_index=scene_index)
+        if self._optional_string(result.get("status")) in {"manual_required", "skipped"}:
+            return ScriptLayoutDraftActionResult(
+                operation_index=index,
+                operation_type="position_asset_layer",
+                operation_name=self._optional_string(operation.get("operation_name")),
+                action_type="manual_required_position_binding",
+                status="skipped",
+                summary="Layer positioning skipped because the target Maitu material was not found or not yet inserted.",
+                scene_index=scene_index,
+                scene_name=self._optional_string(operation.get("scene_name")),
+                clip_id=clip_id,
+                layer_id=self._optional_string(operation.get("layer_id")),
+                layer_type=self._optional_string(operation.get("layer_type")),
+                asset_code=self._optional_string(operation.get("asset_code")),
+                details={"position_result": result, "manual_required": True, "go_live_clicked": False},
+            )
         return ScriptLayoutDraftActionResult(
             operation_index=index,
             operation_type="position_asset_layer",

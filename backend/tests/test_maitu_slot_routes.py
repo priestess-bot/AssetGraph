@@ -2114,6 +2114,9 @@ def test_create_script_layout_plan_placeholder_mode_adds_manual_placeholder_laye
                             "selected_asset_code": "AG-IMG-PROMO",
                             "selected_asset_display_code": "MT-STICKER-PROMO",
                             "selected_asset_local_file_code": "MT-STICKER-PROMO",
+                            "selected_asset_original_filename": "promo.png",
+                            "selected_asset_local_relative_path": "贴片/promo.png",
+                            "selected_asset_browser_use_hint": "用于麦兔贴片素材选择：优惠 商品卡",
                             "match_score": 0.88,
                         },
                         {
@@ -2165,6 +2168,8 @@ def test_create_script_layout_plan_placeholder_mode_adds_manual_placeholder_laye
     assert product_layer["z_index"] == 5
     promo_layer = next(layer for layer in scene["layers"] if layer["layer_type"] == "promotion_sticker")
     assert promo_layer["asset_code"] == "AG-IMG-PROMO"
+    assert promo_layer["asset_local_relative_path"] == "贴片/promo.png"
+    assert promo_layer["asset_browser_use_hint"] == "用于麦兔贴片素材选择：优惠 商品卡"
     assert promo_layer["x"] == 80
     assert promo_layer["y"] == 1240
     assert scene["script_block"]["status"] == "ready"
@@ -2201,6 +2206,9 @@ def test_create_script_layout_build_plan_strict_returns_blocked_without_operatio
                                 "asset_code": "AG-IMG-BG",
                                 "asset_display_code": "MT-BG-HELANS",
                                 "asset_local_file_code": "MT-BG-HELANS",
+                                "asset_original_filename": "helan-bg.png",
+                                "asset_local_relative_path": "背景/helan-bg.png",
+                                "asset_browser_use_hint": "用于麦兔背景素材选择：贺兰山",
                                 "x": 0,
                                 "y": 0,
                                 "width": 1080,
@@ -2273,6 +2281,9 @@ def test_create_script_layout_build_plan_placeholder_generates_safe_draft_operat
                                 "asset_code": "AG-IMG-BG",
                                 "asset_display_code": "MT-BG-HELANS",
                                 "asset_local_file_code": "MT-BG-HELANS",
+                                "asset_original_filename": "helan-bg.png",
+                                "asset_local_relative_path": "背景/helan-bg.png",
+                                "asset_browser_use_hint": "用于麦兔背景素材选择：贺兰山",
                                 "x": 0,
                                 "y": 0,
                                 "width": 1080,
@@ -2358,6 +2369,8 @@ def test_create_script_layout_build_plan_placeholder_generates_safe_draft_operat
         if operation["operation_type"] == "insert_asset_layer" and operation["asset_code"] == "AG-IMG-BG"
     )
     assert insert_bg["scene_index"] == 0
+    assert insert_bg["asset_local_relative_path"] == "背景/helan-bg.png"
+    assert insert_bg["asset_browser_use_hint"] == "用于麦兔背景素材选择：贺兰山"
     assert insert_bg["x"] == 0
     assert insert_bg["y"] == 0
     assert insert_bg["z_index"] == 1

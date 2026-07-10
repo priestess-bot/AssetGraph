@@ -385,6 +385,230 @@ class BrowserUseCliSession(MaituBrowserSession):
 """.strip().replace("__ARGS__", json.dumps(args, ensure_ascii=False))
         return self._eval_json(script)
 
+    def create_scene(self, *, live_room_id: str, scene_name: str, scene_index: int) -> dict[str, Any]:
+        args = {"liveRoomId": str(live_room_id), "sceneName": scene_name, "sceneIndex": int(scene_index)}
+        script = """
+(() => {
+  const args = __ARGS__;
+  const token = localStorage.getItem('token') || '';
+  const unwrap = (r) => (r && typeof r === 'object' && r.success === true && 'data' in r) ? r.data : r;
+  const arr = (x) => Array.isArray(x) ? x : [];
+  function xhr(method, path, body, allowFail=false) {
+    const x = new XMLHttpRequest();
+    x.open(method, 'https://api.maituai.com/' + path, false);
+    x.setRequestHeader('Content-Type', 'application/json');
+    if (token) x.setRequestHeader('Authorization', token);
+    x.send(body === undefined ? null : JSON.stringify(body));
+    let data = null;
+    try { data = x.responseText ? JSON.parse(x.responseText) : null; } catch (e) { data = {raw:x.responseText}; }
+    if (!allowFail && !(x.status >= 200 && x.status < 300)) throw new Error(method + ' ' + path + ' failed ' + x.status + ': ' + x.responseText);
+    return {status:x.status, ok:x.status >= 200 && x.status < 300, data};
+  }
+  const room = unwrap(xhr('GET', 'live_rooms/' + args.liveRoomId + '?env=working&include_qa_clips=true').data);
+  const topic = arr(room.topics)[0] || {};
+  const clips = arr(topic.clips);
+  const template = clips[0] || {};
+  const payload = {...template, name: args.sceneName, order_num: args.sceneIndex, live_room_id: Number(args.liveRoomId), topic_id: topic.id || template.topic_id};
+  delete payload.id;
+  delete payload.clip_materials;
+  delete payload.created_at;
+  delete payload.updated_at;
+  const created = unwrap(xhr('POST', 'clips', payload).data);
+  const verifyRoom = unwrap(xhr('GET', 'live_rooms/' + args.liveRoomId + '?env=working&include_qa_clips=true').data);
+  const verifyClips = arr((arr(verifyRoom.topics)[0] || {}).clips);
+  const matched = verifyClips.find((clip) => String(clip.id) === String(created && created.id))
+    || verifyClips.find((clip) => clip.name === args.sceneName && Number(clip.order_num || 0) === args.sceneIndex)
+    || created;
+  return JSON.stringify({
+    status: 'created',
+    live_room_id: args.liveRoomId,
+    clip_id: matched && matched.id,
+    name: matched && matched.name || args.sceneName,
+    order_num: matched && matched.order_num,
+    response: created,
+    go_live_clicked: false,
+  });
+})()
+""".strip().replace("__ARGS__", json.dumps(args, ensure_ascii=False))
+        return self._eval_json(script)
+
+    def insert_asset_layer(self, *, live_room_id: str, clip_id: int, operation: dict[str, Any]) -> dict[str, Any]:
+        args = {"liveRoomId": str(live_room_id), "clipId": int(clip_id), "operation": operation}
+        script = """
+(() => {
+  const args = __ARGS__;
+  const op = args.operation || {};
+  const token = localStorage.getItem('token') || '';
+  const unwrap = (r) => (r && typeof r === 'object' && r.success === true && 'data' in r) ? r.data : r;
+  function xhr(method, path, body, allowFail=false) {
+    const x = new XMLHttpRequest();
+    x.open(method, 'https://api.maituai.com/' + path, false);
+    x.setRequestHeader('Content-Type', 'application/json');
+    if (token) x.setRequestHeader('Authorization', token);
+    x.send(body === undefined ? null : JSON.stringify(body));
+    let data = null;
+    try { data = x.responseText ? JSON.parse(x.responseText) : null; } catch (e) { data = {raw:x.responseText}; }
+    if (!allowFail && !(x.status >= 200 && x.status < 300)) throw new Error(method + ' ' + path + ' failed ' + x.status + ': ' + x.responseText);
+    return {status:x.status, ok:x.status >= 200 && x.status < 300, data};
+  }
+  const sourceUrl = op.source_material_url || op.asset_url || op.url || null;
+  const coverUrl = op.source_cover_url || op.cover_url || sourceUrl || null;
+  const materialId = op.material_id || op.maitu_material_id || null;
+  const digitalHumanImageId = op.digital_human_image_id || null;
+  const speakerId = op.speaker_id || null;
+  if (!sourceUrl && !materialId && !digitalHumanImageId && !speakerId) {
+    return JSON.stringify({
+      status: 'manual_required',
+      reason: 'missing_maitu_material_binding',
+      asset_code: op.asset_code || null,
+      asset_display_code: op.asset_display_code || null,
+      asset_local_file_code: op.asset_local_file_code || null,
+      asset_local_relative_path: op.asset_local_relative_path || null,
+      go_live_clicked: false,
+    });
+  }
+  const layerType = String(op.layer_type || op.need_type || 'image');
+  const materialType = layerType.includes('video') ? 'video'
+    : layerType.includes('digital_human') ? 'digital_human'
+    : 'image';
+  const style = {left: op.x || 0, top: op.y || 0, width: op.width || null, height: op.height || null, zIndex: op.z_index || 1, fit: op.fit || 'contain'};
+  const payload = {
+    type: materialType,
+    clip_id: args.clipId,
+    name: op.layer_id || op.layer_type || op.asset_display_code || op.asset_code || 'script_asset_layer',
+    url: sourceUrl,
+    cover_url: coverUrl,
+    material_id: materialId,
+    digital_human_image_id: digitalHumanImageId,
+    speaker_id: speakerId,
+    width: op.width || null,
+    height: op.height || null,
+    left: op.x || 0,
+    top: op.y || 0,
+    layer_n: op.z_index || 1,
+    style_front: JSON.stringify(style),
+  };
+  const created = unwrap(xhr('POST', 'clip_materials', payload).data);
+  return JSON.stringify({
+    status: 'inserted',
+    live_room_id: args.liveRoomId,
+    clip_id: args.clipId,
+    layer_id: op.layer_id || null,
+    asset_code: op.asset_code || null,
+    material_id: created && created.id,
+    response: created,
+    go_live_clicked: false,
+  });
+})()
+""".strip().replace("__ARGS__", json.dumps(args, ensure_ascii=False))
+        return self._eval_json(script)
+
+    def position_asset_layer(self, *, live_room_id: str, clip_id: int, operation: dict[str, Any]) -> dict[str, Any]:
+        args = {"liveRoomId": str(live_room_id), "clipId": int(clip_id), "operation": operation}
+        script = """
+(() => {
+  const args = __ARGS__;
+  const op = args.operation || {};
+  const token = localStorage.getItem('token') || '';
+  const unwrap = (r) => (r && typeof r === 'object' && r.success === true && 'data' in r) ? r.data : r;
+  const arr = (x) => Array.isArray(x) ? x : [];
+  function xhr(method, path, body, allowFail=false) {
+    const x = new XMLHttpRequest();
+    x.open(method, 'https://api.maituai.com/' + path, false);
+    x.setRequestHeader('Content-Type', 'application/json');
+    if (token) x.setRequestHeader('Authorization', token);
+    x.send(body === undefined ? null : JSON.stringify(body));
+    let data = null;
+    try { data = x.responseText ? JSON.parse(x.responseText) : null; } catch (e) { data = {raw:x.responseText}; }
+    if (!allowFail && !(x.status >= 200 && x.status < 300)) throw new Error(method + ' ' + path + ' failed ' + x.status + ': ' + x.responseText);
+    return {status:x.status, ok:x.status >= 200 && x.status < 300, data};
+  }
+  const room = unwrap(xhr('GET', 'live_rooms/' + args.liveRoomId + '?env=working&include_qa_clips=true').data);
+  const clips = arr((arr(room.topics)[0] || {}).clips);
+  const clip = clips.find((item) => String(item.id) === String(args.clipId)) || {};
+  const materials = arr(clip.clip_materials);
+  const material = materials.find((item) => String(item.id) === String(op.material_id || op.maitu_material_id || ''))
+    || materials.find((item) => item.name === op.layer_id || item.name === op.layer_type)
+    || materials.find((item) => item.asset_code && item.asset_code === op.asset_code);
+  if (!material || !material.id) {
+    return JSON.stringify({status:'manual_required', reason:'target_material_not_found', layer_id:op.layer_id || null, asset_code:op.asset_code || null, go_live_clicked:false});
+  }
+  const style = {...(typeof material.style_front === 'string' ? JSON.parse(material.style_front || '{}') : (material.style_front || {}))};
+  style.left = op.x || 0;
+  style.top = op.y || 0;
+  style.width = op.width || material.width || null;
+  style.height = op.height || material.height || null;
+  style.zIndex = op.z_index || material.layer_n || 1;
+  const payload = {...material, left: style.left, top: style.top, width: style.width, height: style.height, layer_n: style.zIndex, style_front: JSON.stringify(style)};
+  const updated = unwrap(xhr('PUT', 'clip_materials/' + material.id, payload).data);
+  return JSON.stringify({status:'positioned', clip_id:args.clipId, material_id:material.id, layer_id:op.layer_id || null, response:updated, go_live_clicked:false});
+})()
+""".strip().replace("__ARGS__", json.dumps(args, ensure_ascii=False))
+        return self._eval_json(script)
+
+    def write_script(self, *, live_room_id: str, clip_id: int, scene_name: str, script_text: str) -> dict[str, Any]:
+        args = {"liveRoomId": str(live_room_id), "clipId": int(clip_id), "sceneName": scene_name, "scriptText": script_text}
+        script = """
+(() => {
+  const args = __ARGS__;
+  const token = localStorage.getItem('token') || '';
+  const unwrap = (r) => (r && typeof r === 'object' && r.success === true && 'data' in r) ? r.data : r;
+  const arr = (x) => Array.isArray(x) ? x : [];
+  function xhr(method, path, body, allowFail=false) {
+    const x = new XMLHttpRequest();
+    x.open(method, 'https://api.maituai.com/' + path, false);
+    x.setRequestHeader('Content-Type', 'application/json');
+    if (token) x.setRequestHeader('Authorization', token);
+    x.send(body === undefined ? null : JSON.stringify(body));
+    let data = null;
+    try { data = x.responseText ? JSON.parse(x.responseText) : null; } catch (e) { data = {raw:x.responseText}; }
+    if (!allowFail && !(x.status >= 200 && x.status < 300)) throw new Error(method + ' ' + path + ' failed ' + x.status + ': ' + x.responseText);
+    return {status:x.status, ok:x.status >= 200 && x.status < 300, data};
+  }
+  const room = unwrap(xhr('GET', 'live_rooms/' + args.liveRoomId + '?env=working&include_qa_clips=true').data);
+  const clips = arr((arr(room.topics)[0] || {}).clips);
+  const clip = clips.find((item) => String(item.id) === String(args.clipId)) || {};
+  for (const material of arr(clip.clip_materials)) {
+    if (material.type === 'text' || material.type === 'audio') {
+      xhr('DELETE', 'clip_materials/' + material.id, {}, true);
+    }
+  }
+  const textMaterial = unwrap(xhr('POST', 'clip_materials', {type:'text', clip_id:args.clipId, content:args.scriptText, order_num:0}).data);
+  return JSON.stringify({status:'written', live_room_id:args.liveRoomId, clip_id:args.clipId, scene_name:args.sceneName, text_material_id:textMaterial && textMaterial.id, script_length:(args.scriptText || '').length, go_live_clicked:false});
+})()
+""".strip().replace("__ARGS__", json.dumps(args, ensure_ascii=False))
+        return self._eval_json(script)
+
+    def verify_scene(self, *, live_room_id: str, clip_id: int, scene_name: str, operation: dict[str, Any]) -> dict[str, Any]:
+        args = {"liveRoomId": str(live_room_id), "clipId": int(clip_id), "sceneName": scene_name, "operation": operation}
+        script = """
+(() => {
+  const args = __ARGS__;
+  const token = localStorage.getItem('token') || '';
+  const unwrap = (r) => (r && typeof r === 'object' && r.success === true && 'data' in r) ? r.data : r;
+  const arr = (x) => Array.isArray(x) ? x : [];
+  function xhr(method, path, body) {
+    const x = new XMLHttpRequest();
+    x.open(method, 'https://api.maituai.com/' + path, false);
+    x.setRequestHeader('Content-Type', 'application/json');
+    if (token) x.setRequestHeader('Authorization', token);
+    x.send(body === undefined ? null : JSON.stringify(body));
+    let data = null;
+    try { data = x.responseText ? JSON.parse(x.responseText) : null; } catch (e) { data = {raw:x.responseText}; }
+    if (!(x.status >= 200 && x.status < 300)) throw new Error(method + ' ' + path + ' failed ' + x.status + ': ' + x.responseText);
+    return {status:x.status, ok:x.status >= 200 && x.status < 300, data};
+  }
+  const room = unwrap(xhr('GET', 'live_rooms/' + args.liveRoomId + '?env=working&include_qa_clips=true').data);
+  const clips = arr((arr(room.topics)[0] || {}).clips);
+  const clip = clips.find((item) => String(item.id) === String(args.clipId)) || {};
+  const materials = arr(clip.clip_materials);
+  const texts = materials.filter((m) => m.type === 'text');
+  const visuals = materials.filter((m) => m.type !== 'text' && m.type !== 'audio');
+  return JSON.stringify({status:'verified', live_room_id:args.liveRoomId, clip_id:args.clipId, scene_name:clip.name || args.sceneName, visual_count:visuals.length, text_count:texts.length, script_present:texts.length > 0, material_ids:materials.map((m) => m.id), go_live_clicked:false});
+})()
+""".strip().replace("__ARGS__", json.dumps(args, ensure_ascii=False))
+        return self._eval_json(script)
+
     def select_scene(self, scene_name: str) -> dict[str, Any]:
         return self._click_existing_text_target(
             target=scene_name,

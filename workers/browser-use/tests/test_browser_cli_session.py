@@ -238,6 +238,54 @@ def test_live_scene_fill_api_methods_use_browser_use_eval() -> None:
     assert "localStorage.getItem('token')" in runner.commands[2][4]
 
 
+def test_script_layout_draft_api_methods_use_browser_use_eval() -> None:
+    create_payload = {"status": "created", "clip_id": 416426, "name": "促单", "go_live_clicked": False}
+    insert_payload = {"status": "manual_required", "reason": "missing_maitu_material_binding", "asset_code": "AG-IMG-BG", "go_live_clicked": False}
+    position_payload = {"status": "manual_required", "reason": "target_material_not_found", "layer_id": "scene-00-background_image", "go_live_clicked": False}
+    script_payload = {"status": "written", "clip_id": 416425, "script_length": 9, "go_live_clicked": False}
+    verify_payload = {"status": "verified", "clip_id": 416425, "visual_count": 0, "text_count": 1, "script_present": True, "go_live_clicked": False}
+    session, runner = make_session([
+        "result: " + json.dumps(create_payload, ensure_ascii=False),
+        "result: " + json.dumps(insert_payload, ensure_ascii=False),
+        "result: " + json.dumps(position_payload, ensure_ascii=False),
+        "result: " + json.dumps(script_payload, ensure_ascii=False),
+        "result: " + json.dumps(verify_payload, ensure_ascii=False),
+    ])
+
+    assert session.create_scene(live_room_id="47000002", scene_name="促单", scene_index=1) == create_payload
+    assert session.insert_asset_layer(
+        live_room_id="47000002",
+        clip_id=416425,
+        operation={
+            "layer_id": "scene-00-background_image",
+            "layer_type": "background_image",
+            "asset_code": "AG-IMG-BG",
+            "asset_local_relative_path": "背景/bg.png",
+            "x": 0,
+            "y": 0,
+            "width": 1080,
+            "height": 1920,
+            "z_index": 1,
+        },
+    )["status"] == "manual_required"
+    assert session.position_asset_layer(
+        live_room_id="47000002",
+        clip_id=416425,
+        operation={"layer_id": "scene-00-background_image", "asset_code": "AG-IMG-BG", "x": 0, "y": 0, "z_index": 1},
+    )["reason"] == "target_material_not_found"
+    assert session.write_script(live_room_id="47000002", clip_id=416425, scene_name="开场", script_text="欢迎来到直播间。") == script_payload
+    assert session.verify_scene(live_room_id="47000002", clip_id=416425, scene_name="开场", operation={}) == verify_payload
+
+    assert len(runner.commands) == 5
+    assert all(command[:4] == ("uv", "run", "browser-use", "eval") for command in runner.commands)
+    assert "'POST', 'clips'" in runner.commands[0][4]
+    assert "missing_maitu_material_binding" in runner.commands[1][4]
+    assert "'PUT', 'clip_materials/'" in runner.commands[2][4]
+    assert "'POST', 'clip_materials'" in runner.commands[3][4]
+    assert "'live_rooms/' + args.liveRoomId" in runner.commands[4][4]
+    assert all("go_live_clicked" in command[4] for command in runner.commands)
+
+
 def test_non_destructive_scene_and_tab_clicks_use_browser_use_eval() -> None:
     session, runner = make_session([
         '{"clicked":true,"target":"场景02"}',

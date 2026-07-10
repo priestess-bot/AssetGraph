@@ -285,3 +285,24 @@ def test_script_layout_draft_execution_payload_maps_action_results() -> None:
     assert payload["operation_results"][4]["operation_type"] == "placeholder_required"
     assert payload["operation_results"][4]["status"] == "skipped"
     assert payload["operation_results"][-1]["action_type"] == "manual_review_save_not_clicked"
+
+
+def test_script_layout_draft_runner_skips_ready_asset_when_maitu_binding_is_missing() -> None:
+    class MissingBindingSession(FakeScriptLayoutDraftSession):
+        def insert_asset_layer(self, *, live_room_id: str, clip_id: int, operation: dict) -> dict:
+            self.calls.append(("insert_asset_layer", {"clip_id": clip_id, "asset_code": operation.get("asset_code")}))
+            return {"status": "manual_required", "reason": "missing_maitu_material_binding", "asset_code": operation.get("asset_code")}
+
+        def position_asset_layer(self, *, live_room_id: str, clip_id: int, operation: dict) -> dict:
+            self.calls.append(("position_asset_layer", {"clip_id": clip_id, "layer_id": operation.get("layer_id")}))
+            return {"status": "manual_required", "reason": "target_material_not_found", "layer_id": operation.get("layer_id")}
+
+    result = ScriptLayoutDraftRunner(session=MissingBindingSession()).run(content_build_plan())
+
+    insert_action = next(action for action in result.actions if action.operation_type == "insert_asset_layer")
+    position_action = next(action for action in result.actions if action.operation_type == "position_asset_layer")
+    assert insert_action.status == "skipped"
+    assert insert_action.action_type == "manual_required_asset_binding"
+    assert position_action.status == "skipped"
+    assert position_action.action_type == "manual_required_position_binding"
+    assert result.ready_for_go_live is False

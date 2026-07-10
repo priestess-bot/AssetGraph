@@ -164,6 +164,9 @@ class MaituScriptLayoutLayerRead(BaseModel):
     asset_code: str | None = None
     asset_display_code: str | None = None
     asset_local_file_code: str | None = None
+    asset_original_filename: str | None = None
+    asset_local_relative_path: str | None = None
+    asset_browser_use_hint: str | None = None
     asset_title: str | None = None
     x: int
     y: int
