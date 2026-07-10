@@ -1833,6 +1833,157 @@ def test_create_script_asset_selections_marks_missing_assets_for_manual_review(c
     assert scene["missing_asset_needs"][0]["need_type"] == "special_3d_packshot"
 
 
+def test_create_script_asset_gap_report_aggregates_missing_needs_and_blocks_auto_build(client: TestClient) -> None:
+    response = client.post(
+        "/api/maitu/script-asset-gap-report",
+        json={
+            "scenes": [
+                {
+                    "scene_index": 0,
+                    "scene_name": "开场",
+                    "scene_goal": "opening",
+                    "duration_seconds": 45,
+                    "script": "开场展示龙谕龙8。",
+                    "keywords": ["龙谕龙8"],
+                    "asset_selections": [
+                        {
+                            "need_type": "product_image",
+                            "required_category": "product_image",
+                            "accepted_asset_types": ["IMG"],
+                            "description": "龙谕龙8商品主图或瓶身图",
+                            "keywords": ["龙谕龙8", "瓶身"],
+                            "priority": "high",
+                            "status": "missing_asset",
+                        }
+                    ],
+                    "selected_count": 0,
+                    "missing_count": 1,
+                    "missing_asset_needs": [
+                        {
+                            "need_type": "product_image",
+                            "required_category": "product_image",
+                            "accepted_asset_types": ["IMG"],
+                            "description": "龙谕龙8商品主图或瓶身图",
+                            "keywords": ["龙谕龙8", "瓶身"],
+                            "priority": "high",
+                            "suggested_layer_role": "product_image",
+                        }
+                    ],
+                    "manual_review": True,
+                    "review_reasons": ["missing_asset:product_image"],
+                },
+                {
+                    "scene_index": 1,
+                    "scene_name": "产品亮点",
+                    "scene_goal": "product_explanation",
+                    "duration_seconds": 45,
+                    "script": "讲解龙谕龙8整箱装。",
+                    "keywords": ["龙谕龙8", "整箱"],
+                    "asset_selections": [
+                        {
+                            "need_type": "product_image",
+                            "required_category": "product_image",
+                            "accepted_asset_types": ["IMG"],
+                            "description": "龙谕龙8整箱商品图",
+                            "keywords": ["龙谕龙8", "整箱"],
+                            "priority": "high",
+                            "status": "missing_asset",
+                        }
+                    ],
+                    "selected_count": 0,
+                    "missing_count": 1,
+                    "missing_asset_needs": [
+                        {
+                            "need_type": "product_image",
+                            "required_category": "product_image",
+                            "accepted_asset_types": ["IMG"],
+                            "description": "龙谕龙8整箱商品图",
+                            "keywords": ["龙谕龙8", "整箱"],
+                            "priority": "high",
+                            "suggested_layer_role": "product_image",
+                        }
+                    ],
+                    "manual_review": True,
+                    "review_reasons": ["missing_asset:product_image"],
+                },
+            ]
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["source"] == "script_content_asset_gap_report_rule_v1"
+    assert body["gap_count"] == 1
+    assert body["total_missing_occurrences"] == 2
+    assert body["blocking_gap_count"] == 1
+    assert body["can_build_with_fallback"] is False
+    gap = body["gaps"][0]
+    assert gap["need_type"] == "product_image"
+    assert gap["required_category"] == "product_image"
+    assert gap["priority"] == "high"
+    assert gap["blocks_auto_build"] is True
+    assert gap["affected_scene_indexes"] == [0, 1]
+    assert gap["affected_scene_names"] == ["开场", "产品亮点"]
+    assert {"龙谕龙8", "瓶身", "整箱"}.issubset(set(gap["keywords"]))
+    assert gap["recommended_asset_specs"][0]["required_category"] == "product_image"
+    assert gap["recommended_asset_specs"][0]["accepted_asset_types"] == ["IMG"]
+    assert "龙谕龙8" in gap["recommended_asset_specs"][0]["suggested_filename_keywords"]
+    assert "不要用无关素材硬替换" in gap["fallback_strategy"]
+
+
+def test_create_script_asset_gap_report_allows_build_when_no_missing_assets(client: TestClient) -> None:
+    response = client.post(
+        "/api/maitu/script-asset-gap-report",
+        json={
+            "scenes": [
+                {
+                    "scene_index": 0,
+                    "scene_name": "开场",
+                    "scene_goal": "opening",
+                    "duration_seconds": 45,
+                    "script": "开场展示张裕。",
+                    "keywords": ["张裕"],
+                    "asset_selections": [
+                        {
+                            "need_type": "script_text",
+                            "required_category": "script_text",
+                            "accepted_asset_types": ["TEXT"],
+                            "description": "开场话术",
+                            "keywords": ["张裕"],
+                            "priority": "high",
+                            "status": "generated_content",
+                            "match_score": 1.0,
+                        },
+                        {
+                            "need_type": "background_image",
+                            "required_category": "background_image",
+                            "accepted_asset_types": ["IMG"],
+                            "description": "品牌背景",
+                            "keywords": ["张裕"],
+                            "priority": "high",
+                            "status": "selected",
+                            "selected_asset_code": "AG-IMG-OK",
+                            "match_score": 0.9,
+                        },
+                    ],
+                    "selected_count": 1,
+                    "missing_count": 0,
+                    "missing_asset_needs": [],
+                    "manual_review": False,
+                    "review_reasons": [],
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["gap_count"] == 0
+    assert body["blocking_gap_count"] == 0
+    assert body["can_build_with_fallback"] is True
+    assert body["readiness_status"] == "ready_for_layout"
+
+
 def test_create_script_scene_template_matches_maps_each_script_scene_to_one_template_and_assets(client: TestClient) -> None:
     import_response = client.post(
         "/api/maitu/live-room-blueprints/import-reference",

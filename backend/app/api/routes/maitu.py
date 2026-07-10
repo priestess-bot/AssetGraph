@@ -9,6 +9,7 @@ from app.core.database import get_db
 from app.repositories.maitu import MaituMaterialSlotRepository
 from app.services.asset_candidates import AssetCandidate, AssetRetrievalIndex
 from app.services.qwen3_client import Qwen3Client, Qwen3ClientError
+from app.services.script_asset_gap_reporter import ScriptAssetGapReporter
 from app.services.script_asset_need_planner import ScriptAssetNeedPlanner
 from app.services.script_asset_selector import ScriptAssetSelector
 from app.services.script_scene_planner import ScriptScenePlanner
@@ -37,6 +38,8 @@ from app.schemas.maitu import (
     MaituMaterialSlotCreate,
     MaituMaterialSlotRead,
     MaituMaterialSlotUpdate,
+    MaituScriptAssetGapReportCreate,
+    MaituScriptAssetGapReportRead,
     MaituScriptAssetNeedCreate,
     MaituScriptAssetNeedPlanRead,
     MaituScriptAssetSelectionCreate,
@@ -118,6 +121,11 @@ def create_script_asset_selections(
         [scene.model_dump() for scene in payload.scenes],
         max_candidates_per_need=payload.max_candidates_per_need,
     )
+
+
+@router.post("/script-asset-gap-report", response_model=MaituScriptAssetGapReportRead, status_code=status.HTTP_201_CREATED)
+def create_script_asset_gap_report(payload: MaituScriptAssetGapReportCreate) -> dict:
+    return ScriptAssetGapReporter().report([scene.model_dump() for scene in payload.scenes])
 
 
 @router.post(

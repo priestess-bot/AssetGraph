@@ -118,6 +118,36 @@ class MaituScriptAssetSelectionPlanRead(BaseModel):
     scenes: list[MaituScriptAssetSelectionSceneRead] = Field(default_factory=list)
 
 
+class MaituScriptAssetGapReportCreate(BaseModel):
+    scenes: list[MaituScriptAssetSelectionSceneRead] = Field(..., min_length=1)
+
+
+class MaituScriptAssetGapRead(BaseModel):
+    need_type: str
+    required_category: str
+    accepted_asset_types: list[str] = Field(default_factory=list)
+    priority: str
+    missing_occurrences: int
+    affected_scene_indexes: list[int] = Field(default_factory=list)
+    affected_scene_names: list[str] = Field(default_factory=list)
+    descriptions: list[str] = Field(default_factory=list)
+    keywords: list[str] = Field(default_factory=list)
+    blocks_auto_build: bool = False
+    fallback_strategy: str
+    recommended_asset_specs: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class MaituScriptAssetGapReportRead(BaseModel):
+    source: str
+    scene_count: int
+    gap_count: int
+    total_missing_occurrences: int
+    blocking_gap_count: int
+    can_build_with_fallback: bool
+    readiness_status: str
+    gaps: list[MaituScriptAssetGapRead] = Field(default_factory=list)
+
+
 class MaituScriptSceneTemplateMatchCreate(BaseModel):
     scenes: list[MaituScriptSceneRead] = Field(..., min_length=1)
     blueprint_code: str | None = Field(default=None, max_length=64)
