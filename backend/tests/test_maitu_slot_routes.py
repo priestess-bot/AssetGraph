@@ -1471,6 +1471,50 @@ def client() -> TestClient:
     app.dependency_overrides.clear()
 
 
+def test_create_script_scene_plan_splits_full_script_into_ordered_scenes(client: TestClient) -> None:
+    response = client.post(
+        "/api/maitu/script-scene-plans",
+        json={
+            "script_text": """
+            开场：大家好，欢迎来到张裕直播间，今天先用夏日主题带大家看龙谕龙8。
+
+            产品亮点：龙谕龙8来自宁夏贺兰山东麓，适合宴请送礼，口感饱满。
+
+            促单：现在下单有组合优惠，喜欢干红的朋友可以先点商品卡。
+            """,
+            "target_scene_count": 3,
+            "default_scene_duration_seconds": 45,
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["scene_count"] == 3
+    assert body["source"] == "rule_based_v1"
+    assert [scene["scene_index"] for scene in body["scenes"]] == [0, 1, 2]
+    assert body["scenes"][0]["scene_goal"] == "opening"
+    assert body["scenes"][1]["scene_goal"] == "product_explanation"
+    assert body["scenes"][2]["scene_goal"] == "conversion"
+    assert body["scenes"][0]["duration_seconds"] == 45
+    assert "龙谕龙8" in body["scenes"][1]["script"]
+    assert "贺兰山东麓" in body["scenes"][1]["keywords"]
+    assert body["manual_review_required"] is False
+
+
+def test_create_script_scene_plan_marks_ambiguous_short_script_for_review(client: TestClient) -> None:
+    response = client.post(
+        "/api/maitu/script-scene-plans",
+        json={"script_text": "今天讲一款酒。", "target_scene_count": 4},
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["scene_count"] == 1
+    assert body["manual_review_required"] is True
+    assert body["scenes"][0]["manual_review"] is True
+    assert "too_short" in body["scenes"][0]["review_reasons"]
+
+
 def test_create_jd_live_metric_session_and_samples(client: TestClient) -> None:
     create_response = client.post(
         "/api/maitu/jd-live-metric-sessions",

@@ -9,6 +9,7 @@ from app.core.database import get_db
 from app.repositories.maitu import MaituMaterialSlotRepository
 from app.services.asset_candidates import AssetCandidate, AssetRetrievalIndex
 from app.services.qwen3_client import Qwen3Client, Qwen3ClientError
+from app.services.script_scene_planner import ScriptScenePlanner
 from app.schemas.maitu import (
     MaituBrowserUseOperationPlanResponse,
     MaituCandidateAssetsResponse,
@@ -33,6 +34,8 @@ from app.schemas.maitu import (
     MaituMaterialSlotCreate,
     MaituMaterialSlotRead,
     MaituMaterialSlotUpdate,
+    MaituScriptScenePlanCreate,
+    MaituScriptScenePlanRead,
     MaituReplacementPlanCreate,
     MaituReplacementPlanExecutionResultCreate,
     MaituReplacementPlanExecutionResultRead,
@@ -77,6 +80,15 @@ def get_slot_candidate_qwen3_client_factory() -> Callable[[], Qwen3Client]:
         )
 
     return build_client
+
+
+@router.post("/script-scene-plans", response_model=MaituScriptScenePlanRead, status_code=status.HTTP_201_CREATED)
+def create_script_scene_plan(payload: MaituScriptScenePlanCreate) -> dict:
+    return ScriptScenePlanner().plan(
+        payload.script_text,
+        target_scene_count=payload.target_scene_count,
+        default_scene_duration_seconds=payload.default_scene_duration_seconds,
+    )
 
 
 def build_slot_semantic_query(slot: dict, query: str | None = None) -> str:

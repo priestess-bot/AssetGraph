@@ -6,6 +6,31 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.schemas.assets import MaituAssetCategory, MaituReplacementPolicy
 
 
+class MaituScriptScenePlanCreate(BaseModel):
+    script_text: str = Field(..., min_length=1)
+    target_scene_count: int | None = Field(default=None, ge=1, le=50)
+    default_scene_duration_seconds: int = Field(default=60, ge=5, le=3600)
+
+
+class MaituScriptSceneRead(BaseModel):
+    scene_index: int
+    scene_name: str
+    scene_goal: str
+    duration_seconds: int
+    script: str
+    keywords: list[str] = Field(default_factory=list)
+    manual_review: bool = False
+    review_reasons: list[str] = Field(default_factory=list)
+
+
+class MaituScriptScenePlanRead(BaseModel):
+    source: str
+    scene_count: int
+    target_scene_count: int | None = None
+    manual_review_required: bool = False
+    scenes: list[MaituScriptSceneRead] = Field(default_factory=list)
+
+
 class MaituLiveRoomBlueprintImportCreate(BaseModel):
     reference_profile: dict[str, Any]
     blueprint: dict[str, Any]
