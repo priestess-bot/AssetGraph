@@ -2170,6 +2170,210 @@ def test_create_script_layout_plan_placeholder_mode_adds_manual_placeholder_laye
     assert scene["script_block"]["status"] == "ready"
 
 
+def test_create_script_layout_build_plan_strict_returns_blocked_without_operations(client: TestClient) -> None:
+    response = client.post(
+        "/api/maitu/script-layout-build-plans",
+        json={
+            "target_live_room_id": "47000001",
+            "layout_plan": {
+                "source": "script_content_layout_plan_rule_v1",
+                "build_mode": "strict",
+                "status": "blocked_missing_required_assets",
+                "scene_count": 1,
+                "blocking_gap_count": 1,
+                "can_generate_layout": False,
+                "can_generate_executable_build_plan": False,
+                "manual_review_required": True,
+                "scenes": [
+                    {
+                        "scene_index": 0,
+                        "scene_name": "产品亮点",
+                        "scene_goal": "product_explanation",
+                        "status": "blocked_missing_required_assets",
+                        "canvas": {"width": 1080, "height": 1920},
+                        "layers": [
+                            {
+                                "layer_id": "scene-00-background_image",
+                                "layer_type": "background_image",
+                                "need_type": "background_image",
+                                "status": "ready",
+                                "required_category": "background_image",
+                                "asset_code": "AG-IMG-BG",
+                                "asset_display_code": "MT-BG-HELANS",
+                                "asset_local_file_code": "MT-BG-HELANS",
+                                "x": 0,
+                                "y": 0,
+                                "width": 1080,
+                                "height": 1920,
+                                "z_index": 1,
+                            }
+                        ],
+                        "script_block": {"status": "ready", "target": "maitu_script_panel", "text": "龙谕龙8来自宁夏贺兰山东麓。"},
+                        "missing_placeholders": [
+                            {
+                                "layer_id": "scene-00-product_image",
+                                "layer_type": "product_image",
+                                "need_type": "product_image",
+                                "status": "placeholder_required",
+                                "required_category": "product_image",
+                                "asset_code": None,
+                                "x": 720,
+                                "y": 980,
+                                "width": 280,
+                                "height": 280,
+                                "z_index": 5,
+                            }
+                        ],
+                        "review_reasons": ["missing_asset:product_image"],
+                    }
+                ],
+            },
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["source"] == "script_content_layout_build_plan_rule_v1"
+    assert body["status"] == "blocked_missing_required_assets"
+    assert body["can_execute"] is False
+    assert body["manual_review_required"] is True
+    assert body["operation_count"] == 0
+    assert body["operations"] == []
+    assert "layout_plan_blocked" in body["blocked_reasons"]
+
+
+def test_create_script_layout_build_plan_placeholder_generates_safe_draft_operations(client: TestClient) -> None:
+    response = client.post(
+        "/api/maitu/script-layout-build-plans",
+        json={
+            "target_live_room_id": "47000002",
+            "layout_plan": {
+                "source": "script_content_layout_plan_rule_v1",
+                "build_mode": "draft_with_placeholders",
+                "status": "draft_with_placeholders",
+                "scene_count": 2,
+                "blocking_gap_count": 1,
+                "can_generate_layout": True,
+                "can_generate_executable_build_plan": False,
+                "manual_review_required": True,
+                "scenes": [
+                    {
+                        "scene_index": 0,
+                        "scene_name": "开场",
+                        "scene_goal": "opening",
+                        "status": "manual_review_required",
+                        "canvas": {"width": 1080, "height": 1920},
+                        "layers": [
+                            {
+                                "layer_id": "scene-00-background_image",
+                                "layer_type": "background_image",
+                                "need_type": "background_image",
+                                "status": "ready",
+                                "required_category": "background_image",
+                                "asset_code": "AG-IMG-BG",
+                                "asset_display_code": "MT-BG-HELANS",
+                                "asset_local_file_code": "MT-BG-HELANS",
+                                "x": 0,
+                                "y": 0,
+                                "width": 1080,
+                                "height": 1920,
+                                "z_index": 1,
+                            },
+                            {
+                                "layer_id": "scene-00-product_image",
+                                "layer_type": "product_image",
+                                "need_type": "product_image",
+                                "status": "placeholder_required",
+                                "required_category": "product_image",
+                                "asset_code": None,
+                                "x": 720,
+                                "y": 980,
+                                "width": 280,
+                                "height": 280,
+                                "z_index": 5,
+                            },
+                        ],
+                        "script_block": {"status": "ready", "target": "maitu_script_panel", "text": "欢迎来到张裕直播间。"},
+                        "missing_placeholders": [],
+                        "review_reasons": ["missing_asset:product_image"],
+                    },
+                    {
+                        "scene_index": 1,
+                        "scene_name": "促单",
+                        "scene_goal": "conversion",
+                        "status": "ready",
+                        "canvas": {"width": 1080, "height": 1920},
+                        "layers": [
+                            {
+                                "layer_id": "scene-01-digital_human",
+                                "layer_type": "digital_human",
+                                "need_type": "digital_human",
+                                "status": "ready",
+                                "required_category": "digital_human_video",
+                                "asset_code": "AG-VID-HOST",
+                                "asset_display_code": "DH-HOST",
+                                "asset_local_file_code": "DH-HOST",
+                                "x": 160,
+                                "y": 520,
+                                "width": 760,
+                                "height": 1300,
+                                "z_index": 3,
+                            }
+                        ],
+                        "script_block": {"status": "ready", "target": "maitu_script_panel", "text": "现在下单有组合优惠。"},
+                        "missing_placeholders": [],
+                        "review_reasons": [],
+                    },
+                ],
+            },
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["status"] == "draft_with_placeholders"
+    assert body["target_live_room_id"] == "47000002"
+    assert body["can_execute"] is False
+    assert body["manual_review_required"] is True
+    operation_types = [operation["operation_type"] for operation in body["operations"]]
+    assert operation_types[:2] == ["preflight_content_build_plan", "fill_default_scene"]
+    assert "create_scene" in operation_types
+    assert "insert_asset_layer" in operation_types
+    assert "position_asset_layer" in operation_types
+    assert "placeholder_required" in operation_types
+    assert operation_types.count("write_script") == 2
+    assert operation_types[-1] == "save_draft"
+
+    fill_default = next(operation for operation in body["operations"] if operation["operation_type"] == "fill_default_scene")
+    assert fill_default["scene_index"] == 0
+    assert fill_default["status"] == "ready"
+
+    create_scene = next(operation for operation in body["operations"] if operation["operation_type"] == "create_scene")
+    assert create_scene["scene_index"] == 1
+    assert create_scene["status"] == "ready"
+
+    insert_bg = next(
+        operation
+        for operation in body["operations"]
+        if operation["operation_type"] == "insert_asset_layer" and operation["asset_code"] == "AG-IMG-BG"
+    )
+    assert insert_bg["scene_index"] == 0
+    assert insert_bg["x"] == 0
+    assert insert_bg["y"] == 0
+    assert insert_bg["z_index"] == 1
+
+    placeholder = next(operation for operation in body["operations"] if operation["operation_type"] == "placeholder_required")
+    assert placeholder["need_type"] == "product_image"
+    assert placeholder["status"] == "manual_required"
+    assert placeholder["asset_code"] is None
+    assert placeholder["blocks_execution"] is True
+
+    script_ops = [operation for operation in body["operations"] if operation["operation_type"] == "write_script"]
+    assert script_ops[0]["script_text"] == "欢迎来到张裕直播间。"
+    assert script_ops[1]["script_text"] == "现在下单有组合优惠。"
+    assert body["operations"][-1]["status"] == "manual_review"
+
+
 def test_create_script_scene_template_matches_maps_each_script_scene_to_one_template_and_assets(client: TestClient) -> None:
     import_response = client.post(
         "/api/maitu/live-room-blueprints/import-reference",

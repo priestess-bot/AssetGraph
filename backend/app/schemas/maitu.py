@@ -198,6 +198,23 @@ class MaituScriptLayoutPlanRead(BaseModel):
     scenes: list[MaituScriptLayoutSceneRead] = Field(default_factory=list)
 
 
+class MaituScriptLayoutBuildPlanCreate(BaseModel):
+    layout_plan: MaituScriptLayoutPlanRead
+    target_live_room_id: str | None = Field(default=None, max_length=64)
+
+
+class MaituScriptLayoutBuildPlanRead(BaseModel):
+    source: str
+    status: str
+    target_live_room_id: str | None = None
+    build_mode: str
+    can_execute: bool
+    manual_review_required: bool = False
+    blocked_reasons: list[str] = Field(default_factory=list)
+    operation_count: int = 0
+    operations: list[dict[str, Any]] = Field(default_factory=list)
+
+
 class MaituScriptSceneTemplateMatchCreate(BaseModel):
     scenes: list[MaituScriptSceneRead] = Field(..., min_length=1)
     blueprint_code: str | None = Field(default=None, max_length=64)

@@ -12,6 +12,7 @@ from app.services.qwen3_client import Qwen3Client, Qwen3ClientError
 from app.services.script_asset_gap_reporter import ScriptAssetGapReporter
 from app.services.script_asset_need_planner import ScriptAssetNeedPlanner
 from app.services.script_asset_selector import ScriptAssetSelector
+from app.services.script_layout_build_plan_builder import ScriptLayoutBuildPlanBuilder
 from app.services.script_layout_planner import ScriptLayoutPlanner
 from app.services.script_scene_planner import ScriptScenePlanner
 from app.services.script_scene_template_matcher import ScriptSceneTemplateMatcher
@@ -27,6 +28,8 @@ from app.schemas.maitu import (
     MaituLiveRoomBuildPlanRead,
     MaituLiveRoomComponentSearchResultRead,
     MaituLiveRoomSceneBuildPlanCreate,
+    MaituScriptLayoutBuildPlanCreate,
+    MaituScriptLayoutBuildPlanRead,
     MaituScriptLayoutPlanCreate,
     MaituScriptLayoutPlanRead,
     MaituJdLiveMetricSampleCreate,
@@ -138,6 +141,18 @@ def create_script_layout_plan(payload: MaituScriptLayoutPlanCreate) -> dict:
         build_mode=payload.build_mode,
         canvas_width=payload.canvas_width,
         canvas_height=payload.canvas_height,
+    )
+
+
+@router.post(
+    "/script-layout-build-plans",
+    response_model=MaituScriptLayoutBuildPlanRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_script_layout_build_plan(payload: MaituScriptLayoutBuildPlanCreate) -> dict:
+    return ScriptLayoutBuildPlanBuilder().build(
+        payload.layout_plan.model_dump(),
+        target_live_room_id=payload.target_live_room_id,
     )
 
 
