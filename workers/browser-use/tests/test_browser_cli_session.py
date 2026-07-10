@@ -190,6 +190,24 @@ def test_state_without_url_falls_back_to_eval_summary() -> None:
     ]
 
 
+def test_read_jd_live_dashboard_state_opens_dashboard_url_and_extracts_metrics() -> None:
+    session, runner = make_session([
+        "opened https://jm.jd.com/live-data",
+        "Title: 京麦商家后台\nURL: https://jm.jd.com/live-data\n直播数据\n在线人数 12\nGMV 345.67元",
+    ])
+
+    state = session.read_jd_live_dashboard_state(open_url="https://jm.jd.com/live-data")
+
+    assert state.logged_in is True
+    assert state.login_required is False
+    assert state.metrics["online_viewers"] == 12
+    assert state.metrics["gmv"] == 345.67
+    assert runner.commands == [
+        ("uv", "run", "browser-use", "--headed", "open", "https://jm.jd.com/live-data"),
+        ("uv", "run", "browser-use", "state"),
+    ]
+
+
 def test_non_destructive_scene_and_tab_clicks_use_browser_use_eval() -> None:
     session, runner = make_session([
         '{"clicked":true,"target":"场景02"}',

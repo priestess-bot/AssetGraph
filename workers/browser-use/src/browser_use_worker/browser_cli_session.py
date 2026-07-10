@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from .jd_metrics import JdLiveDashboardParser, JdLiveDashboardState
 from .maitu_executor import MaituBrowserExecutionError, MaituBrowserSession
 
 CommandRunner = Callable[[Sequence[str],], str]
@@ -194,16 +195,29 @@ class BrowserUseCliSession(MaituBrowserSession):
         return summary
 
     def open_home(self) -> None:
-        args = ["open", self.config.home_url]
+        self.open_url(self.config.home_url)
+
+    def open_url(self, url: str) -> None:
+        args = ["open", url]
         if self.config.headed:
             args = ["--headed", *args]
         try:
             self._call_browser_use(args)
         except MaituBrowserExecutionError as exc:
             if self.config.headed and "different config" in str(exc):
-                self._call_browser_use(["open", self.config.home_url])
+                self._call_browser_use(["open", url])
                 return
             raise
+
+    def read_jd_live_dashboard_state(self, *, open_url: str | None = None) -> JdLiveDashboardState:
+        if open_url:
+            self.open_url(open_url)
+        summary = self.read_page_summary()
+        return JdLiveDashboardParser().parse_state(
+            title=summary.get("title", ""),
+            url=summary.get("href", ""),
+            text=summary.get("text", ""),
+        )
 
     def select_scene(self, scene_name: str) -> dict[str, Any]:
         return self._click_existing_text_target(

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import time
 from collections.abc import Sequence
 from dataclasses import asdict
 
@@ -12,6 +13,7 @@ from .build_plan_non_destructive import BuildPlanNonDestructiveRunner, build_non
 from .build_plan_preflight import BuildPlanPreflight
 from .client import AssetGraphClient
 from .config import WorkerConfig
+from .jd_metrics import capture_jd_live_metric_sample
 from .preflight import ReplacementPlanPreflight
 from .runner import BrowserUseWorker, DryRunBrowserUseExecutor
 
@@ -28,6 +30,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--preflight-build", action="store_true", help="Run read-only safety checks for --build-plan-code before mutating Maitu")
     parser.add_argument("--non-destructive-build", action="store_true", help="Run only low-risk BuildPlan UI navigation after a green preflight")
     parser.add_argument("--write-result", action="store_true", help="Write direct-plan execution/evidence result back to AssetGraph")
+    parser.add_argument("--capture-jd-metrics", action="store_true", help="Capture JD live dashboard metrics and write samples to AssetGraph")
+    parser.add_argument("--jd-metric-session-code", help="JD live metric capture session code (JD-METRIC-*)")
+    parser.add_argument("--max-samples", type=int, default=1, help="Maximum JD dashboard metric samples to capture in this run")
+    parser.add_argument("--capture-interval-seconds", type=float, default=0, help="Sleep interval between JD metric samples")
     parser.add_argument("--skip-browser-probe", action="store_true", help="Skip Browser-use/Maitu page probing during --preflight")
     parser.add_argument("--assets-root", default="D:/AssetGraph/素材", help="Local asset root used by --preflight file checks")
     parser.add_argument("--check-config", action="store_true", help="Print resolved configuration and exit without calling AssetGraph")
@@ -52,6 +58,30 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     client = AssetGraphClient(config.api_base_url)
+    if args.capture_jd_metrics:
+        if not args.jd_metric_session_code:
+            raise SystemExit("--capture-jd-metrics requires --jd-metric-session-code")
+        if args.max_samples < 1:
+            raise SystemExit("--max-samples must be >= 1")
+        browser_session = BrowserUseCliSession()
+        client.update_jd_live_metric_session(
+            args.jd_metric_session_code,
+            {"status": "running", "result_summary": "JD live metric capture running with foreground agent sync"},
+        )
+        for sample_index in range(args.max_samples):
+            result = capture_jd_live_metric_sample(
+                client,
+                args.jd_metric_session_code,
+                browser_session=browser_session,
+            )
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            if sample_index < args.max_samples - 1 and args.capture_interval_seconds > 0:
+                time.sleep(args.capture_interval_seconds)
+        client.update_jd_live_metric_session(
+            args.jd_metric_session_code,
+            {"status": "completed", "result_summary": f"Captured {args.max_samples} JD live metric sample(s)"},
+        )
+        return 0
     if args.build_plan_code and args.dry_run:
         operation_plan = client.get_live_room_build_plan_operation_plan(args.build_plan_code)
         dry_run = BuildPlanDryRun().run(operation_plan)

@@ -21,6 +21,11 @@ from app.schemas.maitu import (
     MaituLiveRoomBuildPlanRead,
     MaituLiveRoomComponentSearchResultRead,
     MaituLiveRoomSceneBuildPlanCreate,
+    MaituJdLiveMetricSampleCreate,
+    MaituJdLiveMetricSampleRead,
+    MaituJdLiveMetricSessionCreate,
+    MaituJdLiveMetricSessionRead,
+    MaituJdLiveMetricSessionUpdate,
     MaituLiveRoomTemplateComponentRead,
     MaituLiveRoomTemplateSceneRead,
     MaituLayoutAdjustmentCreate,
@@ -382,6 +387,95 @@ def get_live_room_build_plan_execution_result(
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Maitu live-room build execution result not found")
     return row
+
+
+@router.post("/jd-live-metric-sessions", response_model=MaituJdLiveMetricSessionRead, status_code=status.HTTP_201_CREATED)
+def create_jd_live_metric_session(
+    payload: MaituJdLiveMetricSessionCreate,
+    repository: Annotated[MaituMaterialSlotRepository, Depends(get_maitu_slot_repository)],
+) -> dict:
+    row = repository.create_jd_live_metric_session(payload.model_dump(exclude_none=True))
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Maitu live-room build plan not found")
+    return row
+
+
+@router.get("/jd-live-metric-sessions", response_model=list[MaituJdLiveMetricSessionRead])
+def list_jd_live_metric_sessions(
+    repository: Annotated[MaituMaterialSlotRepository, Depends(get_maitu_slot_repository)],
+    build_plan_code: str | None = None,
+    frontend_execution_code: str | None = None,
+    live_room_id: str | None = None,
+    status: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[dict]:
+    return repository.list_jd_live_metric_sessions(
+        build_plan_code=build_plan_code,
+        frontend_execution_code=frontend_execution_code,
+        live_room_id=live_room_id,
+        status=status,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/jd-live-metric-sessions/{capture_session_code}", response_model=MaituJdLiveMetricSessionRead)
+def get_jd_live_metric_session(
+    capture_session_code: str,
+    repository: Annotated[MaituMaterialSlotRepository, Depends(get_maitu_slot_repository)],
+) -> dict:
+    row = repository.get_jd_live_metric_session_by_code(capture_session_code)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="JD live metric session not found")
+    return row
+
+
+@router.patch("/jd-live-metric-sessions/{capture_session_code}", response_model=MaituJdLiveMetricSessionRead)
+def update_jd_live_metric_session(
+    capture_session_code: str,
+    payload: MaituJdLiveMetricSessionUpdate,
+    repository: Annotated[MaituMaterialSlotRepository, Depends(get_maitu_slot_repository)],
+) -> dict:
+    row = repository.update_jd_live_metric_session(capture_session_code, payload.model_dump(exclude_unset=True, exclude_none=True))
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="JD live metric session not found")
+    return row
+
+
+@router.post(
+    "/jd-live-metric-sessions/{capture_session_code}/samples",
+    response_model=MaituJdLiveMetricSampleRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_jd_live_metric_sample(
+    capture_session_code: str,
+    payload: MaituJdLiveMetricSampleCreate,
+    repository: Annotated[MaituMaterialSlotRepository, Depends(get_maitu_slot_repository)],
+) -> dict:
+    row = repository.create_jd_live_metric_sample(capture_session_code, payload.model_dump(exclude_none=True))
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="JD live metric session not found")
+    return row
+
+
+@router.get("/jd-live-metric-sessions/{capture_session_code}/samples", response_model=list[MaituJdLiveMetricSampleRead])
+def list_jd_live_metric_samples(
+    capture_session_code: str,
+    repository: Annotated[MaituMaterialSlotRepository, Depends(get_maitu_slot_repository)],
+    scene_name: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[dict]:
+    rows = repository.list_jd_live_metric_samples(
+        capture_session_code,
+        scene_name=scene_name,
+        limit=limit,
+        offset=offset,
+    )
+    if rows is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="JD live metric session not found")
+    return rows
 
 
 @router.post("/layout-adjustments", response_model=MaituLayoutAdjustmentRead, status_code=status.HTTP_201_CREATED)

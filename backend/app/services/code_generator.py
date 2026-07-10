@@ -22,6 +22,7 @@ class BusinessObjectType(StrEnum):
     MAITU_LAYOUT_ADJUSTMENT = "MT-ADJ"
     MAITU_EXECUTION = "MT-EXEC"
     MAITU_RETRY_TASK = "MT-RETRY"
+    JD_LIVE_METRIC_SESSION = "JD-METRIC"
 
 ASSET_CODE_PREFIX = "AG"
 LIVE_CODE_PREFIX = "AG-LIVE"
@@ -31,6 +32,7 @@ MAITU_BUILD_PLAN_CODE_PREFIX = "MT-BUILD"
 MAITU_LAYOUT_ADJUSTMENT_CODE_PREFIX = "MT-ADJ"
 MAITU_EXECUTION_CODE_PREFIX = "MT-EXEC"
 MAITU_RETRY_TASK_CODE_PREFIX = "MT-RETRY"
+JD_LIVE_METRIC_SESSION_CODE_PREFIX = "JD-METRIC"
 
 
 
@@ -90,6 +92,11 @@ def format_maitu_retry_task_code(sequence_date: date, sequence: int) -> str:
     return f"{MAITU_RETRY_TASK_CODE_PREFIX}-{sequence_date:%Y%m%d}-{sequence:06d}"
 
 
+def format_jd_live_metric_session_code(sequence_date: date, sequence: int) -> str:
+    _validate_sequence(sequence)
+    return f"{JD_LIVE_METRIC_SESSION_CODE_PREFIX}-{sequence_date:%Y%m%d}-{sequence:06d}"
+
+
 class CodeGenerator:
     def next_asset_code(self, asset_type: AssetType | str, sequence_date: date, sequence: int) -> str:
         return format_asset_code(asset_type, sequence_date, sequence)
@@ -125,3 +132,6 @@ class CodeGenerator:
 
     def next_maitu_retry_task_code(self, sequence_date: date, sequence: int) -> str:
         return format_maitu_retry_task_code(sequence_date, sequence)
+
+    def next_jd_live_metric_session_code(self, sequence_date: date, sequence: int) -> str:
+        return format_jd_live_metric_session_code(sequence_date, sequence)

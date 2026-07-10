@@ -11,6 +11,7 @@ from psycopg.types.json import Jsonb
 
 from app.services.code_generator import (
     BusinessObjectType,
+    format_jd_live_metric_session_code,
     format_maitu_build_plan_code,
     format_maitu_layout_adjustment_code,
     format_maitu_execution_code,
@@ -681,6 +682,219 @@ class MaituMaterialSlotRepository:
         execution = self._normalize_live_room_build_plan_execution(row)
         execution["operation_results"] = self._fetch_live_room_build_plan_operation_results(execution_code)
         return execution
+
+    def create_jd_live_metric_session(self, payload: dict[str, Any]) -> dict[str, Any] | None:
+        build_plan_code = payload.get("build_plan_code")
+        if build_plan_code and self.get_live_room_build_plan_by_code(str(build_plan_code)) is None:
+            return None
+        capture_session_code = self._next_jd_live_metric_session_code()
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                INSERT INTO maitu_jd_live_metric_sessions (
+                    capture_session_code, build_plan_code, frontend_execution_code,
+                    live_room_id, jd_live_id, jd_shop_name, dashboard_url, status,
+                    capture_interval_seconds, sync_start_mode, current_scene_name,
+                    current_scene_index, metric_names, scene_schedule, config,
+                    started_at, result_summary
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING *
+                """,
+                (
+                    capture_session_code,
+                    build_plan_code,
+                    payload.get("frontend_execution_code"),
+                    payload.get("live_room_id"),
+                    payload.get("jd_live_id"),
+                    payload.get("jd_shop_name"),
+                    payload.get("dashboard_url"),
+                    payload.get("status", "planned"),
+                    payload.get("capture_interval_seconds", 30),
+                    payload.get("sync_start_mode", "with_frontend_agent"),
+                    payload.get("current_scene_name"),
+                    payload.get("current_scene_index"),
+                    Jsonb(payload.get("metric_names") or []),
+                    Jsonb(payload.get("scene_schedule") or []),
+                    Jsonb(payload.get("config") or {}),
+                    payload.get("started_at"),
+                    payload.get("result_summary"),
+                ),
+            )
+            row = cursor.fetchone()
+        self.connection.commit()
+        return self._normalize_jd_live_metric_session(row)
+
+    def list_jd_live_metric_sessions(
+        self,
+        *,
+        build_plan_code: str | None = None,
+        frontend_execution_code: str | None = None,
+        live_room_id: str | None = None,
+        status: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        where_clauses = ["deleted_at IS NULL"]
+        values: list[Any] = []
+        if build_plan_code is not None:
+            where_clauses.append("build_plan_code = %s")
+            values.append(build_plan_code)
+        if frontend_execution_code is not None:
+            where_clauses.append("frontend_execution_code = %s")
+            values.append(frontend_execution_code)
+        if live_room_id is not None:
+            where_clauses.append("live_room_id = %s")
+            values.append(live_room_id)
+        if status is not None:
+            where_clauses.append("status = %s")
+            values.append(status)
+        values.extend([limit, offset])
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                f"""
+                SELECT *
+                FROM maitu_jd_live_metric_sessions
+                WHERE {' AND '.join(where_clauses)}
+                ORDER BY created_at DESC
+                LIMIT %s OFFSET %s
+                """,
+                tuple(values),
+            )
+            rows = cursor.fetchall()
+        return [self._normalize_jd_live_metric_session(row) for row in rows]
+
+    def get_jd_live_metric_session_by_code(self, capture_session_code: str) -> dict[str, Any] | None:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT *
+                FROM maitu_jd_live_metric_sessions
+                WHERE capture_session_code = %s AND deleted_at IS NULL
+                """,
+                (capture_session_code,),
+            )
+            row = cursor.fetchone()
+        return self._normalize_jd_live_metric_session(row) if row else None
+
+    def update_jd_live_metric_session(self, capture_session_code: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+        writable_fields = (
+            "status",
+            "current_scene_name",
+            "current_scene_index",
+            "started_at",
+            "finished_at",
+            "result_summary",
+            "error_message",
+        )
+        updates = {field: payload[field] for field in writable_fields if field in payload}
+        if not updates:
+            return self.get_jd_live_metric_session_by_code(capture_session_code)
+        assignments = [f"{field} = %s" for field in updates]
+        values = list(updates.values())
+        values.append(capture_session_code)
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                f"""
+                UPDATE maitu_jd_live_metric_sessions
+                SET {', '.join(assignments)}, updated_at = now()
+                WHERE capture_session_code = %s AND deleted_at IS NULL
+                RETURNING *
+                """,
+                tuple(values),
+            )
+            row = cursor.fetchone()
+        self.connection.commit()
+        return self._normalize_jd_live_metric_session(row) if row else None
+
+    def create_jd_live_metric_sample(self, capture_session_code: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+        session = self.get_jd_live_metric_session_by_code(capture_session_code)
+        if session is None:
+            return None
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT COALESCE(MAX(sample_index), -1) + 1 AS next_sample_index
+                FROM maitu_jd_live_metric_samples
+                WHERE capture_session_code = %s
+                """,
+                (capture_session_code,),
+            )
+            sample_index = cursor.fetchone()["next_sample_index"]
+            cursor.execute(
+                """
+                INSERT INTO maitu_jd_live_metric_samples (
+                    capture_session_id, capture_session_code, sample_index, sampled_at,
+                    scene_name, scene_index, frontend_event_code, live_elapsed_seconds,
+                    online_viewers, average_stay_seconds, product_click_rate,
+                    product_conversion_rate, gmv, uv_value, product_exposures,
+                    product_clicks, transaction_count, transaction_amount,
+                    traffic_sources, interaction_data, raw_metrics, screenshot_asset_code,
+                    dom_snapshot_asset_code, status
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING *
+                """,
+                (
+                    session["id"],
+                    capture_session_code,
+                    sample_index,
+                    payload.get("sampled_at") or datetime.now(UTC),
+                    payload.get("scene_name"),
+                    payload.get("scene_index"),
+                    payload.get("frontend_event_code"),
+                    payload.get("live_elapsed_seconds"),
+                    payload.get("online_viewers"),
+                    payload.get("average_stay_seconds"),
+                    payload.get("product_click_rate"),
+                    payload.get("product_conversion_rate"),
+                    payload.get("gmv"),
+                    payload.get("uv_value"),
+                    payload.get("product_exposures"),
+                    payload.get("product_clicks"),
+                    payload.get("transaction_count"),
+                    payload.get("transaction_amount"),
+                    Jsonb(payload.get("traffic_sources") or {}),
+                    Jsonb(payload.get("interaction_data") or {}),
+                    Jsonb(payload.get("raw_metrics") or {}),
+                    payload.get("screenshot_asset_code"),
+                    payload.get("dom_snapshot_asset_code"),
+                    payload.get("status", "captured"),
+                ),
+            )
+            row = cursor.fetchone()
+        self.connection.commit()
+        return self._normalize_jd_live_metric_sample(row)
+
+    def list_jd_live_metric_samples(
+        self,
+        capture_session_code: str,
+        *,
+        scene_name: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict[str, Any]] | None:
+        if self.get_jd_live_metric_session_by_code(capture_session_code) is None:
+            return None
+        where_clauses = ["capture_session_code = %s"]
+        values: list[Any] = [capture_session_code]
+        if scene_name is not None:
+            where_clauses.append("scene_name = %s")
+            values.append(scene_name)
+        values.extend([limit, offset])
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                f"""
+                SELECT *
+                FROM maitu_jd_live_metric_samples
+                WHERE {' AND '.join(where_clauses)}
+                ORDER BY sample_index ASC
+                LIMIT %s OFFSET %s
+                """,
+                tuple(values),
+            )
+            rows = cursor.fetchall()
+        return [self._normalize_jd_live_metric_sample(row) for row in rows]
 
     def create_layout_adjustment(self, payload: dict[str, Any]) -> dict[str, Any]:
         from app.services.layout_adjustment import LayerGeometry, plan_layout_adjustment
@@ -1669,6 +1883,23 @@ class MaituMaterialSlotRepository:
             )
             sequence = cursor.fetchone()[0]
         return format_maitu_retry_task_code(sequence_date, sequence)
+
+    def _next_jd_live_metric_session_code(self) -> str:
+        sequence_date = datetime.now(UTC).date()
+        object_type = BusinessObjectType.JD_LIVE_METRIC_SESSION.value
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO business_sequences (sequence_date, object_type, current_value)
+                VALUES (%s, %s, 1)
+                ON CONFLICT (sequence_date, object_type)
+                DO UPDATE SET current_value = business_sequences.current_value + 1, updated_at = now()
+                RETURNING current_value
+                """,
+                (sequence_date, object_type),
+            )
+            sequence = cursor.fetchone()[0]
+        return format_jd_live_metric_session_code(sequence_date, sequence)
 
     def resolve_plan_slots(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
         return self._resolve_plan_slots(payload)
@@ -2810,6 +3041,44 @@ class MaituMaterialSlotRepository:
             converted["id"] = str(converted["id"])
         if converted.get("details") is None:
             converted["details"] = {}
+        return converted
+
+    @staticmethod
+    def _normalize_jd_live_metric_session(row: dict[str, Any]) -> dict[str, Any]:
+        converted = dict(row)
+        if "id" in converted and converted["id"] is not None:
+            converted["id"] = str(converted["id"])
+        converted.pop("deleted_at", None)
+        if converted.get("metric_names") is None:
+            converted["metric_names"] = []
+        if converted.get("scene_schedule") is None:
+            converted["scene_schedule"] = []
+        if converted.get("config") is None:
+            converted["config"] = {}
+        return converted
+
+    @staticmethod
+    def _normalize_jd_live_metric_sample(row: dict[str, Any]) -> dict[str, Any]:
+        converted = dict(row)
+        if "id" in converted and converted["id"] is not None:
+            converted["id"] = str(converted["id"])
+        converted.pop("capture_session_id", None)
+        for field in (
+            "average_stay_seconds",
+            "product_click_rate",
+            "product_conversion_rate",
+            "gmv",
+            "uv_value",
+            "transaction_amount",
+        ):
+            if isinstance(converted.get(field), Decimal):
+                converted[field] = float(converted[field])
+        if converted.get("traffic_sources") is None:
+            converted["traffic_sources"] = {}
+        if converted.get("interaction_data") is None:
+            converted["interaction_data"] = {}
+        if converted.get("raw_metrics") is None:
+            converted["raw_metrics"] = {}
         return converted
 
     @staticmethod

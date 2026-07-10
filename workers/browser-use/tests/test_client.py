@@ -68,3 +68,50 @@ def test_write_live_room_build_plan_execution_result_uses_execution_results_endp
             payload,
         )
     ]
+
+
+def test_get_jd_live_metric_session_uses_metric_session_endpoint() -> None:
+    client = RecordingClient()
+
+    result = client.get_jd_live_metric_session("JD-METRIC-20260710-000001")
+
+    assert result == {"asset_code": "AG-VID-20260709-000001"}
+    assert client.calls == [
+        (
+            "GET",
+            "/api/maitu/jd-live-metric-sessions/JD-METRIC-20260710-000001",
+            None,
+        )
+    ]
+
+
+def test_update_jd_live_metric_session_uses_metric_session_endpoint() -> None:
+    client = RecordingClient()
+    payload = {"status": "running", "result_summary": "同步抓取中"}
+
+    result = client.update_jd_live_metric_session("JD-METRIC-20260710-000001", payload)
+
+    assert result == {"asset_code": "AG-VID-20260709-000001"}
+    assert client.calls == [
+        (
+            "PATCH",
+            "/api/maitu/jd-live-metric-sessions/JD-METRIC-20260710-000001",
+            payload,
+        )
+    ]
+
+
+def test_write_jd_live_metric_sample_uses_metric_sample_endpoint() -> None:
+    client = RecordingClient()
+    payload = {"scene_name": "商品01-场景01", "online_viewers": 128}
+
+    result = client.write_jd_live_metric_sample("JD-METRIC-20260710-000001", payload)
+
+    assert result == {"asset_code": "AG-VID-20260709-000001"}
+    assert client.calls == [
+        (
+            "POST",
+            "/api/maitu/jd-live-metric-sessions/JD-METRIC-20260710-000001/samples",
+            payload,
+        )
+    ]

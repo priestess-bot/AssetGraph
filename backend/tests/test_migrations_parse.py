@@ -92,3 +92,16 @@ def test_maitu_template_component_index_migration_exists_and_stores_scene_compon
     assert "component_template_code" in sql
     assert "script_content TEXT" in sql
     assert "geometry JSONB" in sql
+
+
+def test_jd_live_metric_capture_migration_exists_and_stores_sync_samples() -> None:
+    migration = MIGRATIONS_DIR / "014_jd_live_metric_capture.sql"
+
+    assert migration.exists()
+    sql = migration.read_text(encoding="utf-8")
+    assert "maitu_jd_live_metric_sessions" in sql
+    assert "maitu_jd_live_metric_samples" in sql
+    assert "capture_session_code" in sql
+    assert "frontend_execution_code" in sql
+    assert "online_viewers INTEGER" in sql
+    assert "traffic_sources JSONB" in sql

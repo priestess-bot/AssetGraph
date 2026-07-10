@@ -11,6 +11,7 @@ from app.services.code_generator import (
     format_maitu_layout_adjustment_code,
     format_maitu_retry_task_code,
     format_maitu_slot_code,
+    format_jd_live_metric_session_code,
     format_segment_code,
 )
 
@@ -69,6 +70,10 @@ def test_format_maitu_execution_code() -> None:
 
 def test_format_maitu_retry_task_code() -> None:
     assert format_maitu_retry_task_code(date(2026, 7, 7), 7) == "MT-RETRY-20260707-000007"
+
+
+def test_format_jd_live_metric_session_code() -> None:
+    assert format_jd_live_metric_session_code(date(2026, 7, 7), 10) == "JD-METRIC-20260707-000010"
 
 
 def test_business_code_rejects_zero_sequence() -> None:

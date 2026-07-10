@@ -288,6 +288,92 @@ class MaituLiveRoomBuildPlanExecutionResultRead(BaseModel):
     updated_at: datetime | None = None
 
 
+JD_LIVE_CORE_METRIC_NAMES = [
+    "online_viewers",
+    "average_stay_seconds",
+    "product_click_rate",
+    "product_conversion_rate",
+    "gmv",
+    "uv_value",
+    "product_exposures",
+    "product_clicks",
+    "transaction_count",
+    "transaction_amount",
+    "traffic_sources",
+    "interaction_data",
+]
+
+
+class MaituJdLiveMetricSessionCreate(BaseModel):
+    build_plan_code: str | None = Field(default=None, max_length=64)
+    frontend_execution_code: str | None = Field(default=None, max_length=64)
+    live_room_id: str | None = Field(default=None, max_length=64)
+    jd_live_id: str | None = Field(default=None, max_length=128)
+    jd_shop_name: str | None = Field(default=None, max_length=255)
+    dashboard_url: str | None = None
+    status: str = Field(default="planned", max_length=32)
+    capture_interval_seconds: int = Field(default=30, ge=5, le=3600)
+    sync_start_mode: str = Field(default="with_frontend_agent", max_length=64)
+    current_scene_name: str | None = Field(default=None, max_length=128)
+    current_scene_index: int | None = Field(default=None, ge=0)
+    metric_names: list[str] = Field(default_factory=lambda: list(JD_LIVE_CORE_METRIC_NAMES))
+    scene_schedule: list[dict[str, Any]] = Field(default_factory=list)
+    config: dict[str, Any] = Field(default_factory=dict)
+    started_at: datetime | None = None
+    result_summary: str | None = None
+
+
+class MaituJdLiveMetricSessionUpdate(BaseModel):
+    status: str | None = Field(default=None, max_length=32)
+    current_scene_name: str | None = Field(default=None, max_length=128)
+    current_scene_index: int | None = Field(default=None, ge=0)
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    result_summary: str | None = None
+    error_message: str | None = None
+
+
+class MaituJdLiveMetricSessionRead(MaituJdLiveMetricSessionCreate):
+    id: str
+    capture_session_code: str
+    finished_at: datetime | None = None
+    error_message: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class MaituJdLiveMetricSampleCreate(BaseModel):
+    sampled_at: datetime | None = None
+    scene_name: str | None = Field(default=None, max_length=128)
+    scene_index: int | None = Field(default=None, ge=0)
+    frontend_event_code: str | None = Field(default=None, max_length=64)
+    live_elapsed_seconds: int | None = Field(default=None, ge=0)
+    online_viewers: int | None = Field(default=None, ge=0)
+    average_stay_seconds: float | None = Field(default=None, ge=0)
+    product_click_rate: float | None = Field(default=None, ge=0)
+    product_conversion_rate: float | None = Field(default=None, ge=0)
+    gmv: float | None = Field(default=None, ge=0)
+    uv_value: float | None = Field(default=None, ge=0)
+    product_exposures: int | None = Field(default=None, ge=0)
+    product_clicks: int | None = Field(default=None, ge=0)
+    transaction_count: int | None = Field(default=None, ge=0)
+    transaction_amount: float | None = Field(default=None, ge=0)
+    traffic_sources: dict[str, Any] = Field(default_factory=dict)
+    interaction_data: dict[str, Any] = Field(default_factory=dict)
+    raw_metrics: dict[str, Any] = Field(default_factory=dict)
+    screenshot_asset_code: str | None = Field(default=None, max_length=64)
+    dom_snapshot_asset_code: str | None = Field(default=None, max_length=64)
+    status: str = Field(default="captured", max_length=32)
+
+
+class MaituJdLiveMetricSampleRead(MaituJdLiveMetricSampleCreate):
+    id: str
+    capture_session_code: str
+    sample_index: int
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
 class MaituLayerGeometry(BaseModel):
     x: float = Field(..., ge=0)
     y: float = Field(..., ge=0)

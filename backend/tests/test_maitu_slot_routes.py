@@ -21,6 +21,8 @@ class FakeMaituMaterialSlotRepository:
         self.template_components: dict[str, list[dict[str, Any]]] = {}
         self.build_plans: dict[str, dict[str, Any]] = {}
         self.build_plan_executions: dict[str, dict[str, Any]] = {}
+        self.jd_metric_sessions: dict[str, dict[str, Any]] = {}
+        self.jd_metric_samples: dict[str, list[dict[str, Any]]] = {}
         self.layout_adjustments: dict[str, dict[str, Any]] = {}
         self.assets: list[dict[str, Any]] = [
             {
@@ -1331,6 +1333,134 @@ class FakeMaituMaterialSlotRepository:
         }
         self.retry_tasks[code] = task
 
+    def create_jd_live_metric_session(self, payload: dict[str, Any]) -> dict[str, Any] | None:
+        build_plan_code = payload.get("build_plan_code")
+        if build_plan_code and build_plan_code not in self.build_plans:
+            return None
+        code = f"JD-METRIC-20260710-{len(self.jd_metric_sessions) + 1:06d}"
+        row = {
+            "id": f"89700000-0000-0000-0000-{len(self.jd_metric_sessions) + 1:012d}",
+            "capture_session_code": code,
+            "build_plan_code": build_plan_code,
+            "frontend_execution_code": payload.get("frontend_execution_code"),
+            "live_room_id": payload.get("live_room_id"),
+            "jd_live_id": payload.get("jd_live_id"),
+            "jd_shop_name": payload.get("jd_shop_name"),
+            "dashboard_url": payload.get("dashboard_url"),
+            "status": payload.get("status", "planned"),
+            "capture_interval_seconds": payload.get("capture_interval_seconds", 30),
+            "sync_start_mode": payload.get("sync_start_mode", "with_frontend_agent"),
+            "current_scene_name": payload.get("current_scene_name"),
+            "current_scene_index": payload.get("current_scene_index"),
+            "metric_names": payload.get("metric_names")
+            or [
+                "online_viewers",
+                "average_stay_seconds",
+                "product_click_rate",
+                "product_conversion_rate",
+                "gmv",
+                "uv_value",
+                "product_exposures",
+                "product_clicks",
+                "transaction_count",
+                "transaction_amount",
+                "traffic_sources",
+                "interaction_data",
+            ],
+            "scene_schedule": payload.get("scene_schedule", []),
+            "config": payload.get("config", {}),
+            "started_at": payload.get("started_at"),
+            "finished_at": None,
+            "result_summary": payload.get("result_summary"),
+            "error_message": None,
+            "created_at": None,
+            "updated_at": None,
+        }
+        self.jd_metric_sessions[code] = row
+        self.jd_metric_samples[code] = []
+        return row
+
+    def list_jd_live_metric_sessions(
+        self,
+        *,
+        build_plan_code: str | None = None,
+        frontend_execution_code: str | None = None,
+        live_room_id: str | None = None,
+        status: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        rows = list(self.jd_metric_sessions.values())
+        if build_plan_code is not None:
+            rows = [row for row in rows if row.get("build_plan_code") == build_plan_code]
+        if frontend_execution_code is not None:
+            rows = [row for row in rows if row.get("frontend_execution_code") == frontend_execution_code]
+        if live_room_id is not None:
+            rows = [row for row in rows if row.get("live_room_id") == live_room_id]
+        if status is not None:
+            rows = [row for row in rows if row.get("status") == status]
+        return rows[offset : offset + limit]
+
+    def get_jd_live_metric_session_by_code(self, capture_session_code: str) -> dict[str, Any] | None:
+        return self.jd_metric_sessions.get(capture_session_code)
+
+    def update_jd_live_metric_session(self, capture_session_code: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+        row = self.jd_metric_sessions.get(capture_session_code)
+        if row is None:
+            return None
+        row.update(payload)
+        return row
+
+    def create_jd_live_metric_sample(self, capture_session_code: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+        if capture_session_code not in self.jd_metric_sessions:
+            return None
+        sample_index = len(self.jd_metric_samples[capture_session_code])
+        row = {
+            "id": f"89800000-0000-0000-0000-{sample_index + 1:012d}",
+            "capture_session_code": capture_session_code,
+            "sample_index": sample_index,
+            "sampled_at": payload.get("sampled_at"),
+            "scene_name": payload.get("scene_name"),
+            "scene_index": payload.get("scene_index"),
+            "frontend_event_code": payload.get("frontend_event_code"),
+            "live_elapsed_seconds": payload.get("live_elapsed_seconds"),
+            "online_viewers": payload.get("online_viewers"),
+            "average_stay_seconds": payload.get("average_stay_seconds"),
+            "product_click_rate": payload.get("product_click_rate"),
+            "product_conversion_rate": payload.get("product_conversion_rate"),
+            "gmv": payload.get("gmv"),
+            "uv_value": payload.get("uv_value"),
+            "product_exposures": payload.get("product_exposures"),
+            "product_clicks": payload.get("product_clicks"),
+            "transaction_count": payload.get("transaction_count"),
+            "transaction_amount": payload.get("transaction_amount"),
+            "traffic_sources": payload.get("traffic_sources", {}),
+            "interaction_data": payload.get("interaction_data", {}),
+            "raw_metrics": payload.get("raw_metrics", {}),
+            "screenshot_asset_code": payload.get("screenshot_asset_code"),
+            "dom_snapshot_asset_code": payload.get("dom_snapshot_asset_code"),
+            "status": payload.get("status", "captured"),
+            "created_at": None,
+            "updated_at": None,
+        }
+        self.jd_metric_samples[capture_session_code].append(row)
+        return row
+
+    def list_jd_live_metric_samples(
+        self,
+        capture_session_code: str,
+        *,
+        scene_name: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict[str, Any]] | None:
+        if capture_session_code not in self.jd_metric_sessions:
+            return None
+        rows = list(self.jd_metric_samples[capture_session_code])
+        if scene_name is not None:
+            rows = [row for row in rows if row.get("scene_name") == scene_name]
+        return rows[offset : offset + limit]
+
 
 @pytest.fixture
 def client() -> TestClient:
@@ -1339,6 +1469,77 @@ def client() -> TestClient:
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
+
+
+def test_create_jd_live_metric_session_and_samples(client: TestClient) -> None:
+    create_response = client.post(
+        "/api/maitu/jd-live-metric-sessions",
+        json={
+            "live_room_id": "40173",
+            "jd_live_id": "JD-LIVE-40173",
+            "jd_shop_name": "张裕京东旗舰店",
+            "dashboard_url": "https://example.jd.com/live-data",
+            "status": "running",
+            "capture_interval_seconds": 15,
+            "frontend_execution_code": "MT-EXEC-20260710-000010",
+            "current_scene_name": "商品01-场景01",
+            "current_scene_index": 0,
+            "scene_schedule": [
+                {"scene_index": 0, "scene_name": "商品01-场景01", "start_offset_seconds": 0, "end_offset_seconds": 60}
+            ],
+        },
+    )
+
+    assert create_response.status_code == 201
+    session = create_response.json()
+    assert session["capture_session_code"] == "JD-METRIC-20260710-000001"
+    assert session["sync_start_mode"] == "with_frontend_agent"
+    assert session["capture_interval_seconds"] == 15
+    assert "online_viewers" in session["metric_names"]
+    assert "gmv" in session["metric_names"]
+
+    sample_response = client.post(
+        f"/api/maitu/jd-live-metric-sessions/{session['capture_session_code']}/samples",
+        json={
+            "scene_name": "商品01-场景01",
+            "scene_index": 0,
+            "live_elapsed_seconds": 30,
+            "online_viewers": 128,
+            "average_stay_seconds": 42.5,
+            "product_click_rate": 0.18,
+            "product_conversion_rate": 0.031,
+            "gmv": 9865.5,
+            "uv_value": 12.34,
+            "product_exposures": 1200,
+            "product_clicks": 216,
+            "transaction_count": 11,
+            "transaction_amount": 9865.5,
+            "traffic_sources": {"推荐": 80, "店铺": 48},
+            "interaction_data": {"comments": 14, "likes": 266},
+            "raw_metrics": {"source": "browser_use_jd_dashboard"},
+        },
+    )
+
+    assert sample_response.status_code == 201
+    sample = sample_response.json()
+    assert sample["sample_index"] == 0
+    assert sample["online_viewers"] == 128
+    assert sample["traffic_sources"]["推荐"] == 80
+
+    list_response = client.get(
+        f"/api/maitu/jd-live-metric-sessions/{session['capture_session_code']}/samples",
+        params={"scene_name": "商品01-场景01"},
+    )
+    assert list_response.status_code == 200
+    assert len(list_response.json()) == 1
+    assert list_response.json()[0]["gmv"] == 9865.5
+
+    update_response = client.patch(
+        f"/api/maitu/jd-live-metric-sessions/{session['capture_session_code']}",
+        json={"status": "completed", "result_summary": "同步抓取完成"},
+    )
+    assert update_response.status_code == 200
+    assert update_response.json()["status"] == "completed"
 
 
 def test_create_list_get_update_and_delete_maitu_slot(client: TestClient) -> None:

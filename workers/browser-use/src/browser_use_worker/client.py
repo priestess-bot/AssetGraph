@@ -41,6 +41,15 @@ class AssetGraphClient:
     def write_live_room_build_plan_execution_result(self, build_plan_code: str, payload: dict[str, Any]) -> dict[str, Any]:
         return self._request_json("POST", f"/api/maitu/live-room-build-plans/{build_plan_code}/execution-results", payload)
 
+    def get_jd_live_metric_session(self, capture_session_code: str) -> dict[str, Any]:
+        return self._request_json("GET", f"/api/maitu/jd-live-metric-sessions/{capture_session_code}")
+
+    def update_jd_live_metric_session(self, capture_session_code: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._request_json("PATCH", f"/api/maitu/jd-live-metric-sessions/{capture_session_code}", payload)
+
+    def write_jd_live_metric_sample(self, capture_session_code: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._request_json("POST", f"/api/maitu/jd-live-metric-sessions/{capture_session_code}/samples", payload)
+
     def release_retry_task(self, retry_task_code: str, *, status: str, result_summary: str) -> dict[str, Any]:
         return self._request_json(
             "POST",
