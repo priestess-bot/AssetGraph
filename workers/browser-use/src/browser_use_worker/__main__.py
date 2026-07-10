@@ -14,6 +14,7 @@ from .build_plan_preflight import BuildPlanPreflight
 from .client import AssetGraphClient
 from .config import WorkerConfig
 from .jd_metrics import capture_jd_live_metric_sample
+from .live_scene_fill import LiveSceneFillRunner, build_live_scene_fill_execution_payload
 from .preflight import ReplacementPlanPreflight
 from .runner import BrowserUseWorker, DryRunBrowserUseExecutor
 
@@ -29,6 +30,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--preflight", action="store_true", help="Run read-only safety checks for --plan-code before mutating Maitu")
     parser.add_argument("--preflight-build", action="store_true", help="Run read-only safety checks for --build-plan-code before mutating Maitu")
     parser.add_argument("--non-destructive-build", action="store_true", help="Run only low-risk BuildPlan UI navigation after a green preflight")
+    parser.add_argument("--live-scene-fill", action="store_true", help="Fill the first planned BuildPlan scene into an existing draft room default clip")
+    parser.add_argument("--target-live-room-id", help="Target Maitu draft liveRoomId for --live-scene-fill")
     parser.add_argument("--write-result", action="store_true", help="Write direct-plan execution/evidence result back to AssetGraph")
     parser.add_argument("--capture-jd-metrics", action="store_true", help="Capture JD live dashboard metrics and write samples to AssetGraph")
     parser.add_argument("--jd-metric-session-code", help="JD live metric capture session code (JD-METRIC-*)")
@@ -82,6 +85,20 @@ def main(argv: Sequence[str] | None = None) -> int:
             {"status": "completed", "result_summary": f"Captured {args.max_samples} JD live metric sample(s)"},
         )
         return 0
+    if args.live_scene_fill:
+        if not args.build_plan_code:
+            raise SystemExit("--live-scene-fill requires --build-plan-code")
+        if not args.target_live_room_id:
+            raise SystemExit("--live-scene-fill requires --target-live-room-id")
+        operation_plan = client.get_live_room_build_plan_operation_plan(args.build_plan_code)
+        result = LiveSceneFillRunner(session=BrowserUseCliSession()).run(
+            operation_plan,
+            target_live_room_id=args.target_live_room_id,
+        )
+        payload = build_live_scene_fill_execution_payload(result)
+        execution_result = client.write_live_room_build_plan_execution_result(args.build_plan_code, payload)
+        print(json.dumps({"worker_result": asdict(result), "execution_result": execution_result}, ensure_ascii=False, indent=2))
+        return 0 if result.failure_count == 0 else 2
     if args.build_plan_code and args.dry_run:
         operation_plan = client.get_live_room_build_plan_operation_plan(args.build_plan_code)
         dry_run = BuildPlanDryRun().run(operation_plan)

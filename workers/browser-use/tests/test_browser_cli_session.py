@@ -208,6 +208,36 @@ def test_read_jd_live_dashboard_state_opens_dashboard_url_and_extracts_metrics()
     ]
 
 
+def test_live_scene_fill_api_methods_use_browser_use_eval() -> None:
+    room_payload = {"id": 40173, "topics": [{"clips": [{"id": 416425, "name": "未命名", "order_num": 0}]}]}
+    rename_payload = {"clip_id": 416425, "name": "商品01-场景01"}
+    fill_payload = {"target_clip_id": 416425, "visual_count": 2, "text_count": 1, "layer_names": ["背景", "标题+logo"]}
+    session, runner = make_session([
+        "result: " + json.dumps(room_payload, ensure_ascii=False),
+        "result: " + json.dumps(rename_payload, ensure_ascii=False),
+        "result: " + json.dumps(fill_payload, ensure_ascii=False),
+    ])
+
+    assert session.read_live_room("40173") == room_payload
+    assert session.rename_clip(416425, "商品01-场景01") == rename_payload
+    assert session.fill_clip_from_template(
+        live_room_id="40173",
+        target_clip_id=416425,
+        reference_room_id="38336",
+        reference_clip_id="390051",
+        scene_name="商品01-场景01",
+        component_operations=[{"layer_name": "背景"}, {"layer_name": "标题+logo"}],
+        script_content="脚本",
+    ) == fill_payload
+
+    assert len(runner.commands) == 3
+    assert all(command[:4] == ("uv", "run", "browser-use", "eval") for command in runner.commands)
+    assert "live_rooms/40173" in runner.commands[0][4]
+    assert "clips/416425" in runner.commands[1][4]
+    assert "replace_clip_materials" in runner.commands[2][4]
+    assert "localStorage.getItem('token')" in runner.commands[2][4]
+
+
 def test_non_destructive_scene_and_tab_clicks_use_browser_use_eval() -> None:
     session, runner = make_session([
         '{"clicked":true,"target":"场景02"}',

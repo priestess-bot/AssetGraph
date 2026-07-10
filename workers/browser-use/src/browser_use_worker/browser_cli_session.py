@@ -219,6 +219,172 @@ class BrowserUseCliSession(MaituBrowserSession):
             text=summary.get("text", ""),
         )
 
+    def read_live_room(self, live_room_id: str) -> dict[str, Any]:
+        args = {
+            "liveRoomId": str(live_room_id),
+            "roomPath": f"live_rooms/{live_room_id}?env=working&include_qa_clips=true",
+        }
+        script = """
+(() => {
+  const args = __ARGS__;
+  const token = localStorage.getItem('token') || '';
+  const unwrap = (r) => (r && typeof r === 'object' && r.success === true && 'data' in r) ? r.data : r;
+  function xhr(method, path, body) {
+    const x = new XMLHttpRequest();
+    x.open(method, 'https://api.maituai.com/' + path, false);
+    x.setRequestHeader('Content-Type', 'application/json');
+    if (token) x.setRequestHeader('Authorization', token);
+    x.send(body === undefined ? null : JSON.stringify(body));
+    let data = null;
+    try { data = x.responseText ? JSON.parse(x.responseText) : null; } catch (e) { data = {raw:x.responseText}; }
+    if (!(x.status >= 200 && x.status < 300)) throw new Error(method + ' ' + path + ' failed ' + x.status);
+    return data;
+  }
+  const room = unwrap(xhr('GET', args.roomPath));
+  return JSON.stringify(room);
+})()
+""".strip().replace("__ARGS__", json.dumps(args, ensure_ascii=False))
+        return self._eval_json(script)
+
+    def rename_clip(self, clip_id: int, name: str) -> dict[str, Any]:
+        args = {"clipId": int(clip_id), "name": name, "clipPath": f"clips/{int(clip_id)}"}
+        script = """
+(() => {
+  const args = __ARGS__;
+  const token = localStorage.getItem('token') || '';
+  const unwrap = (r) => (r && typeof r === 'object' && r.success === true && 'data' in r) ? r.data : r;
+  function xhr(method, path, body) {
+    const x = new XMLHttpRequest();
+    x.open(method, 'https://api.maituai.com/' + path, false);
+    x.setRequestHeader('Content-Type', 'application/json');
+    if (token) x.setRequestHeader('Authorization', token);
+    x.send(body === undefined ? null : JSON.stringify(body));
+    let data = null;
+    try { data = x.responseText ? JSON.parse(x.responseText) : null; } catch (e) { data = {raw:x.responseText}; }
+    if (!(x.status >= 200 && x.status < 300)) throw new Error(method + ' ' + path + ' failed ' + x.status);
+    return data;
+  }
+  const roomId = new URLSearchParams(location.search).get('liveRoomId');
+  let clip = {id: args.clipId};
+  if (roomId) {
+    const room = unwrap(xhr('GET', 'live_rooms/' + roomId + '?env=working&include_qa_clips=true'));
+    const clips = ((room.topics || [])[0] || {}).clips || [];
+    clip = clips.find((item) => String(item.id) === String(args.clipId)) || clip;
+  }
+  const payload = {...clip, name: args.name};
+  delete payload.clip_materials;
+  const response = unwrap(xhr('PUT', args.clipPath, payload));
+  return JSON.stringify({clip_id: args.clipId, name: args.name, response});
+})()
+""".strip().replace("__ARGS__", json.dumps(args, ensure_ascii=False))
+        return self._eval_json(script)
+
+    def fill_clip_from_template(
+        self,
+        *,
+        live_room_id: str,
+        target_clip_id: int,
+        reference_room_id: str,
+        reference_clip_id: str,
+        scene_name: str,
+        component_operations: list[dict[str, Any]],
+        script_content: str | None,
+    ) -> dict[str, Any]:
+        args = {
+            "liveRoomId": str(live_room_id),
+            "targetClipId": int(target_clip_id),
+            "referenceRoomId": str(reference_room_id),
+            "referenceClipId": str(reference_clip_id),
+            "sceneName": scene_name,
+            "componentOperations": component_operations,
+            "scriptContent": script_content,
+        }
+        script = """
+(() => {
+  const args = __ARGS__;
+  const token = localStorage.getItem('token') || '';
+  const unwrap = (r) => (r && typeof r === 'object' && r.success === true && 'data' in r) ? r.data : r;
+  const arr = (x) => Array.isArray(x) ? x : [];
+  function xhr(method, path, body, allowFail=false) {
+    const x = new XMLHttpRequest();
+    x.open(method, 'https://api.maituai.com/' + path, false);
+    x.setRequestHeader('Content-Type', 'application/json');
+    if (token) x.setRequestHeader('Authorization', token);
+    x.send(body === undefined ? null : JSON.stringify(body));
+    let data = null;
+    try { data = x.responseText ? JSON.parse(x.responseText) : null; } catch (e) { data = {raw:x.responseText}; }
+    if (!allowFail && !(x.status >= 200 && x.status < 300)) throw new Error(method + ' ' + path + ' failed ' + x.status);
+    return {status:x.status, ok:x.status >= 200 && x.status < 300, data};
+  }
+  function visualPayload(m, clipId) {
+    const sf = {...(m.style_front || {})};
+    if (sf.top == null && m.top != null) sf.top = m.top;
+    if (sf.left == null && m.left != null) sf.left = m.left;
+    return {
+      url: m.url || null,
+      type: m.type,
+      layer_n: m.layer_n,
+      width: m.width,
+      height: m.height,
+      left: m.left || 0,
+      top: m.top || 0,
+      clip_id: clipId,
+      digital_human_image_id: m.digital_human_image_id || null,
+      speaker_id: m.speaker_id || null,
+      name: m.name || null,
+      tags: m.tags || null,
+      cover_url: m.cover_url || m.url || null,
+      dhi_clip: m.dhi_clip || null,
+      material_id: m.material_id || null,
+      style_front: JSON.stringify(sf),
+      duration: m.duration || null,
+      sound_enabled: m.sound_enabled,
+      play_mode: m.play_mode || null,
+      scale: m.scale || null,
+    };
+  }
+  const refRoom = unwrap(xhr('GET', 'live_rooms/' + args.referenceRoomId + '?env=working&include_qa_clips=true').data);
+  const refClips = arr(((refRoom.topics || [])[0] || {}).clips);
+  const refClip = refClips.find((clip) => String(clip.id) === String(args.referenceClipId));
+  if (!refClip) throw new Error('reference clip not found: ' + args.referenceClipId);
+  const visualMaterials = arr(refClip.clip_materials).filter((m) => m.type !== 'text' && m.type !== 'audio');
+  const count = args.componentOperations.length || visualMaterials.length;
+  const selectedVisuals = visualMaterials.slice(0, count).map((m) => visualPayload(m, args.targetClipId));
+  const cumulative = [];
+  for (let i = 0; i < selectedVisuals.length; i += 1) {
+    cumulative.push(selectedVisuals[i]);
+    xhr('POST', 'clips/' + args.targetClipId + '/replace_clip_materials', {view_clip_materials: cumulative});
+  }
+  const targetBeforeText = unwrap(xhr('GET', 'live_rooms/' + args.liveRoomId + '?env=working&include_qa_clips=true').data);
+  const targetClipBeforeText = arr(((targetBeforeText.topics || [])[0] || {}).clips).find((clip) => String(clip.id) === String(args.targetClipId));
+  for (const material of arr(targetClipBeforeText && targetClipBeforeText.clip_materials)) {
+    if (material.type === 'text' || material.type === 'audio') {
+      xhr('DELETE', 'clip_materials/' + material.id, {}, true);
+    }
+  }
+  let textMaterial = null;
+  if (args.scriptContent) {
+    textMaterial = unwrap(xhr('POST', 'clip_materials', {type:'text', clip_id:args.targetClipId, content:args.scriptContent, order_num:0}).data);
+  }
+  const verifiedRoom = unwrap(xhr('GET', 'live_rooms/' + args.liveRoomId + '?env=working&include_qa_clips=true').data);
+  const verifiedClip = arr(((verifiedRoom.topics || [])[0] || {}).clips).find((clip) => String(clip.id) === String(args.targetClipId)) || {};
+  const materials = arr(verifiedClip.clip_materials);
+  const visuals = materials.filter((m) => m.type !== 'text' && m.type !== 'audio');
+  const texts = materials.filter((m) => m.type === 'text');
+  return JSON.stringify({
+    live_room_id: args.liveRoomId,
+    target_clip_id: args.targetClipId,
+    target_clip_name: verifiedClip.name || args.sceneName,
+    reference_clip_id: args.referenceClipId,
+    visual_count: visuals.length,
+    text_count: texts.length,
+    layer_names: visuals.map((m) => m.name || ''),
+    text_material_id: textMaterial && textMaterial.id,
+  });
+})()
+""".strip().replace("__ARGS__", json.dumps(args, ensure_ascii=False))
+        return self._eval_json(script)
+
     def select_scene(self, scene_name: str) -> dict[str, Any]:
         return self._click_existing_text_target(
             target=scene_name,
@@ -371,6 +537,16 @@ class BrowserUseCliSession(MaituBrowserSession):
             return self._runner(command, cwd=self.config.browser_use_repo, timeout_seconds=self.config.timeout_seconds)  # type: ignore[misc]
         except TypeError:
             return self._runner(command)  # type: ignore[misc]
+
+    def _eval_json(self, script: str) -> dict[str, Any]:
+        result = self._parse_json_object(self._call_browser_use(["eval", script]))
+        if result is None:
+            raise MaituBrowserExecutionError(
+                "browser-use eval returned no JSON object for Maitu API operation.",
+                retryable=True,
+                retry_instruction="Re-run observe and verify the browser is on an authenticated Maitu page before retrying.",
+            )
+        return result
 
     def _run_command(self, args: Sequence[str], *, cwd: str | None, timeout_seconds: float) -> str:
         env = self._subprocess_env(cwd)
