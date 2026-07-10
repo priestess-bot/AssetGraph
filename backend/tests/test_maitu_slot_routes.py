@@ -1984,6 +1984,192 @@ def test_create_script_asset_gap_report_allows_build_when_no_missing_assets(clie
     assert body["readiness_status"] == "ready_for_layout"
 
 
+def test_create_script_layout_plan_strict_blocks_when_required_asset_is_missing(client: TestClient) -> None:
+    response = client.post(
+        "/api/maitu/script-layout-plans",
+        json={
+            "build_mode": "strict",
+            "scenes": [
+                {
+                    "scene_index": 0,
+                    "scene_name": "产品亮点",
+                    "scene_goal": "product_explanation",
+                    "duration_seconds": 45,
+                    "script": "龙谕龙8来自宁夏贺兰山东麓。",
+                    "keywords": ["龙谕龙8", "贺兰山东麓"],
+                    "asset_selections": [
+                        {
+                            "need_type": "script_text",
+                            "required_category": "script_text",
+                            "accepted_asset_types": ["TEXT"],
+                            "description": "产品亮点话术",
+                            "keywords": ["龙谕龙8"],
+                            "priority": "high",
+                            "status": "generated_content",
+                            "match_score": 1.0,
+                        },
+                        {
+                            "need_type": "background_image",
+                            "required_category": "background_image",
+                            "accepted_asset_types": ["IMG"],
+                            "description": "贺兰山东麓背景",
+                            "keywords": ["贺兰山东麓"],
+                            "priority": "high",
+                            "status": "selected",
+                            "selected_asset_code": "AG-IMG-BG",
+                            "selected_asset_display_code": "MT-BG-HELANS",
+                            "selected_asset_local_file_code": "MT-BG-HELANS",
+                            "match_score": 0.92,
+                        },
+                        {
+                            "need_type": "product_image",
+                            "required_category": "product_image",
+                            "accepted_asset_types": ["IMG"],
+                            "description": "龙谕龙8商品主图",
+                            "keywords": ["龙谕龙8"],
+                            "priority": "high",
+                            "status": "missing_asset",
+                        },
+                    ],
+                    "selected_count": 1,
+                    "missing_count": 1,
+                    "missing_asset_needs": [
+                        {
+                            "need_type": "product_image",
+                            "required_category": "product_image",
+                            "accepted_asset_types": ["IMG"],
+                            "description": "龙谕龙8商品主图",
+                            "keywords": ["龙谕龙8"],
+                            "priority": "high",
+                            "suggested_layer_role": "product_image",
+                        }
+                    ],
+                    "manual_review": True,
+                    "review_reasons": ["missing_asset:product_image"],
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["source"] == "script_content_layout_plan_rule_v1"
+    assert body["build_mode"] == "strict"
+    assert body["status"] == "blocked_missing_required_assets"
+    assert body["can_generate_layout"] is False
+    assert body["can_generate_executable_build_plan"] is False
+    assert body["blocking_gap_count"] == 1
+    scene = body["scenes"][0]
+    assert scene["status"] == "blocked_missing_required_assets"
+    assert scene["script_block"]["text"] == "龙谕龙8来自宁夏贺兰山东麓。"
+    assert [layer["layer_type"] for layer in scene["layers"]] == ["background_image"]
+    assert scene["missing_placeholders"][0]["need_type"] == "product_image"
+
+
+def test_create_script_layout_plan_placeholder_mode_adds_manual_placeholder_layer(client: TestClient) -> None:
+    response = client.post(
+        "/api/maitu/script-layout-plans",
+        json={
+            "build_mode": "draft_with_placeholders",
+            "scenes": [
+                {
+                    "scene_index": 0,
+                    "scene_name": "促单",
+                    "scene_goal": "conversion",
+                    "duration_seconds": 45,
+                    "script": "现在下单有组合优惠，点击商品卡。",
+                    "keywords": ["优惠", "商品卡"],
+                    "asset_selections": [
+                        {
+                            "need_type": "script_text",
+                            "required_category": "script_text",
+                            "accepted_asset_types": ["TEXT"],
+                            "description": "促单话术",
+                            "keywords": ["优惠"],
+                            "priority": "high",
+                            "status": "generated_content",
+                            "match_score": 1.0,
+                        },
+                        {
+                            "need_type": "digital_human",
+                            "required_category": "digital_human_video",
+                            "accepted_asset_types": ["VID"],
+                            "description": "主播数字人",
+                            "keywords": ["主播"],
+                            "priority": "high",
+                            "status": "selected",
+                            "selected_asset_code": "AG-VID-HOST",
+                            "selected_asset_display_code": "DH-HOST",
+                            "selected_asset_local_file_code": "DH-HOST",
+                            "match_score": 0.9,
+                        },
+                        {
+                            "need_type": "promotion_sticker",
+                            "required_category": "floating_sticker",
+                            "accepted_asset_types": ["IMG"],
+                            "description": "优惠商品卡贴片",
+                            "keywords": ["优惠", "商品卡"],
+                            "priority": "high",
+                            "status": "selected",
+                            "selected_asset_code": "AG-IMG-PROMO",
+                            "selected_asset_display_code": "MT-STICKER-PROMO",
+                            "selected_asset_local_file_code": "MT-STICKER-PROMO",
+                            "match_score": 0.88,
+                        },
+                        {
+                            "need_type": "product_image",
+                            "required_category": "product_image",
+                            "accepted_asset_types": ["IMG"],
+                            "description": "商品主图",
+                            "keywords": ["龙谕龙8"],
+                            "priority": "high",
+                            "status": "missing_asset",
+                        },
+                    ],
+                    "selected_count": 2,
+                    "missing_count": 1,
+                    "missing_asset_needs": [
+                        {
+                            "need_type": "product_image",
+                            "required_category": "product_image",
+                            "accepted_asset_types": ["IMG"],
+                            "description": "商品主图",
+                            "keywords": ["龙谕龙8"],
+                            "priority": "high",
+                            "suggested_layer_role": "product_image",
+                        }
+                    ],
+                    "manual_review": True,
+                    "review_reasons": ["missing_asset:product_image"],
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["build_mode"] == "draft_with_placeholders"
+    assert body["status"] == "draft_with_placeholders"
+    assert body["can_generate_layout"] is True
+    assert body["can_generate_executable_build_plan"] is False
+    assert body["manual_review_required"] is True
+    scene = body["scenes"][0]
+    assert scene["status"] == "manual_review_required"
+    layer_types = [layer["layer_type"] for layer in scene["layers"]]
+    assert layer_types == ["digital_human", "product_image", "promotion_sticker"]
+    product_layer = next(layer for layer in scene["layers"] if layer["layer_type"] == "product_image")
+    assert product_layer["status"] == "placeholder_required"
+    assert product_layer["asset_code"] is None
+    assert product_layer["x"] == 720
+    assert product_layer["y"] == 980
+    assert product_layer["z_index"] == 5
+    promo_layer = next(layer for layer in scene["layers"] if layer["layer_type"] == "promotion_sticker")
+    assert promo_layer["asset_code"] == "AG-IMG-PROMO"
+    assert promo_layer["x"] == 80
+    assert promo_layer["y"] == 1240
+    assert scene["script_block"]["status"] == "ready"
+
+
 def test_create_script_scene_template_matches_maps_each_script_scene_to_one_template_and_assets(client: TestClient) -> None:
     import_response = client.post(
         "/api/maitu/live-room-blueprints/import-reference",

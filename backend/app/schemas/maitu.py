@@ -148,6 +148,56 @@ class MaituScriptAssetGapReportRead(BaseModel):
     gaps: list[MaituScriptAssetGapRead] = Field(default_factory=list)
 
 
+class MaituScriptLayoutPlanCreate(BaseModel):
+    scenes: list[MaituScriptAssetSelectionSceneRead] = Field(..., min_length=1)
+    build_mode: str = Field(default="strict", max_length=64)
+    canvas_width: int = Field(default=1080, ge=1, le=10000)
+    canvas_height: int = Field(default=1920, ge=1, le=10000)
+
+
+class MaituScriptLayoutLayerRead(BaseModel):
+    layer_id: str
+    layer_type: str
+    need_type: str
+    status: str
+    required_category: str | None = None
+    asset_code: str | None = None
+    asset_display_code: str | None = None
+    asset_local_file_code: str | None = None
+    asset_title: str | None = None
+    x: int
+    y: int
+    width: int
+    height: int
+    z_index: int
+    fit: str = "contain"
+    source_selection_status: str | None = None
+
+
+class MaituScriptLayoutSceneRead(BaseModel):
+    scene_index: int
+    scene_name: str
+    scene_goal: str
+    status: str
+    canvas: dict[str, int]
+    layers: list[MaituScriptLayoutLayerRead] = Field(default_factory=list)
+    script_block: dict[str, Any] = Field(default_factory=dict)
+    missing_placeholders: list[dict[str, Any]] = Field(default_factory=list)
+    review_reasons: list[str] = Field(default_factory=list)
+
+
+class MaituScriptLayoutPlanRead(BaseModel):
+    source: str
+    build_mode: str
+    status: str
+    scene_count: int
+    blocking_gap_count: int = 0
+    can_generate_layout: bool
+    can_generate_executable_build_plan: bool
+    manual_review_required: bool = False
+    scenes: list[MaituScriptLayoutSceneRead] = Field(default_factory=list)
+
+
 class MaituScriptSceneTemplateMatchCreate(BaseModel):
     scenes: list[MaituScriptSceneRead] = Field(..., min_length=1)
     blueprint_code: str | None = Field(default=None, max_length=64)
