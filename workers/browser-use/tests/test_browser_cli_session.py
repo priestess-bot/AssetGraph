@@ -191,6 +191,28 @@ def test_state_without_url_falls_back_to_eval_summary() -> None:
     ]
 
 
+def test_cli_session_checks_lease_guard_before_every_browser_command() -> None:
+    session, runner = make_session(
+        [
+            "viewport: 2560x1600\n欢迎，登陆麦兔直播",
+            '{"title":"unused","href":"https://live2.maituai.com/Login","text":"unused"}',
+        ]
+    )
+    guard_calls = 0
+
+    def lease_is_valid() -> bool:
+        nonlocal guard_calls
+        guard_calls += 1
+        return guard_calls < 2
+
+    session.set_execution_guard(lease_is_valid)
+
+    with pytest.raises(MaituBrowserExecutionError, match="lease"):
+        session.read_page_summary()
+
+    assert runner.commands == [("uv", "run", "browser-use", "state")]
+
+
 def test_read_jd_live_dashboard_state_opens_dashboard_url_and_extracts_metrics() -> None:
     session, runner = make_session([
         "opened https://jm.jd.com/live-data",

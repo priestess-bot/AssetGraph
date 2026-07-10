@@ -57,26 +57,75 @@ class AssetGraphClient:
     def write_jd_live_metric_sample(self, capture_session_code: str, payload: dict[str, Any]) -> dict[str, Any]:
         return self._request_json("POST", f"/api/maitu/jd-live-metric-sessions/{capture_session_code}/samples", payload)
 
-    def release_retry_task(self, retry_task_code: str, *, status: str, result_summary: str) -> dict[str, Any]:
+    def heartbeat_retry_task(
+        self,
+        retry_task_code: str,
+        *,
+        claimed_by: str,
+        claim_token: str,
+        lease_version: int,
+        lock_ttl_seconds: int,
+    ) -> dict[str, Any]:
+        retry_task_segment = self._retry_task_code_segment(retry_task_code)
         return self._request_json(
             "POST",
-            f"/api/maitu/retry-tasks/{retry_task_code}/release",
-            {"status": status, "result_summary": result_summary},
+            f"/api/maitu/retry-tasks/{retry_task_segment}/heartbeat",
+            {
+                "claimed_by": claimed_by,
+                "claim_token": claim_token,
+                "lease_version": lease_version,
+                "lock_ttl_seconds": lock_ttl_seconds,
+            },
+        )
+
+    def release_retry_task(
+        self,
+        retry_task_code: str,
+        *,
+        status: str,
+        result_summary: str,
+        claimed_by: str,
+        claim_token: str,
+        lease_version: int,
+        request_timeout_seconds: float | None = None,
+    ) -> dict[str, Any]:
+        retry_task_segment = self._retry_task_code_segment(retry_task_code)
+        return self._request_json(
+            "POST",
+            f"/api/maitu/retry-tasks/{retry_task_segment}/release",
+            {
+                "status": status,
+                "result_summary": result_summary,
+                "claimed_by": claimed_by,
+                "claim_token": claim_token,
+                "lease_version": lease_version,
+            },
+            timeout_seconds=request_timeout_seconds,
         )
 
     def write_retry_execution_result(
         self,
         retry_task_code: str,
         *,
+        retry_execution_id: str,
         retry_execution_status: str,
+        claimed_by: str,
+        claim_token: str,
+        lease_version: int,
         result_summary: str | None = None,
         error_message: str | None = None,
         last_retry_execution_code: str | None = None,
         screenshot_asset_code: str | None = None,
         retry_instruction: str | None = None,
+        request_timeout_seconds: float | None = None,
     ) -> dict[str, Any]:
+        retry_task_segment = self._retry_task_code_segment(retry_task_code)
         payload = {
+            "retry_execution_id": retry_execution_id,
             "retry_execution_status": retry_execution_status,
+            "claimed_by": claimed_by,
+            "claim_token": claim_token,
+            "lease_version": lease_version,
             "result_summary": result_summary,
             "error_message": error_message,
             "last_retry_execution_code": last_retry_execution_code,
@@ -85,9 +134,18 @@ class AssetGraphClient:
         }
         return self._request_json(
             "POST",
-            f"/api/maitu/retry-tasks/{retry_task_code}/execution-results",
+            f"/api/maitu/retry-tasks/{retry_task_segment}/execution-results",
             {key: value for key, value in payload.items() if value is not None},
+            timeout_seconds=request_timeout_seconds,
         )
+
+    @staticmethod
+    def _retry_task_code_segment(retry_task_code: str) -> str:
+        raw_value = str(retry_task_code or "")
+        value = raw_value.strip()
+        if raw_value != value or not re.fullmatch(r"[A-Za-z0-9_-]+", value):
+            raise AssetGraphClientError(f"Invalid retry_task_code path segment: {value!r}")
+        return quote(value, safe="")
 
     @staticmethod
     def _asset_code_segment(asset_code: str) -> str:
@@ -96,7 +154,14 @@ class AssetGraphClient:
             raise AssetGraphClientError(f"Invalid AssetGraph asset_code path segment: {value!r}")
         return quote(value, safe="")
 
-    def _request_json(self, method: str, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    def _request_json(
+        self,
+        method: str,
+        path: str,
+        payload: dict[str, Any] | None = None,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> dict[str, Any]:
         body = None
         headers = {"Accept": "application/json"}
         if payload is not None:
@@ -108,8 +173,9 @@ class AssetGraphClient:
             headers=headers,
             method=method,
         )
+        request_timeout = self.timeout_seconds if timeout_seconds is None else timeout_seconds
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
+            with urllib.request.urlopen(request, timeout=request_timeout) as response:
                 content = response.read()
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")

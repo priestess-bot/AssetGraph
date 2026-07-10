@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -19,6 +21,14 @@ from app.services.code_generator import (
     format_maitu_retry_task_code,
     format_maitu_slot_code,
 )
+
+
+class RetryLeaseConflictError(RuntimeError):
+    """The retry task lease is missing, expired, or owned by another claim."""
+
+
+class RetryExecutionConflictError(RuntimeError):
+    """An idempotency key was reused for a different retry execution result."""
 
 
 class MaituMaterialSlotRepository:
@@ -1568,7 +1578,11 @@ class MaituMaterialSlotRepository:
             cursor.execute(
                 f"""
                 WITH candidate AS (
-                    SELECT rt.retry_task_code
+                    SELECT rt.retry_task_code,
+                           COALESCE(ms.maitu_project_code, rp.maitu_project_code) AS maitu_project_code,
+                           COALESCE(ms.scene_name, rp.scene_name) AS scene_name,
+                           ms.slot_name,
+                           ms.layer_name
                     FROM maitu_execution_retry_tasks rt
                     LEFT JOIN maitu_replacement_plans rp ON rp.plan_code = rt.plan_code AND rp.deleted_at IS NULL
                     LEFT JOIN maitu_material_slots ms ON ms.slot_code = rt.slot_code AND ms.deleted_at IS NULL
@@ -1579,10 +1593,13 @@ class MaituMaterialSlotRepository:
                 )
                 UPDATE maitu_execution_retry_tasks rt
                 SET status = 'in_progress', claimed_by = %s, claimed_at = now(),
-                    claim_expires_at = now() + (%s * interval '1 second'), updated_at = now()
+                    claim_expires_at = now() + (%s * interval '1 second'),
+                    claim_token = gen_random_uuid(), lease_version = lease_version + 1,
+                    updated_at = now()
                 FROM candidate
                 WHERE rt.retry_task_code = candidate.retry_task_code
-                RETURNING rt.retry_task_code
+                RETURNING rt.*, candidate.maitu_project_code, candidate.scene_name,
+                          candidate.slot_name, candidate.layer_name
                 """,
                 tuple(values),
             )
@@ -1590,7 +1607,7 @@ class MaituMaterialSlotRepository:
         self.connection.commit()
         if row is None:
             return None
-        return self._get_retry_queue_item_by_code(row["retry_task_code"])
+        return self._normalize_retry_queue_item(row)
 
     def reclaim_expired_retry_tasks(self) -> dict[str, Any]:
         with self.connection.cursor(row_factory=dict_row) as cursor:
@@ -1598,7 +1615,7 @@ class MaituMaterialSlotRepository:
                 """
                 UPDATE maitu_execution_retry_tasks
                 SET status = 'pending', claimed_by = NULL, claimed_at = NULL,
-                    claim_expires_at = NULL, updated_at = now()
+                    claim_expires_at = NULL, claim_token = NULL, updated_at = now()
                 WHERE deleted_at IS NULL
                     AND status = 'in_progress'
                     AND claim_expires_at IS NOT NULL
@@ -1626,26 +1643,96 @@ class MaituMaterialSlotRepository:
             "operation_plan": operation_plan,
         }
 
+    def heartbeat_retry_task(self, retry_task_code: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                UPDATE maitu_execution_retry_tasks
+                SET claim_expires_at = now() + (%s * interval '1 second'), updated_at = now()
+                WHERE retry_task_code = %s
+                    AND deleted_at IS NULL
+                    AND status = 'in_progress'
+                    AND claimed_by = %s
+                    AND claim_token = %s
+                    AND lease_version = %s
+                    AND claim_expires_at IS NOT NULL
+                    AND claim_expires_at >= now()
+                RETURNING *
+                """,
+                (
+                    payload.get("lock_ttl_seconds", 900),
+                    retry_task_code,
+                    payload["claimed_by"],
+                    payload["claim_token"],
+                    payload["lease_version"],
+                ),
+            )
+            row = cursor.fetchone()
+            task_exists = False
+            if row is None:
+                cursor.execute(
+                    "SELECT 1 FROM maitu_execution_retry_tasks WHERE retry_task_code = %s AND deleted_at IS NULL",
+                    (retry_task_code,),
+                )
+                task_exists = cursor.fetchone() is not None
+        self.connection.commit()
+        if row is not None:
+            return self._normalize_retry_task(row)
+        if task_exists:
+            raise RetryLeaseConflictError("lease is expired or owned by another claim")
+        return None
+
     def release_retry_task(self, retry_task_code: str, payload: dict[str, Any]) -> dict[str, Any] | None:
-        assignments = ["status = %s", "claimed_by = NULL", "claimed_at = NULL", "claim_expires_at = NULL"]
+        assignments = [
+            "status = %s",
+            "claimed_by = NULL",
+            "claimed_at = NULL",
+            "claim_expires_at = NULL",
+            "claim_token = NULL",
+        ]
         values: list[Any] = [payload.get("status", "pending")]
         if "result_summary" in payload:
             assignments.append("result_summary = %s")
             values.append(payload["result_summary"])
-        values.append(retry_task_code)
+        values.extend(
+            [
+                retry_task_code,
+                payload["claimed_by"],
+                payload["claim_token"],
+                payload["lease_version"],
+            ]
+        )
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
                 f"""
                 UPDATE maitu_execution_retry_tasks
                 SET {', '.join(assignments)}, updated_at = now()
-                WHERE retry_task_code = %s AND deleted_at IS NULL
+                WHERE retry_task_code = %s
+                    AND deleted_at IS NULL
+                    AND status = 'in_progress'
+                    AND claimed_by = %s
+                    AND claim_token = %s
+                    AND lease_version = %s
+                    AND claim_expires_at IS NOT NULL
+                    AND claim_expires_at >= now()
                 RETURNING *
                 """,
                 tuple(values),
             )
             row = cursor.fetchone()
+            task_exists = False
+            if row is None:
+                cursor.execute(
+                    "SELECT 1 FROM maitu_execution_retry_tasks WHERE retry_task_code = %s AND deleted_at IS NULL",
+                    (retry_task_code,),
+                )
+                task_exists = cursor.fetchone() is not None
         self.connection.commit()
-        return self._normalize_retry_task(row) if row else None
+        if row is not None:
+            return self._normalize_retry_task(row)
+        if task_exists:
+            raise RetryLeaseConflictError("lease is expired or owned by another claim")
+        return None
 
     def _get_retry_queue_item_by_code(self, retry_task_code: str) -> dict[str, Any] | None:
         with self.connection.cursor(row_factory=dict_row) as cursor:
@@ -1678,13 +1765,7 @@ class MaituMaterialSlotRepository:
         return self._normalize_retry_task(row) if row else None
 
     def update_retry_task(self, retry_task_code: str, payload: dict[str, Any]) -> dict[str, Any] | None:
-        writable_fields = (
-            "status",
-            "retry_attempt_count",
-            "last_retry_execution_code",
-            "result_summary",
-            "retry_instruction",
-        )
+        writable_fields = ("result_summary", "retry_instruction")
         data = {field: payload[field] for field in writable_fields if field in payload}
         if not data:
             return self.get_retry_task_by_code(retry_task_code)
@@ -1697,14 +1778,27 @@ class MaituMaterialSlotRepository:
                 f"""
                 UPDATE maitu_execution_retry_tasks
                 SET {assignments}, updated_at = now()
-                WHERE retry_task_code = %s AND deleted_at IS NULL
+                WHERE retry_task_code = %s
+                    AND deleted_at IS NULL
+                    AND status <> 'in_progress'
                 RETURNING *
                 """,
                 tuple(values),
             )
             row = cursor.fetchone()
+            task_exists = False
+            if row is None:
+                cursor.execute(
+                    "SELECT 1 FROM maitu_execution_retry_tasks WHERE retry_task_code = %s AND deleted_at IS NULL",
+                    (retry_task_code,),
+                )
+                task_exists = cursor.fetchone() is not None
         self.connection.commit()
-        return self._normalize_retry_task(row) if row else None
+        if row is not None:
+            return self._normalize_retry_task(row)
+        if task_exists:
+            raise RetryLeaseConflictError("retry task metadata cannot change while a worker lease is active")
+        return None
 
     def get_retry_task_browser_use_operation_plan(self, retry_task_code: str) -> dict[str, Any] | None:
         task = self.get_retry_task_by_code(retry_task_code)
@@ -1756,44 +1850,137 @@ class MaituMaterialSlotRepository:
         }
 
     def create_retry_task_execution_result(self, retry_task_code: str, payload: dict[str, Any]) -> dict[str, Any] | None:
-        if self.get_retry_task_by_code(retry_task_code) is None:
-            return None
-        data = {
-            "status": self._retry_task_status_from_execution(payload["retry_execution_status"]),
-            "retry_attempt_count_increment": 1,
-        }
-        optional_fields = (
-            "last_retry_execution_code",
-            "result_summary",
-            "error_message",
-            "screenshot_asset_code",
-            "retry_instruction",
-        )
-        for field in optional_fields:
-            if field in payload:
-                data[field] = payload[field]
-
-        assignments = ["status = %s", "retry_attempt_count = retry_attempt_count + %s"]
-        values: list[Any] = [data["status"], data["retry_attempt_count_increment"]]
-        for field in optional_fields:
-            if field in data:
-                assignments.append(f"{field} = %s")
-                values.append(data[field])
-        values.append(retry_task_code)
+        serializable_payload = json.loads(json.dumps(payload, sort_keys=True, default=str, ensure_ascii=True))
+        receipt_payload = {key: value for key, value in serializable_payload.items() if key != "claim_token"}
+        fingerprint = hashlib.sha256(
+            json.dumps(serializable_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+        ).hexdigest()
+        retry_execution_id = payload["retry_execution_id"]
 
         with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT rt.*, rt.claim_expires_at >= now() AS lease_active
+                FROM maitu_execution_retry_tasks rt
+                WHERE rt.retry_task_code = %s AND rt.deleted_at IS NULL
+                FOR UPDATE
+                """,
+                (retry_task_code,),
+            )
+            task = cursor.fetchone()
+            if task is None:
+                self.connection.commit()
+                return None
+
+            cursor.execute(
+                """
+                SELECT retry_task_code, result_fingerprint
+                FROM maitu_retry_execution_receipts
+                WHERE retry_execution_id = %s
+                """,
+                (retry_execution_id,),
+            )
+            receipt = cursor.fetchone()
+            if receipt is not None:
+                if receipt["retry_task_code"] == retry_task_code and receipt["result_fingerprint"] == fingerprint:
+                    self.connection.commit()
+                    task.pop("lease_active", None)
+                    return self._normalize_retry_task(task)
+                self.connection.rollback()
+                raise RetryExecutionConflictError("retry_execution_id was reused with different content")
+
+            lease_matches = (
+                task.get("status") == "in_progress"
+                and task.get("lease_active") is True
+                and task.get("claimed_by") == payload["claimed_by"]
+                and str(task.get("claim_token")) == str(payload["claim_token"])
+                and task.get("lease_version") == payload["lease_version"]
+            )
+            if not lease_matches:
+                self.connection.rollback()
+                raise RetryLeaseConflictError("lease is expired or owned by another claim")
+
+            optional_fields = (
+                "last_retry_execution_code",
+                "result_summary",
+                "error_message",
+                "screenshot_asset_code",
+                "retry_instruction",
+            )
+            assignments = ["status = %s"]
+            values: list[Any] = [self._retry_task_status_from_execution(payload["retry_execution_status"])]
+            if payload["retry_execution_status"] != "released":
+                assignments.append("retry_attempt_count = retry_attempt_count + 1")
+            assignments.extend(
+                [
+                    "last_retry_execution_id = %s",
+                    "claimed_by = NULL",
+                    "claimed_at = NULL",
+                    "claim_expires_at = NULL",
+                    "claim_token = NULL",
+                ]
+            )
+            values.append(retry_execution_id)
+            for field in optional_fields:
+                if field in payload:
+                    assignments.append(f"{field} = %s")
+                    values.append(payload[field])
+            values.extend(
+                [
+                    retry_task_code,
+                    payload["claimed_by"],
+                    payload["claim_token"],
+                    payload["lease_version"],
+                ]
+            )
             cursor.execute(
                 f"""
                 UPDATE maitu_execution_retry_tasks
                 SET {', '.join(assignments)}, updated_at = now()
-                WHERE retry_task_code = %s AND deleted_at IS NULL
+                WHERE retry_task_code = %s
+                    AND deleted_at IS NULL
+                    AND status = 'in_progress'
+                    AND claimed_by = %s
+                    AND claim_token = %s
+                    AND lease_version = %s
+                    AND claim_expires_at IS NOT NULL
+                    AND claim_expires_at >= now()
                 RETURNING *
                 """,
                 tuple(values),
             )
             row = cursor.fetchone()
+            if row is None:
+                self.connection.rollback()
+                raise RetryLeaseConflictError("lease expired while writing the execution result")
+
+            cursor.execute(
+                """
+                INSERT INTO maitu_retry_execution_receipts (
+                    retry_execution_id, retry_task_code, claimed_by, lease_version,
+                    retry_execution_status, result_fingerprint, result_payload
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (retry_execution_id) DO NOTHING
+                RETURNING retry_execution_id
+                """,
+                (
+                    retry_execution_id,
+                    retry_task_code,
+                    payload["claimed_by"],
+                    payload["lease_version"],
+                    payload["retry_execution_status"],
+                    fingerprint,
+                    Jsonb(receipt_payload),
+                ),
+            )
+            inserted_receipt = cursor.fetchone()
+            if inserted_receipt is None:
+                self.connection.rollback()
+                raise RetryExecutionConflictError("retry_execution_id was concurrently used by another result")
+
         self.connection.commit()
-        return self._normalize_retry_task(row) if row else None
+        return self._normalize_retry_task(row)
 
     def _next_slot_code(self) -> str:
         sequence_date = datetime.now(UTC).date()
@@ -2646,6 +2833,7 @@ class MaituMaterialSlotRepository:
             "succeeded": "succeeded",
             "failed": "failed",
             "manual_required": "manual_required",
+            "released": "pending",
         }
         return mapping.get(retry_execution_status, retry_execution_status)
 
@@ -3221,8 +3409,9 @@ class MaituMaterialSlotRepository:
     @staticmethod
     def _normalize_retry_task(row: dict[str, Any]) -> dict[str, Any]:
         converted = dict(row)
-        if "id" in converted and converted["id"] is not None:
-            converted["id"] = str(converted["id"])
+        for field in ("id", "claim_token", "last_retry_execution_id"):
+            if field in converted and converted[field] is not None:
+                converted[field] = str(converted[field])
         return converted
 
     def _normalize_retry_queue_item(self, row: dict[str, Any]) -> dict[str, Any]:

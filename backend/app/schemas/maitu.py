@@ -1,5 +1,6 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -911,6 +912,8 @@ class MaituRetryTaskRead(BaseModel):
     claimed_by: str | None = None
     claimed_at: datetime | None = None
     claim_expires_at: datetime | None = None
+    lease_version: int = 0
+    last_retry_execution_id: UUID | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -924,6 +927,11 @@ class MaituRetryQueueItemRead(MaituRetryTaskRead):
     browser_use_operations_url: str
 
 
+class MaituRetryClaimedQueueItemRead(MaituRetryQueueItemRead):
+    claim_token: UUID
+    lease_version: int = Field(..., ge=1)
+
+
 class MaituRetryQueueClaimNextCreate(BaseModel):
     claimed_by: str = Field(..., min_length=1, max_length=128)
     lock_ttl_seconds: int = Field(default=900, ge=60, le=86400)
@@ -933,8 +941,18 @@ class MaituRetryQueueClaimNextCreate(BaseModel):
     max_attempts: int = Field(default=3, ge=1)
 
 
-class MaituRetryTaskReleaseCreate(BaseModel):
-    status: str = Field(default="pending", max_length=32)
+class MaituRetryLeaseIdentity(BaseModel):
+    claimed_by: str = Field(..., min_length=1, max_length=128)
+    claim_token: UUID
+    lease_version: int = Field(..., ge=1)
+
+
+class MaituRetryTaskHeartbeatCreate(MaituRetryLeaseIdentity):
+    lock_ttl_seconds: int = Field(default=900, ge=60, le=86400)
+
+
+class MaituRetryTaskReleaseCreate(MaituRetryLeaseIdentity):
+    status: Literal["pending"] = "pending"
     result_summary: str | None = None
 
 
@@ -944,15 +962,15 @@ class MaituRetryQueueReclaimExpiredResponse(BaseModel):
 
 
 class MaituRetryTaskUpdate(BaseModel):
-    status: str | None = Field(default=None, max_length=32)
-    retry_attempt_count: int | None = Field(default=None, ge=0)
-    last_retry_execution_code: str | None = Field(default=None, max_length=64)
+    model_config = ConfigDict(extra="forbid")
+
     result_summary: str | None = None
     retry_instruction: str | None = None
 
 
-class MaituRetryTaskExecutionResultCreate(BaseModel):
-    retry_execution_status: str = Field(..., max_length=32)
+class MaituRetryTaskExecutionResultCreate(MaituRetryLeaseIdentity):
+    retry_execution_id: UUID
+    retry_execution_status: Literal["succeeded", "failed", "manual_required", "released"]
     last_retry_execution_code: str | None = Field(default=None, max_length=64)
     result_summary: str | None = None
     error_message: str | None = None
@@ -989,5 +1007,5 @@ class MaituRetryBrowserUseOperationPlanResponse(BaseModel):
 class MaituRetryWorkerNextResponse(BaseModel):
     reclaimed_count: int
     reclaimed_retry_task_codes: list[str] = Field(default_factory=list)
-    retry_task: MaituRetryQueueItemRead
+    retry_task: MaituRetryClaimedQueueItemRead
     operation_plan: MaituRetryBrowserUseOperationPlanResponse

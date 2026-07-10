@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from browser_use_worker.maitu_executor import MaituBrowserExecutionError, MaituBrowserUseExecutor
@@ -166,6 +167,35 @@ def test_maitu_executor_rejects_unknown_late_operation_before_any_session_call()
     assert "unsupported operation type" in (result.error_message or "").lower()
     assert session.calls == []
     assert client.requested_codes == []
+
+
+def test_maitu_executor_stops_between_operations_when_lease_guard_fails() -> None:
+    session = FakeMaituSession()
+    client = FakeAssetClient({"AG-VID-20260709-000001": asset()})
+    executor = MaituBrowserUseExecutor(asset_client=client, session=session)
+    guard_calls = 0
+
+    def lease_is_valid() -> bool:
+        nonlocal guard_calls
+        guard_calls += 1
+        return guard_calls < 3
+
+    executor.set_execution_guard(lease_is_valid)
+    plan = operation_plan("retry_replace_layer_asset")
+    plan["operations"].append(dict(plan["operations"][0]))
+
+    result = executor.execute_operation_plan(plan)
+
+    assert result.status == "released"
+    assert "lease heartbeat failed" in (result.error_message or "")
+    assert [name for name, _ in session.calls] == ["ensure_ready", "replace_layer_asset"]
+    assert client.requested_codes == ["AG-VID-20260709-000001"]
+
+
+def test_maitu_executor_treats_session_without_timeout_contract_as_unbounded() -> None:
+    executor = MaituBrowserUseExecutor(asset_client=FakeAssetClient({}), session=FakeMaituSession())
+
+    assert math.isinf(executor.max_side_effect_seconds)
 
 
 def test_maitu_executor_missing_asset_requires_manual_intervention() -> None:

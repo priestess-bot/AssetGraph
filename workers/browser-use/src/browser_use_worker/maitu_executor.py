@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
 from .runner import OperationExecutionResult
 
@@ -52,6 +52,7 @@ class MaituBrowserSession(Protocol):
 class MaituBrowserUseExecutor:
     asset_client: AssetLookupClient
     session: MaituBrowserSession
+    execution_guard: Callable[[], bool] | None = None
 
     SUPPORTED_OPERATION_TYPES = frozenset(
         {
@@ -64,6 +65,29 @@ class MaituBrowserUseExecutor:
             "resolve_missing_slot_asset",
         }
     )
+
+    @property
+    def max_side_effect_seconds(self) -> float:
+        session_config = getattr(self.session, "config", None)
+        raw_timeout = getattr(session_config, "timeout_seconds", None)
+        try:
+            return float(raw_timeout)
+        except (TypeError, ValueError):
+            return float("inf")
+
+    def set_execution_guard(self, guard: Callable[[], bool] | None) -> None:
+        self.execution_guard = guard
+        session_guard_setter = getattr(self.session, "set_execution_guard", None)
+        if callable(session_guard_setter):
+            session_guard_setter(guard)
+
+    def _require_execution_guard(self) -> None:
+        if self.execution_guard is not None and not self.execution_guard():
+            raise MaituBrowserExecutionError(
+                "retry lease heartbeat failed during browser execution",
+                retryable=True,
+                retry_instruction="Reclaim the retry task with a fresh lease before continuing.",
+            )
 
     def execute_operation_plan(self, operation_plan: dict[str, Any]) -> OperationExecutionResult:
         operations = operation_plan.get("operations") or []
@@ -91,12 +115,16 @@ class MaituBrowserUseExecutor:
         maitu_project_code = operation_plan.get("maitu_project_code")
         scene_name = operation_plan.get("scene_name")
         try:
+            self._require_execution_guard()
             self.session.ensure_ready(maitu_project_code=maitu_project_code, scene_name=scene_name)
             executed = 0
             for operation in operations:
+                self._require_execution_guard()
                 self._execute_operation(operation)
                 executed += 1
+            self._require_execution_guard()
             self.session.save_project()
+            self._require_execution_guard()
             screenshot_asset_code = self.session.capture_screenshot(
                 label=str(operation_plan.get("retry_task_code") or operation_plan.get("plan_code") or "maitu-operation")
             )
@@ -140,6 +168,7 @@ class MaituBrowserUseExecutor:
         if operation_type == "retry_asset_upload_and_replace":
             self._require_asset(operation, asset)
             self.session.upload_asset(asset)
+            self._require_execution_guard()
             self.session.replace_layer_asset(operation, asset)
             return
 
@@ -149,6 +178,7 @@ class MaituBrowserUseExecutor:
 
         if operation_type == "recover_login_then_retry":
             self.session.recover_login()
+            self._require_execution_guard()
             self._require_asset(operation, asset)
             self.session.replace_layer_asset(operation, asset)
             return

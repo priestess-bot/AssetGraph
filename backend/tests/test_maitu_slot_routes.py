@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from app.api.routes import maitu
 from app.main import app
+from app.repositories.maitu import RetryExecutionConflictError, RetryLeaseConflictError
 
 
 class FakeMaituMaterialSlotRepository:
@@ -16,6 +17,7 @@ class FakeMaituMaterialSlotRepository:
         self.plans: dict[str, dict[str, Any]] = {}
         self.executions: dict[str, dict[str, Any]] = {}
         self.retry_tasks: dict[str, dict[str, Any]] = {}
+        self.retry_execution_receipts: dict[str, dict[str, Any]] = {}
         self.blueprints: dict[str, dict[str, Any]] = {}
         self.template_scenes: dict[str, dict[str, Any]] = {}
         self.template_components: dict[str, list[dict[str, Any]]] = {}
@@ -1323,11 +1325,34 @@ class FakeMaituMaterialSlotRepository:
         if not rows:
             return None
         task = self.retry_tasks[rows[0]["retry_task_code"]]
+        lease_version = int(task.get("lease_version", 0)) + 1
         task["status"] = "in_progress"
         task["claimed_by"] = payload["claimed_by"]
         task["claimed_at"] = "2026-07-07T09:00:00Z"
         task["claim_expires_at"] = "2026-07-07T09:15:00Z"
+        task["claim_token"] = f"c1a1d000-0000-4000-8000-{lease_version:012d}"
+        task["lease_version"] = lease_version
+        task["lease_expired"] = False
         return {**rows[0], **task}
+
+    @staticmethod
+    def _assert_retry_lease(task: dict[str, Any], payload: dict[str, Any]) -> None:
+        if (
+            task.get("status") != "in_progress"
+            or task.get("lease_expired") is True
+            or task.get("claimed_by") != payload.get("claimed_by")
+            or task.get("claim_token") != str(payload.get("claim_token"))
+            or task.get("lease_version") != payload.get("lease_version")
+        ):
+            raise RetryLeaseConflictError("retry task lease is no longer owned by this worker")
+
+    def heartbeat_retry_task(self, retry_task_code: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+        task = self.retry_tasks.get(retry_task_code)
+        if task is None:
+            return None
+        self._assert_retry_lease(task, payload)
+        task["claim_expires_at"] = "2026-07-07T09:30:00Z"
+        return task
 
     def reclaim_expired_retry_tasks(self) -> dict[str, Any]:
         reclaimed_codes = []
@@ -1337,6 +1362,7 @@ class FakeMaituMaterialSlotRepository:
                 task["claimed_by"] = None
                 task["claimed_at"] = None
                 task["claim_expires_at"] = None
+                task["claim_token"] = None
                 reclaimed_codes.append(task["retry_task_code"])
         return {"reclaimed_count": len(reclaimed_codes), "retry_task_codes": reclaimed_codes}
 
@@ -1357,10 +1383,12 @@ class FakeMaituMaterialSlotRepository:
         task = self.retry_tasks.get(retry_task_code)
         if task is None:
             return None
+        self._assert_retry_lease(task, payload)
         task["status"] = payload.get("status", "pending")
         task["claimed_by"] = None
         task["claimed_at"] = None
         task["claim_expires_at"] = None
+        task["claim_token"] = None
         if payload.get("result_summary") is not None:
             task["result_summary"] = payload["result_summary"]
         return task
@@ -1372,6 +1400,8 @@ class FakeMaituMaterialSlotRepository:
         task = self.retry_tasks.get(retry_task_code)
         if task is None:
             return None
+        if task.get("status") == "in_progress":
+            raise RetryLeaseConflictError("retry task metadata cannot change while a worker lease is active")
         task.update(payload)
         return task
 
@@ -1433,13 +1463,28 @@ class FakeMaituMaterialSlotRepository:
         task = self.retry_tasks.get(retry_task_code)
         if task is None:
             return None
+        retry_execution_id = str(payload["retry_execution_id"])
+        fingerprint = json.dumps(payload, sort_keys=True, default=str, ensure_ascii=True)
+        receipt = self.retry_execution_receipts.get(retry_execution_id)
+        if receipt is not None:
+            if receipt["retry_task_code"] == retry_task_code and receipt["fingerprint"] == fingerprint:
+                return task
+            raise RetryExecutionConflictError("retry_execution_id was reused with different content")
+        self._assert_retry_lease(task, payload)
         status_map = {
             "succeeded": "succeeded",
             "failed": "failed",
             "manual_required": "manual_required",
+            "released": "pending",
         }
         task["status"] = status_map.get(payload["retry_execution_status"], payload["retry_execution_status"])
-        task["retry_attempt_count"] += 1
+        if payload["retry_execution_status"] != "released":
+            task["retry_attempt_count"] += 1
+        task["last_retry_execution_id"] = retry_execution_id
+        task["claimed_by"] = None
+        task["claimed_at"] = None
+        task["claim_expires_at"] = None
+        task["claim_token"] = None
         if payload.get("last_retry_execution_code") is not None:
             task["last_retry_execution_code"] = payload["last_retry_execution_code"]
         if payload.get("result_summary") is not None:
@@ -1450,6 +1495,10 @@ class FakeMaituMaterialSlotRepository:
             task["screenshot_asset_code"] = payload["screenshot_asset_code"]
         if payload.get("retry_instruction") is not None:
             task["retry_instruction"] = payload["retry_instruction"]
+        self.retry_execution_receipts[retry_execution_id] = {
+            "retry_task_code": retry_task_code,
+            "fingerprint": fingerprint,
+        }
         return task
 
     def _create_retry_tasks_for_execution(self, execution: dict[str, Any]) -> None:
@@ -1484,6 +1533,9 @@ class FakeMaituMaterialSlotRepository:
             "claimed_by": None,
             "claimed_at": None,
             "claim_expires_at": None,
+            "claim_token": None,
+            "lease_version": 0,
+            "last_retry_execution_id": None,
             "created_at": None,
             "updated_at": None,
         }
@@ -1619,8 +1671,12 @@ class FakeMaituMaterialSlotRepository:
 
 
 @pytest.fixture
-def client() -> TestClient:
-    repository = FakeMaituMaterialSlotRepository()
+def repository() -> FakeMaituMaterialSlotRepository:
+    return FakeMaituMaterialSlotRepository()
+
+
+@pytest.fixture
+def client(repository: FakeMaituMaterialSlotRepository) -> TestClient:
     app.dependency_overrides[maitu.get_maitu_slot_repository] = lambda: repository
     with TestClient(app) as test_client:
         yield test_client
@@ -2984,16 +3040,19 @@ def test_failed_browser_use_execution_classifies_failure_and_creates_retry_task(
 
     update_retry_response = client.patch(
         f"/api/maitu/retry-tasks/{retry_task['retry_task_code']}",
-        json={
-            "status": "in_progress",
-            "retry_attempt_count": 1,
-            "last_retry_execution_code": created["execution_code"],
-            "result_summary": "已交给 Browser use 重新定位 layer_8。",
-        },
+        json={"result_summary": "准备交给 Browser use 重新定位 layer_8。"},
     )
     assert update_retry_response.status_code == 200
-    assert update_retry_response.json()["status"] == "in_progress"
-    assert update_retry_response.json()["retry_attempt_count"] == 1
+    assert update_retry_response.json()["status"] == "pending"
+    assert update_retry_response.json()["retry_attempt_count"] == 0
+
+    claim_response = client.post(
+        "/api/maitu/retry-queue/claim-next",
+        json={"claimed_by": "worker-1", "lock_ttl_seconds": 120},
+    )
+    assert claim_response.status_code == 200
+    assert claim_response.json()["status"] == "in_progress"
+    assert claim_response.json()["retry_attempt_count"] == 0
 
 
 def test_retry_task_browser_use_operations_plan_contains_minimal_retry_steps(client: TestClient) -> None:
@@ -3065,7 +3124,7 @@ def test_retry_task_browser_use_operations_plan_contains_minimal_retry_steps(cli
     assert "保持原图层位置和尺寸不变" in operation["instruction"]
 
 
-def test_retry_task_execution_result_updates_task_status_and_attempt_count(client: TestClient) -> None:
+def _create_retry_task(client: TestClient, *, plan_name: str = "商品主图重试结果方案") -> dict[str, Any]:
     slot_response = client.post(
         "/api/maitu/slots",
         json={
@@ -3080,11 +3139,10 @@ def test_retry_task_execution_result_updates_task_status_and_attempt_count(clien
     slot_code = slot_response.json()["slot_code"]
     plan_response = client.post(
         "/api/maitu/replacement-plans",
-        json={"plan_name": "商品主图重试结果方案", "slot_codes": [slot_code]},
+        json={"plan_name": plan_name, "slot_codes": [slot_code]},
     )
-    plan_code = plan_response.json()["plan_code"]
     execution_response = client.post(
-        f"/api/maitu/replacement-plans/{plan_code}/execution-results",
+        f"/api/maitu/replacement-plans/{plan_response.json()['plan_code']}/execution-results",
         json={
             "executor": "browser_use",
             "execution_status": "partial_failed",
@@ -3102,33 +3160,166 @@ def test_retry_task_execution_result_updates_task_status_and_attempt_count(clien
             ],
         },
     )
-    retry_task = client.get(
+    return client.get(
         "/api/maitu/retry-tasks",
         params={"execution_code": execution_response.json()["execution_code"]},
     ).json()[0]
 
+
+def _claim_retry_task(client: TestClient, *, claimed_by: str = "browser-use-worker-1") -> dict[str, Any]:
+    response = client.post(
+        "/api/maitu/retry-queue/claim-next",
+        json={"claimed_by": claimed_by, "lock_ttl_seconds": 900, "max_attempts": 3},
+    )
+    assert response.status_code == 200
+    return response.json()
+
+
+def _lease_payload(claimed: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "claimed_by": claimed["claimed_by"],
+        "claim_token": claimed["claim_token"],
+        "lease_version": claimed["lease_version"],
+    }
+
+
+def test_retry_task_execution_result_is_owned_and_idempotent(client: TestClient) -> None:
+    retry_task = _create_retry_task(client)
+    claimed = _claim_retry_task(client)
+    result_payload = {
+        **_lease_payload(claimed),
+        "retry_execution_id": "7be4e98f-dd31-4c50-97d6-604d46ec7869",
+        "retry_execution_status": "succeeded",
+        "last_retry_execution_code": "MT-EXEC-20260707-000002",
+        "result_summary": "Browser use 重新定位 layer_8 后已完成商品主图替换并保存项目。",
+        "screenshot_asset_code": "AG-IMG-20260707-000199",
+    }
+
     callback_response = client.post(
         f"/api/maitu/retry-tasks/{retry_task['retry_task_code']}/execution-results",
-        json={
-            "retry_execution_status": "succeeded",
-            "last_retry_execution_code": "MT-EXEC-20260707-000002",
-            "result_summary": "Browser use 重新定位 layer_8 后已完成商品主图替换并保存项目。",
-            "screenshot_asset_code": "AG-IMG-20260707-000199",
-        },
+        json=result_payload,
+    )
+    duplicate_response = client.post(
+        f"/api/maitu/retry-tasks/{retry_task['retry_task_code']}/execution-results",
+        json=result_payload,
     )
 
     assert callback_response.status_code == 200
-    updated = callback_response.json()
+    assert duplicate_response.status_code == 200
+    updated = duplicate_response.json()
     assert updated["retry_task_code"] == retry_task["retry_task_code"]
     assert updated["status"] == "succeeded"
     assert updated["retry_attempt_count"] == 1
+    assert updated["last_retry_execution_id"] == result_payload["retry_execution_id"]
     assert updated["last_retry_execution_code"] == "MT-EXEC-20260707-000002"
     assert updated["result_summary"].startswith("Browser use 重新定位")
     assert updated["screenshot_asset_code"] == "AG-IMG-20260707-000199"
+    assert updated["claimed_by"] is None
+
+
+def test_recoverable_release_execution_result_is_idempotent_without_consuming_attempt(client: TestClient) -> None:
+    retry_task = _create_retry_task(client)
+    claimed = _claim_retry_task(client)
+    payload = {
+        **_lease_payload(claimed),
+        "retry_execution_id": "4413b514-bdf1-4319-ac39-efabc6b16f76",
+        "retry_execution_status": "released",
+        "result_summary": "temporary browser transport failure",
+        "retry_instruction": "reclaim with a fresh lease",
+    }
+    path = f"/api/maitu/retry-tasks/{retry_task['retry_task_code']}/execution-results"
+
+    first = client.post(path, json=payload)
+    duplicate = client.post(path, json=payload)
+
+    assert first.status_code == 200
+    assert duplicate.status_code == 200
+    updated = duplicate.json()
+    assert updated["status"] == "pending"
+    assert updated["retry_attempt_count"] == 0
+    assert updated["last_retry_execution_id"] == payload["retry_execution_id"]
+    assert updated["claimed_by"] is None
+
+
+def test_claim_token_is_only_returned_by_claim_endpoints(client: TestClient) -> None:
+    retry_task = _create_retry_task(client)
+    claimed = _claim_retry_task(client)
+    assert claimed["claim_token"]
 
     get_response = client.get(f"/api/maitu/retry-tasks/{retry_task['retry_task_code']}")
+    list_response = client.get("/api/maitu/retry-tasks")
+
     assert get_response.status_code == 200
-    assert get_response.json()["status"] == "succeeded"
+    assert "claim_token" not in get_response.json()
+    assert all("claim_token" not in item for item in list_response.json())
+
+
+def test_retry_execution_id_reuse_with_different_payload_returns_conflict(client: TestClient) -> None:
+    retry_task = _create_retry_task(client)
+    claimed = _claim_retry_task(client)
+    path = f"/api/maitu/retry-tasks/{retry_task['retry_task_code']}/execution-results"
+    payload = {
+        **_lease_payload(claimed),
+        "retry_execution_id": "7be4e98f-dd31-4c50-97d6-604d46ec7869",
+        "retry_execution_status": "succeeded",
+        "result_summary": "done",
+    }
+
+    assert client.post(path, json=payload).status_code == 200
+    conflict_response = client.post(path, json={**payload, "result_summary": "different result"})
+
+    assert conflict_response.status_code == 409
+    assert "idempotency" in conflict_response.json()["detail"].lower()
+
+
+def test_retry_heartbeat_requires_current_unexpired_lease(
+    client: TestClient,
+    repository: FakeMaituMaterialSlotRepository,
+) -> None:
+    retry_task = _create_retry_task(client)
+    claimed = _claim_retry_task(client)
+    path = f"/api/maitu/retry-tasks/{retry_task['retry_task_code']}/heartbeat"
+
+    heartbeat_response = client.post(path, json={**_lease_payload(claimed), "lock_ttl_seconds": 120})
+    assert heartbeat_response.status_code == 200
+    assert heartbeat_response.json()["claim_expires_at"] == "2026-07-07T09:30:00Z"
+
+    repository.retry_tasks[retry_task["retry_task_code"]]["lease_expired"] = True
+    expired_response = client.post(path, json={**_lease_payload(claimed), "lock_ttl_seconds": 120})
+
+    assert expired_response.status_code == 409
+    assert "lease" in expired_response.json()["detail"].lower()
+
+
+@pytest.mark.parametrize(
+    ("suffix", "payload"),
+    [
+        ("heartbeat", {"lock_ttl_seconds": 120}),
+        ("release", {"status": "pending"}),
+        (
+            "execution-results",
+            {
+                "retry_execution_id": "7be4e98f-dd31-4c50-97d6-604d46ec7869",
+                "retry_execution_status": "succeeded",
+            },
+        ),
+    ],
+)
+def test_retry_mutations_reject_missing_lease_identity(
+    client: TestClient,
+    suffix: str,
+    payload: dict[str, Any],
+) -> None:
+    retry_task = _create_retry_task(client)
+    response = client.post(
+        f"/api/maitu/retry-tasks/{retry_task['retry_task_code']}/{suffix}",
+        json=payload,
+    )
+
+    assert response.status_code == 422
+    unchanged = client.get(f"/api/maitu/retry-tasks/{retry_task['retry_task_code']}").json()
+    assert unchanged["status"] == "pending"
+    assert unchanged["retry_attempt_count"] == 0
 
 
 def test_retry_queue_lists_only_pending_retryable_tasks_with_context(client: TestClient) -> None:
@@ -3200,7 +3391,11 @@ def test_retry_queue_lists_only_pending_retryable_tasks_with_context(client: Tes
     assert item["next_operation_type"] == "retry_replace_layer_asset"
     assert item["browser_use_operations_url"].endswith("/browser-use-operations")
 
-    client.patch(item["browser_use_operations_url"].removesuffix("/browser-use-operations"), json={"retry_attempt_count": 3})
+    claim_response = client.post(
+        "/api/maitu/retry-queue/claim-next",
+        json={"claimed_by": "worker-1", "lock_ttl_seconds": 120, "max_attempts": 3},
+    )
+    assert claim_response.status_code == 200
     empty_queue_response = client.get("/api/maitu/retry-queue", params={"max_attempts": 3})
     assert empty_queue_response.status_code == 200
     assert empty_queue_response.json() == []
@@ -3267,6 +3462,8 @@ def test_retry_queue_claim_next_locks_task_and_release_unlocks_it(client: TestCl
     assert claimed["claimed_by"] == "browser-use-worker-1"
     assert claimed["claimed_at"] is not None
     assert claimed["claim_expires_at"] is not None
+    assert claimed["claim_token"]
+    assert claimed["lease_version"] == 1
     assert claimed["next_operation_type"] == "retry_replace_layer_asset"
 
     queue_after_claim = client.get("/api/maitu/retry-queue")
@@ -3275,7 +3472,11 @@ def test_retry_queue_claim_next_locks_task_and_release_unlocks_it(client: TestCl
 
     release_response = client.post(
         f"/api/maitu/retry-tasks/{claimed['retry_task_code']}/release",
-        json={"status": "pending", "result_summary": "worker heartbeat lost; release back to queue"},
+        json={
+            **_lease_payload(claimed),
+            "status": "pending",
+            "result_summary": "worker heartbeat lost; release back to queue",
+        },
     )
     assert release_response.status_code == 200
     released = release_response.json()
@@ -3283,7 +3484,17 @@ def test_retry_queue_claim_next_locks_task_and_release_unlocks_it(client: TestCl
     assert released["claimed_by"] is None
     assert released["claimed_at"] is None
     assert released["claim_expires_at"] is None
+    assert released["lease_version"] == 1
     assert released["result_summary"] == "worker heartbeat lost; release back to queue"
+
+    reclaimed = _claim_retry_task(client)
+    assert reclaimed["lease_version"] == 2
+    assert reclaimed["claim_token"] != claimed["claim_token"]
+    stale_release = client.post(
+        f"/api/maitu/retry-tasks/{claimed['retry_task_code']}/release",
+        json={**_lease_payload(claimed), "status": "pending"},
+    )
+    assert stale_release.status_code == 409
 
 
 def test_retry_queue_reclaim_expired_unlocks_in_progress_tasks(client: TestClient) -> None:
@@ -3410,6 +3621,8 @@ def test_retry_worker_next_reclaims_claims_and_returns_operation_plan(client: Te
     assert payload["retry_task"]["retry_task_code"] == "MT-RETRY-20260707-000001"
     assert payload["retry_task"]["status"] == "in_progress"
     assert payload["retry_task"]["claimed_by"] == "browser-use-worker-1"
+    assert payload["retry_task"]["claim_token"]
+    assert payload["retry_task"]["lease_version"] == 1
     assert payload["operation_plan"]["retry_task_code"] == "MT-RETRY-20260707-000001"
     assert payload["operation_plan"]["operations"][0]["operation_type"] == "retry_replace_layer_asset"
     assert "只重试槽位" in payload["operation_plan"]["operations"][0]["instruction"]
@@ -3423,7 +3636,15 @@ def test_retry_worker_next_returns_404_when_no_task_available(client: TestClient
 
 
 def test_release_missing_retry_task_returns_404(client: TestClient) -> None:
-    response = client.post("/api/maitu/retry-tasks/MT-RETRY-20260707-999999/release", json={"status": "pending"})
+    response = client.post(
+        "/api/maitu/retry-tasks/MT-RETRY-20260707-999999/release",
+        json={
+            "status": "pending",
+            "claimed_by": "worker-1",
+            "claim_token": "c1a1d000-0000-4000-8000-000000000001",
+            "lease_version": 1,
+        },
+    )
 
     assert response.status_code == 404
 
@@ -3465,8 +3686,42 @@ def test_get_missing_retry_task_returns_404(client: TestClient) -> None:
     assert response.status_code == 404
 
 
+def test_retry_task_patch_rejects_lease_owned_state_fields(client: TestClient) -> None:
+    retry_task = _create_retry_task(client)
+
+    response = client.patch(
+        f"/api/maitu/retry-tasks/{retry_task['retry_task_code']}",
+        json={"status": "succeeded", "retry_attempt_count": 99},
+    )
+
+    assert response.status_code == 422
+    unchanged = client.get(f"/api/maitu/retry-tasks/{retry_task['retry_task_code']}").json()
+    assert unchanged["status"] == "pending"
+    assert unchanged["retry_attempt_count"] == 0
+
+
+def test_retry_task_patch_rejects_metadata_change_while_claimed(client: TestClient) -> None:
+    retry_task = _create_retry_task(client)
+    claim_response = client.post(
+        "/api/maitu/retry-queue/claim-next",
+        json={"claimed_by": "worker-1", "lock_ttl_seconds": 120},
+    )
+    assert claim_response.status_code == 200
+
+    response = client.patch(
+        f"/api/maitu/retry-tasks/{retry_task['retry_task_code']}",
+        json={"result_summary": "manual note"},
+    )
+
+    assert response.status_code == 409
+    assert "lease" in response.json()["detail"].lower()
+
+
 def test_update_missing_retry_task_returns_404(client: TestClient) -> None:
-    response = client.patch("/api/maitu/retry-tasks/MT-RETRY-20260707-999999", json={"status": "cancelled"})
+    response = client.patch(
+        "/api/maitu/retry-tasks/MT-RETRY-20260707-999999",
+        json={"result_summary": "manual note"},
+    )
 
     assert response.status_code == 404
 
@@ -3480,7 +3735,14 @@ def test_get_browser_use_operations_for_missing_retry_task_returns_404(client: T
 def test_create_execution_result_for_missing_retry_task_returns_404(client: TestClient) -> None:
     response = client.post(
         "/api/maitu/retry-tasks/MT-RETRY-20260707-999999/execution-results",
-        json={"retry_execution_status": "failed", "error_message": "retry task not found"},
+        json={
+            "retry_execution_id": "7be4e98f-dd31-4c50-97d6-604d46ec7869",
+            "retry_execution_status": "failed",
+            "claimed_by": "worker-1",
+            "claim_token": "c1a1d000-0000-4000-8000-000000000001",
+            "lease_version": 1,
+            "error_message": "retry task not found",
+        },
     )
 
     assert response.status_code == 404

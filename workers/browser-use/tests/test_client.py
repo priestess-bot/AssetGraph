@@ -11,9 +11,18 @@ class RecordingClient(AssetGraphClient):
     def __init__(self) -> None:
         super().__init__("http://assetgraph")
         self.calls: list[tuple[str, str, dict[str, Any] | None]] = []
+        self.request_timeouts: list[float | None] = []
 
-    def _request_json(self, method: str, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    def _request_json(
+        self,
+        method: str,
+        path: str,
+        payload: dict[str, Any] | None = None,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> dict[str, Any]:
         self.calls.append((method, path, payload))
+        self.request_timeouts.append(timeout_seconds)
         return {"asset_code": "AG-VID-20260709-000001"}
 
 
@@ -147,3 +156,135 @@ def test_write_jd_live_metric_sample_uses_metric_sample_endpoint() -> None:
             payload,
         )
     ]
+
+
+def test_heartbeat_retry_task_sends_lease_identity() -> None:
+    client = RecordingClient()
+
+    result = client.heartbeat_retry_task(
+        "MT-RETRY-20260710-000001",
+        claimed_by="worker-1",
+        claim_token="c1a1d000-0000-4000-8000-000000000001",
+        lease_version=2,
+        lock_ttl_seconds=120,
+    )
+
+    assert result == {"asset_code": "AG-VID-20260709-000001"}
+    assert client.calls == [
+        (
+            "POST",
+            "/api/maitu/retry-tasks/MT-RETRY-20260710-000001/heartbeat",
+            {
+                "claimed_by": "worker-1",
+                "claim_token": "c1a1d000-0000-4000-8000-000000000001",
+                "lease_version": 2,
+                "lock_ttl_seconds": 120,
+            },
+        )
+    ]
+
+
+def test_release_retry_task_sends_lease_identity() -> None:
+    client = RecordingClient()
+
+    client.release_retry_task(
+        "MT-RETRY-20260710-000001",
+        status="pending",
+        result_summary="retry later",
+        claimed_by="worker-1",
+        claim_token="c1a1d000-0000-4000-8000-000000000001",
+        lease_version=2,
+    )
+
+    assert client.calls == [
+        (
+            "POST",
+            "/api/maitu/retry-tasks/MT-RETRY-20260710-000001/release",
+            {
+                "status": "pending",
+                "result_summary": "retry later",
+                "claimed_by": "worker-1",
+                "claim_token": "c1a1d000-0000-4000-8000-000000000001",
+                "lease_version": 2,
+            },
+        )
+    ]
+
+
+def test_write_retry_execution_result_sends_execution_and_lease_identity() -> None:
+    client = RecordingClient()
+
+    client.write_retry_execution_result(
+        "MT-RETRY-20260710-000001",
+        retry_execution_id="7be4e98f-dd31-4c50-97d6-604d46ec7869",
+        retry_execution_status="succeeded",
+        claimed_by="worker-1",
+        claim_token="c1a1d000-0000-4000-8000-000000000001",
+        lease_version=2,
+        result_summary="done",
+    )
+
+    assert client.calls == [
+        (
+            "POST",
+            "/api/maitu/retry-tasks/MT-RETRY-20260710-000001/execution-results",
+            {
+                "retry_execution_id": "7be4e98f-dd31-4c50-97d6-604d46ec7869",
+                "retry_execution_status": "succeeded",
+                "claimed_by": "worker-1",
+                "claim_token": "c1a1d000-0000-4000-8000-000000000001",
+                "lease_version": 2,
+                "result_summary": "done",
+            },
+        )
+    ]
+
+
+def test_write_retry_execution_result_uses_callback_timeout_without_serializing_it() -> None:
+    client = RecordingClient()
+
+    client.write_retry_execution_result(
+        "MT-RETRY-20260710-000001",
+        retry_execution_id="7be4e98f-dd31-4c50-97d6-604d46ec7869",
+        retry_execution_status="succeeded",
+        claimed_by="worker-1",
+        claim_token="c1a1d000-0000-4000-8000-000000000001",
+        lease_version=2,
+        request_timeout_seconds=12.5,
+    )
+
+    assert client.request_timeouts[-1] == 12.5
+    assert "request_timeout_seconds" not in (client.calls[-1][2] or {})
+
+
+def test_release_retry_task_uses_callback_timeout_without_serializing_it() -> None:
+    client = RecordingClient()
+
+    client.release_retry_task(
+        "MT-RETRY-20260710-000001",
+        status="pending",
+        result_summary="retry later",
+        claimed_by="worker-1",
+        claim_token="c1a1d000-0000-4000-8000-000000000001",
+        lease_version=2,
+        request_timeout_seconds=12.5,
+    )
+
+    assert client.request_timeouts[-1] == 12.5
+    assert "request_timeout_seconds" not in (client.calls[-1][2] or {})
+
+
+@pytest.mark.parametrize("retry_task_code", ["../admin", "MT-RETRY/OTHER", "MT-RETRY?x=1", "", " MT-RETRY-1 "])
+def test_retry_task_mutation_paths_reject_noncanonical_codes(retry_task_code: str) -> None:
+    client = RecordingClient()
+
+    with pytest.raises(AssetGraphClientError):
+        client.heartbeat_retry_task(
+            retry_task_code,
+            claimed_by="worker-1",
+            claim_token="c1a1d000-0000-4000-8000-000000000001",
+            lease_version=2,
+            lock_ttl_seconds=120,
+        )
+
+    assert client.calls == []

@@ -29,6 +29,7 @@ AssetGraph 是一个面向麦兔软件与数字人直播业务的多模态视频
 - Browser use 重试结果回写：接收重试执行状态、最近执行编号、截图和摘要，自动更新 retry task 状态与重试次数
 - Browser use 重试队列：提供 `/api/maitu/retry-queue`，批量返回 pending、retryable、未超过最大尝试次数的重试任务及麦兔上下文
 - Browser use 重试任务领取/释放：提供 claim-next/release API，将任务从 `pending` 锁定为 `in_progress`，记录 `claimed_by/claimed_at/claim_expires_at`，支持多 worker 并发处理
+- Browser use 租约所有权与幂等回写：每次领取签发不可猜测 `claim_token` 并递增 `lease_version`，heartbeat/release/result 必须条件匹配；执行结果以 UUID `retry_execution_id` 原子去重
 - Browser use 过期领取回收：提供 reclaim-expired API，将超时的 `in_progress` 任务释放回 `pending`，避免 worker 崩溃后任务永久卡死
 - Browser use worker 一站式取活：提供 `/api/maitu/retry-worker/next`，自动回收过期任务、领取下一条任务并返回 Browser use 操作计划
 - Browser use worker 执行协议：文档化 worker 从取任务、执行操作、成功回写、失败释放到人工介入的完整契约

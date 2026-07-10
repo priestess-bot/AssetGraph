@@ -125,7 +125,11 @@ class BrowserUseCliSession(MaituBrowserSession):
     ) -> None:
         self.config = config or BrowserUseCliSessionConfig()
         self._runner = runner or self._run_command
+        self._execution_guard: Callable[[], bool] | None = None
         self.last_probe: MaituPageProbe | None = None
+
+    def set_execution_guard(self, guard: Callable[[], bool] | None) -> None:
+        self._execution_guard = guard
 
     def ensure_ready(self, *, maitu_project_code: str | None, scene_name: str | None) -> None:
         probe = self.probe_current_page(open_if_needed=True)
@@ -1132,6 +1136,12 @@ class BrowserUseCliSession(MaituBrowserSession):
         return MaituPageProbe(title=title, url=url, text=text, logged_in=logged_in, login_required=login_required)
 
     def _call_browser_use(self, args: Sequence[str]) -> str:
+        if self._execution_guard is not None and not self._execution_guard():
+            raise MaituBrowserExecutionError(
+                "retry lease guard rejected browser command before execution",
+                retryable=True,
+                retry_instruction="Reclaim the retry task with a fresh lease before continuing.",
+            )
         command = ("uv", "run", "browser-use", *args)
         try:
             return self._runner(command, cwd=self.config.browser_use_repo, timeout_seconds=self.config.timeout_seconds)  # type: ignore[misc]

@@ -36,11 +36,12 @@ Browser use worker 负责：
 while true:
   1. POST /api/maitu/retry-worker/next
   2. 如果返回 404：sleep 后继续
-  3. 读取 response.retry_task 和 response.operation_plan
-  4. 执行 operation_plan.operations
-  5. 成功：POST /api/maitu/retry-tasks/{retry_task_code}/execution-results
-  6. 可恢复失败：POST /api/maitu/retry-tasks/{retry_task_code}/release
-  7. 不可恢复/人工处理：POST /api/maitu/retry-tasks/{retry_task_code}/execution-results，状态 manual_required
+  3. 读取 response.retry_task 和 response.operation_plan，并保存 claim_token / lease_version
+  4. 在任何麦兔变更前 POST heartbeat 验证租约，执行期间按间隔续租
+  5. 执行 operation_plan.operations
+  6. 成功：携带租约身份和稳定 retry_execution_id POST execution-results
+  7. 可恢复失败：携带租约身份和稳定 retry_execution_id POST execution-results，状态 released
+  8. 不可恢复/人工处理：携带租约身份和稳定 retry_execution_id POST execution-results
 ```
 
 ---
@@ -95,6 +96,8 @@ POST /api/maitu/retry-worker/next
     "claimed_by": "browser-use-worker-1",
     "claimed_at": "2026-07-08T09:00:00Z",
     "claim_expires_at": "2026-07-08T09:15:00Z",
+    "claim_token": "[REDACTED]",
+    "lease_version": 1,
     "maitu_project_code": "MT-PROJ-20260708-000001",
     "scene_name": "京东空白直播间",
     "slot_name": "商品主图",
@@ -137,6 +140,33 @@ POST /api/maitu/retry-worker/next
 ```
 
 worker 应 sleep 后重试，不要把 404 视为异常报警。
+
+`claim_token` 是当前领取的不可猜测租约凭据，只在 claim-next 和 retry-worker/next 的成功响应中返回；普通 retry task 列表和 GET 不返回它。worker 不得记录或跨任务复用该值。每次重新领取都会生成新 token 并递增 `lease_version`。
+
+### 租约续租
+
+真实执行前、执行期间以及 release / execution-results 获得确定响应前调用：
+
+```http
+POST /api/maitu/retry-tasks/{retry_task_code}/heartbeat
+```
+
+```json
+{
+  "claimed_by": "browser-use-worker-1",
+  "claim_token": "[REDACTED]",
+  "lease_version": 1,
+  "lock_ttl_seconds": 900
+}
+```
+
+heartbeat、release 和 execution-results 都要求任务仍为 `in_progress`、租约未过期，且 `claimed_by`、`claim_token`、`lease_version` 全部匹配。旧 token、旧 version、过期租约或其他 worker 的回写返回 `409 Conflict`。
+
+浏览器操作结束后，worker 必须先停止并回收执行期 heartbeat 线程，再同步 heartbeat 一次以获得完整的新 TTL，随后启动新的 callback heartbeat，直到 execution-results 获得确定响应。三次 execution-results 尝试的请求 timeout 与退避总预算必须低于该 TTL；所有尝试继续复用完全相同的 `retry_execution_id` 和 payload。成功、人工介入和可恢复释放都通过该幂等 receipt 通道确认；可恢复释放使用 `retry_execution_status=released`，原子回到 `pending` 且不消耗 retry attempt。这样，慢 HTTP 重试或服务端已提交但响应丢失都不会造成重复计数或 Worker 崩溃。
+
+每个 non-dry-run 队列任务只允许内置的 exact `MaituBrowserUseExecutor`，其 session 也必须是 exact `BrowserUseCliSession`；structural Protocol、子类或第三方 executor/session 即使自报 guard/timeout 支持也会在 claim、heartbeat 或浏览器调用前被拒绝。`BrowserUseWorker.run_once()` 在 dry-run 下会在 claim 前直接拒绝，保证公开 Worker API 也不会修改队列；只读 dry-run 必须走不领取任务的 plan/build-plan 路径。受信任的 concrete executor 必须实现执行 guard，并从受信任 session 读取单次外部副作用的最大 timeout。Worker 只在该 timeout 小于租约 TTL 的 80% 时执行。具体麦兔 CLI session 在每条 browser-use 命令前同步 heartbeat；因此单条阻塞命令即使无法在进程内强制取消，也会从一个完整租约开始，并必须在其他 worker 可 reclaim 前超时结束。
+
+通用 `PATCH /retry-tasks/{code}` 只允许修改 `result_summary` / `retry_instruction`，且任务为 `in_progress` 时返回 409。`status`、`retry_attempt_count` 和执行编号只能通过带租约身份及 receipt 的 execution-results/release 协议改变。
 
 ---
 
@@ -234,7 +264,11 @@ POST /api/maitu/retry-tasks/{retry_task_code}/execution-results
 
 ```json
 {
+  "retry_execution_id": "7be4e98f-dd31-4c50-97d6-604d46ec7869",
   "retry_execution_status": "succeeded",
+  "claimed_by": "browser-use-worker-1",
+  "claim_token": "[REDACTED]",
+  "lease_version": 1,
   "last_retry_execution_code": "MT-EXEC-20260708-000002",
   "result_summary": "Browser use 重新定位 layer_8 后已完成商品主图替换并保存项目。",
   "screenshot_asset_code": "AG-IMG-20260708-000199"
@@ -251,9 +285,11 @@ result_summary = 请求值
 screenshot_asset_code = 请求值
 ```
 
+`retry_execution_id` 是本次执行的幂等键。网络结果不确定时，worker 必须用同一个 ID 和完全相同的 payload 重试：相同内容只增加一次 `retry_attempt_count`；同一 ID 被不同 payload 或不同任务复用时返回 `409 Conflict`。
+
 ---
 
-## 8. 可恢复失败：release 回队列
+## 8. 可恢复失败：幂等 receipt 回队列
 
 当 worker 认为失败可能通过后续重试恢复，例如：
 
@@ -263,16 +299,20 @@ screenshot_asset_code = 请求值
 - worker 自身浏览器异常
 - worker 需要重启
 
-调用：
+Worker 不调用一次性、无法确认响应丢失的 release callback，而是复用幂等 execution-results 通道：
 
 ```http
-POST /api/maitu/retry-tasks/{retry_task_code}/release
+POST /api/maitu/retry-tasks/{retry_task_code}/execution-results
 ```
 
 ```json
 {
-  "status": "pending",
-  "result_summary": "worker browser crashed; release back to queue"
+  "retry_execution_id": "4413b514-bdf1-4319-ac39-efabc6b16f76",
+  "retry_execution_status": "released",
+  "result_summary": "worker browser crashed; release back to queue",
+  "claimed_by": "browser-use-worker-1",
+  "claim_token": "[REDACTED]",
+  "lease_version": 1
 }
 ```
 
@@ -280,10 +320,16 @@ POST /api/maitu/retry-tasks/{retry_task_code}/release
 
 ```text
 status = pending
+retry_attempt_count 不增加
+last_retry_execution_id = retry_execution_id
 claimed_by = null
 claimed_at = null
 claim_expires_at = null
+claim_token = null
+lease_version 保留，下一次领取时递增
 ```
+
+同一 `retry_execution_id` 和完全相同 payload 可安全重试；服务端已提交但响应丢失时不会重复消费 attempt。`POST .../release` 仍保留给显式人工/管理操作，但队列 Worker 的自动回调必须使用上述 receipt 协议。
 
 ---
 
@@ -304,7 +350,11 @@ POST /api/maitu/retry-tasks/{retry_task_code}/execution-results
 
 ```json
 {
+  "retry_execution_id": "4413b514-bdf1-4319-ac39-efabc6b16f76",
   "retry_execution_status": "manual_required",
+  "claimed_by": "browser-use-worker-1",
+  "claim_token": "[REDACTED]",
+  "lease_version": 1,
   "last_retry_execution_code": "MT-EXEC-20260708-000003",
   "error_message": "重新扫描后仍未找到 layer_8。",
   "result_summary": "需要人工确认麦兔模板图层是否被改名。",
@@ -330,7 +380,8 @@ retry_attempt_count += 1
 status = in_progress
 claim_expires_at < now()
   -> status = pending
-  -> clear claimed_by / claimed_at / claim_expires_at
+  -> clear claimed_by / claimed_at / claim_expires_at / claim_token
+  -> keep lease_version; the next claim increments it
 ```
 
 因此 worker 启动时无需单独调用 `reclaim-expired`。
@@ -350,10 +401,13 @@ GET  /api/maitu/retry-tasks/{retry_task_code}/browser-use-operations
 | 情况 | 处理 |
 |---|---|
 | `/retry-worker/next` 返回 404 | sleep 后继续轮询 |
-| Browser use 启动失败 | release 当前任务，或让锁过期后回收 |
+| 初始 heartbeat 返回 409/失败 | 不启动 Browser use；等待当前租约过期或由新领取者处理 |
+| 执行中 heartbeat 失败 | 在 concrete executor 的下一个副作用边界停止；最终重验失败则禁止 execution-results 回写 |
+| execution-results 响应缓慢/丢失 | 最终同步续租后保持 callback heartbeat；复用同一 ID/payload，并将三次请求 timeout/退避预算限制在 TTL 内 |
+| Browser use 启动失败 | 以 `retry_execution_status=released` 幂等回写，或让锁过期后回收 |
 | 麦兔登录过期 | 若可自动登录，执行；否则回写 `manual_required` |
-| 找不到图层 | 重新扫描一次；仍失败则按 `failure_type` 决定 release 或 manual_required |
-| 保存失败 | 可 release，或回写 failed 并附截图 |
+| 找不到图层 | 重新扫描一次；仍失败则按 `failure_type` 决定 `released` 或 `manual_required` |
+| 保存失败 | 可回写 `released`，或回写 `failed` 并附截图 |
 | worker 进程崩溃 | 无需处理，锁过期后 reclaim |
 
 ---
@@ -362,6 +416,7 @@ GET  /api/maitu/retry-tasks/{retry_task_code}/browser-use-operations
 
 ```python
 import time
+import uuid
 import requests
 
 BASE_URL = "http://localhost:8000/api/maitu"
@@ -373,48 +428,58 @@ while True:
         json={"claimed_by": WORKER_ID, "lock_ttl_seconds": 900, "max_attempts": 3},
         timeout=30,
     )
-
     if response.status_code == 404:
         time.sleep(10)
         continue
     response.raise_for_status()
 
     payload = response.json()
-    retry_task = payload["retry_task"]
-    operation_plan = payload["operation_plan"]
-    retry_task_code = retry_task["retry_task_code"]
+    task = payload["retry_task"]
+    task_code = task["retry_task_code"]
+    lease = {
+        "claimed_by": WORKER_ID,
+        "claim_token": task["claim_token"],
+        "lease_version": task["lease_version"],
+    }
 
-    try:
-        result = run_browser_use(operation_plan)
-    except RecoverableWorkerError as exc:
-        requests.post(
-            f"{BASE_URL}/retry-tasks/{retry_task_code}/release",
-            json={"status": "pending", "result_summary": str(exc)},
-            timeout=30,
-        )
-        continue
-    except ManualRequiredError as exc:
-        requests.post(
-            f"{BASE_URL}/retry-tasks/{retry_task_code}/execution-results",
-            json={
-                "retry_execution_status": "manual_required",
-                "error_message": str(exc),
-                "result_summary": "需要人工介入。",
-            },
-            timeout=30,
-        )
-        continue
-
+    # 真实变更前同步验证；执行期间另启循环，每隔 TTL/3 调用同一 heartbeat。
     requests.post(
-        f"{BASE_URL}/retry-tasks/{retry_task_code}/execution-results",
-        json={
-            "retry_execution_status": "succeeded",
-            "last_retry_execution_code": result.execution_code,
-            "result_summary": result.summary,
-            "screenshot_asset_code": result.screenshot_asset_code,
-        },
+        f"{BASE_URL}/retry-tasks/{task_code}/heartbeat",
+        json={**lease, "lock_ttl_seconds": 900},
         timeout=30,
-    )
+    ).raise_for_status()
+    heartbeat = start_heartbeat(task_code, lease, interval_seconds=300)
+    try:
+        result = run_browser_use(payload["operation_plan"])
+    finally:
+        heartbeat.stop_and_join()
+
+    # 回写前必须重新取得完整 TTL；失败则禁止旧 worker 回写。
+    requests.post(
+        f"{BASE_URL}/retry-tasks/{task_code}/heartbeat",
+        json={**lease, "lock_ttl_seconds": 900},
+        timeout=30,
+    ).raise_for_status()
+
+    retry_execution_id = str(uuid.uuid4())
+    result_payload = {
+        **lease,
+        "retry_execution_id": retry_execution_id,
+        "retry_execution_status": result.status,
+        "result_summary": result.summary,
+        "screenshot_asset_code": result.screenshot_asset_code,
+    }
+    callback_heartbeat = start_heartbeat(task_code, lease, interval_seconds=300)
+    try:
+        # 所有尝试复用相同 ID/payload，且 3 次 timeout + 退避总和必须小于 TTL。
+        post_idempotently(
+            f"{BASE_URL}/retry-tasks/{task_code}/execution-results",
+            result_payload,
+            max_attempts=3,
+            timeout_seconds=240,
+        )
+    finally:
+        callback_heartbeat.stop_and_join()
 ```
 
 ---
@@ -425,9 +490,16 @@ worker 接入前应确认：
 
 - [ ] worker 有唯一 `claimed_by`。
 - [ ] worker 使用 `/api/maitu/retry-worker/next` 取任务。
+- [ ] worker 将 `claim_token` 视为短期秘密，不记录、不跨领取复用。
+- [ ] worker 在首个外部写前验证 heartbeat，并在执行期间续租。
+- [ ] 每条 browser-use 命令前同步续租，单次外部调用 timeout 小于 TTL 的 80%。
+- [ ] worker 在 callback 前最终续租，并保持 heartbeat 到 execution-results 确认完成。
+- [ ] execution-results 重试的 timeout 与退避总预算小于租约 TTL。
+- [ ] heartbeat/execution-results 都携带当前 `claimed_by + claim_token + lease_version`。
 - [ ] worker 只执行 `operation_plan.operations` 中的失败槽位。
 - [ ] worker 不改变麦兔原布局。
+- [ ] 成功、可恢复释放和人工结果都使用 UUID `retry_execution_id`，传输重试复用相同 ID 和 payload。
 - [ ] 成功时回写 `succeeded`。
-- [ ] 可恢复失败时调用 `release`。
+- [ ] 可恢复失败时通过 execution-results 回写 `released`，不消费 retry attempt。
 - [ ] 不可恢复失败时回写 `manual_required`。
 - [ ] worker 崩溃后任务能通过 reclaim-expired 回到队列。
