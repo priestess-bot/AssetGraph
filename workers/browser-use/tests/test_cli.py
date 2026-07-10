@@ -338,3 +338,126 @@ def test_build_plan_non_destructive_cli_can_write_execution_result(monkeypatch, 
     written_payload = FakeAssetGraphClient.writes[0][1]
     assert written_payload["mode"] == "non_destructive"
     assert written_payload["operation_results"][1]["action_type"] == "select_scene"
+
+
+def test_script_layout_draft_execute_cli_reads_plan_file_and_runs_in_memory_dry_run(tmp_path: Path, capsys) -> None:
+    plan_file = tmp_path / "script-layout-build-plan.json"
+    plan_file.write_text(
+        json.dumps(
+            {
+                "source": "script_content_layout_build_plan_rule_v1",
+                "status": "draft_with_placeholders",
+                "target_live_room_id": "SMOKE-ROOM-STAGE5A",
+                "manual_review_required": True,
+                "operations": [
+                    {"operation_type": "preflight_content_build_plan", "operation_name": "预检", "status": "ready"},
+                    {
+                        "operation_type": "fill_default_scene",
+                        "operation_name": "填充默认场景",
+                        "status": "ready",
+                        "scene_index": 0,
+                        "scene_name": "开场",
+                    },
+                    {
+                        "operation_type": "insert_asset_layer",
+                        "operation_name": "插入背景",
+                        "status": "ready",
+                        "scene_index": 0,
+                        "scene_name": "开场",
+                        "layer_id": "scene-00-background_image",
+                        "layer_type": "background_image",
+                        "asset_code": "AG-IMG-BG",
+                        "x": 0,
+                        "y": 0,
+                        "width": 1080,
+                        "height": 1920,
+                        "z_index": 1,
+                    },
+                    {
+                        "operation_type": "placeholder_required",
+                        "operation_name": "缺失商品图",
+                        "status": "manual_required",
+                        "scene_index": 0,
+                        "scene_name": "开场",
+                        "layer_id": "scene-00-product_image",
+                        "layer_type": "product_image",
+                        "need_type": "product_image",
+                        "blocks_execution": True,
+                    },
+                    {
+                        "operation_type": "write_script",
+                        "operation_name": "写脚本",
+                        "status": "ready",
+                        "scene_index": 0,
+                        "scene_name": "开场",
+                        "script_text": "欢迎来到张裕直播间。",
+                    },
+                    {"operation_type": "verify_scene", "operation_name": "验证", "status": "ready", "scene_index": 0, "scene_name": "开场"},
+                    {"operation_type": "save_draft", "operation_name": "保存草稿", "status": "manual_review"},
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = worker_main.main([
+        "--script-layout-build-plan-file",
+        str(plan_file),
+        "--script-layout-draft-execute",
+        "--dry-run",
+    ])
+
+    assert exit_code == 0
+    output = json.loads(capsys.readouterr().out)
+    assert output["status"] == "completed_with_manual_review"
+    assert output["target_live_room_id"] == "SMOKE-ROOM-STAGE5A"
+    assert output["ready_for_go_live"] is False
+    assert output["placeholder_count"] == 1
+    assert output["actions"][1]["action_type"] == "map_first_planned_scene_to_default_clip"
+    assert output["actions"][3]["action_type"] == "manual_required_placeholder"
+    assert output["actions"][-1]["action_type"] == "manual_review_save_not_clicked"
+
+
+def test_script_layout_draft_execute_cli_can_write_execution_result(monkeypatch, tmp_path: Path, capsys) -> None:
+    FakeAssetGraphClient.writes = []
+    monkeypatch.setattr(worker_main, "AssetGraphClient", FakeAssetGraphClient, raising=False)
+    plan_file = tmp_path / "script-layout-build-plan.json"
+    plan_file.write_text(
+        json.dumps(
+            {
+                "build_plan_code": "MT-BUILD-CONTENT-20260710-000001",
+                "source": "script_content_layout_build_plan_rule_v1",
+                "status": "draft_with_placeholders",
+                "target_live_room_id": "SMOKE-ROOM-STAGE5A",
+                "manual_review_required": True,
+                "operations": [
+                    {"operation_type": "preflight_content_build_plan", "operation_name": "预检", "status": "ready"},
+                    {"operation_type": "fill_default_scene", "operation_name": "填充默认场景", "status": "ready", "scene_index": 0, "scene_name": "开场"},
+                    {"operation_type": "write_script", "operation_name": "写脚本", "status": "ready", "scene_index": 0, "scene_name": "开场", "script_text": "欢迎来到张裕直播间。"},
+                    {"operation_type": "verify_scene", "operation_name": "验证", "status": "ready", "scene_index": 0, "scene_name": "开场"},
+                    {"operation_type": "save_draft", "operation_name": "保存草稿", "status": "manual_review"},
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = worker_main.main([
+        "--script-layout-build-plan-file",
+        str(plan_file),
+        "--script-layout-draft-execute",
+        "--dry-run",
+        "--write-result",
+    ])
+
+    assert exit_code == 0
+    output = json.loads(capsys.readouterr().out)
+    assert output["worker_result"]["status"] == "completed_with_manual_review"
+    assert output["execution_result"]["execution_code"] == "MT-EXEC-20260709-000001"
+    assert FakeAssetGraphClient.writes[0][0] == "MT-BUILD-CONTENT-20260710-000001"
+    written_payload = FakeAssetGraphClient.writes[0][1]
+    assert written_payload["mode"] == "script_layout_draft"
+    assert written_payload["ready_for_go_live"] is False
+    assert written_payload["operation_results"][1]["operation_type"] == "fill_default_scene"

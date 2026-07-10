@@ -6,6 +6,7 @@ import logging
 import time
 from collections.abc import Sequence
 from dataclasses import asdict
+from pathlib import Path
 
 from .browser_cli_session import BrowserUseCliSession
 from .build_plan_dry_run import BuildPlanDryRun
@@ -17,6 +18,11 @@ from .jd_metrics import capture_jd_live_metric_sample
 from .live_scene_fill import LiveSceneFillRunner, build_live_scene_fill_execution_payload
 from .preflight import ReplacementPlanPreflight
 from .runner import BrowserUseWorker, DryRunBrowserUseExecutor
+from .script_layout_draft_executor import (
+    InMemoryScriptLayoutDraftSession,
+    ScriptLayoutDraftRunner,
+    build_script_layout_draft_execution_payload,
+)
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -31,7 +37,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--preflight-build", action="store_true", help="Run read-only safety checks for --build-plan-code before mutating Maitu")
     parser.add_argument("--non-destructive-build", action="store_true", help="Run only low-risk BuildPlan UI navigation after a green preflight")
     parser.add_argument("--live-scene-fill", action="store_true", help="Fill the first planned BuildPlan scene into an existing draft room default clip")
-    parser.add_argument("--target-live-room-id", help="Target Maitu draft liveRoomId for --live-scene-fill")
+    parser.add_argument("--script-layout-draft-execute", action="store_true", help="Execute a script-layout BuildPlan JSON file into a safe draft; use --dry-run for in-memory smoke")
+    parser.add_argument("--script-layout-build-plan-file", help="Path to a script-layout-build-plans JSON response for --script-layout-draft-execute")
+    parser.add_argument("--target-live-room-id", help="Target Maitu draft liveRoomId for --live-scene-fill or --script-layout-draft-execute")
     parser.add_argument("--write-result", action="store_true", help="Write direct-plan execution/evidence result back to AssetGraph")
     parser.add_argument("--capture-jd-metrics", action="store_true", help="Capture JD live dashboard metrics and write samples to AssetGraph")
     parser.add_argument("--jd-metric-session-code", help="JD live metric capture session code (JD-METRIC-*)")
@@ -85,6 +93,32 @@ def main(argv: Sequence[str] | None = None) -> int:
             {"status": "completed", "result_summary": f"Captured {args.max_samples} JD live metric sample(s)"},
         )
         return 0
+    if args.script_layout_draft_execute:
+        if not args.script_layout_build_plan_file:
+            raise SystemExit("--script-layout-draft-execute requires --script-layout-build-plan-file")
+        plan_path = Path(args.script_layout_build_plan_file)
+        operation_plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        target_live_room_id = args.target_live_room_id or operation_plan.get("target_live_room_id")
+        if args.dry_run:
+            session = InMemoryScriptLayoutDraftSession(live_room_id=str(target_live_room_id or "DRY-RUN-ROOM"))
+        else:
+            session = BrowserUseCliSession()
+        result = ScriptLayoutDraftRunner(session=session).run(
+            operation_plan,
+            target_live_room_id=str(target_live_room_id) if target_live_room_id is not None else None,
+        )
+        if args.write_result:
+            build_plan_code = operation_plan.get("build_plan_code")
+            if not build_plan_code:
+                raise SystemExit("--script-layout-draft-execute --write-result requires build_plan_code in the JSON plan")
+            execution_result = client.write_live_room_build_plan_execution_result(
+                str(build_plan_code),
+                build_script_layout_draft_execution_payload(result),
+            )
+            print(json.dumps({"worker_result": asdict(result), "execution_result": execution_result}, ensure_ascii=False, indent=2))
+        else:
+            print(json.dumps(asdict(result), ensure_ascii=False, indent=2))
+        return 0 if result.failure_count == 0 else 2
     if args.live_scene_fill:
         if not args.build_plan_code:
             raise SystemExit("--live-scene-fill requires --build-plan-code")
