@@ -63,6 +63,7 @@ def _selected_cli_modes(args: argparse.Namespace) -> list[str]:
     modes = [
         name
         for name, selected in (
+            ("check_config", args.check_config),
             ("probe_maitu", args.probe_maitu),
             ("observe_maitu", args.observe_maitu),
             ("capture_jd_metrics", args.capture_jd_metrics),
@@ -112,9 +113,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     logging.basicConfig(level=getattr(logging, args.log_level.upper()), format="%(asctime)s %(levelname)s %(name)s %(message)s")
     config = WorkerConfig.from_env(dry_run=args.dry_run)
-    if args.check_config:
-        print(json.dumps(asdict(config), ensure_ascii=False, indent=2))
-        return 0
     if args.dry_run and args.live_scene_fill:
         raise SystemExit("--live-scene-fill cannot run with --dry-run; use BuildPlan dry-run instead of a mutating runner")
     if args.dry_run and args.write_result:
@@ -129,6 +127,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise SystemExit("--non-destructive-build cannot run with --dry-run because it opens and operates a real browser session")
     if args.dry_run and not any(
         (
+            args.check_config,
             args.probe_maitu,
             args.observe_maitu,
             args.plan_code,
@@ -142,6 +141,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     selected_modes = _selected_cli_modes(args)
     if len(selected_modes) > 1:
         raise SystemExit(f"Conflicting CLI modes: {', '.join(selected_modes)}")
+    if args.check_config:
+        print(json.dumps(asdict(config), ensure_ascii=False, indent=2))
+        return 0
     if args.script_layout_draft_execute and not args.dry_run and not args.resolve_maitu_materials:
         raise SystemExit(
             "Real --script-layout-draft-execute requires --resolve-maitu-materials so the complete plan is validated before draft mutation"
@@ -231,6 +233,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             {"status": "running", "result_summary": "JD live metric capture running with foreground agent sync"},
         )
         capture_blocked = False
+        capture_failed = False
         try:
             for sample_index in range(args.max_samples):
                 result = capture_jd_live_metric_sample(
@@ -239,11 +242,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                     browser_session=browser_session,
                 )
                 raw_metrics = result.get("raw_metrics") if isinstance(result, dict) else None
-                if isinstance(result, dict) and (
-                    result.get("status") == "blocked"
-                    or (isinstance(raw_metrics, dict) and raw_metrics.get("ready_to_capture") is False)
+                result_status = result.get("status") if isinstance(result, dict) else None
+                if result_status == "blocked" or (
+                    isinstance(raw_metrics, dict) and raw_metrics.get("ready_to_capture") is False
                 ):
                     capture_blocked = True
+                elif result_status != "captured":
+                    capture_failed = True
                 print(json.dumps(result, ensure_ascii=False, indent=2))
                 if sample_index < args.max_samples - 1 and args.capture_interval_seconds > 0:
                     time.sleep(args.capture_interval_seconds)
@@ -255,17 +260,20 @@ def main(argv: Sequence[str] | None = None) -> int:
                 logging.getLogger(__name__).exception("Failed to persist JD metric session failure state")
             print(json.dumps(failure, ensure_ascii=False, indent=2))
             return 2
-        final_status = "blocked" if capture_blocked else "completed"
-        result_summary = (
-            f"JD metric capture blocked in one or more of {args.max_samples} sample(s)"
-            if capture_blocked
-            else f"Captured {args.max_samples} JD live metric sample(s)"
-        )
+        if capture_failed:
+            final_status = "failed"
+            result_summary = f"JD metric capture failed closed for one or more of {args.max_samples} sample(s)"
+        elif capture_blocked:
+            final_status = "blocked"
+            result_summary = f"JD metric capture blocked in one or more of {args.max_samples} sample(s)"
+        else:
+            final_status = "completed"
+            result_summary = f"Captured {args.max_samples} JD live metric sample(s)"
         api_client.update_jd_live_metric_session(
             args.jd_metric_session_code,
             {"status": final_status, "result_summary": result_summary},
         )
-        return 2 if capture_blocked else 0
+        return 2 if capture_blocked or capture_failed else 0
     if args.script_layout_draft_execute:
         if not args.script_layout_build_plan_file:
             raise SystemExit("--script-layout-draft-execute requires --script-layout-build-plan-file")

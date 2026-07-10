@@ -50,6 +50,23 @@ class FakeBrowserUseCliSession:
         )
 
 
+def test_check_config_rejects_conflicting_execution_mode_before_client_start(monkeypatch) -> None:
+    client_started = False
+
+    def forbidden_client(_base_url: str):
+        nonlocal client_started
+        client_started = True
+        raise AssertionError("client must not start for an invalid mode combination")
+
+    monkeypatch.setattr(worker_main, "AssetGraphClient", forbidden_client)
+
+    with pytest.raises(SystemExit) as exc_info:
+        worker_main.main(["--check-config", "--probe-maitu"])
+
+    assert "Conflicting CLI modes" in str(exc_info.value)
+    assert client_started is False
+
+
 def test_main_captures_jd_metric_samples_with_interval(monkeypatch, capsys) -> None:
     fake_client = FakeAssetGraphClient("http://assetgraph")
     sleeps: list[float] = []
@@ -103,6 +120,32 @@ def test_main_returns_nonzero_and_marks_metric_session_blocked_when_capture_is_b
     assert exit_code == 2
     assert fake_client.session_updates[-1][1]["status"] == "blocked"
     assert '"status": "blocked"' in capsys.readouterr().out
+
+
+def test_main_fails_closed_when_metric_capture_returns_failed_status(monkeypatch, capsys) -> None:
+    fake_client = FakeAssetGraphClient("http://assetgraph")
+    monkeypatch.setattr(worker_main, "AssetGraphClient", lambda base_url: fake_client)
+    monkeypatch.setattr(worker_main, "BrowserUseCliSession", lambda: FakeBrowserUseCliSession())
+    monkeypatch.setattr(
+        worker_main,
+        "capture_jd_live_metric_sample",
+        lambda *_args, **_kwargs: {
+            "status": "failed",
+            "raw_metrics": {"ready_to_capture": True, "failure_type": "upstream_rejected"},
+        },
+    )
+
+    exit_code = worker_main.main(
+        [
+            "--capture-jd-metrics",
+            "--jd-metric-session-code",
+            "JD-METRIC-FAILED",
+        ]
+    )
+
+    assert exit_code == 2
+    assert fake_client.session_updates[-1][1]["status"] == "failed"
+    assert '"status": "failed"' in capsys.readouterr().out
 
 
 def test_main_marks_metric_session_failed_when_capture_raises(monkeypatch, capsys) -> None:
@@ -171,6 +214,7 @@ def test_main_runs_live_scene_fill_and_writes_execution_result(monkeypatch, caps
         def read_live_room(self, live_room_id: str) -> dict[str, Any]:
             return {
                 "id": live_room_id,
+                "is_live": False,
                 "_assetgraph_read_environment": "working",
                 "topics": [{"clips": [{"id": 416425, "name": "未命名", "order_num": 0}]}],
             }

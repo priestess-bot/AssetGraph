@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from browser_use_worker.script_layout_draft_executor import (
     ScriptLayoutDraftRunner,
     build_script_layout_draft_execution_payload,
@@ -11,6 +13,7 @@ class FakeScriptLayoutDraftSession:
         self.calls: list[tuple[str, object]] = []
         self.room = {
             "id": "47000002",
+            "is_live": False,
             "_assetgraph_read_environment": "working",
             "topics": [
                 {
@@ -500,7 +503,60 @@ def test_script_layout_draft_runner_rejects_active_live_room_before_mutation() -
     assert not any(call[0] == "rename_clip" for call in session.calls)
 
 
-def test_script_layout_draft_execution_payload_maps_action_results() -> None:
+@pytest.mark.parametrize("room_status", [None, "mystery"])
+def test_script_layout_draft_runner_requires_explicit_not_live_evidence(room_status: str | None) -> None:
+    session = FakeScriptLayoutDraftSession()
+    session.room.pop("is_live")
+    if room_status is not None:
+        session.room["status"] = room_status
+    plan = {
+        "status": "ready",
+        "target_live_room_id": "47000002",
+        "operations": [
+            {
+                "operation_type": "preflight_content_build_plan",
+                "status": "ready",
+                "target_live_room_id": "47000002",
+            }
+        ],
+    }
+
+    result = ScriptLayoutDraftRunner(session=session).run(plan)
+
+    assert result.status == "failed"
+    assert "not live" in result.summary.lower()
+    assert session.calls == [("read_live_room", "47000002")]
+
+
+def test_script_layout_draft_runner_rejects_unknown_late_operation_before_any_session_call() -> None:
+    session = FakeScriptLayoutDraftSession()
+    plan = {
+        "status": "ready",
+        "target_live_room_id": "47000002",
+        "operations": [
+            {
+                "operation_type": "preflight_content_build_plan",
+                "status": "ready",
+                "target_live_room_id": "47000002",
+            },
+            {
+                "operation_type": "fill_default_scene",
+                "status": "ready",
+                "scene_index": 0,
+                "scene_name": "开场",
+            },
+            {"operation_type": "unexpected_future_operation", "status": "ready"},
+        ],
+    }
+
+    result = ScriptLayoutDraftRunner(session=session).run(plan)
+
+    assert result.status == "failed"
+    assert "unsupported" in result.summary.lower()
+    assert session.calls == []
+
+
+def test_script_layout_draft_execution_payload_preserves_manual_gate() -> None:
     result = ScriptLayoutDraftRunner(session=FakeScriptLayoutDraftSession()).run(content_build_plan())
 
     payload = build_script_layout_draft_execution_payload(result)

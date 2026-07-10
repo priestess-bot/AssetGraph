@@ -153,6 +153,21 @@ def test_maitu_executor_rejects_generic_operation_without_explicit_safe_handler(
     assert not any(name == "execute_generic_operation" for name, _ in session.calls)
 
 
+def test_maitu_executor_rejects_unknown_late_operation_before_any_session_call() -> None:
+    session = FakeMaituSession()
+    client = FakeAssetClient({"AG-VID-20260709-000001": asset()})
+    executor = MaituBrowserUseExecutor(asset_client=client, session=session)
+    plan = operation_plan("retry_replace_layer_asset")
+    plan["operations"].append({"operation_type": "unexpected_future_operation"})
+
+    result = executor.execute_operation_plan(plan)
+
+    assert result.status == "manual_required"
+    assert "unsupported operation type" in (result.error_message or "").lower()
+    assert session.calls == []
+    assert client.requested_codes == []
+
+
 def test_maitu_executor_missing_asset_requires_manual_intervention() -> None:
     session = FakeMaituSession()
     executor = MaituBrowserUseExecutor(asset_client=FakeAssetClient({}), session=session)

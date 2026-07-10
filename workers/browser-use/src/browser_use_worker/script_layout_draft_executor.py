@@ -68,6 +68,20 @@ class ScriptLayoutDraftRunner:
     never treats placeholders as real assets.
     """
 
+    SUPPORTED_OPERATION_TYPES = frozenset(
+        {
+            "preflight_content_build_plan",
+            "fill_default_scene",
+            "create_scene",
+            "insert_asset_layer",
+            "position_asset_layer",
+            "placeholder_required",
+            "write_script",
+            "verify_scene",
+            "save_draft",
+        }
+    )
+
     def __init__(self, *, session: MaituScriptLayoutDraftSession) -> None:
         self.session = session
         self._room_cache: dict[str, Any] | None = None
@@ -119,6 +133,26 @@ class ScriptLayoutDraftRunner:
                 ready_for_go_live=False,
                 manual_review_required=True,
                 summary="Script layout draft run failed: missing target_live_room_id.",
+                operation_count=len(operations),
+                executed_action_count=0,
+                skipped_action_count=0,
+                placeholder_count=0,
+                failure_count=1,
+                actions=[],
+            )
+        unsupported_operation_types = [
+            operation.get("operation_type") if isinstance(operation, dict) else None
+            for operation in operations
+            if not isinstance(operation, dict)
+            or operation.get("operation_type") not in self.SUPPORTED_OPERATION_TYPES
+        ]
+        if unsupported_operation_types:
+            return ScriptLayoutDraftResult(
+                status="failed",
+                target_live_room_id=live_room_id,
+                ready_for_go_live=False,
+                manual_review_required=True,
+                summary=f"Unsupported script-layout draft operation type(s): {unsupported_operation_types}",
                 operation_count=len(operations),
                 executed_action_count=0,
                 skipped_action_count=0,
@@ -183,19 +217,20 @@ class ScriptLayoutDraftRunner:
         )
         if failure_count:
             status = "failed"
-        elif manual_review_required:
-            status = "completed_with_manual_review"
+            failed_action = next(action for action in actions if action.status == "failed")
+            summary = failed_action.summary
         else:
-            status = "completed"
+            status = "completed_with_manual_review" if manual_review_required else "completed"
+            summary = (
+                f"Script layout draft run {status}: {executed_action_count} operation(s) executed, "
+                f"{placeholder_count} placeholder(s) left for manual review; go-live not clicked."
+            )
         return ScriptLayoutDraftResult(
             status=status,
             target_live_room_id=live_room_id,
             ready_for_go_live=False,
             manual_review_required=manual_review_required,
-            summary=(
-                f"Script layout draft run {status}: {executed_action_count} operation(s) executed, "
-                f"{placeholder_count} placeholder(s) left for manual review; go-live not clicked."
-            ),
+            summary=summary,
             operation_count=len(operations),
             executed_action_count=executed_action_count,
             skipped_action_count=skipped_action_count,
@@ -277,6 +312,13 @@ class ScriptLayoutDraftRunner:
                 operation,
                 "read_live_room",
                 "target room is currently live; refusing to mutate an active live room",
+            )
+        if not self._room_is_confirmed_not_live(room):
+            return self._failed_action(
+                index,
+                operation,
+                "read_live_room",
+                "target room has no explicit authoritative evidence that it is not live",
             )
         default_clip = self._default_clip(room)
         if default_clip is None:
@@ -595,6 +637,15 @@ class ScriptLayoutDraftRunner:
         )
 
     @staticmethod
+    def _room_is_confirmed_not_live(room: dict[str, Any]) -> bool:
+        false_values = {"0", "false", "no", "off", "offline", "stopped", "draft", "working", "idle", "pending", "not_live"}
+        return any(
+            value is False or (value is not None and str(value).strip().lower() in false_values)
+            for key in ("is_live", "living", "is_living", "status", "live_status", "room_status")
+            if (value := room.get(key)) is not None
+        )
+
+    @staticmethod
     def _optional_string(value: Any) -> str | None:
         if value is None:
             return None
@@ -618,6 +669,7 @@ class InMemoryScriptLayoutDraftSession:
         self.live_room_id = live_room_id
         self.room: dict[str, Any] = {
             "id": live_room_id,
+            "is_live": False,
             "_assetgraph_read_environment": "working",
             "topics": [{"id": 1, "clips": [{"id": 1, "name": "未命名", "order_num": 0, "clip_materials": []}]}],
         }

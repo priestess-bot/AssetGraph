@@ -53,6 +53,18 @@ class MaituBrowserUseExecutor:
     asset_client: AssetLookupClient
     session: MaituBrowserSession
 
+    SUPPORTED_OPERATION_TYPES = frozenset(
+        {
+            "replace_layer_asset",
+            "retry_replace_layer_asset",
+            "retry_asset_upload_and_replace",
+            "retry_save_project",
+            "recover_login_then_retry",
+            "manual_retry_required",
+            "resolve_missing_slot_asset",
+        }
+    )
+
     def execute_operation_plan(self, operation_plan: dict[str, Any]) -> OperationExecutionResult:
         operations = operation_plan.get("operations") or []
         if not operations:
@@ -61,6 +73,19 @@ class MaituBrowserUseExecutor:
                 summary="operation_plan.operations is empty; nothing to execute.",
                 error_message="operation_plan.operations is empty",
                 retry_instruction="Regenerate operation plan before running browser-use worker.",
+            )
+        unsupported_operation_types = [
+            operation.get("operation_type") if isinstance(operation, dict) else None
+            for operation in operations
+            if not isinstance(operation, dict)
+            or operation.get("operation_type") not in self.SUPPORTED_OPERATION_TYPES
+        ]
+        if unsupported_operation_types:
+            return OperationExecutionResult(
+                status="manual_required",
+                summary=f"Unsupported operation type(s) rejected before browser execution: {unsupported_operation_types}",
+                error_message=f"Unsupported operation type(s): {unsupported_operation_types}",
+                retry_instruction="Regenerate the operation plan with explicitly supported operation types.",
             )
 
         maitu_project_code = operation_plan.get("maitu_project_code")

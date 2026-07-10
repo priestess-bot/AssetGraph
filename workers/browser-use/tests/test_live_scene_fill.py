@@ -10,6 +10,7 @@ class FakeLiveSceneFillSession:
         self.calls: list[tuple[str, object]] = []
         self.room = {
             "id": 40173,
+            "is_live": False,
             "_assetgraph_read_environment": "working",
             "name": "龙谕龙8单场景测试",
             "topics": [
@@ -190,6 +191,20 @@ def test_live_scene_fill_requires_authoritative_working_environment_before_mutat
 
     assert result.status == "failed"
     assert "working/draft" in result.summary
+    assert not any(call[0] in {"rename_clip", "fill_clip_from_template"} for call in session.calls)
+
+
+@pytest.mark.parametrize("room_status", [None, "mystery"])
+def test_live_scene_fill_rejects_missing_or_unknown_not_live_evidence_before_mutation(room_status: str | None) -> None:
+    session = FakeLiveSceneFillSession()
+    session.room.pop("is_live")
+    if room_status is not None:
+        session.room["status"] = room_status
+
+    result = LiveSceneFillRunner(session=session).run(single_scene_build_plan(), target_live_room_id="40173")
+
+    assert result.status == "failed"
+    assert "not live" in result.summary.lower()
     assert not any(call[0] in {"rename_clip", "fill_clip_from_template"} for call in session.calls)
 
 

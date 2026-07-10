@@ -160,7 +160,14 @@ class LiveSceneFillRunner:
                 build_plan_code,
                 target_live_room_id,
                 actions,
-                "Target room is currently live; refusing live scene fill mutation.",
+                "Target room is currently live; refusing to mutate an active live room.",
+            )
+        if not self._room_is_confirmed_not_live(room):
+            return self._failed_result(
+                build_plan_code,
+                target_live_room_id,
+                actions,
+                "Target room has no explicit authoritative evidence that it is not live; refusing mutation.",
             )
         default_clip = self._default_clip(room)
         if default_clip is None:
@@ -354,6 +361,15 @@ class LiveSceneFillRunner:
         active_values = {"1", "true", "yes", "live", "living", "on_air", "started", "running", "broadcasting"}
         return any(
             value is True or (value is not None and str(value).strip().lower() in active_values)
+            for key in ("is_live", "living", "is_living", "status", "live_status", "room_status")
+            if (value := room.get(key)) is not None
+        )
+
+    @staticmethod
+    def _room_is_confirmed_not_live(room: dict[str, Any]) -> bool:
+        false_values = {"0", "false", "no", "off", "offline", "stopped", "draft", "working", "idle", "pending", "not_live"}
+        return any(
+            value is False or (value is not None and str(value).strip().lower() in false_values)
             for key in ("is_live", "living", "is_living", "status", "live_status", "room_status")
             if (value := room.get(key)) is not None
         )
