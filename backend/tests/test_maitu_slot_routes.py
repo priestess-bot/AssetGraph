@@ -901,6 +901,45 @@ class FakeMaituMaterialSlotRepository:
             "assets": assets[offset : offset + limit],
         }
 
+    def select_asset_for_template_component(
+        self,
+        component: dict[str, Any],
+        template_scene: dict[str, Any],
+        script_context: str,
+    ) -> dict[str, Any] | None:
+        required_category = component.get("required_category")
+        if not required_category:
+            return None
+        accepted_asset_types = component.get("accepted_asset_types") or []
+        candidates = []
+        for asset in self.assets:
+            if asset.get("maitu_category") != required_category:
+                continue
+            if accepted_asset_types and asset.get("asset_type") not in accepted_asset_types:
+                continue
+            if self._is_direct_layer_forbidden_template_asset(asset, component):
+                continue
+            score = 0.55
+            reasons = [f"maitu_category matches required_category: {required_category}"]
+            if not accepted_asset_types or asset.get("asset_type") in accepted_asset_types:
+                score += 0.2
+                reasons.append(f"asset_type accepted: {asset.get('asset_type')}")
+            asset_text = " ".join(
+                str(asset.get(field) or "")
+                for field in ("title", "original_filename", "display_code", "local_file_code", "browser_use_hint", "subject", "usage")
+            )
+            for token in ("品酒大师PRO", "品酒大师", "张裕", "龙谕龙8", "龙谕", "夏日"):
+                if token in script_context and token in asset_text:
+                    score += 0.15
+                    reasons.append(f"script context mentions {token}")
+                    break
+            if template_scene.get("scene_name") and asset.get("maitu_scene_name") == template_scene.get("scene_name"):
+                score += 0.05
+                reasons.append(f"scene_name matches: {template_scene.get('scene_name')}")
+            candidates.append({**asset, "match_score": round(min(score, 1.0), 4), "match_reasons": reasons})
+        candidates.sort(key=lambda row: (row["match_score"], row.get("asset_code") or ""), reverse=True)
+        return candidates[0] if candidates else None
+
     def resolve_plan_slots(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
         slot_codes = payload.get("slot_codes") or list(self.rows.keys())
         return [self.rows[slot_code] for slot_code in slot_codes if slot_code in self.rows]
@@ -1513,6 +1552,225 @@ def test_create_script_scene_plan_marks_ambiguous_short_script_for_review(client
     assert body["manual_review_required"] is True
     assert body["scenes"][0]["manual_review"] is True
     assert "too_short" in body["scenes"][0]["review_reasons"]
+
+
+def test_create_script_scene_template_matches_maps_each_script_scene_to_one_template_and_assets(client: TestClient) -> None:
+    import_response = client.post(
+        "/api/maitu/live-room-blueprints/import-reference",
+        json={
+            "reference_profile": {
+                "profile_code": "MT-REF-20260710-STAGE3",
+                "source": "browser_use_observe",
+                "reference_room_id": "39829",
+                "reference_room_name": "张裕多场景模板库",
+                "platform": "京东",
+                "active_scene_name": "开场留人",
+            },
+            "blueprint": {
+                "blueprint_code": "MT-BP-20260710-STAGE3",
+                "reference_profile_code": "MT-REF-20260710-STAGE3",
+                "template_library_code": "MT-TPL-LIB-20260710-STAGE3",
+                "title": "张裕多场景模板库",
+                "platform": "京东",
+                "room_type": "reference_rebuild",
+                "reference_room_id": "39829",
+                "reference_room_name": "张裕多场景模板库",
+                "status": "draft",
+                "scenes": [
+                    {
+                        "scene_code": "MT-SCENE-STAGE3-OPENING",
+                        "scene_name": "开场留人",
+                        "scene_type": "opening",
+                        "sort_order": 1,
+                        "layers": [
+                            {
+                                "layer_code": "MT-LAYER-STAGE3-BG",
+                                "layer_name": "夏日背景",
+                                "layer_role": "background",
+                                "required_category": "background_image",
+                                "accepted_asset_types": ["IMG"],
+                                "replacement_policy": "keep_layout",
+                            }
+                        ],
+                    },
+                    {
+                        "scene_code": "MT-SCENE-STAGE3-PRODUCT",
+                        "scene_name": "产品讲解",
+                        "scene_type": "product_explanation",
+                        "sort_order": 2,
+                        "layers": [
+                            {
+                                "layer_code": "MT-LAYER-STAGE3-VIDEO",
+                                "layer_name": "商品讲解视频",
+                                "layer_role": "product_video",
+                                "required_category": "product_video",
+                                "accepted_asset_types": ["VID"],
+                                "replacement_policy": "keep_layout",
+                            }
+                        ],
+                    },
+                    {
+                        "scene_code": "MT-SCENE-STAGE3-CONVERSION",
+                        "scene_name": "促单转化",
+                        "scene_type": "conversion",
+                        "sort_order": 3,
+                        "layers": [
+                            {
+                                "layer_code": "MT-LAYER-STAGE3-PRODUCT-IMAGE",
+                                "layer_name": "商品主图",
+                                "layer_role": "product_image",
+                                "required_category": "product_image",
+                                "accepted_asset_types": ["IMG"],
+                                "replacement_policy": "keep_layout",
+                            }
+                        ],
+                    },
+                ],
+                "script_blocks": [
+                    {
+                        "script_block_code": "MT-SCRIPT-STAGE3-OPENING",
+                        "scene_name": "开场留人",
+                        "sort_order": 1,
+                        "content": "欢迎来到张裕直播间，夏日主题开场先留住新进来的朋友。",
+                    },
+                    {
+                        "script_block_code": "MT-SCRIPT-STAGE3-PRODUCT",
+                        "scene_name": "产品讲解",
+                        "sort_order": 2,
+                        "content": "产品亮点是龙谕龙8，来自宁夏贺兰山东麓，讲清楚风土和口感。",
+                    },
+                    {
+                        "script_block_code": "MT-SCRIPT-STAGE3-CONVERSION",
+                        "scene_name": "促单转化",
+                        "sort_order": 3,
+                        "content": "促单阶段提醒大家点商品卡，下单享受优惠福利。",
+                    },
+                ],
+                "safety_rules": ["默认不点击正式开播"],
+            },
+        },
+    )
+    assert import_response.status_code == 201
+
+    plan_response = client.post(
+        "/api/maitu/script-scene-plans",
+        json={
+            "script_text": """
+            开场：大家好，欢迎来到张裕直播间，今天先用夏日主题带大家看龙谕龙8。
+
+            产品亮点：龙谕龙8来自宁夏贺兰山东麓，适合宴请送礼，口感饱满。
+
+            促单：现在下单有组合优惠，喜欢干红的朋友可以先点商品卡。
+            """,
+            "target_scene_count": 3,
+            "default_scene_duration_seconds": 45,
+        },
+    )
+    assert plan_response.status_code == 201
+    scenes = plan_response.json()["scenes"]
+
+    match_response = client.post(
+        "/api/maitu/script-scene-template-matches",
+        json={
+            "scenes": scenes,
+            "blueprint_code": "MT-BP-20260710-STAGE3",
+            "auto_select_assets": True,
+        },
+    )
+
+    assert match_response.status_code == 201
+    body = match_response.json()
+    assert body["source"] == "rule_based_template_component_match_v1"
+    assert body["scene_count"] == 3
+    assert body["matched_scene_count"] == 3
+    assert body["manual_review_required"] is False
+    assert [match["matched_template_scene_code"] for match in body["matches"]] == [
+        "MT-SCENE-STAGE3-OPENING",
+        "MT-SCENE-STAGE3-PRODUCT",
+        "MT-SCENE-STAGE3-CONVERSION",
+    ]
+    assert all(match["component_count"] == 1 for match in body["matches"])
+    assert all(match["confidence"] >= 0.35 for match in body["matches"])
+
+    product_match = body["matches"][1]
+    assert product_match["scene_index"] == 1
+    assert product_match["matched_template_scene_name"] == "产品讲解"
+    assert product_match["component_selections"][0]["component_template_code"] == "MT-LAYER-STAGE3-VIDEO"
+    assert product_match["component_selections"][0]["status"] == "selected"
+    assert product_match["component_selections"][0]["selected_asset_code"] == "AG-VID-20260709-000052"
+    assert product_match["component_selections"][0]["selected_asset_display_code"] == "MT-VID-0024"
+
+    opening_selection = body["matches"][0]["component_selections"][0]
+    assert opening_selection["selected_asset_code"] == "AG-IMG-20260709-000070"
+    assert opening_selection["selected_asset_local_file_code"] == "MT-BG-0001"
+    assert "MT-TPL" not in opening_selection["selected_asset_local_file_code"]
+
+
+def test_script_scene_template_matches_marks_low_confidence_scene_for_manual_review(client: TestClient) -> None:
+    import_response = client.post(
+        "/api/maitu/live-room-blueprints/import-reference",
+        json={
+            "reference_profile": {
+                "profile_code": "MT-REF-20260710-LOWCONF",
+                "source": "browser_use_observe",
+                "reference_room_id": "39830",
+                "reference_room_name": "低置信度模板库",
+                "platform": "京东",
+            },
+            "blueprint": {
+                "blueprint_code": "MT-BP-20260710-LOWCONF",
+                "reference_profile_code": "MT-REF-20260710-LOWCONF",
+                "title": "低置信度模板库",
+                "platform": "京东",
+                "room_type": "reference_rebuild",
+                "reference_room_id": "39830",
+                "status": "draft",
+                "scenes": [
+                    {
+                        "scene_code": "MT-SCENE-LOWCONF-PRODUCT",
+                        "scene_name": "产品讲解",
+                        "scene_type": "product_explanation",
+                        "sort_order": 1,
+                        "layers": [],
+                    }
+                ],
+                "script_blocks": [
+                    {
+                        "script_block_code": "MT-SCRIPT-LOWCONF-PRODUCT",
+                        "scene_name": "产品讲解",
+                        "content": "讲清楚商品卖点和口感。",
+                    }
+                ],
+            },
+        },
+    )
+    assert import_response.status_code == 201
+
+    match_response = client.post(
+        "/api/maitu/script-scene-template-matches",
+        json={
+            "scenes": [
+                {
+                    "scene_index": 0,
+                    "scene_name": "抽奖互动",
+                    "scene_goal": "interaction",
+                    "duration_seconds": 30,
+                    "script": "我们马上做一轮评论区抽奖，关注主播并回复口令。",
+                    "keywords": [],
+                    "manual_review": False,
+                    "review_reasons": [],
+                }
+            ],
+            "blueprint_code": "MT-BP-20260710-LOWCONF",
+            "min_confidence_for_auto_match": 0.3,
+        },
+    )
+
+    assert match_response.status_code == 201
+    body = match_response.json()
+    assert body["manual_review_required"] is True
+    assert body["matches"][0]["manual_review"] is True
+    assert "low_confidence_template_match" in body["matches"][0]["review_reasons"]
 
 
 def test_create_jd_live_metric_session_and_samples(client: TestClient) -> None:

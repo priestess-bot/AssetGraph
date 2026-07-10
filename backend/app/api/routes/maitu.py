@@ -10,6 +10,7 @@ from app.repositories.maitu import MaituMaterialSlotRepository
 from app.services.asset_candidates import AssetCandidate, AssetRetrievalIndex
 from app.services.qwen3_client import Qwen3Client, Qwen3ClientError
 from app.services.script_scene_planner import ScriptScenePlanner
+from app.services.script_scene_template_matcher import ScriptSceneTemplateMatcher
 from app.schemas.maitu import (
     MaituBrowserUseOperationPlanResponse,
     MaituCandidateAssetsResponse,
@@ -49,6 +50,8 @@ from app.schemas.maitu import (
     MaituRetryTaskReleaseCreate,
     MaituRetryTaskUpdate,
     MaituRetryWorkerNextResponse,
+    MaituScriptSceneTemplateMatchCreate,
+    MaituScriptSceneTemplateMatchRead,
 )
 
 router = APIRouter(prefix="/maitu", tags=["maitu"])
@@ -89,6 +92,30 @@ def create_script_scene_plan(payload: MaituScriptScenePlanCreate) -> dict:
         target_scene_count=payload.target_scene_count,
         default_scene_duration_seconds=payload.default_scene_duration_seconds,
     )
+
+
+@router.post(
+    "/script-scene-template-matches",
+    response_model=MaituScriptSceneTemplateMatchRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_script_scene_template_matches(
+    payload: MaituScriptSceneTemplateMatchCreate,
+    repository: Annotated[MaituMaterialSlotRepository, Depends(get_maitu_slot_repository)],
+) -> dict:
+    result = ScriptSceneTemplateMatcher(repository).match(
+        [scene.model_dump() for scene in payload.scenes],
+        blueprint_code=payload.blueprint_code,
+        reference_room_id=payload.reference_room_id,
+        template_library_code=payload.template_library_code,
+        status=payload.status,
+        auto_select_assets=payload.auto_select_assets,
+        min_confidence_for_auto_match=payload.min_confidence_for_auto_match,
+        candidate_scene_limit=payload.candidate_scene_limit,
+    )
+    if result is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Maitu live-room template scenes not found")
+    return result
 
 
 def build_slot_semantic_query(slot: dict, query: str | None = None) -> str:

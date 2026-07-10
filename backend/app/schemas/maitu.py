@@ -31,6 +31,68 @@ class MaituScriptScenePlanRead(BaseModel):
     scenes: list[MaituScriptSceneRead] = Field(default_factory=list)
 
 
+class MaituScriptSceneTemplateMatchCreate(BaseModel):
+    scenes: list[MaituScriptSceneRead] = Field(..., min_length=1)
+    blueprint_code: str | None = Field(default=None, max_length=64)
+    reference_room_id: str | None = Field(default=None, max_length=64)
+    template_library_code: str | None = Field(default=None, max_length=64)
+    status: str | None = Field(default=None, max_length=32)
+    auto_select_assets: bool = True
+    min_confidence_for_auto_match: float = Field(default=0.3, ge=0.0, le=1.0)
+    candidate_scene_limit: int = Field(default=200, ge=1, le=1000)
+
+
+class MaituScriptSceneComponentSelectionRead(BaseModel):
+    component_template_code: str | None = None
+    layer_name: str | None = None
+    layer_role: str | None = None
+    required_category: str | None = None
+    accepted_asset_types: list[str] = Field(default_factory=list)
+    replacement_policy: str | None = None
+    status: str
+    selected_asset_code: str | None = None
+    selected_asset_title: str | None = None
+    selected_asset_display_code: str | None = None
+    selected_asset_local_file_code: str | None = None
+    selected_asset_original_filename: str | None = None
+    selected_asset_local_relative_path: str | None = None
+    selected_asset_browser_use_hint: str | None = None
+    match_score: float | None = None
+    match_reasons: list[str] = Field(default_factory=list)
+    selection_source: str | None = None
+
+
+class MaituScriptSceneTemplateMatchItemRead(BaseModel):
+    scene_index: int
+    scene_name: str
+    scene_goal: str
+    duration_seconds: int
+    script: str
+    keywords: list[str] = Field(default_factory=list)
+    matched_blueprint_code: str | None = None
+    matched_template_library_code: str | None = None
+    matched_template_scene_code: str | None = None
+    matched_template_scene_name: str | None = None
+    matched_template_scene_type: str | None = None
+    matched_reference_clip_id: str | int | None = None
+    matched_script_block_code: str | None = None
+    matched_script_content: str | None = None
+    component_count: int = 0
+    confidence: float = 0.0
+    match_reasons: list[str] = Field(default_factory=list)
+    manual_review: bool = False
+    review_reasons: list[str] = Field(default_factory=list)
+    component_selections: list[MaituScriptSceneComponentSelectionRead] = Field(default_factory=list)
+
+
+class MaituScriptSceneTemplateMatchRead(BaseModel):
+    source: str
+    scene_count: int
+    matched_scene_count: int
+    manual_review_required: bool = False
+    matches: list[MaituScriptSceneTemplateMatchItemRead] = Field(default_factory=list)
+
+
 class MaituLiveRoomBlueprintImportCreate(BaseModel):
     reference_profile: dict[str, Any]
     blueprint: dict[str, Any]

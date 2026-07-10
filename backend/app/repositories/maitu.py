@@ -2237,6 +2237,14 @@ class MaituMaterialSlotRepository:
             },
         }
 
+    def select_asset_for_template_component(
+        self,
+        component: dict[str, Any],
+        template_scene: dict[str, Any],
+        script_context: str,
+    ) -> dict[str, Any] | None:
+        return self._select_asset_for_live_room_layer(component, template_scene, script_context)
+
     def _select_asset_for_live_room_layer(
         self,
         layer: dict[str, Any],
