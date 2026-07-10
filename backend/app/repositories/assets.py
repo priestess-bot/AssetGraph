@@ -40,6 +40,12 @@ class AssetRepository:
         "duplicate_primary_local_file_code",
         "duplicate_primary_asset_code",
         "maitu_project_code",
+        "maitu_material_id",
+        "source_material_type",
+        "source_material_url",
+        "source_cover_url",
+        "speaker_id",
+        "digital_human_image_id",
         "maitu_scene_name",
         "maitu_scene_index",
         "maitu_layer_name",
@@ -316,6 +322,35 @@ class AssetRepository:
                 RETURNING *
                 """,
                 (status, asset_code),
+            )
+            row = cursor.fetchone()
+        self.connection.commit()
+        return self._stringify_ids(row) if row else None
+
+    def update_maitu_material_binding(self, asset_code: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+        fields = (
+            "maitu_material_id",
+            "source_material_type",
+            "source_material_url",
+            "source_cover_url",
+            "speaker_id",
+            "digital_human_image_id",
+        )
+        data = {field: payload[field] for field in fields if field in payload}
+        if not data:
+            return self.get_by_code(asset_code)
+        assignments = ", ".join(f"{field} = %s" for field in data)
+        values = [data[field] for field in data]
+        values.append(asset_code)
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                f"""
+                UPDATE assets
+                SET {assignments}, updated_at = now()
+                WHERE asset_code = %s AND deleted_at IS NULL
+                RETURNING *
+                """,
+                tuple(values),
             )
             row = cursor.fetchone()
         self.connection.commit()

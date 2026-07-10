@@ -47,6 +47,12 @@ class FakeAssetRepository:
             "duplicate_primary_local_file_code": payload.get("duplicate_primary_local_file_code"),
             "duplicate_primary_asset_code": payload.get("duplicate_primary_asset_code"),
             "maitu_project_code": payload.get("maitu_project_code"),
+            "maitu_material_id": payload.get("maitu_material_id"),
+            "source_material_type": payload.get("source_material_type"),
+            "source_material_url": payload.get("source_material_url"),
+            "source_cover_url": payload.get("source_cover_url"),
+            "speaker_id": payload.get("speaker_id"),
+            "digital_human_image_id": payload.get("digital_human_image_id"),
             "maitu_scene_name": payload.get("maitu_scene_name"),
             "maitu_scene_index": payload.get("maitu_scene_index"),
             "maitu_layer_name": payload.get("maitu_layer_name"),
@@ -65,6 +71,13 @@ class FakeAssetRepository:
 
     def get_by_code(self, asset_code: str) -> dict[str, Any] | None:
         return self.rows.get(asset_code)
+
+    def update_maitu_material_binding(self, asset_code: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+        row = self.rows.get(asset_code)
+        if row is None:
+            return None
+        row.update(payload)
+        return row
 
     def list(
         self,
@@ -338,6 +351,41 @@ def test_create_digital_human_file_preserves_entity_code_mapping(client: TestCli
     by_entity = client.get("/api/assets", params={"entity_code": "DH-MDL-0001"})
     assert by_entity.status_code == 200
     assert by_entity.json()[0]["file_role"] == "训练素材"
+
+
+def test_patch_asset_maitu_material_binding_for_real_insert(client: TestClient) -> None:
+    create_response = client.post(
+        "/api/assets",
+        json={
+            "asset_type": "IMG",
+            "title": "龙谕龙8商品主图",
+            "original_filename": "longyu-long8.png",
+            "maitu_category": "product_image",
+            "local_relative_path": "图片/longyu-long8.png",
+        },
+    )
+    asset_code = create_response.json()["asset_code"]
+
+    response = client.patch(
+        f"/api/assets/{asset_code}/maitu-material-binding",
+        json={
+            "maitu_material_id": 881001,
+            "source_material_type": "image",
+            "source_material_url": "https://static.maituai.example/materials/longyu-long8.png",
+            "source_cover_url": "https://static.maituai.example/materials/longyu-long8-cover.png",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["maitu_material_id"] == 881001
+    assert body["source_material_type"] == "image"
+    assert body["source_material_url"].endswith("longyu-long8.png")
+    assert body["source_cover_url"].endswith("longyu-long8-cover.png")
+
+    get_response = client.get(f"/api/assets/{asset_code}")
+    assert get_response.status_code == 200
+    assert get_response.json()["maitu_material_id"] == 881001
 
 
 def test_link_asset_to_live_and_list_assets(client: TestClient) -> None:

@@ -11,7 +11,7 @@ from psycopg import Connection
 from app.core.config import settings
 from app.core.database import get_db
 from app.repositories.assets import AssetRepository
-from app.schemas.assets import AssetCreate, AssetFileRead, AssetRead
+from app.schemas.assets import AssetCreate, AssetFileRead, AssetMaituMaterialBindingUpdate, AssetRead
 from app.services.asset_candidates import AssetRetrievalIndex
 from app.services.object_storage import MinioObjectStorage, ObjectStorage, build_asset_object_key, content_type_for_path
 from app.services.qwen3_client import Qwen3Client, Qwen3ClientError
@@ -190,6 +190,18 @@ def get_asset(
     repository: Annotated[AssetRepository, Depends(get_asset_repository)],
 ) -> dict:
     row = repository.get_by_code(asset_code)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found")
+    return row
+
+
+@router.patch("/{asset_code}/maitu-material-binding", response_model=AssetRead)
+def update_asset_maitu_material_binding(
+    asset_code: str,
+    payload: AssetMaituMaterialBindingUpdate,
+    repository: Annotated[AssetRepository, Depends(get_asset_repository)],
+) -> dict:
+    row = repository.update_maitu_material_binding(asset_code, payload.model_dump(exclude_unset=True))
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found")
     return row

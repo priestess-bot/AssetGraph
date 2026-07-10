@@ -2208,6 +2208,12 @@ class MaituMaterialSlotRepository:
             "selected_asset_original_filename": candidate.get("original_filename"),
             "selected_asset_local_relative_path": candidate.get("local_relative_path"),
             "selected_asset_browser_use_hint": candidate.get("browser_use_hint"),
+            "selected_asset_maitu_material_id": candidate.get("maitu_material_id"),
+            "selected_asset_source_material_type": candidate.get("source_material_type"),
+            "selected_asset_source_material_url": candidate.get("source_material_url"),
+            "selected_asset_source_cover_url": candidate.get("source_cover_url"),
+            "selected_asset_speaker_id": candidate.get("speaker_id"),
+            "selected_asset_digital_human_image_id": candidate.get("digital_human_image_id"),
             "match_score": candidate.get("match_score"),
             "match_reasons": candidate.get("match_reasons") or [],
             "selection_source": "script_context_rule_filter",
@@ -2259,6 +2265,8 @@ class MaituMaterialSlotRepository:
                 f"""
                 SELECT asset_code, asset_type, title, original_filename, display_code,
                     local_file_code, local_relative_path, browser_use_hint,
+                    maitu_material_id, source_material_type, source_material_url,
+                    source_cover_url, speaker_id, digital_human_image_id,
                     maitu_category, maitu_type, maitu_project_code, maitu_scene_name,
                     maitu_layer_name, maitu_slot_name, subject, usage,
                     replacement_policy, description
@@ -2307,6 +2315,8 @@ class MaituMaterialSlotRepository:
                 f"""
                 SELECT asset_code, asset_type, title, original_filename, display_code,
                     local_file_code, local_relative_path, browser_use_hint,
+                    maitu_material_id, source_material_type, source_material_url,
+                    source_cover_url, speaker_id, digital_human_image_id,
                     maitu_category, maitu_type, maitu_project_code, maitu_scene_name,
                     maitu_layer_name, maitu_slot_name, subject, usage,
                     replacement_policy, description

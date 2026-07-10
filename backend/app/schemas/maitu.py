@@ -88,6 +88,12 @@ class MaituScriptAssetSelectionRead(BaseModel):
     selected_asset_original_filename: str | None = None
     selected_asset_local_relative_path: str | None = None
     selected_asset_browser_use_hint: str | None = None
+    selected_asset_maitu_material_id: int | None = None
+    selected_asset_source_material_type: str | None = None
+    selected_asset_source_material_url: str | None = None
+    selected_asset_source_cover_url: str | None = None
+    selected_asset_speaker_id: int | None = None
+    selected_asset_digital_human_image_id: int | None = None
     match_score: float | None = None
     match_reasons: list[str] = Field(default_factory=list)
     selection_source: str | None = None
@@ -167,6 +173,12 @@ class MaituScriptLayoutLayerRead(BaseModel):
     asset_original_filename: str | None = None
     asset_local_relative_path: str | None = None
     asset_browser_use_hint: str | None = None
+    maitu_material_id: int | None = None
+    source_material_type: str | None = None
+    source_material_url: str | None = None
+    source_cover_url: str | None = None
+    speaker_id: int | None = None
+    digital_human_image_id: int | None = None
     asset_title: str | None = None
     x: int
     y: int

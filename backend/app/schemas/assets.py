@@ -73,6 +73,12 @@ class AssetCreate(BaseModel):
     duplicate_primary_local_file_code: str | None = Field(default=None, max_length=64)
     duplicate_primary_asset_code: str | None = Field(default=None, max_length=64)
     maitu_project_code: str | None = Field(default=None, max_length=64)
+    maitu_material_id: int | None = Field(default=None, ge=1)
+    source_material_type: str | None = Field(default=None, max_length=64)
+    source_material_url: str | None = None
+    source_cover_url: str | None = None
+    speaker_id: int | None = Field(default=None, ge=1)
+    digital_human_image_id: int | None = Field(default=None, ge=1)
     maitu_scene_name: str | None = Field(default=None, max_length=128)
     maitu_scene_index: int | None = Field(default=None, ge=0)
     maitu_layer_name: str | None = Field(default=None, max_length=128)
@@ -105,6 +111,15 @@ class AssetFileRead(BaseModel):
     source_relative_path: str | None = None
     local_file_code: str | None = None
     storage_status: str = "stored"
+
+
+class AssetMaituMaterialBindingUpdate(BaseModel):
+    maitu_material_id: int | None = Field(default=None, ge=1)
+    source_material_type: str | None = Field(default=None, max_length=64)
+    source_material_url: str | None = None
+    source_cover_url: str | None = None
+    speaker_id: int | None = Field(default=None, ge=1)
+    digital_human_image_id: int | None = Field(default=None, ge=1)
 
 
 class AssetRead(AssetCreate):

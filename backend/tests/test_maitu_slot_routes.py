@@ -2117,6 +2117,10 @@ def test_create_script_layout_plan_placeholder_mode_adds_manual_placeholder_laye
                             "selected_asset_original_filename": "promo.png",
                             "selected_asset_local_relative_path": "贴片/promo.png",
                             "selected_asset_browser_use_hint": "用于麦兔贴片素材选择：优惠 商品卡",
+                            "selected_asset_maitu_material_id": 990103,
+                            "selected_asset_source_material_type": "image",
+                            "selected_asset_source_material_url": "https://static.maituai.example/materials/promo.png",
+                            "selected_asset_source_cover_url": "https://static.maituai.example/materials/promo-cover.png",
                             "match_score": 0.88,
                         },
                         {
@@ -2170,6 +2174,9 @@ def test_create_script_layout_plan_placeholder_mode_adds_manual_placeholder_laye
     assert promo_layer["asset_code"] == "AG-IMG-PROMO"
     assert promo_layer["asset_local_relative_path"] == "贴片/promo.png"
     assert promo_layer["asset_browser_use_hint"] == "用于麦兔贴片素材选择：优惠 商品卡"
+    assert promo_layer["maitu_material_id"] == 990103
+    assert promo_layer["source_material_url"].endswith("promo.png")
+    assert promo_layer["source_cover_url"].endswith("promo-cover.png")
     assert promo_layer["x"] == 80
     assert promo_layer["y"] == 1240
     assert scene["script_block"]["status"] == "ready"
@@ -2209,6 +2216,10 @@ def test_create_script_layout_build_plan_strict_returns_blocked_without_operatio
                                 "asset_original_filename": "helan-bg.png",
                                 "asset_local_relative_path": "背景/helan-bg.png",
                                 "asset_browser_use_hint": "用于麦兔背景素材选择：贺兰山",
+                                "maitu_material_id": 990102,
+                                "source_material_type": "image",
+                                "source_material_url": "https://static.maituai.example/materials/helan-bg.png",
+                                "source_cover_url": "https://static.maituai.example/materials/helan-bg-cover.png",
                                 "x": 0,
                                 "y": 0,
                                 "width": 1080,
@@ -2284,6 +2295,10 @@ def test_create_script_layout_build_plan_placeholder_generates_safe_draft_operat
                                 "asset_original_filename": "helan-bg.png",
                                 "asset_local_relative_path": "背景/helan-bg.png",
                                 "asset_browser_use_hint": "用于麦兔背景素材选择：贺兰山",
+                                "maitu_material_id": 990102,
+                                "source_material_type": "image",
+                                "source_material_url": "https://static.maituai.example/materials/helan-bg.png",
+                                "source_cover_url": "https://static.maituai.example/materials/helan-bg-cover.png",
                                 "x": 0,
                                 "y": 0,
                                 "width": 1080,
@@ -2371,6 +2386,9 @@ def test_create_script_layout_build_plan_placeholder_generates_safe_draft_operat
     assert insert_bg["scene_index"] == 0
     assert insert_bg["asset_local_relative_path"] == "背景/helan-bg.png"
     assert insert_bg["asset_browser_use_hint"] == "用于麦兔背景素材选择：贺兰山"
+    assert insert_bg["material_id"] == 990102
+    assert insert_bg["source_material_url"].endswith("helan-bg.png")
+    assert insert_bg["source_cover_url"].endswith("helan-bg-cover.png")
     assert insert_bg["x"] == 0
     assert insert_bg["y"] == 0
     assert insert_bg["z_index"] == 1

@@ -105,3 +105,17 @@ def test_jd_live_metric_capture_migration_exists_and_stores_sync_samples() -> No
     assert "frontend_execution_code" in sql
     assert "online_viewers INTEGER" in sql
     assert "traffic_sources JSONB" in sql
+
+
+def test_asset_maitu_material_binding_migration_exists_and_stores_real_insert_fields() -> None:
+    migration = MIGRATIONS_DIR / "015_asset_maitu_material_binding.sql"
+
+    assert migration.exists()
+    sql = migration.read_text(encoding="utf-8")
+    assert "maitu_material_id INTEGER" in sql
+    assert "source_material_type VARCHAR(64)" in sql
+    assert "source_material_url TEXT" in sql
+    assert "source_cover_url TEXT" in sql
+    assert "speaker_id INTEGER" in sql
+    assert "digital_human_image_id INTEGER" in sql
+    assert "idx_assets_maitu_material_id" in sql
