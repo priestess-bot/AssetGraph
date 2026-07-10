@@ -53,8 +53,11 @@ class BuildPlanDryRun:
 
     SUPPORTED_OPERATION_TYPES = {
         "preflight_build_plan",
+        "preflight_scene_build_plan",
         "select_scene",
+        "create_scene_from_template",
         "replace_layer_asset",
+        "insert_template_component",
         "add_script_block",
         "save_live_room",
     }
@@ -67,7 +70,13 @@ class BuildPlanDryRun:
         planned_mutation_count = sum(
             1
             for item in rendered
-            if item.safe_action in {"planned_layer_asset_replacement_not_executed", "planned_script_block_not_executed"}
+            if item.safe_action
+            in {
+                "planned_scene_creation_not_executed",
+                "planned_layer_asset_replacement_not_executed",
+                "planned_template_component_insert_not_executed",
+                "planned_script_block_not_executed",
+            }
         )
         manual_review_count = sum(1 for item in rendered if item.safe_action == "manual_review_save_not_executed")
 
@@ -147,10 +156,16 @@ class BuildPlanDryRun:
     def _safe_action(self, *, operation_type: str | None, status: str | None) -> str:
         if operation_type == "preflight_build_plan":
             return "read_only_preflight"
+        if operation_type == "preflight_scene_build_plan":
+            return "read_only_scene_preflight"
         if operation_type == "select_scene":
             return "read_only_select_scene"
+        if operation_type == "create_scene_from_template":
+            return "planned_scene_creation_not_executed"
         if operation_type == "replace_layer_asset":
             return "planned_layer_asset_replacement_not_executed"
+        if operation_type == "insert_template_component":
+            return "planned_template_component_insert_not_executed"
         if operation_type == "add_script_block":
             return "planned_script_block_not_executed"
         if operation_type == "save_live_room":
@@ -174,7 +189,14 @@ class BuildPlanDryRun:
     @staticmethod
     def _unsafe_go_live_instruction(instruction: str) -> bool:
         normalized = instruction.replace(" ", "")
-        safe_negations = ("不点击正式开播", "默认不点击正式开播", "不要点击正式开播", "禁止点击正式开播")
+        safe_negations = (
+            "不点击正式开播",
+            "默认不点击正式开播",
+            "不要点击正式开播",
+            "禁止点击正式开播",
+            "禁止开播",
+            "禁开播",
+        )
         if any(phrase in normalized for phrase in safe_negations):
             return False
         unsafe_phrases = ("点击正式开播", "正式开播", "开始直播", "开播")

@@ -201,3 +201,93 @@ def test_build_non_destructive_execution_payload_includes_synthetic_blocked_pref
             },
         }
     ]
+
+
+def scene_build_plan() -> dict:
+    return {
+        "build_plan_code": "MT-BUILD-20260710-000001",
+        "reference_room_id": "39826",
+        "operations": [
+            {
+                "operation_type": "preflight_scene_build_plan",
+                "operation_name": "只读预检单场景搭建计划",
+                "sort_order": 1,
+                "status": "ready",
+                "instruction": "预检单场景模板和禁开播规则；此计划为 dry-run，不直接操作麦兔。",
+                "details": {"scene_template_code": "MT-TPL-SCENE-38336-001"},
+            },
+            {
+                "operation_type": "create_scene_from_template",
+                "operation_name": "按模板创建单场景 商品01-场景01",
+                "sort_order": 10,
+                "status": "planned",
+                "scene_name": "商品01-场景01",
+                "instruction": "按模板场景复刻结构；只生成计划，不点击正式开播。",
+                "details": {"scene_template_code": "MT-TPL-SCENE-38336-001"},
+            },
+            {
+                "operation_type": "insert_template_component",
+                "operation_name": "插入模板组件 背景",
+                "sort_order": 20,
+                "status": "planned",
+                "scene_name": "商品01-场景01",
+                "layer_name": "微信图片_20260618221607_11_15",
+                "layer_role": "background",
+                "required_category": "background_image",
+                "accepted_asset_types": ["IMG"],
+                "replacement_policy": "keep_layout",
+                "instruction": "插入/配置背景组件，保持模板坐标、尺寸和层级。",
+                "details": {
+                    "scene_template_code": "MT-TPL-SCENE-38336-001",
+                    "component_template_code": "MT-TPL-LAYER-38336-001-01",
+                    "geometry": {"left": 0, "top": 0, "width": 1080, "height": 1919, "scale": None},
+                },
+            },
+            {
+                "operation_type": "add_script_block",
+                "operation_name": "写入单场景脚本",
+                "sort_order": 30,
+                "status": "planned",
+                "scene_name": "商品01-场景01",
+                "script_block_content": "今天我们用张裕夏日主题的结构讲龙谕龙8。",
+                "instruction": "写入目标脚本，并回读确认文本一致。",
+            },
+            {
+                "operation_type": "save_live_room",
+                "operation_name": "保存单场景直播间草稿",
+                "sort_order": 999,
+                "status": "manual_review",
+                "scene_name": "商品01-场景01",
+                "instruction": "只在组件和脚本回读验证通过后保存草稿；禁止点击正式开播。",
+            },
+        ],
+    }
+
+
+def test_scene_build_plan_non_destructive_opens_tabs_but_blocks_scene_creation_insert_and_save() -> None:
+    state = FakeCurrentState(
+        scenes=[FakeScene("商品01-场景01", active=True)],
+        active_scene_name="商品01-场景01",
+        layers=[FakeLayer("微信图片_20260618221607_11_15")],
+        material_tabs=[FakeTab("背景")],
+        workbench_tabs=[FakeTab("直播脚本")],
+    )
+    preflight_session = FakeNonDestructiveSession(state)
+    preflight = BuildPlanPreflight(session=preflight_session).run(scene_build_plan())
+    assert preflight.ready_to_execute is True
+    action_session = FakeNonDestructiveSession(state)
+
+    result = BuildPlanNonDestructiveRunner(session=action_session).run(scene_build_plan(), preflight)
+
+    assert result.status == "completed"
+    assert result.allowed_action_count == 2
+    assert result.blocked_mutation_count == 4
+    assert result.failure_count == 0
+    assert ("open_material_tab", "背景") in action_session.calls
+    assert ("open_workbench_tab", "直播脚本") in action_session.calls
+    assert not any(call[0] in {"create_scene", "insert_template_component", "save_project"} for call in action_session.calls)
+    assert result.actions[0].action_type == "preflight_already_passed"
+    assert result.actions[1].action_type == "create_scene_from_template_blocked"
+    assert result.actions[2].action_type == "open_material_tab"
+    assert result.actions[3].action_type == "open_workbench_tab"
+    assert result.actions[4].status == "blocked"

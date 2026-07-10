@@ -113,7 +113,14 @@ class BuildPlanNonDestructiveRunner:
         blocked_mutation_count = sum(
             1
             for action in actions
-            if action.operation_type in {"replace_layer_asset", "add_script_block", "save_live_room"}
+            if action.operation_type
+            in {
+                "create_scene_from_template",
+                "replace_layer_asset",
+                "insert_template_component",
+                "add_script_block",
+                "save_live_room",
+            }
         )
         failure_count = sum(1 for action in actions if action.status == "failed")
         status = "failed" if failure_count else "completed"
@@ -134,7 +141,7 @@ class BuildPlanNonDestructiveRunner:
 
     def _run_operation(self, index: int, operation: dict[str, Any]) -> BuildPlanNonDestructiveActionResult:
         operation_type = self._optional_string(operation.get("operation_type"))
-        if operation_type == "preflight_build_plan":
+        if operation_type in {"preflight_build_plan", "preflight_scene_build_plan"}:
             return BuildPlanNonDestructiveActionResult(
                 index=index,
                 operation_type=operation_type,
@@ -145,7 +152,18 @@ class BuildPlanNonDestructiveRunner:
             )
         if operation_type == "select_scene":
             return self._select_scene(index, operation)
-        if operation_type == "replace_layer_asset":
+        if operation_type == "create_scene_from_template":
+            return BuildPlanNonDestructiveActionResult(
+                index=index,
+                operation_type=operation_type,
+                operation_name=self._optional_string(operation.get("operation_name")),
+                action_type="create_scene_from_template_blocked",
+                status="blocked",
+                summary="Scene creation remains blocked in non-destructive mode; no scene was created.",
+                scene_name=self._optional_string(operation.get("scene_name")),
+                details=operation.get("details") if isinstance(operation.get("details"), dict) else None,
+            )
+        if operation_type in {"replace_layer_asset", "insert_template_component"}:
             return self._open_material_tab_for_layer(index, operation)
         if operation_type == "add_script_block":
             return self._open_script_tab(index, operation)
@@ -194,11 +212,12 @@ class BuildPlanNonDestructiveRunner:
     def _open_material_tab_for_layer(self, index: int, operation: dict[str, Any]) -> BuildPlanNonDestructiveActionResult:
         tab_name = self._material_tab_for_operation(operation)
         if not tab_name:
+            operation_type = self._optional_string(operation.get("operation_type"))
             return BuildPlanNonDestructiveActionResult(
                 index=index,
-                operation_type="replace_layer_asset",
+                operation_type=operation_type,
                 operation_name=self._optional_string(operation.get("operation_name")),
-                action_type="replace_layer_asset_blocked",
+                action_type=f"{operation_type or 'layer_operation'}_blocked",
                 status="blocked",
                 summary="Layer asset replacement remains blocked; no safe material tab could be inferred.",
                 scene_name=self._optional_string(operation.get("scene_name")),
@@ -210,14 +229,15 @@ class BuildPlanNonDestructiveRunner:
             state = self.session.read_current_state(open_if_needed=False)
         except Exception as exc:  # pragma: no cover - runtime boundary
             return self._failed_action(index, operation, "open_material_tab", str(exc), tab_name=tab_name)
+        operation_type = self._optional_string(operation.get("operation_type"))
         return BuildPlanNonDestructiveActionResult(
             index=index,
-            operation_type="replace_layer_asset",
+            operation_type=operation_type,
             operation_name=self._optional_string(operation.get("operation_name")),
             action_type="open_material_tab",
             status="executed",
             summary=(
-                f"Opened material tab {tab_name} for layer planning only; "
+                f"Opened material tab {tab_name} for layer/component planning only; "
                 "no asset upload/insert/replace was executed."
             ),
             scene_name=self._optional_string(operation.get("scene_name")),

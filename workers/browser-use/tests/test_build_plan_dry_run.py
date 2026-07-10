@@ -101,3 +101,82 @@ def test_build_plan_dry_run_flags_unsafe_go_live_instruction() -> None:
         "save_live_room must remain manual_review in dry-run/build phases.",
         "Operation instruction appears to start live streaming.",
     ]
+
+
+def scene_build_plan() -> dict:
+    return {
+        "build_plan_code": "MT-BUILD-20260710-000001",
+        "blueprint_code": "MT-BP-20260709-38336-TEMPLATE",
+        "operations": [
+            {
+                "operation_type": "preflight_scene_build_plan",
+                "operation_name": "只读预检单场景搭建计划",
+                "sort_order": 1,
+                "status": "ready",
+                "instruction": "预检单场景模板和禁开播规则；此计划为 dry-run，不直接操作麦兔。",
+                "details": {"scene_template_code": "MT-TPL-SCENE-38336-001"},
+            },
+            {
+                "operation_type": "create_scene_from_template",
+                "operation_name": "按模板创建单场景 商品01-场景01",
+                "sort_order": 10,
+                "status": "planned",
+                "scene_name": "商品01-场景01",
+                "instruction": "按模板场景复刻结构；只生成计划，不点击正式开播。",
+                "details": {"scene_template_code": "MT-TPL-SCENE-38336-001"},
+            },
+            {
+                "operation_type": "insert_template_component",
+                "operation_name": "插入模板组件 背景",
+                "sort_order": 20,
+                "status": "planned",
+                "scene_name": "商品01-场景01",
+                "layer_name": "微信图片_20260618221607_11_15",
+                "layer_role": "background",
+                "required_category": "background_image",
+                "accepted_asset_types": ["IMG"],
+                "replacement_policy": "keep_layout",
+                "instruction": "插入/配置背景组件，保持模板坐标、尺寸和层级。",
+                "details": {
+                    "scene_template_code": "MT-TPL-SCENE-38336-001",
+                    "component_template_code": "MT-TPL-LAYER-38336-001-01",
+                    "geometry": {"left": 0, "top": 0, "width": 1080, "height": 1919, "scale": None},
+                },
+            },
+            {
+                "operation_type": "add_script_block",
+                "operation_name": "写入单场景脚本",
+                "sort_order": 30,
+                "status": "planned",
+                "scene_name": "商品01-场景01",
+                "script_block_code": "MT-TPL-SCRIPT-38336-001",
+                "script_block_content": "今天我们用张裕夏日主题的结构讲龙谕龙8。",
+                "instruction": "写入目标脚本，并回读确认文本一致。",
+            },
+            {
+                "operation_type": "save_live_room",
+                "operation_name": "保存单场景直播间草稿",
+                "sort_order": 999,
+                "status": "manual_review",
+                "scene_name": "商品01-场景01",
+                "instruction": "只在组件和脚本回读验证通过后保存草稿；禁止点击正式开播。",
+            },
+        ],
+    }
+
+
+def test_scene_build_plan_dry_run_renders_template_component_operations_without_browser_actions() -> None:
+    result = BuildPlanDryRun().run(scene_build_plan())
+
+    assert result.status == "dry_run"
+    assert result.build_plan_code == "MT-BUILD-20260710-000001"
+    assert result.operation_count == 5
+    assert result.planned_mutation_count == 3
+    assert result.manual_review_count == 1
+    assert result.safety_violation_count == 0
+    assert result.operations[0].safe_action == "read_only_scene_preflight"
+    assert result.operations[1].safe_action == "planned_scene_creation_not_executed"
+    assert result.operations[2].safe_action == "planned_template_component_insert_not_executed"
+    assert result.operations[2].layer_name == "微信图片_20260618221607_11_15"
+    assert result.operations[3].safe_action == "planned_script_block_not_executed"
+    assert result.operations[4].safe_action == "manual_review_save_not_executed"

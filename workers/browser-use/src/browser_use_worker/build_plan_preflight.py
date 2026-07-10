@@ -39,8 +39,11 @@ class BuildPlanPreflight:
 
     SUPPORTED_OPERATION_TYPES = {
         "preflight_build_plan",
+        "preflight_scene_build_plan",
         "select_scene",
+        "create_scene_from_template",
         "replace_layer_asset",
+        "insert_template_component",
         "add_script_block",
         "save_live_room",
     }
@@ -150,6 +153,38 @@ class BuildPlanPreflight:
                         name=f"{operation_name}.required_fields",
                         status="fail",
                         summary="Layer operation is missing fields required for safe targeting.",
+                        details={"missing_fields": missing},
+                    )
+                )
+        if operation_type == "create_scene_from_template":
+            details = operation.get("details") if isinstance(operation.get("details"), dict) else {}
+            missing = [field for field in ("scene_name",) if not operation.get(field)]
+            if not details.get("scene_template_code"):
+                missing.append("details.scene_template_code")
+            if missing:
+                checks.append(
+                    BuildPlanPreflightCheck(
+                        name=f"{operation_name}.required_fields",
+                        status="fail",
+                        summary="Scene creation operation is missing template fields required for safe targeting.",
+                        details={"missing_fields": missing},
+                    )
+                )
+        if operation_type == "insert_template_component":
+            details = operation.get("details") if isinstance(operation.get("details"), dict) else {}
+            missing = [field for field in ("scene_name", "layer_name", "replacement_policy") if not operation.get(field)]
+            if not details.get("scene_template_code"):
+                missing.append("details.scene_template_code")
+            if not details.get("component_template_code"):
+                missing.append("details.component_template_code")
+            if not isinstance(details.get("geometry"), dict) or not details.get("geometry"):
+                missing.append("details.geometry")
+            if missing:
+                checks.append(
+                    BuildPlanPreflightCheck(
+                        name=f"{operation_name}.required_fields",
+                        status="fail",
+                        summary="Template component operation is missing fields required for safe targeting.",
                         details={"missing_fields": missing},
                     )
                 )
@@ -302,7 +337,7 @@ class BuildPlanPreflight:
             if not isinstance(operation, dict):
                 continue
             operation_type = operation.get("operation_type")
-            if operation_type == "replace_layer_asset":
+            if operation_type in {"replace_layer_asset", "insert_template_component"}:
                 self._check_layer_visibility(index, operation, active_scene_name, active_layer_names, checks)
             elif operation_type == "add_script_block":
                 self._check_script_panel(index, state, checks)
@@ -400,7 +435,15 @@ class BuildPlanPreflight:
     def _unsafe_go_live_instruction(instruction: str) -> bool:
         if "正式开播" not in instruction and "开播" not in instruction:
             return False
-        safe_phrases = ("不点击正式开播", "默认不点击正式开播", "不要点击正式开播", "不允许点击正式开播")
+        safe_phrases = (
+            "不点击正式开播",
+            "默认不点击正式开播",
+            "不要点击正式开播",
+            "不允许点击正式开播",
+            "禁止点击正式开播",
+            "禁止开播",
+            "禁开播",
+        )
         return not any(phrase in instruction for phrase in safe_phrases)
 
     @staticmethod

@@ -39,8 +39,8 @@ AssetGraph 是一个面向麦兔软件与数字人直播业务的多模态视频
 - 麦兔 BuildPlan 剧本上下文自动选材：`strategy=script_context_best_match` / `auto_select_assets=true` 会按 `script_blocks`、图层角色、`required_category`、`accepted_asset_types` 从素材库选 Top-1，写入 `selected_asset_code`、Browser-use 友好编号、本地文件码、匹配分和原因；模板预览 `MT-TPL-*` 只作为风格/结构索引，不能作为背景/装饰等直接图层素材；仍只进入 dry-run/预检，不真实上传替换
 - 麦兔模板场景组件索引：导入 LiveRoomBlueprint 时同步物化 `TemplateScene / TemplateComponent` 索引，提供 `/api/maitu/live-room-template-scenes`、`/api/maitu/live-room-template-scenes/{scene_template_code}/components`，并让 `scene-components/by-script` 走正式组件索引返回单场景组件详情，不再依赖临时解析大 JSON
 - 麦兔单场景 BuildPlan dry-run：提供 `POST /api/maitu/live-room-scene-build-plans`，输入剧本查询和目标脚本后先匹配一个 `TemplateScene`，再基于该场景的 `TemplateComponent` 生成 `preflight_scene_build_plan -> create_scene_from_template -> insert_template_component* -> add_script_block -> save_live_room` 的可审阅单场景计划；默认只生成计划，不真实上传/插入/开播
-- 麦兔 BuildPlan 只读 preflight：worker 支持 `--build-plan-code MT-BUILD-* --preflight-build`，拉取 BuildPlan operations 并只读校验登录态、liveRoomId、场景、激活场景图层、直播脚本面板、`save_live_room=manual_review` 与禁开播规则
-- 麦兔 BuildPlan 非破坏性 UI 导航：worker 支持 `--build-plan-code MT-BUILD-* --non-destructive-build`，仅在 preflight 全绿后选择已有场景、打开素材页签/直播脚本页签并重新 Observe；仍禁止上传、替换、写脚本、保存和开播
+- 麦兔 BuildPlan 只读 preflight：worker 支持 `--build-plan-code MT-BUILD-* --preflight-build`，拉取 BuildPlan operations 并只读校验登录态、liveRoomId、场景、激活场景图层、直播脚本面板、`save_live_room=manual_review` 与禁开播规则；已支持单场景计划中的 `preflight_scene_build_plan`、`create_scene_from_template`、`insert_template_component`
+- 麦兔 BuildPlan 非破坏性 UI 导航：worker 支持 `--build-plan-code MT-BUILD-* --non-destructive-build`，仅在 preflight 全绿后选择已有场景、打开素材页签/直播脚本页签并重新 Observe；单场景计划中的新建场景、插入模板组件、写脚本、保存均仍被阻断并可用 `--write-result` 回写 blocked 证据；仍禁止上传、替换、写脚本、保存和开播
 - 麦兔 BuildPlan 执行证据回写：提供 `POST/GET /api/maitu/live-room-build-plans/{build_plan_code}/execution-results`，worker 支持 `--write-result` 将 blocked/completed 非破坏性执行结果、operation evidence、DOM/screenshot asset code 回写为 `MT-EXEC-*`
 - 麦兔自然语言版式微调：提供 `/api/maitu/layout-adjustments` 与 `MT-ADJ-*` 调整计划，把“往右下挪一点/缩小一点/居中/贴右下”等反馈转成 `set_layer_transform` 几何目标、检查项和可验证 operation，模糊反馈进入人工复核
 - 麦兔替换上下文：记录素材对应的麦兔项目、场景、图层、槽位、位置尺寸和 `replacement_policy`，默认保持原布局替换

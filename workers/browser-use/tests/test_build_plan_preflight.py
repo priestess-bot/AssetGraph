@@ -177,3 +177,88 @@ def test_build_plan_preflight_can_skip_browser_probe_but_is_not_ready() -> None:
     assert result.failure_count == 0
     assert result.skipped_count == 1
     assert any(check.name == "maitu_current_state_probe" and check.status == "skipped" for check in result.checks)
+
+
+def scene_build_plan() -> dict:
+    return {
+        "build_plan_code": "MT-BUILD-20260710-000001",
+        "blueprint_code": "MT-BP-20260709-38336-TEMPLATE",
+        "operations": [
+            {
+                "operation_type": "preflight_scene_build_plan",
+                "operation_name": "只读预检单场景搭建计划",
+                "sort_order": 1,
+                "status": "ready",
+                "instruction": "预检单场景模板和禁开播规则；此计划为 dry-run，不直接操作麦兔。",
+                "details": {"scene_template_code": "MT-TPL-SCENE-38336-001"},
+            },
+            {
+                "operation_type": "create_scene_from_template",
+                "operation_name": "按模板创建单场景 商品01-场景01",
+                "sort_order": 10,
+                "status": "planned",
+                "scene_name": "商品01-场景01",
+                "instruction": "按模板场景复刻结构；只生成计划，不点击正式开播。",
+                "details": {"scene_template_code": "MT-TPL-SCENE-38336-001"},
+            },
+            {
+                "operation_type": "insert_template_component",
+                "operation_name": "插入模板组件 背景",
+                "sort_order": 20,
+                "status": "planned",
+                "scene_name": "商品01-场景01",
+                "layer_name": "微信图片_20260618221607_11_15",
+                "layer_role": "background",
+                "required_category": "background_image",
+                "accepted_asset_types": ["IMG"],
+                "replacement_policy": "keep_layout",
+                "instruction": "插入/配置背景组件，保持模板坐标、尺寸和层级。",
+                "details": {
+                    "scene_template_code": "MT-TPL-SCENE-38336-001",
+                    "component_template_code": "MT-TPL-LAYER-38336-001-01",
+                    "geometry": {"left": 0, "top": 0, "width": 1080, "height": 1919, "scale": None},
+                },
+            },
+            {
+                "operation_type": "add_script_block",
+                "operation_name": "写入单场景脚本",
+                "sort_order": 30,
+                "status": "planned",
+                "scene_name": "商品01-场景01",
+                "script_block_code": "MT-TPL-SCRIPT-38336-001",
+                "script_block_content": "今天我们用张裕夏日主题的结构讲龙谕龙8。",
+                "instruction": "写入目标脚本，并回读确认文本一致。",
+            },
+            {
+                "operation_type": "save_live_room",
+                "operation_name": "保存单场景直播间草稿",
+                "sort_order": 999,
+                "status": "manual_review",
+                "scene_name": "商品01-场景01",
+                "instruction": "只在组件和脚本回读验证通过后保存草稿；禁止点击正式开播。",
+            },
+        ],
+    }
+
+
+def test_scene_build_plan_preflight_accepts_template_scene_operations_without_browser_probe() -> None:
+    result = BuildPlanPreflight(session=None, probe_browser=False).run(scene_build_plan())
+
+    assert result.status == "warning"
+    assert result.failure_count == 0
+    assert result.ready_to_execute is False
+    supported_checks = [check for check in result.checks if check.name.endswith(".operation_type")]
+    assert [check.status for check in supported_checks] == ["pass", "pass", "pass", "pass", "pass"]
+    assert any(check.name == "maitu_current_state_probe" and check.status == "skipped" for check in result.checks)
+
+
+def test_scene_build_plan_preflight_requires_component_geometry_for_template_insert() -> None:
+    plan = scene_build_plan()
+    plan["operations"][2]["details"] = {"scene_template_code": "MT-TPL-SCENE-38336-001"}
+
+    result = BuildPlanPreflight(session=None, probe_browser=False).run(plan)
+
+    assert result.status == "failed"
+    check = next(check for check in result.checks if check.name == "operation[2].required_fields")
+    assert check.status == "fail"
+    assert "details.geometry" in check.details["missing_fields"]
