@@ -8,11 +8,12 @@ import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from types import MethodType
 from typing import Any, Callable
 from urllib.parse import unquote, urlparse
 
 from .jd_metrics import JdLiveDashboardParser, JdLiveDashboardState
-from .maitu_executor import MaituBrowserExecutionError, MaituBrowserSession
+from .maitu_executor import MaituBrowserExecutionError
 
 CommandRunner = Callable[[Sequence[str],], str]
 
@@ -77,13 +78,15 @@ class MaituCurrentState:
     script_texts: list[str] | None = None
 
 
-class BrowserUseCliSession(MaituBrowserSession):
+class BrowserUseCliSession:
     """Visible Maitu session backed by the local browser-use CLI.
 
     Read/probe operations remain non-destructive. Mutating methods are narrowly
     scoped to safe draft editing and Stage 5D regular image/video upload; final
     save/go-live controls are never clicked by this session.
     """
+
+    __slots__ = ("config", "_runner", "_execution_guard", "last_probe")
 
     PAGE_SUMMARY_SCRIPT = "(() => JSON.stringify({title:document.title,href:location.href,text:document.body?.innerText||''}))()"
     IMAGE_UPLOAD_LAYER_TYPES = {
@@ -124,7 +127,14 @@ class BrowserUseCliSession(MaituBrowserSession):
         runner: Callable[[Sequence[str]], str] | Callable[..., str] | None = None,
     ) -> None:
         self.config = config or BrowserUseCliSessionConfig()
-        self._runner = runner or self._run_command
+        # Bind the import-time trusted function directly. Resolving
+        # ``self._run_command`` here would execute a class descriptor replaced
+        # before construction, earlier than the Worker's pre-claim trust gate.
+        self._runner = (
+            runner
+            if runner is not None
+            else MethodType(_TRUSTED_BROWSER_USE_CLI_SESSION_RUN_COMMAND, self)
+        )
         self._execution_guard: Callable[[], bool] | None = None
         self.last_probe: MaituPageProbe | None = None
 
@@ -1272,3 +1282,14 @@ class BrowserUseCliSession(MaituBrowserSession):
             retryable=False,
             retry_instruction="当前只读探测会话不会上传、替换或保存；等页面结构探测稳定后再启用真实执行器。",
         )
+
+
+# Capture every method/property descriptor once when the built-in implementation
+# is defined. The queue trust gate therefore cannot miss an internal helper
+# reached indirectly by an allowed session entry point.
+_TRUSTED_BROWSER_USE_CLI_SESSION_METHODS = tuple(
+    (method_name, descriptor)
+    for method_name, descriptor in vars(BrowserUseCliSession).items()
+    if callable(descriptor) or type(descriptor) in {staticmethod, classmethod, property}
+)
+_TRUSTED_BROWSER_USE_CLI_SESSION_RUN_COMMAND = vars(BrowserUseCliSession)["_run_command"]

@@ -24,19 +24,23 @@ class FakeMaituSession:
     def ensure_ready(self, *, maitu_project_code: str | None, scene_name: str | None) -> None:
         self.calls.append(("ensure_ready", {"maitu_project_code": maitu_project_code, "scene_name": scene_name}))
 
-    def recover_login(self) -> None:
+    def recover_login(self) -> dict[str, Any]:
         self.calls.append(("recover_login", None))
+        return {"verified": True, "step": "login"}
 
-    def upload_asset(self, asset: dict[str, Any]) -> None:
+    def upload_asset(self, asset: dict[str, Any]) -> dict[str, Any]:
         self.calls.append(("upload_asset", asset["asset_code"]))
+        return {"verified": True, "step": "upload"}
 
-    def replace_layer_asset(self, operation: dict[str, Any], asset: dict[str, Any]) -> None:
+    def replace_layer_asset(self, operation: dict[str, Any], asset: dict[str, Any]) -> dict[str, Any]:
         if self.fail_on_replace is not None:
             raise self.fail_on_replace
         self.calls.append(("replace_layer_asset", {"slot_code": operation.get("slot_code"), "asset_code": asset["asset_code"]}))
+        return {"verified": True, "step": "replace"}
 
-    def save_project(self) -> None:
+    def save_project(self) -> dict[str, Any]:
         self.calls.append(("save_project", None))
+        return {"verified": True, "step": "save"}
 
     def capture_screenshot(self, *, label: str) -> str | None:
         self.calls.append(("capture_screenshot", label))
@@ -69,7 +73,7 @@ def operation_plan(operation_type: str, *, asset_code: str | None = "AG-VID-2026
     if asset_code is not None:
         operation["asset_code"] = asset_code
     return {
-        "retry_task_code": "MT-RETRY-20260709-000001",
+        "plan_code": "MT-PLAN-20260709-000001",
         "maitu_project_code": "MT-PROJ-20260709-000001",
         "scene_name": "京东空白直播间",
         "operations": [operation],
@@ -90,8 +94,7 @@ def test_maitu_executor_replaces_layer_asset_and_saves_project() -> None:
     assert session.calls == [
         ("ensure_ready", {"maitu_project_code": "MT-PROJ-20260709-000001", "scene_name": "京东空白直播间"}),
         ("replace_layer_asset", {"slot_code": "MT-SLOT-20260709-000001", "asset_code": "AG-VID-20260709-000001"}),
-        ("save_project", None),
-        ("capture_screenshot", "MT-RETRY-20260709-000001"),
+        ("capture_screenshot", "MT-PLAN-20260709-000001"),
     ]
 
 
@@ -102,8 +105,6 @@ def test_maitu_executor_executes_replacement_plan_operation_type() -> None:
         session=session,
     )
     plan = operation_plan("replace_layer_asset")
-    plan["plan_code"] = "MT-PLAN-20260709-000001"
-    plan.pop("retry_task_code")
 
     result = executor.execute_operation_plan(plan)
 
@@ -123,7 +124,7 @@ def test_maitu_executor_uploads_asset_before_replace() -> None:
 
     assert result.status == "succeeded"
     call_names = [name for name, _ in session.calls]
-    assert call_names == ["ensure_ready", "upload_asset", "replace_layer_asset", "save_project", "capture_screenshot"]
+    assert call_names == ["ensure_ready", "upload_asset", "replace_layer_asset", "capture_screenshot"]
 
 
 def test_maitu_executor_recover_login_then_retries_operation() -> None:
@@ -137,7 +138,7 @@ def test_maitu_executor_recover_login_then_retries_operation() -> None:
 
     assert result.status == "succeeded"
     call_names = [name for name, _ in session.calls]
-    assert call_names == ["ensure_ready", "recover_login", "replace_layer_asset", "save_project", "capture_screenshot"]
+    assert call_names == ["ensure_ready", "recover_login", "replace_layer_asset", "capture_screenshot"]
 
 
 def test_maitu_executor_rejects_generic_operation_without_explicit_safe_handler() -> None:
@@ -178,7 +179,7 @@ def test_maitu_executor_stops_between_operations_when_lease_guard_fails() -> Non
     def lease_is_valid() -> bool:
         nonlocal guard_calls
         guard_calls += 1
-        return guard_calls < 3
+        return guard_calls < 4
 
     executor.set_execution_guard(lease_is_valid)
     plan = operation_plan("retry_replace_layer_asset")

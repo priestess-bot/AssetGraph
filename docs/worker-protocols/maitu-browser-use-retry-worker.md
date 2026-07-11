@@ -38,10 +38,11 @@ while true:
   2. 如果返回 404：sleep 后继续
   3. 读取 response.retry_task 和 response.operation_plan，并保存 claim_token / lease_version
   4. 在任何麦兔变更前 POST heartbeat 验证租约，执行期间按间隔续租
-  5. 执行 operation_plan.operations
-  6. 成功：携带租约身份和稳定 retry_execution_id POST execution-results
-  7. 可恢复失败：携带租约身份和稳定 retry_execution_id POST execution-results，状态 released
-  8. 不可恢复/人工处理：携带租约身份和稳定 retry_execution_id POST execution-results
+  5. 对每个 operation：先 begin checkpoint；execute 才允许变更，skip 零副作用跳过，reconcile 转人工
+  6. mutation 获得 verified readback evidence 后 complete checkpoint；complete 未确认时禁止下游 operation
+  7. 成功：携带租约身份和稳定 retry_execution_id POST execution-results
+  8. 可恢复失败：携带租约身份和稳定 retry_execution_id POST execution-results，状态 released
+  9. 不可恢复/人工处理：携带租约身份和稳定 retry_execution_id POST execution-results
 ```
 
 ---
@@ -164,7 +165,7 @@ heartbeat、release 和 execution-results 都要求任务仍为 `in_progress`、
 
 浏览器操作结束后，worker 必须先停止并回收执行期 heartbeat 线程，再同步 heartbeat 一次以获得完整的新 TTL，随后启动新的 callback heartbeat，直到 execution-results 获得确定响应。三次 execution-results 尝试的请求 timeout 与退避总预算必须低于该 TTL；所有尝试继续复用完全相同的 `retry_execution_id` 和 payload。成功、人工介入和可恢复释放都通过该幂等 receipt 通道确认；可恢复释放使用 `retry_execution_status=released`，原子回到 `pending` 且不消耗 retry attempt。这样，慢 HTTP 重试或服务端已提交但响应丢失都不会造成重复计数或 Worker 崩溃。
 
-每个 non-dry-run 队列任务只允许内置的 exact `MaituBrowserUseExecutor`，其 session 也必须是 exact `BrowserUseCliSession`；structural Protocol、子类或第三方 executor/session 即使自报 guard/timeout 支持也会在 claim、heartbeat 或浏览器调用前被拒绝。`BrowserUseWorker.run_once()` 在 dry-run 下会在 claim 前直接拒绝，保证公开 Worker API 也不会修改队列；只读 dry-run 必须走不领取任务的 plan/build-plan 路径。受信任的 concrete executor 必须实现执行 guard，并从受信任 session 读取单次外部副作用的最大 timeout。Worker 只在该 timeout 小于租约 TTL 的 80% 时执行。具体麦兔 CLI session 在每条 browser-use 命令前同步 heartbeat；因此单条阻塞命令即使无法在进程内强制取消，也会从一个完整租约开始，并必须在其他 worker 可 reclaim 前超时结束。
+每个 non-dry-run 队列任务只允许内置的 exact `MaituBrowserUseExecutor`，其 session 也必须是 exact `BrowserUseCliSession`；structural Protocol、子类或第三方 executor/session 即使自报 guard/timeout 支持也会在 claim、heartbeat 或浏览器调用前被拒绝。所有关键 executor/session 方法必须仍绑定到原始类实现，实例级 `MethodType` 覆盖、注入 command runner 以及与 Worker 不同的 asset client 同样在 claim 前拒绝。`BrowserUseWorker.run_once()` 在 dry-run 下会在 claim 前直接拒绝，保证公开 Worker API 也不会修改队列；只读 dry-run 必须走不领取任务的 plan/build-plan 路径。受信任的 concrete executor 必须实现执行 guard，并从受信任 session 读取单次外部副作用的最大 timeout。Worker 只在该 timeout 小于租约 TTL 的 80% 时执行。具体麦兔 CLI session 在每条 browser-use 命令前同步 heartbeat；因此单条阻塞命令即使无法在进程内强制取消，也会从 timeout 起被限制在当前 TTL 内，下一条副作用前仍需重新通过 lease guard。
 
 通用 `PATCH /retry-tasks/{code}` 只允许修改 `result_summary` / `retry_instruction`，且任务为 `in_progress` 时返回 409。`status`、`retry_attempt_count` 和执行编号只能通过带租约身份及 receipt 的 execution-results/release 协议改变。
 
@@ -226,7 +227,7 @@ python -m browser_use_worker --plan-code MT-PLAN-20260709-000001 --preflight --s
 
 worker 必须按 `operation_plan.operations` 执行。
 
-第一版约定一个 retry task 返回一个 operation；未来可以扩展为多个 operation。
+Phase 6C-A 将每个 retry task 展开为显式副作用 operation：通常是 `primary` 与 `save_project`；`save_failed` 只返回一个 `save_project`，避免双重保存。每个 operation 必须携带稳定的 `operation_key`、64 位小写十六进制 `operation_fingerprint` 和 `status=ready`。
 
 执行原则：
 
@@ -250,11 +251,66 @@ worker 必须按 `operation_plan.operations` 执行。
 | `recover_login_then_retry` | 先恢复登录，再重新执行替换 |
 | `resolve_missing_slot_asset` | 素材缺失，通常需要重新查询或人工确认 |
 | `manual_retry_required` | 不自动操作，回写 manual_required |
-| `retry_browser_use_operation` | 通用重试，按 instruction 执行 |
+| `retry_browser_use_operation` | 当前不执行通用 instruction；fail closed 并回写 `manual_required`，必须重新生成明确支持的 operation type |
 
 ---
 
-## 7. 成功回写
+## 7. 操作级 checkpoint barrier
+
+租约只能阻止 stale worker 的下一次写入，不能判断上一条麦兔命令是“未执行”还是“已执行但响应丢失”。因此每个副作用 operation 都必须使用 checkpoint：
+
+### Begin
+
+```http
+POST /api/maitu/retry-tasks/{retry_task_code}/operations/{operation_key}/begin
+```
+
+```json
+{
+  "claimed_by": "browser-use-worker-1",
+  "claim_token": "[REDACTED]",
+  "lease_version": 1,
+  "attempt_id": "87715675-af7c-4b75-9d4c-14f9c45e20f4",
+  "operation_fingerprint": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+}
+```
+
+决策：
+
+- `execute`：begin 已确定持久化，允许执行当前 operation。
+- `skip`：相同 authoritative fingerprint 已完成，禁止重放 mutation。
+- `reconcile`：旧 lease 已开始但未确定完成；禁止 mutation，转人工核对。
+
+Begin 请求结果不确定时，最多重试 3 次，必须复用同一 `attempt_id` 和完全相同的 payload；在获得确定 `execute` 前不得调用任何麦兔 mutation。
+
+### Complete
+
+mutation 返回 authoritative readback evidence 且 `verified=true` 后调用：
+
+```http
+POST /api/maitu/retry-tasks/{retry_task_code}/operations/{operation_key}/complete
+```
+
+```json
+{
+  "claimed_by": "browser-use-worker-1",
+  "claim_token": "[REDACTED]",
+  "lease_version": 1,
+  "attempt_id": "87715675-af7c-4b75-9d4c-14f9c45e20f4",
+  "operation_fingerprint": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "completion_id": "f8e2ad75-270d-4190-8255-7334399f7c8d",
+  "result_summary": "authoritative readback verified",
+  "evidence": {"verified": true, "material_id": 41043}
+}
+```
+
+Complete 未获得确定响应时，最多重试 3 次并复用同一 `completion_id`、`attempt_id` 和 payload；全部失败后回写 `released`，禁止执行下游 operation。Backend 会将未完成 checkpoint 转为 `reconcile_required`，新 lease 只能 reconcile，不能无脑重放。
+
+Checkpoint 表不保存 `claim_token`。completion evidence 必须是 `verified=true` 的权威 readback；Backend、Worker 与数据库约束共同拒绝未验证 evidence。Evidence 递归拒绝大小写/分隔符变体的 credential key（例如 authorization、各类 token、cookie、password、secret），并拒绝任意字符串位置包含当前 claim token。Execution-result 的摘要、错误、重试说明及其他持久字段同样不得包含当前 claim token，receipt 写入前会再次递归检查。终态 `succeeded` 只有在当前 authoritative operation keys/fingerprints 全部存在安全、已验证的 `completed` checkpoint 时才允许写入。活动 retry lease 期间，关联 slot 的 PATCH/DELETE 会返回 409，以冻结跨外部副作用窗口的 authoritative intent。
+
+---
+
+## 8. 成功回写
 
 ### 请求
 
@@ -289,7 +345,7 @@ screenshot_asset_code = 请求值
 
 ---
 
-## 8. 可恢复失败：幂等 receipt 回队列
+## 9. 可恢复失败：幂等 receipt 回队列
 
 当 worker 认为失败可能通过后续重试恢复，例如：
 
@@ -333,7 +389,7 @@ lease_version 保留，下一次领取时递增
 
 ---
 
-## 9. 不可恢复失败 / 人工处理
+## 10. 不可恢复失败 / 人工处理
 
 当 worker 确认自动化无法继续，例如：
 
@@ -372,7 +428,7 @@ retry_attempt_count += 1
 
 ---
 
-## 10. 锁与超时
+## 11. 锁与超时
 
 `POST /api/maitu/retry-worker/next` 会自动先执行过期回收：
 
@@ -396,7 +452,7 @@ GET  /api/maitu/retry-tasks/{retry_task_code}/browser-use-operations
 
 ---
 
-## 11. Worker 错误处理策略
+## 12. Worker 错误处理策略
 
 | 情况 | 处理 |
 |---|---|
@@ -412,7 +468,7 @@ GET  /api/maitu/retry-tasks/{retry_task_code}/browser-use-operations
 
 ---
 
-## 12. 最小 Python 伪代码
+## 13. 最小 Python 伪代码
 
 ```python
 import time
@@ -450,7 +506,37 @@ while True:
     ).raise_for_status()
     heartbeat = start_heartbeat(task_code, lease, interval_seconds=300)
     try:
-        result = run_browser_use(payload["operation_plan"])
+        for operation in payload["operation_plan"]["operations"]:
+            attempt_id = str(uuid.uuid4())
+            begin_payload = {
+                **lease,
+                "attempt_id": attempt_id,
+                "operation_fingerprint": operation["operation_fingerprint"],
+            }
+            checkpoint = post_idempotently(
+                f"{BASE_URL}/retry-tasks/{task_code}/operations/{operation['operation_key']}/begin",
+                begin_payload,
+                max_attempts=3,
+            )
+            if checkpoint["decision"] == "skip":
+                continue
+            if checkpoint["decision"] == "reconcile":
+                raise ManualReconciliationRequired(operation["operation_key"])
+            evidence = run_browser_use_operation(operation)
+            if evidence.get("verified") is not True:
+                raise ManualReconciliationRequired(operation["operation_key"])
+            complete_payload = {
+                **begin_payload,
+                "completion_id": str(uuid.uuid4()),
+                "result_summary": "authoritative readback verified",
+                "evidence": evidence,
+            }
+            post_idempotently(
+                f"{BASE_URL}/retry-tasks/{task_code}/operations/{operation['operation_key']}/complete",
+                complete_payload,
+                max_attempts=3,
+            )
+        result = succeeded_result()
     finally:
         heartbeat.stop_and_join()
 
@@ -484,7 +570,7 @@ while True:
 
 ---
 
-## 13. 验收检查清单
+## 14. 验收检查清单
 
 worker 接入前应确认：
 
@@ -497,6 +583,11 @@ worker 接入前应确认：
 - [ ] execution-results 重试的 timeout 与退避总预算小于租约 TTL。
 - [ ] heartbeat/execution-results 都携带当前 `claimed_by + claim_token + lease_version`。
 - [ ] worker 只执行 `operation_plan.operations` 中的失败槽位。
+- [ ] 每个 retry operation 都有 canonical `operation_key`、authoritative fingerprint 和 `status=ready`。
+- [ ] begin 返回确定 `execute` 前零 mutation；`skip` 零 mutation；`reconcile` 转人工。
+- [ ] mutation 只有拿到 `verified=true` readback evidence 后才 complete checkpoint。
+- [ ] begin/complete 重试分别复用稳定 `attempt_id` / `completion_id` 与完全相同 payload。
+- [ ] complete 未确认时禁止执行下游 operation。
 - [ ] worker 不改变麦兔原布局。
 - [ ] 成功、可恢复释放和人工结果都使用 UUID `retry_execution_id`，传输重试复用相同 ID 和 payload。
 - [ ] 成功时回写 `succeeded`。

@@ -139,12 +139,80 @@ class AssetGraphClient:
             timeout_seconds=request_timeout_seconds,
         )
 
+    def begin_retry_operation_checkpoint(
+        self,
+        retry_task_code: str,
+        operation_key: str,
+        *,
+        claimed_by: str,
+        claim_token: str,
+        lease_version: int,
+        operation_fingerprint: str,
+        attempt_id: str,
+        request_timeout_seconds: float | None = None,
+    ) -> dict[str, Any]:
+        retry_task_segment = self._retry_task_code_segment(retry_task_code)
+        operation_segment = self._operation_key_segment(operation_key)
+        return self._request_json(
+            "POST",
+            f"/api/maitu/retry-tasks/{retry_task_segment}/operations/{operation_segment}/begin",
+            {
+                "claimed_by": claimed_by,
+                "claim_token": claim_token,
+                "lease_version": lease_version,
+                "operation_fingerprint": operation_fingerprint,
+                "attempt_id": attempt_id,
+            },
+            timeout_seconds=request_timeout_seconds,
+        )
+
+    def complete_retry_operation_checkpoint(
+        self,
+        retry_task_code: str,
+        operation_key: str,
+        *,
+        claimed_by: str,
+        claim_token: str,
+        lease_version: int,
+        operation_fingerprint: str,
+        attempt_id: str,
+        completion_id: str,
+        result_summary: str,
+        evidence: dict[str, Any],
+        request_timeout_seconds: float | None = None,
+    ) -> dict[str, Any]:
+        retry_task_segment = self._retry_task_code_segment(retry_task_code)
+        operation_segment = self._operation_key_segment(operation_key)
+        return self._request_json(
+            "POST",
+            f"/api/maitu/retry-tasks/{retry_task_segment}/operations/{operation_segment}/complete",
+            {
+                "claimed_by": claimed_by,
+                "claim_token": claim_token,
+                "lease_version": lease_version,
+                "operation_fingerprint": operation_fingerprint,
+                "attempt_id": attempt_id,
+                "completion_id": completion_id,
+                "result_summary": result_summary,
+                "evidence": evidence,
+            },
+            timeout_seconds=request_timeout_seconds,
+        )
+
     @staticmethod
     def _retry_task_code_segment(retry_task_code: str) -> str:
-        raw_value = str(retry_task_code or "")
+        return AssetGraphClient._canonical_path_segment(retry_task_code, field_name="retry_task_code")
+
+    @staticmethod
+    def _operation_key_segment(operation_key: str) -> str:
+        return AssetGraphClient._canonical_path_segment(operation_key, field_name="operation_key")
+
+    @staticmethod
+    def _canonical_path_segment(raw_segment: str, *, field_name: str) -> str:
+        raw_value = str(raw_segment or "")
         value = raw_value.strip()
         if raw_value != value or not re.fullmatch(r"[A-Za-z0-9_-]+", value):
-            raise AssetGraphClientError(f"Invalid retry_task_code path segment: {value!r}")
+            raise AssetGraphClientError(f"Invalid {field_name} path segment: {value!r}")
         return quote(value, safe="")
 
     @staticmethod

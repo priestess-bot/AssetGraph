@@ -4,11 +4,12 @@ import logging
 import math
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from types import MethodType
 from typing import Any, Callable, Protocol
 from uuid import UUID, uuid4
 
-from .client import AssetGraphClient
+from .client import AssetGraphClient, AssetGraphClientError
 from .config import WorkerConfig
 
 LOGGER = logging.getLogger(__name__)
@@ -122,6 +123,145 @@ class RetryLease:
 
 
 @dataclass(slots=True)
+class LeaseBoundOperationCheckpointController:
+    """Idempotent operation checkpoint client bound to one validated lease."""
+
+    client: AssetGraphClient
+    lease: RetryLease
+    renew_lease: Callable[[], None]
+    request_timeout_seconds: float
+    _attempts: dict[str, tuple[str, str]] = field(default_factory=dict, init=False, repr=False)
+    _completions: dict[str, tuple[str, dict[str, Any]]] = field(default_factory=dict, init=False, repr=False)
+
+    @property
+    def retry_task_code(self) -> str:
+        return self.lease.retry_task_code
+
+    def begin(self, operation: dict[str, Any]) -> str:
+        operation_key = str(operation["operation_key"])
+        operation_fingerprint = str(operation["operation_fingerprint"])
+        existing = self._attempts.get(operation_key)
+        if existing is not None and existing[0] != operation_fingerprint:
+            self._raise_checkpoint_error(
+                f"operation fingerprint drifted during checkpoint begin: {operation_key}",
+                retryable=False,
+            )
+        if existing is None:
+            existing = (operation_fingerprint, str(uuid4()))
+            self._attempts[operation_key] = existing
+        operation_attempt_id = existing[1]
+        payload = {
+            **self.lease.ownership_payload(),
+            "operation_fingerprint": operation_fingerprint,
+            "attempt_id": operation_attempt_id,
+        }
+
+        last_error: Exception | None = None
+        for attempt in range(1, 4):
+            try:
+                self.renew_lease()
+                response = self.client.begin_retry_operation_checkpoint(
+                    self.retry_task_code,
+                    operation_key,
+                    **payload,
+                    request_timeout_seconds=self.request_timeout_seconds,
+                )
+                decision = response.get("decision") if isinstance(response, dict) else None
+                if decision in {"execute", "skip", "reconcile"}:
+                    return str(decision)
+                raise ValueError(f"invalid checkpoint begin response: {response!r}")
+            except Exception as exc:
+                if isinstance(exc, AssetGraphClientError) and "HTTP 409" in str(exc):
+                    self._raise_checkpoint_error(
+                        f"operation checkpoint conflict: {operation_key}",
+                        retryable=False,
+                    )
+                last_error = exc
+                if attempt < 3:
+                    time.sleep(0.1 * attempt)
+        self._raise_checkpoint_error(
+            f"operation checkpoint begin remained uncertain after 3 attempts: {operation_key}: {last_error}",
+            retryable=True,
+        )
+
+    def complete(
+        self,
+        operation: dict[str, Any],
+        *,
+        result_summary: str,
+        evidence: dict[str, Any],
+    ) -> None:
+        operation_key = str(operation["operation_key"])
+        operation_fingerprint = str(operation["operation_fingerprint"])
+        attempt = self._attempts.get(operation_key)
+        if attempt is None or attempt[0] != operation_fingerprint:
+            self._raise_checkpoint_error(
+                f"operation complete has no matching confirmed begin: {operation_key}",
+                retryable=False,
+            )
+        completion = self._completions.get(operation_key)
+        if completion is None:
+            completion_payload = {
+                **self.lease.ownership_payload(),
+                "operation_fingerprint": operation_fingerprint,
+                "attempt_id": attempt[1],
+                "completion_id": str(uuid4()),
+                "result_summary": result_summary,
+                "evidence": evidence,
+            }
+            completion = (operation_fingerprint, completion_payload)
+            self._completions[operation_key] = completion
+        elif completion[0] != operation_fingerprint:
+            self._raise_checkpoint_error(
+                f"operation fingerprint drifted during checkpoint complete: {operation_key}",
+                retryable=False,
+            )
+        completion_payload = completion[1]
+
+        last_error: Exception | None = None
+        for retry_number in range(1, 4):
+            try:
+                self.renew_lease()
+                response = self.client.complete_retry_operation_checkpoint(
+                    self.retry_task_code,
+                    operation_key,
+                    **completion_payload,
+                    request_timeout_seconds=self.request_timeout_seconds,
+                )
+                if isinstance(response, dict) and response.get("state") == "completed":
+                    return
+                raise ValueError(f"invalid checkpoint complete response: {response!r}")
+            except Exception as exc:
+                if isinstance(exc, AssetGraphClientError) and "HTTP 409" in str(exc):
+                    self._raise_checkpoint_error(
+                        f"operation checkpoint conflict: {operation_key}",
+                        retryable=False,
+                    )
+                last_error = exc
+                if retry_number < 3:
+                    time.sleep(0.1 * retry_number)
+        self._raise_checkpoint_error(
+            f"operation checkpoint complete remained uncertain after 3 attempts: {operation_key}: {last_error}",
+            retryable=True,
+        )
+
+    @staticmethod
+    def _raise_checkpoint_error(message: str, *, retryable: bool) -> None:
+        # Local import avoids the runner/executor result-type import cycle.
+        from .maitu_executor import MaituBrowserExecutionError
+
+        raise MaituBrowserExecutionError(
+            message,
+            retryable=retryable,
+            retry_instruction=(
+                "Reclaim the retry task and reconcile its operation checkpoint before continuing."
+                if retryable
+                else "Reconcile the operation checkpoint manually before retrying."
+            ),
+        )
+
+
+@dataclass(slots=True)
 class BrowserUseWorker:
     config: WorkerConfig
     client: AssetGraphClient
@@ -141,6 +281,26 @@ class BrowserUseWorker:
             payload["scene_name"] = self.config.scene_name
         return payload
 
+    @staticmethod
+    def _method_is_trusted(instance: Any, method_name: str, expected_descriptor: Any) -> bool:
+        # Verify the class descriptor before binding it. This both prevents a
+        # replacement descriptor from executing during getattr() and makes the
+        # import-time snapshot authoritative for every trusted method/property.
+        if vars(type(instance)).get(method_name) is not expected_descriptor:
+            return False
+        if type(expected_descriptor) is property:
+            return True
+        candidate = getattr(instance, method_name, None)
+        if type(expected_descriptor) is staticmethod:
+            return candidate is expected_descriptor.__func__
+        if type(expected_descriptor) is classmethod:
+            return (
+                type(candidate) is MethodType
+                and candidate.__self__ is type(instance)
+                and candidate.__func__ is expected_descriptor.__func__
+            )
+        return type(candidate) is MethodType and candidate.__self__ is instance and candidate.__func__ is expected_descriptor
+
     def _executor_timeout_is_safe(self, retry_task_code: str) -> bool:
         if self.config.dry_run:
             if type(self.executor) is not DryRunBrowserUseExecutor:
@@ -154,8 +314,13 @@ class BrowserUseWorker:
         # Import locally to avoid the runner/executor result-type import cycle.
         # Exact type identity is intentional: a structural Protocol, subclass, or
         # plugin can lie about guard and timeout support while performing writes.
-        from .browser_cli_session import BrowserUseCliSession
-        from .maitu_executor import MaituBrowserUseExecutor
+        from .browser_cli_session import (
+            BrowserUseCliSession,
+            BrowserUseCliSessionConfig,
+            _TRUSTED_BROWSER_USE_CLI_SESSION_METHODS,
+            _TRUSTED_BROWSER_USE_CLI_SESSION_RUN_COMMAND,
+        )
+        from .maitu_executor import MaituBrowserUseExecutor, _TRUSTED_MAITU_EXECUTOR_METHODS
 
         if type(self.executor) is not MaituBrowserUseExecutor:
             LOGGER.error(
@@ -169,13 +334,57 @@ class BrowserUseWorker:
                 retry_task_code,
             )
             return False
+        if type(self.executor.session.config) is not BrowserUseCliSessionConfig:
+            LOGGER.error(
+                "Rejected retry task %s: trusted Browser-use CLI session requires the built-in config type",
+                retry_task_code,
+            )
+            return False
+        if self.executor.asset_client is not self.client:
+            LOGGER.error(
+                "Rejected retry task %s: trusted executor asset reads must use the Worker AssetGraph client",
+                retry_task_code,
+            )
+            return False
+        if any(
+            not self._method_is_trusted(self.executor, method_name, expected_descriptor)
+            for method_name, expected_descriptor in _TRUSTED_MAITU_EXECUTOR_METHODS
+        ):
+            LOGGER.error(
+                "Rejected retry task %s: trusted Maitu executor contains an injected method",
+                retry_task_code,
+            )
+            return False
+        if any(
+            not self._method_is_trusted(self.executor.session, method_name, expected_descriptor)
+            for method_name, expected_descriptor in _TRUSTED_BROWSER_USE_CLI_SESSION_METHODS
+        ):
+            LOGGER.error(
+                "Rejected retry task %s: trusted Browser-use CLI session contains an injected method",
+                retry_task_code,
+            )
+            return False
         session_runner = getattr(self.executor.session, "_runner", None)
         if (
-            getattr(session_runner, "__self__", None) is not self.executor.session
-            or getattr(session_runner, "__func__", None) is not BrowserUseCliSession._run_command
+            type(session_runner) is not MethodType
+            or session_runner.__self__ is not self.executor.session
+            or session_runner.__func__ is not _TRUSTED_BROWSER_USE_CLI_SESSION_RUN_COMMAND
         ):
             LOGGER.error(
                 "Rejected retry task %s: trusted Browser-use CLI session cannot use an injected command runner",
+                retry_task_code,
+            )
+            return False
+        if getattr(self.executor, "checkpoint_controller", None) is not None:
+            LOGGER.error(
+                "Rejected retry task %s: checkpoint controller must be installed only after claim validation",
+                retry_task_code,
+            )
+            return False
+        checkpoint_setter = getattr(self.executor, "set_checkpoint_controller", None)
+        if not callable(checkpoint_setter):
+            LOGGER.error(
+                "Rejected retry task %s: executor does not implement operation checkpoint boundaries",
                 retry_task_code,
             )
             return False
@@ -306,6 +515,16 @@ class BrowserUseWorker:
             LOGGER.exception("Retry lease validation failed before execution for %s", lease.retry_task_code)
             return True
 
+        checkpoint_setter = getattr(self.executor, "set_checkpoint_controller", None)
+        checkpoint_controller = LeaseBoundOperationCheckpointController(
+            client=self.client,
+            lease=lease,
+            renew_lease=lambda: self._renew_retry_lease(lease),
+            request_timeout_seconds=self._callback_request_timeout_seconds(),
+        )
+        if callable(checkpoint_setter):
+            checkpoint_setter(checkpoint_controller)
+
         heartbeat_errors: list[Exception] = []
         heartbeat_stop, heartbeat_thread = self._start_retry_heartbeat(lease, heartbeat_errors)
         guard_setter = getattr(self.executor, "set_execution_guard", None)
@@ -327,6 +546,8 @@ class BrowserUseWorker:
         finally:
             if callable(guard_setter):
                 guard_setter(None)
+            if callable(checkpoint_setter):
+                checkpoint_setter(None)
             execution_heartbeat_stopped = self._stop_retry_heartbeat(heartbeat_stop, heartbeat_thread)
 
         if not execution_heartbeat_stopped:

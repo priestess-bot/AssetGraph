@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.schemas.assets import MaituAssetCategory, MaituReplacementPolicy
 
@@ -947,6 +947,78 @@ class MaituRetryLeaseIdentity(BaseModel):
     lease_version: int = Field(..., ge=1)
 
 
+class MaituRetryOperationCheckpointBeginCreate(MaituRetryLeaseIdentity):
+    attempt_id: UUID
+    operation_fingerprint: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def reject_claim_token_as_attempt_id(self) -> "MaituRetryOperationCheckpointBeginCreate":
+        if self.attempt_id == self.claim_token:
+            raise ValueError("checkpoint attempt_id must not equal the active claim token")
+        return self
+
+
+class MaituRetryOperationCheckpointCompleteCreate(MaituRetryOperationCheckpointBeginCreate):
+    completion_id: UUID
+    result_summary: str | None = None
+    evidence: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def require_verified_secret_free_evidence(self) -> "MaituRetryOperationCheckpointCompleteCreate":
+        if self.completion_id == self.claim_token:
+            raise ValueError("checkpoint completion_id must not equal the active claim token")
+        if self.evidence.get("verified") is not True:
+            raise ValueError("checkpoint evidence must contain verified=true")
+
+        claim_token = str(self.claim_token).lower()
+        if self.result_summary and claim_token in self.result_summary.lower():
+            raise ValueError("checkpoint summary must not contain the active claim token")
+
+        def contains_secret(candidate: Any) -> bool:
+            if isinstance(candidate, dict):
+                for key, item in candidate.items():
+                    key_text = str(key).lower()
+                    if claim_token in key_text:
+                        return True
+                    normalized_key = "".join(character for character in key_text if character.isalnum())
+                    if any(
+                        marker in normalized_key
+                        for marker in ("authorization", "credential", "password", "secret", "cookie", "token")
+                    ):
+                        return True
+                    if contains_secret(item):
+                        return True
+                return False
+            if isinstance(candidate, list):
+                return any(contains_secret(item) for item in candidate)
+            return isinstance(candidate, str) and claim_token in candidate.lower()
+
+        if contains_secret(self.evidence):
+            raise ValueError("checkpoint evidence must not contain credentials or the active claim token")
+        return self
+
+
+class MaituRetryOperationCheckpointRead(BaseModel):
+    retry_task_code: str
+    operation_key: str
+    operation_fingerprint: str
+    state: Literal["begun", "reconcile_required", "completed"]
+    decision: Literal["execute", "skip", "reconcile"]
+    attempt_id: UUID
+    begun_by: str
+    begun_lease_version: int
+    completion_id: UUID | None = None
+    completion_fingerprint: str | None = None
+    result_summary: str | None = None
+    completed_by: str | None = None
+    completed_lease_version: int | None = None
+    evidence: dict[str, Any] = Field(default_factory=dict)
+    begun_at: datetime | None = None
+    completed_at: datetime | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
 class MaituRetryTaskHeartbeatCreate(MaituRetryLeaseIdentity):
     lock_ttl_seconds: int = Field(default=900, ge=60, le=86400)
 
@@ -977,8 +1049,25 @@ class MaituRetryTaskExecutionResultCreate(MaituRetryLeaseIdentity):
     screenshot_asset_code: str | None = Field(default=None, max_length=64)
     retry_instruction: str | None = None
 
+    @model_validator(mode="after")
+    def reject_claim_token_in_durable_fields(self) -> "MaituRetryTaskExecutionResultCreate":
+        claim_token = str(self.claim_token).lower()
+        durable_values = (
+            str(self.retry_execution_id),
+            self.last_retry_execution_code,
+            self.result_summary,
+            self.error_message,
+            self.screenshot_asset_code,
+            self.retry_instruction,
+        )
+        if any(value is not None and claim_token in value.lower() for value in durable_values):
+            raise ValueError("retry execution result fields must not contain the active claim token")
+        return self
+
 
 class MaituRetryBrowserUseOperationRead(BaseModel):
+    operation_key: str
+    operation_fingerprint: str
     operation_type: str
     retry_task_code: str
     slot_code: str | None = None

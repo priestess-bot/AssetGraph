@@ -8,7 +8,12 @@ from fastapi.testclient import TestClient
 
 from app.api.routes import maitu
 from app.main import app
-from app.repositories.maitu import RetryExecutionConflictError, RetryLeaseConflictError
+from app.repositories.maitu import (
+    MaituMaterialSlotRepository,
+    RetryCheckpointConflictError,
+    RetryExecutionConflictError,
+    RetryLeaseConflictError,
+)
 
 
 class FakeMaituMaterialSlotRepository:
@@ -18,6 +23,7 @@ class FakeMaituMaterialSlotRepository:
         self.executions: dict[str, dict[str, Any]] = {}
         self.retry_tasks: dict[str, dict[str, Any]] = {}
         self.retry_execution_receipts: dict[str, dict[str, Any]] = {}
+        self.retry_operation_checkpoints: dict[tuple[str, str], dict[str, Any]] = {}
         self.blueprints: dict[str, dict[str, Any]] = {}
         self.template_scenes: dict[str, dict[str, Any]] = {}
         self.template_components: dict[str, list[dict[str, Any]]] = {}
@@ -939,10 +945,24 @@ class FakeMaituMaterialSlotRepository:
         row = self.rows.get(slot_code)
         if row is None:
             return None
+        if any(
+            task.get("slot_code") == slot_code and task.get("status") == "in_progress"
+            for task in self.retry_tasks.values()
+        ):
+            raise RetryLeaseConflictError(
+                "slot authoritative intent cannot change while a related retry worker lease is active"
+            )
         row.update(payload)
         return row
 
     def soft_delete(self, slot_code: str) -> bool:
+        if any(
+            task.get("slot_code") == slot_code and task.get("status") == "in_progress"
+            for task in self.retry_tasks.values()
+        ):
+            raise RetryLeaseConflictError(
+                "slot authoritative intent cannot change while a related retry worker lease is active"
+            )
         return self.rows.pop(slot_code, None) is not None
 
     def list_candidate_assets(self, slot_code: str, *, limit: int = 20, offset: int = 0) -> dict[str, Any] | None:
@@ -1358,6 +1378,9 @@ class FakeMaituMaterialSlotRepository:
         reclaimed_codes = []
         for task in self.retry_tasks.values():
             if task.get("status") == "in_progress" and task.get("claim_expires_at") is not None:
+                for (task_code, _operation_key), checkpoint in self.retry_operation_checkpoints.items():
+                    if task_code == task["retry_task_code"] and checkpoint.get("state") == "begun":
+                        checkpoint["state"] = "reconcile_required"
                 task["status"] = "pending"
                 task["claimed_by"] = None
                 task["claimed_at"] = None
@@ -1384,6 +1407,14 @@ class FakeMaituMaterialSlotRepository:
         if task is None:
             return None
         self._assert_retry_lease(task, payload)
+        for (task_code, _operation_key), checkpoint in self.retry_operation_checkpoints.items():
+            if (
+                task_code == retry_task_code
+                and checkpoint.get("state") == "begun"
+                and checkpoint.get("begun_by") == payload["claimed_by"]
+                and checkpoint.get("begun_lease_version") == payload["lease_version"]
+            ):
+                checkpoint["state"] = "reconcile_required"
         task["status"] = payload.get("status", "pending")
         task["claimed_by"] = None
         task["claimed_at"] = None
@@ -1415,24 +1446,8 @@ class FakeMaituMaterialSlotRepository:
             (item for item in plan.get("items", []) if item.get("slot_code") == task.get("slot_code")),
             {},
         )
-        operation_type = {
-            "missing_layer": "retry_replace_layer_asset",
-            "selector_changed": "retry_replace_layer_asset",
-            "asset_upload_failed": "retry_asset_upload_and_replace",
-            "save_failed": "retry_save_project",
-            "login_expired": "recover_login_then_retry",
-        }.get(task.get("failure_type"), "retry_browser_use_operation")
         scene_name = slot.get("scene_name") or plan.get("scene_name")
-        layer_name = slot.get("layer_name")
-        asset_title = plan_item.get("selected_asset_title")
-        policy = plan_item.get("replacement_policy") or slot.get("replacement_policy") or "keep_layout"
-        instruction = (
-            f"执行重试任务 {retry_task_code}：{task.get('retry_instruction') or '按失败原因重试'}；"
-            f"进入麦兔项目 {plan.get('maitu_project_code') or '当前项目'} 的“{scene_name or '当前场景'}”场景，"
-            f"只重试槽位 {task.get('slot_code') or '整体执行'}，找到 {layer_name or '目标图层/槽位'}，"
-            f"将素材替换为 {task.get('asset_code') or '原计划素材'}（{asset_title or '未命名素材'}），"
-            f"替换策略为 {policy}；保持原图层位置和尺寸不变，替换后保存项目。"
-        )
+        operations = MaituMaterialSlotRepository._build_retry_operations(task, plan, slot, plan_item)
         return {
             "retry_task_code": retry_task_code,
             "plan_code": task["plan_code"],
@@ -1441,25 +1456,107 @@ class FakeMaituMaterialSlotRepository:
             "target_app": "maitu",
             "maitu_project_code": plan.get("maitu_project_code"),
             "scene_name": scene_name,
-            "operations": [
-                {
-                    "operation_type": operation_type,
-                    "retry_task_code": retry_task_code,
-                    "slot_code": task.get("slot_code"),
-                    "slot_name": slot.get("slot_name"),
-                    "scene_name": scene_name,
-                    "layer_name": layer_name,
-                    "asset_code": task.get("asset_code"),
-                    "asset_title": asset_title,
-                    "replacement_policy": policy,
-                    "failure_type": task.get("failure_type"),
-                    "status": "ready" if task.get("retryable") and task.get("status") in {"pending", "in_progress"} else "blocked",
-                    "instruction": instruction,
-                }
-            ],
+            "operations": operations,
         }
 
+    def begin_retry_operation_checkpoint(
+        self,
+        retry_task_code: str,
+        operation_key: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        task = self.retry_tasks.get(retry_task_code)
+        if task is None:
+            return None
+        self._assert_retry_lease(task, payload)
+        plan = self.get_retry_task_browser_use_operation_plan(retry_task_code) or {}
+        operation = next(
+            (item for item in plan.get("operations", []) if item["operation_key"] == operation_key),
+            None,
+        )
+        if operation is None or operation["operation_fingerprint"] != payload["operation_fingerprint"]:
+            raise RetryCheckpointConflictError("operation differs from authoritative intent")
+        key = (retry_task_code, operation_key)
+        checkpoint = self.retry_operation_checkpoints.get(key)
+        if checkpoint is None:
+            checkpoint = {
+                "retry_task_code": retry_task_code,
+                "operation_key": operation_key,
+                "operation_fingerprint": operation["operation_fingerprint"],
+                "state": "begun",
+                "attempt_id": str(payload["attempt_id"]),
+                "begun_by": payload["claimed_by"],
+                "begun_lease_version": payload["lease_version"],
+                "completion_id": None,
+                "completion_fingerprint": None,
+                "completed_by": None,
+                "completed_lease_version": None,
+                "evidence": {},
+            }
+            self.retry_operation_checkpoints[key] = checkpoint
+            decision = "execute"
+        elif checkpoint["operation_fingerprint"] != operation["operation_fingerprint"]:
+            raise RetryCheckpointConflictError("stored checkpoint differs from authoritative intent")
+        elif checkpoint["state"] == "completed":
+            decision = "skip"
+        elif (
+            checkpoint["state"] == "begun"
+            and checkpoint["attempt_id"] == str(payload["attempt_id"])
+            and checkpoint["begun_by"] == payload["claimed_by"]
+            and checkpoint["begun_lease_version"] == payload["lease_version"]
+        ):
+            decision = "execute"
+        else:
+            decision = "reconcile"
+        return {**checkpoint, "decision": decision}
+
+    def complete_retry_operation_checkpoint(
+        self,
+        retry_task_code: str,
+        operation_key: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        task = self.retry_tasks.get(retry_task_code)
+        if task is None:
+            return None
+        self._assert_retry_lease(task, payload)
+        MaituMaterialSlotRepository._assert_verified_secret_free_evidence(
+            payload.get("evidence", {}),
+            payload["claim_token"],
+        )
+        completion_fingerprint = MaituMaterialSlotRepository._completion_payload_fingerprint(payload)
+        checkpoint = self.retry_operation_checkpoints.get((retry_task_code, operation_key))
+        if checkpoint is None:
+            raise RetryCheckpointConflictError("operation checkpoint was not begun")
+        if (
+            checkpoint["state"] == "completed"
+            and checkpoint["completion_id"] == str(payload["completion_id"])
+            and checkpoint["completion_fingerprint"] == completion_fingerprint
+            and checkpoint["attempt_id"] == str(payload["attempt_id"])
+        ):
+            return {**checkpoint, "decision": "skip"}
+        if (
+            checkpoint["state"] != "begun"
+            or checkpoint["attempt_id"] != str(payload["attempt_id"])
+            or checkpoint["begun_by"] != payload["claimed_by"]
+            or checkpoint["begun_lease_version"] != payload["lease_version"]
+            or checkpoint["operation_fingerprint"] != payload["operation_fingerprint"]
+        ):
+            raise RetryCheckpointConflictError("checkpoint requires reconciliation or belongs to another attempt")
+        checkpoint.update(
+            {
+                "state": "completed",
+                "completion_id": str(payload["completion_id"]),
+                "completion_fingerprint": completion_fingerprint,
+                "completed_by": payload["claimed_by"],
+                "completed_lease_version": payload["lease_version"],
+                "evidence": payload.get("evidence", {}),
+            }
+        )
+        return {**checkpoint, "decision": "skip"}
+
     def create_retry_task_execution_result(self, retry_task_code: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+        MaituMaterialSlotRepository._assert_retry_execution_payload_token_free(payload)
         task = self.retry_tasks.get(retry_task_code)
         if task is None:
             return None
@@ -1471,6 +1568,37 @@ class FakeMaituMaterialSlotRepository:
                 return task
             raise RetryExecutionConflictError("retry_execution_id was reused with different content")
         self._assert_retry_lease(task, payload)
+        if payload["retry_execution_status"] == "succeeded":
+            plan = self.get_retry_task_browser_use_operation_plan(retry_task_code) or {}
+            operations = {operation["operation_key"]: operation for operation in plan.get("operations", [])}
+            completed = {
+                operation_key: checkpoint
+                for (task_code, operation_key), checkpoint in self.retry_operation_checkpoints.items()
+                if task_code == retry_task_code and checkpoint.get("state") == "completed"
+            }
+            if set(completed) != set(operations):
+                raise RetryCheckpointConflictError(
+                    "all authoritative retry operation checkpoints must be completed before success"
+                )
+            for operation_key, operation in operations.items():
+                checkpoint = completed[operation_key]
+                if checkpoint.get("operation_fingerprint") != operation["operation_fingerprint"]:
+                    raise RetryCheckpointConflictError(
+                        f"completed checkpoint fingerprint drifted for operation {operation_key}"
+                    )
+                MaituMaterialSlotRepository._assert_verified_secret_free_evidence(
+                    checkpoint.get("evidence", {}),
+                    payload["claim_token"],
+                )
+        else:
+            for (task_code, _operation_key), checkpoint in self.retry_operation_checkpoints.items():
+                if (
+                    task_code == retry_task_code
+                    and checkpoint.get("state") == "begun"
+                    and checkpoint.get("begun_by") == payload["claimed_by"]
+                    and checkpoint.get("begun_lease_version") == payload["lease_version"]
+                ):
+                    checkpoint["state"] = "reconcile_required"
         status_map = {
             "succeeded": "succeeded",
             "failed": "failed",
@@ -3183,6 +3311,108 @@ def _lease_payload(claimed: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def test_retry_operation_checkpoint_begin_and_complete_are_lease_fenced_and_token_free(client: TestClient) -> None:
+    retry_task = _create_retry_task(client, plan_name="checkpoint route plan")
+    claimed = _claim_retry_task(client)
+    operation_plan = client.get(
+        f"/api/maitu/retry-tasks/{retry_task['retry_task_code']}/browser-use-operations"
+    ).json()
+    operation = operation_plan["operations"][0]
+    path = (
+        f"/api/maitu/retry-tasks/{retry_task['retry_task_code']}"
+        f"/operations/{operation['operation_key']}"
+    )
+    attempt_id = "87715675-af7c-4b75-9d4c-14f9c45e20f4"
+    begin_payload = {
+        **_lease_payload(claimed),
+        "attempt_id": attempt_id,
+        "operation_fingerprint": operation["operation_fingerprint"],
+    }
+
+    begun = client.post(f"{path}/begin", json=begin_payload)
+    duplicate_begin = client.post(f"{path}/begin", json=begin_payload)
+    completed = client.post(
+        f"{path}/complete",
+        json={
+            **begin_payload,
+            "completion_id": "f8e2ad75-270d-4190-8255-7334399f7c8d",
+            "evidence": {"verified": True, "material_id": 41043},
+        },
+    )
+
+    assert begun.status_code == 200
+    assert duplicate_begin.status_code == 200
+    assert begun.json()["decision"] == "execute"
+    assert duplicate_begin.json()["attempt_id"] == attempt_id
+    assert completed.status_code == 200
+    assert completed.json()["state"] == "completed"
+    assert completed.json()["decision"] == "skip"
+    assert "claim_token" not in completed.json()
+    assert "claim_token" not in json.dumps(completed.json())
+
+
+def test_retry_operation_checkpoint_rejects_stale_lease_and_fingerprint_drift(client: TestClient) -> None:
+    retry_task = _create_retry_task(client, plan_name="checkpoint conflict plan")
+    claimed = _claim_retry_task(client)
+    operation = client.get(
+        f"/api/maitu/retry-tasks/{retry_task['retry_task_code']}/browser-use-operations"
+    ).json()["operations"][0]
+    path = (
+        f"/api/maitu/retry-tasks/{retry_task['retry_task_code']}"
+        f"/operations/{operation['operation_key']}/begin"
+    )
+    base_payload = {
+        **_lease_payload(claimed),
+        "attempt_id": "87715675-af7c-4b75-9d4c-14f9c45e20f4",
+        "operation_fingerprint": operation["operation_fingerprint"],
+    }
+
+    stale = client.post(path, json={**base_payload, "lease_version": claimed["lease_version"] + 1})
+    drift = client.post(path, json={**base_payload, "operation_fingerprint": "f" * 64})
+
+    assert stale.status_code == 409
+    assert drift.status_code == 409
+
+
+def test_active_retry_lease_freezes_slot_and_explicit_release_requires_reconciliation(client: TestClient) -> None:
+    retry_task = _create_retry_task(client, plan_name="frozen authoritative intent")
+    claimed = _claim_retry_task(client)
+    operation = client.get(
+        f"/api/maitu/retry-tasks/{retry_task['retry_task_code']}/browser-use-operations"
+    ).json()["operations"][0]
+    begin_payload = {
+        **_lease_payload(claimed),
+        "attempt_id": "87715675-af7c-4b75-9d4c-14f9c45e20f4",
+        "operation_fingerprint": operation["operation_fingerprint"],
+    }
+    checkpoint_path = (
+        f"/api/maitu/retry-tasks/{retry_task['retry_task_code']}"
+        f"/operations/{operation['operation_key']}"
+    )
+    assert client.post(f"{checkpoint_path}/begin", json=begin_payload).status_code == 200
+
+    slot_code = retry_task["slot_code"]
+    assert client.patch(f"/api/maitu/slots/{slot_code}", json={"layer_name": "unsafe-layer"}).status_code == 409
+    assert client.delete(f"/api/maitu/slots/{slot_code}").status_code == 409
+
+    released = client.post(
+        f"/api/maitu/retry-tasks/{retry_task['retry_task_code']}/release",
+        json={**_lease_payload(claimed), "status": "pending"},
+    )
+    assert released.status_code == 200
+    reclaimed = _claim_retry_task(client)
+    reconcile = client.post(
+        f"{checkpoint_path}/begin",
+        json={
+            **_lease_payload(reclaimed),
+            "attempt_id": "98826786-af7c-4b75-9d4c-14f9c45e20f4",
+            "operation_fingerprint": operation["operation_fingerprint"],
+        },
+    )
+    assert reconcile.status_code == 200
+    assert reconcile.json()["decision"] == "reconcile"
+
+
 def test_retry_task_execution_result_is_owned_and_idempotent(client: TestClient) -> None:
     retry_task = _create_retry_task(client)
     claimed = _claim_retry_task(client)
@@ -3194,6 +3424,37 @@ def test_retry_task_execution_result_is_owned_and_idempotent(client: TestClient)
         "result_summary": "Browser use 重新定位 layer_8 后已完成商品主图替换并保存项目。",
         "screenshot_asset_code": "AG-IMG-20260707-000199",
     }
+
+    blocked_response = client.post(
+        f"/api/maitu/retry-tasks/{retry_task['retry_task_code']}/execution-results",
+        json=result_payload,
+    )
+    assert blocked_response.status_code == 409
+
+    operation_plan = client.get(
+        f"/api/maitu/retry-tasks/{retry_task['retry_task_code']}/browser-use-operations"
+    ).json()
+    for index, operation in enumerate(operation_plan["operations"], start=1):
+        attempt_id = f"aaaaaaaa-0000-4000-8000-{index:012d}"
+        completion_id = f"bbbbbbbb-0000-4000-8000-{index:012d}"
+        checkpoint_path = (
+            f"/api/maitu/retry-tasks/{retry_task['retry_task_code']}"
+            f"/operations/{operation['operation_key']}"
+        )
+        begin_payload = {
+            **_lease_payload(claimed),
+            "attempt_id": attempt_id,
+            "operation_fingerprint": operation["operation_fingerprint"],
+        }
+        assert client.post(f"{checkpoint_path}/begin", json=begin_payload).status_code == 200
+        assert client.post(
+            f"{checkpoint_path}/complete",
+            json={
+                **begin_payload,
+                "completion_id": completion_id,
+                "evidence": {"verified": True, "operation_key": operation["operation_key"]},
+            },
+        ).status_code == 200
 
     callback_response = client.post(
         f"/api/maitu/retry-tasks/{retry_task['retry_task_code']}/execution-results",
@@ -3254,6 +3515,25 @@ def test_claim_token_is_only_returned_by_claim_endpoints(client: TestClient) -> 
     assert all("claim_token" not in item for item in list_response.json())
 
 
+def test_retry_execution_result_rejects_claim_token_in_durable_text(client: TestClient) -> None:
+    retry_task = _create_retry_task(client)
+    claimed = _claim_retry_task(client)
+    response = client.post(
+        f"/api/maitu/retry-tasks/{retry_task['retry_task_code']}/execution-results",
+        json={
+            **_lease_payload(claimed),
+            "retry_execution_id": "7be4e98f-dd31-4c50-97d6-604d46ec7869",
+            "retry_execution_status": "released",
+            "result_summary": f"unsafe {claimed['claim_token']} value",
+        },
+    )
+
+    assert response.status_code == 422
+    task = client.get(f"/api/maitu/retry-tasks/{retry_task['retry_task_code']}").json()
+    assert task["status"] == "in_progress"
+    assert task["last_retry_execution_id"] is None
+
+
 def test_retry_execution_id_reuse_with_different_payload_returns_conflict(client: TestClient) -> None:
     retry_task = _create_retry_task(client)
     claimed = _claim_retry_task(client)
@@ -3261,7 +3541,7 @@ def test_retry_execution_id_reuse_with_different_payload_returns_conflict(client
     payload = {
         **_lease_payload(claimed),
         "retry_execution_id": "7be4e98f-dd31-4c50-97d6-604d46ec7869",
-        "retry_execution_status": "succeeded",
+        "retry_execution_status": "released",
         "result_summary": "done",
     }
 

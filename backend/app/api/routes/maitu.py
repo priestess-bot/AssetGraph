@@ -6,7 +6,12 @@ from psycopg import Connection
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.repositories.maitu import MaituMaterialSlotRepository, RetryExecutionConflictError, RetryLeaseConflictError
+from app.repositories.maitu import (
+    MaituMaterialSlotRepository,
+    RetryCheckpointConflictError,
+    RetryExecutionConflictError,
+    RetryLeaseConflictError,
+)
 from app.services.asset_candidates import AssetCandidate, AssetRetrievalIndex
 from app.services.qwen3_client import Qwen3Client, Qwen3ClientError
 from app.services.script_asset_gap_reporter import ScriptAssetGapReporter
@@ -58,6 +63,9 @@ from app.schemas.maitu import (
     MaituReplacementPlanRead,
     MaituRetryBrowserUseOperationPlanResponse,
     MaituRetryClaimedQueueItemRead,
+    MaituRetryOperationCheckpointBeginCreate,
+    MaituRetryOperationCheckpointCompleteCreate,
+    MaituRetryOperationCheckpointRead,
     MaituRetryQueueClaimNextCreate,
     MaituRetryQueueItemRead,
     MaituRetryQueueReclaimExpiredResponse,
@@ -679,7 +687,10 @@ def update_maitu_slot(
     payload: MaituMaterialSlotUpdate,
     repository: Annotated[MaituMaterialSlotRepository, Depends(get_maitu_slot_repository)],
 ) -> dict:
-    row = repository.update(slot_code, payload.model_dump(exclude_unset=True, exclude_none=True))
+    try:
+        row = repository.update(slot_code, payload.model_dump(exclude_unset=True, exclude_none=True))
+    except RetryLeaseConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Retry lease conflict: {exc}") from exc
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Maitu material slot not found")
     return row
@@ -690,7 +701,10 @@ def delete_maitu_slot(
     slot_code: str,
     repository: Annotated[MaituMaterialSlotRepository, Depends(get_maitu_slot_repository)],
 ) -> None:
-    deleted = repository.soft_delete(slot_code)
+    try:
+        deleted = repository.soft_delete(slot_code)
+    except RetryLeaseConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Retry lease conflict: {exc}") from exc
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Maitu material slot not found")
 
@@ -909,6 +923,56 @@ def get_retry_task_browser_use_operations(
     return row
 
 
+@router.post(
+    "/retry-tasks/{retry_task_code}/operations/{operation_key}/begin",
+    response_model=MaituRetryOperationCheckpointRead,
+)
+def begin_retry_operation_checkpoint(
+    retry_task_code: str,
+    operation_key: str,
+    payload: MaituRetryOperationCheckpointBeginCreate,
+    repository: Annotated[MaituMaterialSlotRepository, Depends(get_maitu_slot_repository)],
+) -> dict:
+    try:
+        row = repository.begin_retry_operation_checkpoint(
+            retry_task_code,
+            operation_key,
+            payload.model_dump(),
+        )
+    except RetryCheckpointConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Retry checkpoint conflict: {exc}") from exc
+    except RetryLeaseConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Retry lease conflict: {exc}") from exc
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Maitu retry task not found")
+    return row
+
+
+@router.post(
+    "/retry-tasks/{retry_task_code}/operations/{operation_key}/complete",
+    response_model=MaituRetryOperationCheckpointRead,
+)
+def complete_retry_operation_checkpoint(
+    retry_task_code: str,
+    operation_key: str,
+    payload: MaituRetryOperationCheckpointCompleteCreate,
+    repository: Annotated[MaituMaterialSlotRepository, Depends(get_maitu_slot_repository)],
+) -> dict:
+    try:
+        row = repository.complete_retry_operation_checkpoint(
+            retry_task_code,
+            operation_key,
+            payload.model_dump(),
+        )
+    except RetryCheckpointConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Retry checkpoint conflict: {exc}") from exc
+    except RetryLeaseConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Retry lease conflict: {exc}") from exc
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Maitu retry task not found")
+    return row
+
+
 @router.post("/retry-tasks/{retry_task_code}/execution-results", response_model=MaituRetryTaskRead)
 def create_retry_task_execution_result(
     retry_task_code: str,
@@ -919,6 +983,8 @@ def create_retry_task_execution_result(
         row = repository.create_retry_task_execution_result(retry_task_code, payload.model_dump(exclude_none=True))
     except RetryExecutionConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Retry idempotency conflict: {exc}") from exc
+    except RetryCheckpointConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Retry checkpoint conflict: {exc}") from exc
     except RetryLeaseConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Retry lease conflict: {exc}") from exc
     if row is None:

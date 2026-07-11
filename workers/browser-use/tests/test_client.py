@@ -274,6 +274,89 @@ def test_release_retry_task_uses_callback_timeout_without_serializing_it() -> No
     assert "request_timeout_seconds" not in (client.calls[-1][2] or {})
 
 
+def test_begin_retry_operation_checkpoint_uses_canonical_path_payload_and_transport_timeout() -> None:
+    client = RecordingClient()
+
+    client.begin_retry_operation_checkpoint(
+        "MT-RETRY-20260710-000001",
+        "replace-layer-01",
+        claimed_by="worker-1",
+        claim_token="c1a1d000-0000-4000-8000-000000000001",
+        lease_version=2,
+        operation_fingerprint="a" * 64,
+        attempt_id="7be4e98f-dd31-4c50-97d6-604d46ec7869",
+        request_timeout_seconds=12.5,
+    )
+
+    assert client.calls[-1] == (
+        "POST",
+        "/api/maitu/retry-tasks/MT-RETRY-20260710-000001/operations/replace-layer-01/begin",
+        {
+            "claimed_by": "worker-1",
+            "claim_token": "c1a1d000-0000-4000-8000-000000000001",
+            "lease_version": 2,
+            "operation_fingerprint": "a" * 64,
+            "attempt_id": "7be4e98f-dd31-4c50-97d6-604d46ec7869",
+        },
+    )
+    assert client.request_timeouts[-1] == 12.5
+    assert "request_timeout_seconds" not in (client.calls[-1][2] or {})
+
+
+def test_complete_retry_operation_checkpoint_uses_canonical_path_payload_and_transport_timeout() -> None:
+    client = RecordingClient()
+    evidence = {"verified": True, "material_id": 42}
+
+    client.complete_retry_operation_checkpoint(
+        "MT-RETRY-20260710-000001",
+        "save-project-01",
+        claimed_by="worker-1",
+        claim_token="c1a1d000-0000-4000-8000-000000000001",
+        lease_version=2,
+        operation_fingerprint="b" * 64,
+        attempt_id="7be4e98f-dd31-4c50-97d6-604d46ec7869",
+        completion_id="d5ec7c2d-8af3-4ef3-a6c2-1bbd6e832d18",
+        result_summary="project save verified",
+        evidence=evidence,
+        request_timeout_seconds=9.5,
+    )
+
+    assert client.calls[-1] == (
+        "POST",
+        "/api/maitu/retry-tasks/MT-RETRY-20260710-000001/operations/save-project-01/complete",
+        {
+            "claimed_by": "worker-1",
+            "claim_token": "c1a1d000-0000-4000-8000-000000000001",
+            "lease_version": 2,
+            "operation_fingerprint": "b" * 64,
+            "attempt_id": "7be4e98f-dd31-4c50-97d6-604d46ec7869",
+            "completion_id": "d5ec7c2d-8af3-4ef3-a6c2-1bbd6e832d18",
+            "result_summary": "project save verified",
+            "evidence": evidence,
+        },
+    )
+    assert client.request_timeouts[-1] == 9.5
+    assert "request_timeout_seconds" not in (client.calls[-1][2] or {})
+
+
+@pytest.mark.parametrize("operation_key", ["../save", "save/project", "save?x=1", "", " save-project-01 "])
+def test_checkpoint_paths_reject_noncanonical_operation_keys(operation_key: str) -> None:
+    client = RecordingClient()
+
+    with pytest.raises(AssetGraphClientError):
+        client.begin_retry_operation_checkpoint(
+            "MT-RETRY-20260710-000001",
+            operation_key,
+            claimed_by="worker-1",
+            claim_token="c1a1d000-0000-4000-8000-000000000001",
+            lease_version=2,
+            operation_fingerprint="a" * 64,
+            attempt_id="7be4e98f-dd31-4c50-97d6-604d46ec7869",
+        )
+
+    assert client.calls == []
+
+
 @pytest.mark.parametrize("retry_task_code", ["../admin", "MT-RETRY/OTHER", "MT-RETRY?x=1", "", " MT-RETRY-1 "])
 def test_retry_task_mutation_paths_reject_noncanonical_codes(retry_task_code: str) -> None:
     client = RecordingClient()

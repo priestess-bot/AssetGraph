@@ -119,3 +119,18 @@ def test_asset_maitu_material_binding_migration_exists_and_stores_real_insert_fi
     assert "speaker_id INTEGER" in sql
     assert "digital_human_image_id INTEGER" in sql
     assert "idx_assets_maitu_material_id" in sql
+
+
+def test_maitu_retry_operation_checkpoint_migration_is_replayable_and_token_free() -> None:
+    migration = MIGRATIONS_DIR / "017_maitu_retry_operation_checkpoints.sql"
+
+    assert migration.exists()
+    sql = migration.read_text(encoding="utf-8")
+    assert "CREATE TABLE IF NOT EXISTS maitu_retry_operation_checkpoints" in sql
+    assert "PRIMARY KEY (retry_task_code, operation_key)" in sql
+    assert "begun" in sql
+    assert "reconcile_required" in sql
+    assert "completed" in sql
+    assert "chk_maitu_retry_checkpoint_verified_evidence" in sql
+    assert "completion_evidence @> '{\"verified\": true}'::jsonb" in sql
+    assert "claim_token" not in sql
