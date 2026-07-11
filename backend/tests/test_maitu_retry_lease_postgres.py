@@ -9,7 +9,12 @@ from uuid import uuid4
 import psycopg
 import pytest
 
-from app.repositories.maitu import MaituMaterialSlotRepository, RetryExecutionConflictError, RetryLeaseConflictError
+from app.repositories.maitu import (
+    MaituMaterialSlotRepository,
+    RetryCheckpointConflictError,
+    RetryExecutionConflictError,
+    RetryLeaseConflictError,
+)
 
 
 DATABASE_URL = os.getenv("ASSETGRAPH_TEST_DATABASE_URL")
@@ -94,10 +99,15 @@ def test_postgres_operation_checkpoint_migration_replays() -> None:
     migration = (
         Path(__file__).resolve().parents[1] / "migrations" / "017_maitu_retry_operation_checkpoints.sql"
     ).read_text(encoding="utf-8")
+    reconciliation_migration = (
+        Path(__file__).resolve().parents[1] / "migrations" / "018_maitu_retry_operation_reconciliation.sql"
+    ).read_text(encoding="utf-8")
     with psycopg.connect(DATABASE_URL) as connection:
         with connection.cursor() as cursor:
             cursor.execute(migration)
+            cursor.execute(reconciliation_migration)
             cursor.execute(migration)
+            cursor.execute(reconciliation_migration)
         connection.commit()
 
 
@@ -337,6 +347,151 @@ def test_postgres_explicit_release_marks_begun_checkpoint_reconcile_required() -
                 "DELETE FROM maitu_execution_retry_tasks WHERE retry_task_code = %s",
                 (retry_task_code,),
             )
+        connection.commit()
+
+
+def test_postgres_confirmed_completion_reconciliation_is_idempotent_and_skips_replay() -> None:
+    retry_task_code = f"MT-RETRY-IT-{uuid4().hex[:12]}"
+    reconciliation_id = uuid4()
+    with psycopg.connect(DATABASE_URL) as connection:
+        repository = MaituMaterialSlotRepository(connection)
+        _insert_retry_task(connection, retry_task_code, failure_type="save_failed")
+        first_claim = _claim(repository, "worker-a")
+        plan = repository.get_retry_task_browser_use_operation_plan(retry_task_code)
+        assert plan is not None
+        operation = plan["operations"][0]
+        begin_payload = {
+            "claimed_by": "worker-a",
+            "claim_token": first_claim["claim_token"],
+            "lease_version": first_claim["lease_version"],
+            "attempt_id": uuid4(),
+            "operation_fingerprint": operation["operation_fingerprint"],
+        }
+        begun = repository.begin_retry_operation_checkpoint(
+            retry_task_code,
+            operation["operation_key"],
+            begin_payload,
+        )
+        assert begun is not None and begun["decision"] == "execute"
+        repository.release_retry_task(
+            retry_task_code,
+            {
+                "status": "pending",
+                "claimed_by": "worker-a",
+                "claim_token": first_claim["claim_token"],
+                "lease_version": first_claim["lease_version"],
+            },
+        )
+        reconciliation_payload = {
+            "reconciliation_id": reconciliation_id,
+            "expected_attempt_id": begin_payload["attempt_id"],
+            "operation_fingerprint": operation["operation_fingerprint"],
+            "resolution": "confirmed_completed",
+            "resolved_by": "operator-it",
+            "resolution_summary": "authoritative readback confirmed save",
+            "evidence": {"verified": True, "operation_applied": True, "readback": "saved"},
+        }
+        first = repository.reconcile_retry_operation_checkpoint(
+            retry_task_code,
+            operation["operation_key"],
+            reconciliation_payload,
+        )
+        duplicate = repository.reconcile_retry_operation_checkpoint(
+            retry_task_code,
+            operation["operation_key"],
+            reconciliation_payload,
+        )
+        assert first == duplicate
+
+        second_claim = _claim(repository, "worker-b")
+        skipped = repository.begin_retry_operation_checkpoint(
+            retry_task_code,
+            operation["operation_key"],
+            {
+                "claimed_by": "worker-b",
+                "claim_token": second_claim["claim_token"],
+                "lease_version": second_claim["lease_version"],
+                "attempt_id": uuid4(),
+                "operation_fingerprint": operation["operation_fingerprint"],
+            },
+        )
+        assert skipped is not None and skipped["decision"] == "skip"
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE maitu_retry_operation_reconciliations
+                SET resolved_by = 'operator-TAMPERED'
+                WHERE reconciliation_id = %s
+                """,
+                (reconciliation_id,),
+            )
+        connection.commit()
+        with pytest.raises(RetryCheckpointConflictError, match="does not prove"):
+            repository.create_retry_task_execution_result(
+                retry_task_code,
+                {
+                    "retry_execution_id": uuid4(),
+                    "retry_execution_status": "succeeded",
+                    "claimed_by": "worker-b",
+                    "claim_token": second_claim["claim_token"],
+                    "lease_version": second_claim["lease_version"],
+                    "result_summary": "tampered reconciliation receipt must not be accepted",
+                },
+            )
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE maitu_retry_operation_reconciliations
+                SET resolved_by = 'operator-it'
+                WHERE reconciliation_id = %s
+                """,
+                (reconciliation_id,),
+            )
+        connection.commit()
+
+        succeeded = repository.create_retry_task_execution_result(
+            retry_task_code,
+            {
+                "retry_execution_id": uuid4(),
+                "retry_execution_status": "succeeded",
+                "claimed_by": "worker-b",
+                "claim_token": second_claim["claim_token"],
+                "lease_version": second_claim["lease_version"],
+                "result_summary": "reconciliation-backed completion accepted",
+            },
+        )
+        assert succeeded is not None and succeeded["status"] == "succeeded"
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT state, completion_source, completion_reconciliation_id, completed_lease_version,
+                       completion_evidence->>'operation_applied'
+                FROM maitu_retry_operation_checkpoints
+                WHERE retry_task_code = %s AND operation_key = %s
+                """,
+                (retry_task_code, operation["operation_key"]),
+            )
+            assert cursor.fetchone() == ("completed", "reconciliation", reconciliation_id, None, "true")
+            cursor.execute(
+                "SELECT count(*) FROM maitu_retry_operation_reconciliations WHERE reconciliation_id = %s",
+                (reconciliation_id,),
+            )
+            assert cursor.fetchone() == (1,)
+            cursor.execute(
+                "DELETE FROM maitu_retry_operation_reconciliations WHERE retry_task_code = %s",
+                (retry_task_code,),
+            )
+            cursor.execute(
+                "DELETE FROM maitu_retry_execution_receipts WHERE retry_task_code = %s",
+                (retry_task_code,),
+            )
+            cursor.execute(
+                "DELETE FROM maitu_retry_operation_checkpoints WHERE retry_task_code = %s",
+                (retry_task_code,),
+            )
+            cursor.execute("DELETE FROM maitu_execution_retry_tasks WHERE retry_task_code = %s", (retry_task_code,))
         connection.commit()
 
 

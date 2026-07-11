@@ -5,6 +5,7 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 
 from app.api.routes import maitu
 from app.main import app
@@ -24,6 +25,7 @@ class FakeMaituMaterialSlotRepository:
         self.retry_tasks: dict[str, dict[str, Any]] = {}
         self.retry_execution_receipts: dict[str, dict[str, Any]] = {}
         self.retry_operation_checkpoints: dict[tuple[str, str], dict[str, Any]] = {}
+        self.retry_operation_reconciliations: dict[str, dict[str, Any]] = {}
         self.blueprints: dict[str, dict[str, Any]] = {}
         self.template_scenes: dict[str, dict[str, Any]] = {}
         self.template_components: dict[str, list[dict[str, Any]]] = {}
@@ -1459,6 +1461,15 @@ class FakeMaituMaterialSlotRepository:
             "operations": operations,
         }
 
+    def list_retry_operation_checkpoints(self, retry_task_code: str) -> list[dict[str, Any]] | None:
+        if retry_task_code not in self.retry_tasks:
+            return None
+        return [
+            {**checkpoint, "decision": None}
+            for (task_code, _operation_key), checkpoint in sorted(self.retry_operation_checkpoints.items())
+            if task_code == retry_task_code
+        ]
+
     def begin_retry_operation_checkpoint(
         self,
         retry_task_code: str,
@@ -1497,6 +1508,16 @@ class FakeMaituMaterialSlotRepository:
             decision = "execute"
         elif checkpoint["operation_fingerprint"] != operation["operation_fingerprint"]:
             raise RetryCheckpointConflictError("stored checkpoint differs from authoritative intent")
+        elif checkpoint["state"] == "retry_authorized":
+            checkpoint.update(
+                {
+                    "state": "begun",
+                    "attempt_id": str(payload["attempt_id"]),
+                    "begun_by": payload["claimed_by"],
+                    "begun_lease_version": payload["lease_version"],
+                }
+            )
+            decision = "execute"
         elif checkpoint["state"] == "completed":
             decision = "skip"
         elif (
@@ -1550,10 +1571,82 @@ class FakeMaituMaterialSlotRepository:
                 "completion_fingerprint": completion_fingerprint,
                 "completed_by": payload["claimed_by"],
                 "completed_lease_version": payload["lease_version"],
+                "completion_source": "worker",
+                "completion_reconciliation_id": None,
                 "evidence": payload.get("evidence", {}),
             }
         )
         return {**checkpoint, "decision": "skip"}
+
+    def reconcile_retry_operation_checkpoint(
+        self,
+        retry_task_code: str,
+        operation_key: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        task = self.retry_tasks.get(retry_task_code)
+        if task is None:
+            return None
+        MaituMaterialSlotRepository._assert_reconciliation_evidence(payload)
+        result_fingerprint = MaituMaterialSlotRepository._reconciliation_payload_fingerprint(payload)
+        reconciliation_id = str(payload["reconciliation_id"])
+        receipt = self.retry_operation_reconciliations.get(reconciliation_id)
+        if receipt is not None:
+            if (
+                receipt["retry_task_code"] == retry_task_code
+                and receipt["operation_key"] == operation_key
+                and receipt["result_fingerprint"] == result_fingerprint
+            ):
+                return receipt
+            raise RetryCheckpointConflictError("reconciliation_id was reused with different content")
+        if task.get("status") == "in_progress":
+            raise RetryLeaseConflictError("operation reconciliation is forbidden while a worker lease is active")
+        if task.get("status") not in {"pending", "manual_required"}:
+            raise RetryCheckpointConflictError("retry task is not awaiting operation reconciliation")
+        plan = self.get_retry_task_browser_use_operation_plan(retry_task_code) or {}
+        operation = next(
+            (item for item in plan.get("operations", []) if item["operation_key"] == operation_key),
+            None,
+        )
+        checkpoint = self.retry_operation_checkpoints.get((retry_task_code, operation_key))
+        if (
+            operation is None
+            or operation["operation_fingerprint"] != payload["operation_fingerprint"]
+            or checkpoint is None
+            or checkpoint.get("state") != "reconcile_required"
+            or checkpoint.get("operation_fingerprint") != operation["operation_fingerprint"]
+            or checkpoint.get("attempt_id") != str(payload["expected_attempt_id"])
+        ):
+            raise RetryCheckpointConflictError("operation checkpoint is not awaiting authoritative reconciliation")
+        receipt = {
+            **payload,
+            "reconciliation_id": reconciliation_id,
+            "retry_task_code": retry_task_code,
+            "operation_key": operation_key,
+            "reconciled_attempt_id": str(payload["expected_attempt_id"]),
+            "resulting_state": (
+                "completed" if payload["resolution"] == "confirmed_completed" else "retry_authorized"
+            ),
+            "result_fingerprint": result_fingerprint,
+        }
+        self.retry_operation_reconciliations[reconciliation_id] = receipt
+        if payload["resolution"] == "confirmed_completed":
+            checkpoint.update(
+                {
+                    "state": "completed",
+                    "completion_id": reconciliation_id,
+                    "completion_fingerprint": result_fingerprint,
+                    "completed_by": payload["resolved_by"],
+                    "completed_lease_version": None,
+                    "evidence": payload["evidence"],
+                    "completion_source": "reconciliation",
+                    "completion_reconciliation_id": reconciliation_id,
+                }
+            )
+        else:
+            checkpoint.update({"state": "retry_authorized", "evidence": {}})
+        task.update({"status": "pending"})
+        return receipt
 
     def create_retry_task_execution_result(self, retry_task_code: str, payload: dict[str, Any]) -> dict[str, Any] | None:
         MaituMaterialSlotRepository._assert_retry_execution_payload_token_free(payload)
@@ -1590,6 +1683,22 @@ class FakeMaituMaterialSlotRepository:
                     checkpoint.get("evidence", {}),
                     payload["claim_token"],
                 )
+                if checkpoint.get("completion_source") == "reconciliation":
+                    reconciliation = self.retry_operation_reconciliations.get(
+                        str(checkpoint.get("completion_reconciliation_id"))
+                    )
+                    if (
+                        reconciliation is None
+                        or reconciliation.get("retry_task_code") != retry_task_code
+                        or reconciliation.get("operation_key") != operation_key
+                        or reconciliation.get("reconciled_attempt_id") != checkpoint.get("attempt_id")
+                        or reconciliation.get("resolution") != "confirmed_completed"
+                        or reconciliation.get("resulting_state") != "completed"
+                        or reconciliation.get("evidence") != checkpoint.get("evidence")
+                    ):
+                        raise RetryCheckpointConflictError("reconciliation receipt does not prove checkpoint completion")
+                elif checkpoint.get("completion_source") != "worker":
+                    raise RetryCheckpointConflictError("checkpoint completion source is missing or unsupported")
         else:
             for (task_code, _operation_key), checkpoint in self.retry_operation_checkpoints.items():
                 if (
@@ -1804,7 +1913,9 @@ def repository() -> FakeMaituMaterialSlotRepository:
 
 
 @pytest.fixture
-def client(repository: FakeMaituMaterialSlotRepository) -> TestClient:
+def client(repository: FakeMaituMaterialSlotRepository, monkeypatch: pytest.MonkeyPatch) -> TestClient:
+    monkeypatch.setattr(maitu.settings, "maitu_reconciliation_operator_token", SecretStr("test-only-operator-key"))
+    monkeypatch.setattr(maitu.settings, "maitu_reconciliation_operator_id", "test-operator")
     app.dependency_overrides[maitu.get_maitu_slot_repository] = lambda: repository
     with TestClient(app) as test_client:
         yield test_client
@@ -3411,6 +3522,164 @@ def test_active_retry_lease_freezes_slot_and_explicit_release_requires_reconcili
     )
     assert reconcile.status_code == 200
     assert reconcile.json()["decision"] == "reconcile"
+
+
+def test_retry_operation_reconciliation_is_audited_idempotent_and_one_shot(client: TestClient) -> None:
+    retry_task = _create_retry_task(client, plan_name="reconciliation route plan")
+    claimed = _claim_retry_task(client)
+    operation = client.get(
+        f"/api/maitu/retry-tasks/{retry_task['retry_task_code']}/browser-use-operations"
+    ).json()["operations"][0]
+    checkpoint_path = (
+        f"/api/maitu/retry-tasks/{retry_task['retry_task_code']}"
+        f"/operations/{operation['operation_key']}"
+    )
+    begin_payload = {
+        **_lease_payload(claimed),
+        "attempt_id": "87715675-af7c-4b75-9d4c-14f9c45e20f4",
+        "operation_fingerprint": operation["operation_fingerprint"],
+    }
+    assert client.post(f"{checkpoint_path}/begin", json=begin_payload).status_code == 200
+
+    reconciliation_payload = {
+        "reconciliation_id": "d8f7a0e1-6c2e-4fd0-86e0-9999d0010001",
+        "expected_attempt_id": begin_payload["attempt_id"],
+        "operation_fingerprint": operation["operation_fingerprint"],
+        "resolution": "confirmed_not_applied",
+        "resolution_summary": "麦兔权威读回确认该操作未生效",
+        "evidence": {"verified": True, "operation_applied": False, "readback": "layer unchanged"},
+    }
+    operator_headers = {"Authorization": "Bearer test-only-operator-key"}
+    assert client.post(f"{checkpoint_path}/reconcile", json=reconciliation_payload).status_code == 401
+    assert client.post(
+        f"{checkpoint_path}/reconcile",
+        json=reconciliation_payload,
+        headers=operator_headers,
+    ).status_code == 409
+    assert client.post(
+        f"/api/maitu/retry-tasks/{retry_task['retry_task_code']}/release",
+        json={**_lease_payload(claimed), "status": "pending"},
+    ).status_code == 200
+    audit_path = f"/api/maitu/retry-tasks/{retry_task['retry_task_code']}/operation-checkpoints"
+    assert client.get(audit_path).status_code == 401
+    checkpoint_audit = client.get(audit_path, headers=operator_headers)
+    assert checkpoint_audit.status_code == 200
+    assert checkpoint_audit.json()[0]["state"] == "reconcile_required"
+    reconciliation_payload["expected_attempt_id"] = checkpoint_audit.json()[0]["attempt_id"]
+
+    reflected_bearer = "Bearer reflected-" + "x" * 32
+    bearer_rejection = client.post(
+        f"{checkpoint_path}/reconcile",
+        json={
+            **reconciliation_payload,
+            "evidence": {
+                **reconciliation_payload["evidence"],
+                "readback": reflected_bearer,
+            },
+        },
+        headers=operator_headers,
+    )
+    assert bearer_rejection.status_code == 422
+    assert reflected_bearer not in bearer_rejection.text
+
+    reflected_provider_token = "github_pat_" + "x" * 32
+    provider_rejection = client.post(
+        f"{checkpoint_path}/reconcile",
+        json={
+            **reconciliation_payload,
+            "evidence": {
+                **reconciliation_payload["evidence"],
+                "readback": reflected_provider_token,
+            },
+        },
+        headers=operator_headers,
+    )
+    assert provider_rejection.status_code == 422
+    assert reflected_provider_token not in provider_rejection.text
+
+    reflected_extra_key = "github_pat_" + "y" * 32
+    extra_key_rejection = client.post(
+        f"{checkpoint_path}/reconcile",
+        json={
+            **reconciliation_payload,
+            reflected_extra_key: "must-not-reflect",
+        },
+        headers=operator_headers,
+    )
+    assert extra_key_rejection.status_code == 422
+    assert reflected_extra_key not in extra_key_rejection.text
+
+    secret_payloads = [
+        {**reconciliation_payload, "resolution_summary": "test-only-operator-key"},
+        {
+            **reconciliation_payload,
+            "evidence": {
+                **reconciliation_payload["evidence"],
+                "readback": "value includes test-only-operator-key",
+            },
+        },
+        {
+            **reconciliation_payload,
+            "evidence": {
+                **reconciliation_payload["evidence"],
+                "test-only-operator-key": "must-not-persist",
+            },
+        },
+    ]
+    for secret_payload in secret_payloads:
+        rejected = client.post(
+            f"{checkpoint_path}/reconcile",
+            json=secret_payload,
+            headers=operator_headers,
+        )
+        assert rejected.status_code == 422
+
+    reconciled = client.post(
+        f"{checkpoint_path}/reconcile", json=reconciliation_payload, headers=operator_headers
+    )
+    duplicate = client.post(
+        f"{checkpoint_path}/reconcile", json=reconciliation_payload, headers=operator_headers
+    )
+    assert reconciled.status_code == 200
+    assert duplicate.status_code == 200
+    assert duplicate.json() == reconciled.json()
+    assert reconciled.json()["resolved_by"] == "test-operator"
+    assert "claim_token" not in json.dumps(reconciled.json())
+    conflict = client.post(
+        f"{checkpoint_path}/reconcile",
+        json={**reconciliation_payload, "resolution_summary": "different content"},
+        headers=operator_headers,
+    )
+    assert conflict.status_code == 409
+
+    reclaimed = _claim_retry_task(client)
+    retry_begin = client.post(
+        f"{checkpoint_path}/begin",
+        json={
+            **_lease_payload(reclaimed),
+            "attempt_id": "98826786-af7c-4b75-9d4c-14f9c45e20f4",
+            "operation_fingerprint": operation["operation_fingerprint"],
+        },
+    )
+    assert retry_begin.status_code == 200
+    assert retry_begin.json()["decision"] == "execute"
+    second_attempt = client.post(
+        f"{checkpoint_path}/reconcile", json=reconciliation_payload, headers=operator_headers
+    )
+    assert second_attempt.status_code == 200
+    assert client.post(
+        f"/api/maitu/retry-tasks/{retry_task['retry_task_code']}/release",
+        json={**_lease_payload(reclaimed), "status": "pending"},
+    ).status_code == 200
+    stale_attempt = client.post(
+        f"{checkpoint_path}/reconcile",
+        json={
+            **reconciliation_payload,
+            "reconciliation_id": "e9f8b1f2-7d3f-4ae1-97f1-9999d0010002",
+        },
+        headers=operator_headers,
+    )
+    assert stale_attempt.status_code == 409
 
 
 def test_retry_task_execution_result_is_owned_and_idempotent(client: TestClient) -> None:

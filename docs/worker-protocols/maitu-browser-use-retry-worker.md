@@ -308,6 +308,44 @@ Complete 未获得确定响应时，最多重试 3 次并复用同一 `completio
 
 Checkpoint 表不保存 `claim_token`。completion evidence 必须是 `verified=true` 的权威 readback；Backend、Worker 与数据库约束共同拒绝未验证 evidence。Evidence 递归拒绝大小写/分隔符变体的 credential key（例如 authorization、各类 token、cookie、password、secret），并拒绝任意字符串位置包含当前 claim token。Execution-result 的摘要、错误、重试说明及其他持久字段同样不得包含当前 claim token，receipt 写入前会再次递归检查。终态 `succeeded` 只有在当前 authoritative operation keys/fingerprints 全部存在安全、已验证的 `completed` checkpoint 时才允许写入。活动 retry lease 期间，关联 slot 的 PATCH/DELETE 会返回 409，以冻结跨外部副作用窗口的 authoritative intent。
 
+### 人工 Reconciliation（Phase 6C-B）
+
+`reconcile_required` 不能靠普通重试清除。操作员必须先确保 retry task 没有活动 worker lease，再使用同一 operator credential 读取：
+
+```http
+GET /api/maitu/retry-tasks/{retry_task_code}/operation-checkpoints
+```
+
+从响应取得当前 `reconcile_required` 项的 exact `operation_key`、`operation_fingerprint` 和 `attempt_id`，随后根据麦兔权威读回提交：
+
+```http
+POST /api/maitu/retry-tasks/{retry_task_code}/operations/{operation_key}/reconcile
+```
+
+```json
+{
+  "reconciliation_id": "d8f7a0e1-6c2e-4fd0-86e0-9999d0010001",
+  "expected_attempt_id": "87715675-af7c-4b75-9d4c-14f9c45e20f4",
+  "operation_fingerprint": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "resolution": "confirmed_not_applied",
+  "resolution_summary": "麦兔权威读回确认目标图层仍为旧素材",
+  "evidence": {
+    "verified": true,
+    "operation_applied": false,
+    "observed_material_id": 41042
+  }
+}
+```
+
+- `/reconcile` 必须携带后端配置的 operator Bearer credential；`resolved_by` 由服务端认证配置生成，客户端不能自报身份。后端通过 `MAITU_RECONCILIATION_OPERATOR_TOKEN` 和 `MAITU_RECONCILIATION_OPERATOR_ID` 配置；未配置 token 时接口返回 503。
+- `expected_attempt_id` 必须与当前 `reconcile_required` checkpoint 的 attempt 完全一致；旧人工页面不能解析后续同 fingerprint 的新 attempt。
+- `confirmed_completed` 必须带 `operation_applied=true`，checkpoint 进入 `completed`；下一 claim 的 begin 返回 `skip`。
+- `confirmed_not_applied` 必须带 `operation_applied=false`，checkpoint 进入一次性的 `retry_authorized`；下一 claim 的 begin 在同一事务中把它消费为 `begun` 并返回 `execute`。
+- 两种结果都把 task 恢复为 `pending`，让 Worker 继续其余显式 operation。
+- reconciliation 只接受当前 authoritative fingerprint，活动 lease、错误状态、未验证或含 credential 的 evidence 均返回冲突或校验失败。`resolution_summary` 与 evidence 的所有嵌套键和值同样禁止配置中的 operator secret、Bearer、常见及现代 provider token（含 `sk-proj-*`、`github_pat_*`、`hf_*`），以及 canonical/compact UUID 形态的 claim token（即使与其他字符拼接仍按子串拒绝）；敏感语义键名仍递归拒绝。请求校验失败的 422 响应只保留错误类型、顶层来源（如 `body/query/path`）和固定消息；Pydantic 的原始 `input`/`ctx`、用户控制的字段路径与消息都不会回显。
+- 重试请求必须复用同一 `reconciliation_id` 和完全相同 payload；同 ID 同内容幂等返回，同 ID 异内容冲突。
+- reconciliation receipt 与 checkpoint 都不保存 `claim_token`。
+
 ---
 
 ## 8. 成功回写

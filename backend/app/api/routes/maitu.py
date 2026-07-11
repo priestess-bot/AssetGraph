@@ -1,11 +1,13 @@
+import hmac
 from typing import Annotated, Callable
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from psycopg import Connection
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.secret_hygiene import contains_durable_secret
 from app.repositories.maitu import (
     MaituMaterialSlotRepository,
     RetryCheckpointConflictError,
@@ -66,6 +68,8 @@ from app.schemas.maitu import (
     MaituRetryOperationCheckpointBeginCreate,
     MaituRetryOperationCheckpointCompleteCreate,
     MaituRetryOperationCheckpointRead,
+    MaituRetryOperationReconciliationCreate,
+    MaituRetryOperationReconciliationRead,
     MaituRetryQueueClaimNextCreate,
     MaituRetryQueueItemRead,
     MaituRetryQueueReclaimExpiredResponse,
@@ -84,6 +88,50 @@ router = APIRouter(prefix="/maitu", tags=["maitu"])
 
 def get_maitu_slot_repository(connection: Annotated[Connection, Depends(get_db)]) -> MaituMaterialSlotRepository:
     return MaituMaterialSlotRepository(connection)
+
+
+def require_maitu_reconciliation_operator(
+    authorization: Annotated[str | None, Header()] = None,
+) -> str:
+    configured = settings.maitu_reconciliation_operator_token
+    if configured is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Maitu reconciliation operator authentication is not configured",
+        )
+    scheme, separator, supplied = (authorization or "").partition(" ")
+    if separator != " " or scheme.lower() != "bearer" or not supplied:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Operator authentication required")
+    if not hmac.compare_digest(supplied, configured.get_secret_value()):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Operator authentication failed")
+    operator_id = settings.maitu_reconciliation_operator_id.strip()
+    if not operator_id:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Maitu reconciliation operator identity is not configured",
+        )
+    return operator_id
+
+
+def reject_reconciliation_operator_secret(payload: MaituRetryOperationReconciliationCreate) -> None:
+    configured = settings.maitu_reconciliation_operator_token
+    if configured is None:  # pragma: no cover - authentication dependency rejects this first
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Maitu reconciliation operator authentication is not configured",
+        )
+    operator_secret = configured.get_secret_value()
+    if contains_durable_secret(
+        {
+            "resolution_summary": payload.resolution_summary,
+            "evidence": payload.evidence,
+        },
+        forbidden_values=(operator_secret,),
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Reconciliation durable fields must not contain operator credentials",
+        )
 
 
 def get_slot_asset_retrieval_index_factory() -> Callable[[], AssetRetrievalIndex]:
@@ -923,6 +971,21 @@ def get_retry_task_browser_use_operations(
     return row
 
 
+@router.get(
+    "/retry-tasks/{retry_task_code}/operation-checkpoints",
+    response_model=list[MaituRetryOperationCheckpointRead],
+)
+def list_retry_operation_checkpoints(
+    retry_task_code: str,
+    repository: Annotated[MaituMaterialSlotRepository, Depends(get_maitu_slot_repository)],
+    _resolved_by: Annotated[str, Depends(require_maitu_reconciliation_operator)],
+) -> list[dict]:
+    rows = repository.list_retry_operation_checkpoints(retry_task_code)
+    if rows is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Maitu retry task not found")
+    return rows
+
+
 @router.post(
     "/retry-tasks/{retry_task_code}/operations/{operation_key}/begin",
     response_model=MaituRetryOperationCheckpointRead,
@@ -963,6 +1026,35 @@ def complete_retry_operation_checkpoint(
             retry_task_code,
             operation_key,
             payload.model_dump(),
+        )
+    except RetryCheckpointConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Retry checkpoint conflict: {exc}") from exc
+    except RetryLeaseConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Retry lease conflict: {exc}") from exc
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Maitu retry task not found")
+    return row
+
+
+@router.post(
+    "/retry-tasks/{retry_task_code}/operations/{operation_key}/reconcile",
+    response_model=MaituRetryOperationReconciliationRead,
+)
+def reconcile_retry_operation_checkpoint(
+    retry_task_code: str,
+    operation_key: str,
+    payload: MaituRetryOperationReconciliationCreate,
+    repository: Annotated[MaituMaterialSlotRepository, Depends(get_maitu_slot_repository)],
+    resolved_by: Annotated[str, Depends(require_maitu_reconciliation_operator)],
+) -> dict:
+    try:
+        reject_reconciliation_operator_secret(payload)
+        reconciliation_payload = payload.model_dump()
+        reconciliation_payload["resolved_by"] = resolved_by
+        row = repository.reconcile_retry_operation_checkpoint(
+            retry_task_code,
+            operation_key,
+            reconciliation_payload,
         )
     except RetryCheckpointConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Retry checkpoint conflict: {exc}") from exc

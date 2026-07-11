@@ -1,3 +1,4 @@
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -18,6 +19,8 @@ class Settings(BaseSettings):
     qwen3_rerank_model: str = "qwen3-reranker-4b-local"
     qwen3_embedding_dimensions: int = 1024
     qwen3_timeout_seconds: float = 600.0
+    maitu_reconciliation_operator_token: SecretStr | None = None
+    maitu_reconciliation_operator_id: str = "configured-maitu-operator"
     asset_retrieval_documents_path: str = "docs/asset-numbering/asset_retrieval_documents_20260709.jsonl"
     asset_retrieval_embeddings_path: str = "docs/asset-numbering/asset_retrieval_embeddings_20260709.jsonl"
 

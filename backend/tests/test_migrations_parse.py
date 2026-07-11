@@ -134,3 +134,20 @@ def test_maitu_retry_operation_checkpoint_migration_is_replayable_and_token_free
     assert "chk_maitu_retry_checkpoint_verified_evidence" in sql
     assert "completion_evidence @> '{\"verified\": true}'::jsonb" in sql
     assert "claim_token" not in sql
+
+
+def test_maitu_retry_operation_reconciliation_migration_is_replayable_and_audited() -> None:
+    migration = MIGRATIONS_DIR / "018_maitu_retry_operation_reconciliation.sql"
+
+    assert migration.exists()
+    sql = migration.read_text(encoding="utf-8")
+    assert "retry_authorized" in sql
+    assert "CREATE TABLE IF NOT EXISTS maitu_retry_operation_reconciliations" in sql
+    assert "reconciliation_id UUID PRIMARY KEY" in sql
+    assert "reconciled_attempt_id UUID NOT NULL" in sql
+    assert "UNIQUE (retry_task_code, operation_key, reconciled_attempt_id)" in sql
+    assert "resulting_state VARCHAR(32) NOT NULL" in sql
+    assert "confirmed_completed" in sql
+    assert "confirmed_not_applied" in sql
+    assert "operation_applied" in sql
+    assert "claim_token" not in sql

@@ -158,10 +158,19 @@ class MaituBrowserUseExecutor:
                     skipped += 1
                     continue
                 if decision == "reconcile":
+                    retry_task_code = operation_plan["retry_task_code"]
+                    operation_key = operation["operation_key"]
+                    reconciliation_path = (
+                        f"/api/maitu/retry-tasks/{retry_task_code}/operations/{operation_key}/reconcile"
+                    )
                     raise MaituBrowserExecutionError(
-                        f"Operation checkpoint requires reconciliation: {operation.get('operation_key')}",
+                        f"Operation checkpoint requires reconciliation: {operation_key}",
                         retryable=False,
-                        retry_instruction="Reconcile the stored operation fingerprint/evidence before retrying.",
+                        retry_instruction=(
+                            "Perform authoritative Maitu readback, then POST "
+                            f"{reconciliation_path} with confirmed_completed or confirmed_not_applied evidence "
+                            "before retrying."
+                        ),
                     )
                 if decision != "execute":
                     raise MaituBrowserExecutionError(

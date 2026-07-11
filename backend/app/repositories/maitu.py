@@ -12,6 +12,7 @@ from psycopg import Connection
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
+from app.core.secret_hygiene import contains_durable_secret
 from app.services.code_generator import (
     BusinessObjectType,
     format_jd_live_metric_session_code,
@@ -1849,6 +1850,30 @@ class MaituMaterialSlotRepository:
             "operations": operations,
         }
 
+    def list_retry_operation_checkpoints(self, retry_task_code: str) -> list[dict[str, Any]] | None:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT retry_task_code
+                FROM maitu_execution_retry_tasks
+                WHERE retry_task_code = %s AND deleted_at IS NULL
+                """,
+                (retry_task_code,),
+            )
+            if cursor.fetchone() is None:
+                return None
+            cursor.execute(
+                """
+                SELECT *
+                FROM maitu_retry_operation_checkpoints
+                WHERE retry_task_code = %s
+                ORDER BY operation_key
+                """,
+                (retry_task_code,),
+            )
+            checkpoints = cursor.fetchall()
+        return [self._normalize_retry_checkpoint(checkpoint, None) for checkpoint in checkpoints]
+
     def begin_retry_operation_checkpoint(
         self,
         retry_task_code: str,
@@ -1903,7 +1928,30 @@ class MaituMaterialSlotRepository:
                 if checkpoint["operation_fingerprint"] != operation["operation_fingerprint"]:
                     self.connection.rollback()
                     raise RetryCheckpointConflictError("stored checkpoint fingerprint differs from authoritative intent")
-                if checkpoint["state"] == "completed":
+                if checkpoint["state"] == "retry_authorized":
+                    cursor.execute(
+                        """
+                        UPDATE maitu_retry_operation_checkpoints
+                        SET state = 'begun', attempt_id = %s, begun_by = %s,
+                            begun_lease_version = %s, begun_at = now(), updated_at = now()
+                        WHERE retry_task_code = %s AND operation_key = %s
+                            AND state = 'retry_authorized'
+                        RETURNING *
+                        """,
+                        (
+                            payload["attempt_id"],
+                            payload["claimed_by"],
+                            payload["lease_version"],
+                            retry_task_code,
+                            operation_key,
+                        ),
+                    )
+                    checkpoint = cursor.fetchone()
+                    if checkpoint is None:
+                        self.connection.rollback()
+                        raise RetryCheckpointConflictError("retry authorization was consumed concurrently")
+                    decision = "execute"
+                elif checkpoint["state"] == "completed":
                     self._assert_verified_secret_free_evidence(
                         checkpoint.get("completion_evidence") or {},
                         payload["claim_token"],
@@ -1993,7 +2041,8 @@ class MaituMaterialSlotRepository:
                 UPDATE maitu_retry_operation_checkpoints
                 SET state = 'completed', completion_id = %s, completion_fingerprint = %s,
                     completion_summary = %s, completed_by = %s, completed_lease_version = %s,
-                    completion_evidence = %s, completed_at = now(), updated_at = now()
+                    completion_evidence = %s, completion_source = 'worker',
+                    completion_reconciliation_id = NULL, completed_at = now(), updated_at = now()
                 WHERE retry_task_code = %s AND operation_key = %s
                     AND state = 'begun' AND attempt_id = %s
                     AND begun_by = %s AND begun_lease_version = %s
@@ -2020,6 +2069,193 @@ class MaituMaterialSlotRepository:
 
         self.connection.commit()
         return self._normalize_retry_checkpoint(checkpoint, "skip")
+
+    def reconcile_retry_operation_checkpoint(
+        self,
+        retry_task_code: str,
+        operation_key: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        self._assert_reconciliation_evidence(payload)
+        result_fingerprint = self._reconciliation_payload_fingerprint(payload)
+        reconciliation_id = payload["reconciliation_id"]
+
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            task = self._lock_retry_task_for_checkpoint(cursor, retry_task_code)
+            if task is None:
+                self.connection.commit()
+                return None
+
+            cursor.execute(
+                """
+                SELECT *
+                FROM maitu_retry_operation_reconciliations
+                WHERE reconciliation_id = %s
+                """,
+                (reconciliation_id,),
+            )
+            receipt = cursor.fetchone()
+            if receipt is not None:
+                stored_result_fingerprint = self._reconciliation_receipt_fingerprint(receipt)
+                if (
+                    receipt["retry_task_code"] == retry_task_code
+                    and receipt["operation_key"] == operation_key
+                    and stored_result_fingerprint is not None
+                    and receipt["result_fingerprint"] == stored_result_fingerprint
+                    and receipt["result_fingerprint"] == result_fingerprint
+                ):
+                    self.connection.commit()
+                    return self._normalize_retry_reconciliation(receipt)
+                self.connection.rollback()
+                raise RetryCheckpointConflictError("reconciliation_id was reused with different content")
+
+            if task.get("status") == "in_progress":
+                self.connection.rollback()
+                raise RetryLeaseConflictError("operation reconciliation is forbidden while a worker lease is active")
+            if task.get("status") not in {"pending", "manual_required", "failed"}:
+                self.connection.rollback()
+                raise RetryCheckpointConflictError("retry task is not awaiting operation reconciliation")
+
+            operation = self._find_authoritative_retry_operation(cursor, task, operation_key)
+            if operation["operation_fingerprint"] != payload["operation_fingerprint"]:
+                self.connection.rollback()
+                raise RetryCheckpointConflictError("operation fingerprint differs from authoritative intent")
+
+            cursor.execute(
+                """
+                SELECT *
+                FROM maitu_retry_operation_checkpoints
+                WHERE retry_task_code = %s AND operation_key = %s
+                FOR UPDATE
+                """,
+                (retry_task_code, operation_key),
+            )
+            checkpoint = cursor.fetchone()
+            if checkpoint is None or checkpoint.get("state") != "reconcile_required":
+                self.connection.rollback()
+                raise RetryCheckpointConflictError("operation checkpoint is not awaiting reconciliation")
+            if checkpoint["operation_fingerprint"] != operation["operation_fingerprint"]:
+                self.connection.rollback()
+                raise RetryCheckpointConflictError("stored checkpoint fingerprint differs from authoritative intent")
+            if UUID(str(checkpoint["attempt_id"])) != UUID(str(payload["expected_attempt_id"])):
+                self.connection.rollback()
+                raise RetryCheckpointConflictError("reconciliation targets a stale operation attempt")
+
+            resulting_state = (
+                "completed" if payload["resolution"] == "confirmed_completed" else "retry_authorized"
+            )
+            cursor.execute(
+                """
+                INSERT INTO maitu_retry_operation_reconciliations (
+                    reconciliation_id, retry_task_code, operation_key, reconciled_attempt_id,
+                    operation_fingerprint, resolution, resulting_state, resolved_by,
+                    resolution_summary, evidence, result_fingerprint
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT DO NOTHING
+                RETURNING *
+                """,
+                (
+                    reconciliation_id,
+                    retry_task_code,
+                    operation_key,
+                    payload["expected_attempt_id"],
+                    operation["operation_fingerprint"],
+                    payload["resolution"],
+                    resulting_state,
+                    payload["resolved_by"],
+                    payload["resolution_summary"],
+                    Jsonb(payload["evidence"]),
+                    result_fingerprint,
+                ),
+            )
+            receipt = cursor.fetchone()
+            if receipt is None:
+                cursor.execute(
+                    "SELECT * FROM maitu_retry_operation_reconciliations WHERE reconciliation_id = %s",
+                    (reconciliation_id,),
+                )
+                receipt = cursor.fetchone()
+                stored_result_fingerprint = self._reconciliation_receipt_fingerprint(receipt or {})
+                if receipt is not None and (
+                    receipt["retry_task_code"] == retry_task_code
+                    and receipt["operation_key"] == operation_key
+                    and stored_result_fingerprint is not None
+                    and receipt["result_fingerprint"] == stored_result_fingerprint
+                    and receipt["result_fingerprint"] == result_fingerprint
+                ):
+                    self.connection.commit()
+                    return self._normalize_retry_reconciliation(receipt)
+                self.connection.rollback()
+                raise RetryCheckpointConflictError("reconciliation_id was reused with different content")
+
+            if payload["resolution"] == "confirmed_completed":
+                cursor.execute(
+                    """
+                    UPDATE maitu_retry_operation_checkpoints
+                    SET state = 'completed', completion_id = %s, completion_fingerprint = %s,
+                        completion_summary = %s, completed_by = %s, completed_lease_version = NULL,
+                        completion_evidence = %s, completion_source = 'reconciliation',
+                        completion_reconciliation_id = %s, completed_at = now(), updated_at = now()
+                    WHERE retry_task_code = %s AND operation_key = %s
+                        AND state = 'reconcile_required' AND attempt_id = %s
+                        AND operation_fingerprint = %s
+                    RETURNING retry_task_code
+                    """,
+                    (
+                        reconciliation_id,
+                        result_fingerprint,
+                        payload["resolution_summary"],
+                        payload["resolved_by"],
+                        Jsonb(payload["evidence"]),
+                        reconciliation_id,
+                        retry_task_code,
+                        operation_key,
+                        payload["expected_attempt_id"],
+                        operation["operation_fingerprint"],
+                    ),
+                )
+            else:
+                cursor.execute(
+                    """
+                    UPDATE maitu_retry_operation_checkpoints
+                    SET state = 'retry_authorized', completion_id = NULL, completion_fingerprint = NULL,
+                        completion_summary = NULL, completed_by = NULL, completed_lease_version = NULL,
+                        completion_evidence = '{}'::jsonb, completion_source = NULL,
+                        completion_reconciliation_id = NULL, completed_at = NULL, updated_at = now()
+                    WHERE retry_task_code = %s AND operation_key = %s
+                        AND state = 'reconcile_required' AND attempt_id = %s
+                        AND operation_fingerprint = %s
+                    RETURNING retry_task_code
+                    """,
+                    (
+                        retry_task_code,
+                        operation_key,
+                        payload["expected_attempt_id"],
+                        operation["operation_fingerprint"],
+                    ),
+                )
+
+            if cursor.fetchone() is None:
+                self.connection.rollback()
+                raise RetryCheckpointConflictError("checkpoint changed while reconciliation was recorded")
+
+            cursor.execute(
+                """
+                UPDATE maitu_execution_retry_tasks
+                SET status = 'pending', updated_at = now()
+                WHERE retry_task_code = %s AND deleted_at IS NULL
+                    AND status IN ('pending', 'manual_required', 'failed')
+                RETURNING retry_task_code
+                """,
+                (retry_task_code,),
+            )
+            if cursor.fetchone() is None:
+                self.connection.rollback()
+                raise RetryCheckpointConflictError("retry task changed while reconciliation was recorded")
+
+        self.connection.commit()
+        return self._normalize_retry_reconciliation(receipt)
 
     def create_retry_task_execution_result(self, retry_task_code: str, payload: dict[str, Any]) -> dict[str, Any] | None:
         self._assert_retry_execution_payload_token_free(payload)
@@ -2076,7 +2312,10 @@ class MaituMaterialSlotRepository:
             if payload["retry_execution_status"] == "succeeded":
                 cursor.execute(
                     """
-                    SELECT operation_key, operation_fingerprint, state, completion_evidence
+                    SELECT operation_key, operation_fingerprint, state, attempt_id,
+                           completion_id, completion_fingerprint, completion_summary,
+                           completed_by, completion_evidence,
+                           completed_lease_version, completion_source, completion_reconciliation_id
                     FROM maitu_retry_operation_checkpoints
                     WHERE retry_task_code = %s
                     FOR UPDATE
@@ -2100,10 +2339,67 @@ class MaituMaterialSlotRepository:
                         "all authoritative retry operation checkpoints must be completed before success"
                     )
                 for operation_key in sorted(required_keys):
+                    completed_checkpoint = completed_by_key[operation_key]
                     self._assert_verified_secret_free_evidence(
-                        completed_by_key[operation_key].get("completion_evidence") or {},
+                        completed_checkpoint.get("completion_evidence") or {},
                         payload["claim_token"],
                     )
+                    completion_source = completed_checkpoint.get("completion_source")
+                    if completion_source == "worker":
+                        if (
+                            completed_checkpoint.get("completed_lease_version") is None
+                            or completed_checkpoint.get("completion_reconciliation_id") is not None
+                        ):
+                            self.connection.rollback()
+                            raise RetryCheckpointConflictError("worker checkpoint completion source is inconsistent")
+                    elif completion_source == "reconciliation":
+                        reconciliation_id = completed_checkpoint.get("completion_reconciliation_id")
+                        if (
+                            reconciliation_id is None
+                            or completed_checkpoint.get("completed_lease_version") is not None
+                            or UUID(str(completed_checkpoint.get("completion_id"))) != UUID(str(reconciliation_id))
+                        ):
+                            self.connection.rollback()
+                            raise RetryCheckpointConflictError("reconciliation checkpoint completion source is inconsistent")
+                        cursor.execute(
+                            """
+                            SELECT * FROM maitu_retry_operation_reconciliations
+                            WHERE reconciliation_id = %s
+                            """,
+                            (reconciliation_id,),
+                        )
+                        reconciliation = cursor.fetchone()
+                        stored_result_fingerprint = self._reconciliation_receipt_fingerprint(reconciliation or {})
+                        if reconciliation is None or not (
+                            UUID(str(reconciliation["reconciliation_id"])) == UUID(str(reconciliation_id))
+                            and stored_result_fingerprint is not None
+                            and reconciliation["retry_task_code"] == retry_task_code
+                            and reconciliation["operation_key"] == operation_key
+                            and UUID(str(reconciliation["reconciled_attempt_id"]))
+                            == UUID(str(completed_checkpoint["attempt_id"]))
+                            and reconciliation["operation_fingerprint"]
+                            == completed_checkpoint["operation_fingerprint"]
+                            and reconciliation["resolution"] == "confirmed_completed"
+                            and reconciliation["resulting_state"] == "completed"
+                            and reconciliation["result_fingerprint"] == stored_result_fingerprint
+                            and reconciliation["result_fingerprint"]
+                            == completed_checkpoint["completion_fingerprint"]
+                            and reconciliation["resolved_by"] == completed_checkpoint["completed_by"]
+                            and reconciliation["resolution_summary"]
+                            == completed_checkpoint["completion_summary"]
+                            and reconciliation.get("evidence") == completed_checkpoint.get("completion_evidence")
+                        ):
+                            self.connection.rollback()
+                            raise RetryCheckpointConflictError("reconciliation receipt does not prove checkpoint completion")
+                        self._assert_reconciliation_evidence(
+                            {
+                                "resolution": reconciliation["resolution"],
+                                "evidence": reconciliation.get("evidence"),
+                            }
+                        )
+                    else:
+                        self.connection.rollback()
+                        raise RetryCheckpointConflictError("checkpoint completion source is missing or unsupported")
                     authoritative_operation = self._find_authoritative_retry_operation(
                         cursor,
                         task,
@@ -3191,6 +3487,55 @@ class MaituMaterialSlotRepository:
         return operation
 
     @staticmethod
+    def _reconciliation_payload_fingerprint(payload: dict[str, Any]) -> str:
+        durable_payload = {
+            "reconciliation_id": str(UUID(str(payload["reconciliation_id"]))),
+            "expected_attempt_id": str(UUID(str(payload["expected_attempt_id"]))),
+            "operation_fingerprint": payload["operation_fingerprint"],
+            "resolution": payload["resolution"],
+            "resolved_by": payload["resolved_by"],
+            "resolution_summary": payload["resolution_summary"],
+            "evidence": payload["evidence"],
+        }
+        return hashlib.sha256(
+            json.dumps(durable_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+        ).hexdigest()
+
+    @classmethod
+    def _reconciliation_receipt_fingerprint(cls, receipt: dict[str, Any]) -> str | None:
+        try:
+            return cls._reconciliation_payload_fingerprint(
+                {
+                    "reconciliation_id": receipt["reconciliation_id"],
+                    "expected_attempt_id": receipt["reconciled_attempt_id"],
+                    "operation_fingerprint": receipt["operation_fingerprint"],
+                    "resolution": receipt["resolution"],
+                    "resolved_by": receipt["resolved_by"],
+                    "resolution_summary": receipt["resolution_summary"],
+                    "evidence": receipt["evidence"],
+                }
+            )
+        except (KeyError, TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _assert_reconciliation_evidence(payload: dict[str, Any]) -> None:
+        evidence = payload.get("evidence")
+        expected_applied = payload.get("resolution") == "confirmed_completed"
+        if not isinstance(evidence, dict) or evidence.get("verified") is not True:
+            raise RetryCheckpointConflictError("reconciliation evidence must be an authoritative verified readback")
+        if evidence.get("operation_applied") is not expected_applied:
+            raise RetryCheckpointConflictError("reconciliation evidence operation_applied must match resolution")
+
+        if contains_durable_secret(
+            {
+                "resolution_summary": payload.get("resolution_summary"),
+                "evidence": evidence,
+            }
+        ):
+            raise RetryCheckpointConflictError("reconciliation durable fields must not contain credentials")
+
+    @staticmethod
     def _completion_payload_fingerprint(payload: dict[str, Any]) -> str:
         durable_payload = {
             "attempt_id": str(payload["attempt_id"]),
@@ -3862,9 +4207,17 @@ class MaituMaterialSlotRepository:
         return converted
 
     @staticmethod
-    def _normalize_retry_checkpoint(row: dict[str, Any], decision: str) -> dict[str, Any]:
+    def _normalize_retry_reconciliation(row: dict[str, Any]) -> dict[str, Any]:
         converted = dict(row)
-        for field in ("attempt_id", "completion_id"):
+        converted["reconciliation_id"] = str(converted["reconciliation_id"])
+        converted["reconciled_attempt_id"] = str(converted["reconciled_attempt_id"])
+        converted["evidence"] = converted.get("evidence") or {}
+        return converted
+
+    @staticmethod
+    def _normalize_retry_checkpoint(row: dict[str, Any], decision: str | None) -> dict[str, Any]:
+        converted = dict(row)
+        for field in ("attempt_id", "completion_id", "completion_reconciliation_id"):
             if converted.get(field) is not None:
                 converted[field] = str(converted[field])
         converted["evidence"] = converted.pop("completion_evidence", {}) or {}

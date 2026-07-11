@@ -174,6 +174,12 @@ def test_checkpoint_reconcile_returns_manual_required_with_zero_session_mutation
     result = executor.execute_operation_plan(plan(operation()))
 
     assert result.status == "manual_required"
+    assert result.retry_instruction is not None
+    assert (
+        "/api/maitu/retry-tasks/MT-RETRY-20260711-000001/operations/replace-layer-01/reconcile"
+        in result.retry_instruction
+    )
+    assert "confirmed_not_applied" in result.retry_instruction
     assert session.calls == []
     assert controller.calls == [("begin", "replace-layer-01")]
 

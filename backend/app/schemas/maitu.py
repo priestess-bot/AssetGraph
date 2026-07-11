@@ -4,6 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.core.secret_hygiene import contains_durable_secret
 from app.schemas.assets import MaituAssetCategory, MaituReplacementPolicy
 
 
@@ -998,12 +999,55 @@ class MaituRetryOperationCheckpointCompleteCreate(MaituRetryOperationCheckpointB
         return self
 
 
+class MaituRetryOperationReconciliationCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reconciliation_id: UUID
+    expected_attempt_id: UUID
+    operation_fingerprint: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    resolution: Literal["confirmed_completed", "confirmed_not_applied"]
+    resolution_summary: str = Field(min_length=1, max_length=2000)
+    evidence: dict[str, Any]
+
+    @model_validator(mode="after")
+    def require_authoritative_secret_free_evidence(self) -> "MaituRetryOperationReconciliationCreate":
+        expected_applied = self.resolution == "confirmed_completed"
+        if self.evidence.get("verified") is not True:
+            raise ValueError("reconciliation evidence must contain verified=true")
+        if self.evidence.get("operation_applied") is not expected_applied:
+            raise ValueError("reconciliation evidence operation_applied must match resolution")
+
+        if contains_durable_secret(
+            {
+                "resolution_summary": self.resolution_summary,
+                "evidence": self.evidence,
+            }
+        ):
+            raise ValueError("reconciliation durable fields must not contain credentials")
+        return self
+
+
+class MaituRetryOperationReconciliationRead(BaseModel):
+    reconciliation_id: UUID
+    retry_task_code: str
+    operation_key: str
+    reconciled_attempt_id: UUID
+    operation_fingerprint: str
+    resolution: Literal["confirmed_completed", "confirmed_not_applied"]
+    resulting_state: Literal["completed", "retry_authorized"]
+    resolved_by: str
+    resolution_summary: str
+    evidence: dict[str, Any]
+    result_fingerprint: str
+    created_at: datetime | None = None
+
+
 class MaituRetryOperationCheckpointRead(BaseModel):
     retry_task_code: str
     operation_key: str
     operation_fingerprint: str
-    state: Literal["begun", "reconcile_required", "completed"]
-    decision: Literal["execute", "skip", "reconcile"]
+    state: Literal["begun", "reconcile_required", "retry_authorized", "completed"]
+    decision: Literal["execute", "skip", "reconcile"] | None = None
     attempt_id: UUID
     begun_by: str
     begun_lease_version: int
@@ -1012,6 +1056,8 @@ class MaituRetryOperationCheckpointRead(BaseModel):
     result_summary: str | None = None
     completed_by: str | None = None
     completed_lease_version: int | None = None
+    completion_source: Literal["worker", "reconciliation"] | None = None
+    completion_reconciliation_id: UUID | None = None
     evidence: dict[str, Any] = Field(default_factory=dict)
     begun_at: datetime | None = None
     completed_at: datetime | None = None

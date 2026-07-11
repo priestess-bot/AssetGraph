@@ -17,6 +17,7 @@ from app.repositories.maitu import (
 from app.schemas.maitu import (
     MaituRetryOperationCheckpointBeginCreate,
     MaituRetryOperationCheckpointCompleteCreate,
+    MaituRetryOperationReconciliationCreate,
     MaituRetryTaskExecutionResultCreate,
 )
 
@@ -110,6 +111,270 @@ def checkpoint_payload() -> dict[str, Any]:
         "result_summary": "verified completion",
         "evidence": {"verified": True},
     }
+
+
+def reconciliation_payload(*, resolution: str = "confirmed_not_applied") -> dict[str, Any]:
+    return {
+        "reconciliation_id": UUID("d8f7a0e1-6c2e-4fd0-86e0-9999d0010001"),
+        "expected_attempt_id": UUID("aaaaaaaa-0000-4000-8000-000000000001"),
+        "operation_fingerprint": "a" * 64,
+        "resolution": resolution,
+        "resolution_summary": "authoritative browser readback",
+        "evidence": {
+            "verified": True,
+            "operation_applied": resolution == "confirmed_completed",
+        },
+    }
+
+
+@pytest.mark.parametrize("resolution", ["confirmed_completed", "confirmed_not_applied"])
+def test_reconciliation_schema_requires_matching_authoritative_evidence(resolution: str) -> None:
+    payload = reconciliation_payload(resolution=resolution)
+    model = MaituRetryOperationReconciliationCreate(**payload)
+    assert model.evidence["operation_applied"] is (resolution == "confirmed_completed")
+
+    payload["evidence"]["operation_applied"] = not payload["evidence"]["operation_applied"]
+    with pytest.raises(ValidationError, match="operation_applied"):
+        MaituRetryOperationReconciliationCreate(**payload)
+
+
+def test_reconciliation_schema_rejects_secret_evidence() -> None:
+    payload = reconciliation_payload()
+    payload["evidence"]["auth-token"] = "must-not-persist"
+
+    with pytest.raises(ValidationError, match="credentials"):
+        MaituRetryOperationReconciliationCreate(**payload)
+
+
+@pytest.mark.parametrize(
+    ("field", "secret_value"),
+    [
+        ("resolution_summary", "readback contained Bearer operator-secret-value"),
+        ("evidence", "historical claim c1a1d000-0000-4000-8000-000000000001"),
+        ("evidence", "wrapped claim xc1a1d000-0000-4000-8000-000000000001a"),
+        ("evidence", "historical compact claim c1a1d000000040008000000000000001"),
+        ("evidence", "wrapped compact claim xc1a1d000000040008000000000000001a"),
+        ("evidence_key", "c1a1d000-0000-4000-8000-000000000001"),
+        ("evidence", "sk-proj-" + "x" * 32),
+        ("evidence", "github_pat_" + "x" * 32),
+        ("evidence", "hf_" + "x" * 32),
+    ],
+)
+def test_reconciliation_schema_rejects_credential_values_in_durable_text(
+    field: str,
+    secret_value: str,
+) -> None:
+    payload = reconciliation_payload()
+    if field == "resolution_summary":
+        payload[field] = secret_value
+    elif field == "evidence_key":
+        payload["evidence"][secret_value] = "must-not-persist"
+    else:
+        payload["evidence"]["readback"] = secret_value
+
+    with pytest.raises(ValidationError, match="credentials"):
+        MaituRetryOperationReconciliationCreate(**payload)
+
+
+def test_reconciliation_repository_rejects_credential_values_in_durable_text() -> None:
+    payload = {
+        **reconciliation_payload(),
+        "resolved_by": "operator-1",
+        "resolution_summary": "historical claim c1a1d000-0000-4000-8000-000000000001",
+    }
+    repository = MaituMaterialSlotRepository(FakeConnection())  # type: ignore[arg-type]
+
+    with pytest.raises(RetryCheckpointConflictError, match="credentials"):
+        repository.reconcile_retry_operation_checkpoint(
+            "MT-RETRY-20260710-000001",
+            "primary",
+            payload,
+        )
+
+
+def test_reconciliation_repository_rejects_claim_token_in_evidence_key() -> None:
+    payload = {
+        **reconciliation_payload(),
+        "resolved_by": "operator-1",
+    }
+    payload["evidence"]["c1a1d000-0000-4000-8000-000000000001"] = "must-not-persist"
+    repository = MaituMaterialSlotRepository(FakeConnection())  # type: ignore[arg-type]
+
+    with pytest.raises(RetryCheckpointConflictError, match="credentials"):
+        repository.reconcile_retry_operation_checkpoint(
+            "MT-RETRY-20260710-000001",
+            "primary",
+            payload,
+        )
+
+
+@pytest.mark.parametrize(
+    "provider_token",
+    [
+        "sk-proj-" + "x" * 32,
+        "github_pat_" + "x" * 32,
+        "hf_" + "x" * 32,
+    ],
+)
+def test_reconciliation_repository_rejects_modern_provider_token(provider_token: str) -> None:
+    payload = {
+        **reconciliation_payload(),
+        "resolved_by": "operator-1",
+    }
+    payload["evidence"]["readback"] = provider_token
+    repository = MaituMaterialSlotRepository(FakeConnection())  # type: ignore[arg-type]
+
+    with pytest.raises(RetryCheckpointConflictError, match="credentials"):
+        repository.reconcile_retry_operation_checkpoint(
+            "MT-RETRY-20260710-000001",
+            "primary",
+            payload,
+        )
+
+
+def test_reconciliation_rejects_active_worker_lease() -> None:
+    connection = FakeConnection(fetchone_results=[task_row(), None])
+    repository = MaituMaterialSlotRepository(connection)  # type: ignore[arg-type]
+
+    with pytest.raises(RetryLeaseConflictError, match="active"):
+        repository.reconcile_retry_operation_checkpoint(
+            "MT-RETRY-20260710-000001",
+            "primary",
+            {**reconciliation_payload(), "resolved_by": "operator-1"},
+        )
+
+    assert connection.rollback_count == 1
+
+
+def test_confirmed_not_applied_reconciliation_authorizes_one_future_attempt() -> None:
+    task = task_row(status="failed")
+    task["failure_type"] = "save_failed"
+    repository = MaituMaterialSlotRepository(FakeConnection())  # type: ignore[arg-type]
+    operation = repository._build_retry_operations(
+        task,
+        {"maitu_project_code": "MT-PROJ-1", "scene_name": None},
+        {},
+        {},
+    )[0]
+    payload = reconciliation_payload()
+    payload["resolved_by"] = "operator-1"
+    payload["operation_fingerprint"] = operation["operation_fingerprint"]
+    checkpoint = {
+        "retry_task_code": task["retry_task_code"],
+        "operation_key": operation["operation_key"],
+        "operation_fingerprint": operation["operation_fingerprint"],
+        "state": "reconcile_required",
+        "attempt_id": UUID("aaaaaaaa-0000-4000-8000-000000000001"),
+    }
+    receipt = {
+        **payload,
+        "retry_task_code": task["retry_task_code"],
+        "operation_key": operation["operation_key"],
+        "reconciled_attempt_id": payload["expected_attempt_id"],
+        "resulting_state": "retry_authorized",
+        "result_fingerprint": "b" * 64,
+    }
+    connection = FakeConnection(
+        fetchone_results=[
+            task,
+            None,
+            {"maitu_project_code": "MT-PROJ-1"},
+            checkpoint,
+            receipt,
+            {"retry_task_code": task["retry_task_code"]},
+            {"retry_task_code": task["retry_task_code"]},
+        ]
+    )
+    repository = MaituMaterialSlotRepository(connection)  # type: ignore[arg-type]
+
+    result = repository.reconcile_retry_operation_checkpoint(
+        task["retry_task_code"],
+        operation["operation_key"],
+        payload,
+    )
+
+    assert result is not None
+    assert result["resolution"] == "confirmed_not_applied"
+    sql = "\n".join(query for query, _values in connection.executed)
+    assert "state = 'retry_authorized'" in sql
+    assert "status = 'pending'" in sql
+    assert "INSERT INTO maitu_retry_operation_reconciliations" in sql
+    assert connection.commit_count == 1
+
+
+def test_duplicate_reconciliation_rejects_receipt_content_tampered_behind_stale_fingerprint() -> None:
+    task = task_row(status="pending")
+    payload = {**reconciliation_payload(), "resolved_by": "operator-1"}
+    result_fingerprint = MaituMaterialSlotRepository._reconciliation_payload_fingerprint(payload)
+    tampered_receipt = {
+        "reconciliation_id": payload["reconciliation_id"],
+        "retry_task_code": task["retry_task_code"],
+        "operation_key": "primary",
+        "reconciled_attempt_id": payload["expected_attempt_id"],
+        "operation_fingerprint": payload["operation_fingerprint"],
+        "resolution": payload["resolution"],
+        "resulting_state": "retry_authorized",
+        "resolved_by": "operator-TAMPERED",
+        "resolution_summary": payload["resolution_summary"],
+        "evidence": payload["evidence"],
+        "result_fingerprint": result_fingerprint,
+    }
+    connection = FakeConnection(fetchone_results=[task, tampered_receipt])
+    repository = MaituMaterialSlotRepository(connection)  # type: ignore[arg-type]
+
+    with pytest.raises(RetryCheckpointConflictError, match="different content"):
+        repository.reconcile_retry_operation_checkpoint(
+            task["retry_task_code"],
+            "primary",
+            payload,
+        )
+
+    assert connection.rollback_count == 1
+    assert connection.commit_count == 0
+
+
+def test_begin_consumes_retry_authorization_under_current_lease() -> None:
+    task = task_row()
+    task["failure_type"] = "save_failed"
+    repository = MaituMaterialSlotRepository(FakeConnection())  # type: ignore[arg-type]
+    operation = repository._build_retry_operations(
+        task,
+        {"maitu_project_code": "MT-PROJ-1", "scene_name": None},
+        {},
+        {},
+    )[0]
+    checkpoint = {
+        "retry_task_code": task["retry_task_code"],
+        "operation_key": operation["operation_key"],
+        "operation_fingerprint": operation["operation_fingerprint"],
+        "state": "retry_authorized",
+        "attempt_id": UUID("aaaaaaaa-0000-4000-8000-000000000001"),
+    }
+    updated = {
+        **checkpoint,
+        "state": "begun",
+        "attempt_id": UUID("bbbbbbbb-0000-4000-8000-000000000001"),
+        "begun_by": "worker-1",
+        "begun_lease_version": 2,
+    }
+    connection = FakeConnection(
+        fetchone_results=[task, {"maitu_project_code": "MT-PROJ-1"}, checkpoint, updated]
+    )
+    repository = MaituMaterialSlotRepository(connection)  # type: ignore[arg-type]
+
+    result = repository.begin_retry_operation_checkpoint(
+        task["retry_task_code"],
+        operation["operation_key"],
+        {
+            **lease_payload(),
+            "attempt_id": updated["attempt_id"],
+            "operation_fingerprint": operation["operation_fingerprint"],
+        },
+    )
+
+    assert result is not None and result["decision"] == "execute"
+    assert "state = 'begun'" in connection.executed[-1][0]
+    assert "state = 'retry_authorized'" in connection.executed[-1][0]
 
 
 def payload_fingerprint(payload: dict[str, Any]) -> str:
@@ -236,12 +501,18 @@ def test_execution_result_updates_task_and_inserts_receipt_in_one_transaction() 
                     "operation_fingerprint": operation_fingerprints["primary"],
                     "state": "completed",
                     "completion_evidence": {"verified": True, "operation_key": "primary"},
+                    "completion_source": "worker",
+                    "completed_lease_version": 2,
+                    "completion_reconciliation_id": None,
                 },
                 {
                     "operation_key": "save_project",
                     "operation_fingerprint": operation_fingerprints["save_project"],
                     "state": "completed",
                     "completion_evidence": {"verified": True, "operation_key": "save_project"},
+                    "completion_source": "worker",
+                    "completed_lease_version": 2,
+                    "completion_reconciliation_id": None,
                 },
             ]
         ],
@@ -264,6 +535,98 @@ def test_execution_result_updates_task_and_inserts_receipt_in_one_transaction() 
     assert "claim_token" not in receipt_values[-1].obj
     assert connection.commit_count == 1
     assert connection.rollback_count == 0
+
+
+def test_success_gate_rejects_reconciliation_receipt_that_does_not_prove_completion() -> None:
+    task = task_row()
+    task["failure_type"] = "save_failed"
+    operation = MaituMaterialSlotRepository._build_retry_operations(task, {}, {}, {})[0]
+    reconciliation_id = UUID("d8f7a0e1-6c2e-4fd0-86e0-9999d0010001")
+    attempt_id = UUID("aaaaaaaa-0000-4000-8000-000000000001")
+    evidence = {"verified": True, "operation_applied": True}
+    checkpoint = {
+        "operation_key": "save_project",
+        "operation_fingerprint": operation["operation_fingerprint"],
+        "state": "completed",
+        "attempt_id": attempt_id,
+        "completion_id": reconciliation_id,
+        "completion_fingerprint": "b" * 64,
+        "completion_evidence": evidence,
+        "completed_lease_version": None,
+        "completion_source": "reconciliation",
+        "completion_reconciliation_id": reconciliation_id,
+    }
+    bad_receipt = {
+        "reconciliation_id": reconciliation_id,
+        "retry_task_code": task["retry_task_code"],
+        "operation_key": "save_project",
+        "reconciled_attempt_id": attempt_id,
+        "operation_fingerprint": operation["operation_fingerprint"],
+        "resolution": "confirmed_not_applied",
+        "resulting_state": "retry_authorized",
+        "result_fingerprint": "b" * 64,
+        "evidence": evidence,
+    }
+    connection = FakeConnection(fetchone_results=[task, None, bad_receipt], fetchall_results=[[checkpoint]])
+    repository = MaituMaterialSlotRepository(connection)  # type: ignore[arg-type]
+
+    with pytest.raises(RetryCheckpointConflictError, match="does not prove"):
+        repository.create_retry_task_execution_result(task["retry_task_code"], result_payload())
+
+    assert connection.rollback_count == 1
+
+
+def test_success_gate_rejects_reconciliation_receipt_identity_tampered_behind_stale_fingerprint() -> None:
+    task = task_row()
+    task["failure_type"] = "save_failed"
+    operation = MaituMaterialSlotRepository._build_retry_operations(task, {}, {}, {})[0]
+    reconciliation_id = UUID("d8f7a0e1-6c2e-4fd0-86e0-9999d0010001")
+    attempt_id = UUID("aaaaaaaa-0000-4000-8000-000000000001")
+    evidence = {"verified": True, "operation_applied": True}
+    reconciliation_payload = {
+        "reconciliation_id": reconciliation_id,
+        "expected_attempt_id": attempt_id,
+        "operation_fingerprint": operation["operation_fingerprint"],
+        "resolution": "confirmed_completed",
+        "resolved_by": "operator-1",
+        "resolution_summary": "authoritative readback confirmed save",
+        "evidence": evidence,
+    }
+    result_fingerprint = MaituMaterialSlotRepository._reconciliation_payload_fingerprint(reconciliation_payload)
+    checkpoint = {
+        "operation_key": "save_project",
+        "operation_fingerprint": operation["operation_fingerprint"],
+        "state": "completed",
+        "attempt_id": attempt_id,
+        "completion_id": reconciliation_id,
+        "completion_fingerprint": result_fingerprint,
+        "completion_summary": reconciliation_payload["resolution_summary"],
+        "completed_by": reconciliation_payload["resolved_by"],
+        "completion_evidence": evidence,
+        "completed_lease_version": None,
+        "completion_source": "reconciliation",
+        "completion_reconciliation_id": reconciliation_id,
+    }
+    tampered_receipt = {
+        "reconciliation_id": reconciliation_id,
+        "retry_task_code": task["retry_task_code"],
+        "operation_key": "save_project",
+        "reconciled_attempt_id": attempt_id,
+        "operation_fingerprint": operation["operation_fingerprint"],
+        "resolution": "confirmed_completed",
+        "resulting_state": "completed",
+        "resolved_by": "operator-TAMPERED",
+        "resolution_summary": reconciliation_payload["resolution_summary"],
+        "result_fingerprint": result_fingerprint,
+        "evidence": evidence,
+    }
+    connection = FakeConnection(fetchone_results=[task, None, tampered_receipt], fetchall_results=[[checkpoint]])
+    repository = MaituMaterialSlotRepository(connection)  # type: ignore[arg-type]
+
+    with pytest.raises(RetryCheckpointConflictError, match="does not prove"):
+        repository.create_retry_task_execution_result(task["retry_task_code"], result_payload())
+
+    assert connection.rollback_count == 1
 
 
 def test_released_execution_result_returns_task_to_pending_without_incrementing_attempt() -> None:
@@ -367,12 +730,18 @@ def test_succeeded_execution_result_rejects_completed_checkpoint_fingerprint_dri
                     "operation_fingerprint": "f" * 64,
                     "state": "completed",
                     "completion_evidence": {"verified": True, "operation_key": "primary"},
+                    "completion_source": "worker",
+                    "completed_lease_version": 2,
+                    "completion_reconciliation_id": None,
                 },
                 {
                     "operation_key": "save_project",
                     "operation_fingerprint": operation_fingerprints["save_project"],
                     "state": "completed",
                     "completion_evidence": {"verified": True, "operation_key": "save_project"},
+                    "completion_source": "worker",
+                    "completed_lease_version": 2,
+                    "completion_reconciliation_id": None,
                 },
             ]
         ],
