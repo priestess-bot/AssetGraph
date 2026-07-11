@@ -658,6 +658,8 @@ class MaituLiveRoomBuildPlanRead(BaseModel):
 
 
 class MaituLiveRoomBuildPlanOperationPlanResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     build_plan_code: str
     blueprint_code: str | None = None
     reference_room_id: str | None = None

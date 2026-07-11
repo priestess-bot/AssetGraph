@@ -684,6 +684,7 @@ class MaituMaterialSlotRepository:
             else raw_plan_details
         )
         return {
+            **plan_details,
             "build_plan_code": plan["build_plan_code"],
             "blueprint_code": plan["blueprint_code"],
             "reference_room_id": blueprint.get("reference_room_id") if blueprint else None,
@@ -695,7 +696,7 @@ class MaituMaterialSlotRepository:
             "executor": plan["executor"],
             "target_app": plan["target_app"],
             "source": plan_details.get("source"),
-            "status": plan_details.get("status") or plan.get("status"),
+            "status": plan.get("status") or plan_details.get("status"),
             "build_mode": plan_details.get("build_mode"),
             "can_execute": plan_details.get("can_execute"),
             "manual_review_required": bool(plan_details.get("manual_review_required", False)),
@@ -4806,12 +4807,172 @@ class MaituMaterialSlotRepository:
             and isinstance(script_layout_operation, dict)
         ):
             operation = dict(script_layout_operation)
-            for key in ("operation_type", "operation_name", "sort_order", "status", "instruction"):
-                operation[key] = converted[key]
-            if converted.get("scene_name") is not None:
-                operation["scene_name"] = converted["scene_name"]
+            direct_db_fields = (
+                "operation_type",
+                "operation_name",
+                "sort_order",
+                "status",
+                "scene_name",
+                "required_category",
+                "accepted_asset_types",
+                "replacement_policy",
+                "script_block_code",
+                "instruction",
+            )
+            for key in direct_db_fields:
+                value = converted.get(key)
+                has_db_value = value is not None and value != []
+                if has_db_value or key in operation:
+                    operation[key] = value
+
+            missing = object()
+
+            def overlay_db_field(db_field: str, canonical_field: str, *alias_fields: str) -> None:
+                db_value = converted.get(db_field)
+                raw_value: Any = missing
+                for field in (canonical_field, *alias_fields):
+                    if field in operation:
+                        if raw_value is missing:
+                            raw_value = operation[field]
+                        operation[field] = db_value
+                if (raw_value is missing and db_value is not None) or (
+                    raw_value is not missing and db_value != raw_value
+                ):
+                    operation[canonical_field] = db_value
+
+            overlay_db_field("selected_asset_title", "selected_asset_title", "asset_title")
+            overlay_db_field(
+                "selected_asset_display_code",
+                "selected_asset_display_code",
+                "asset_display_code",
+            )
+            overlay_db_field(
+                "selected_asset_local_file_code",
+                "selected_asset_local_file_code",
+                "asset_local_file_code",
+            )
+            overlay_db_field(
+                "selected_asset_original_filename",
+                "selected_asset_original_filename",
+                "asset_original_filename",
+            )
+            overlay_db_field(
+                "selected_asset_browser_use_hint",
+                "selected_asset_browser_use_hint",
+                "asset_browser_use_hint",
+            )
+            overlay_db_field("selection_source", "selection_source")
+            db_layer_role = converted.get("layer_role")
+            raw_layer_role = operation.get("layer_role", operation.get("layer_type"))
+            if "layer_role" in operation:
+                operation["layer_role"] = db_layer_role
+            if "layer_type" in operation:
+                operation["layer_type"] = db_layer_role
+            if db_layer_role != raw_layer_role:
+                operation["layer_role"] = db_layer_role
+            db_layer_name = converted.get("layer_name")
+            raw_layer_name = operation.get("layer_name", operation.get("layer_id"))
+            if "layer_name" in operation:
+                operation["layer_name"] = db_layer_name
+            if "layer_id" in operation:
+                operation["layer_id"] = db_layer_name
+            if db_layer_name != raw_layer_name:
+                operation["layer_name"] = db_layer_name
+                operation["layer_id"] = db_layer_name
+            db_asset_code = converted.get("selected_asset_code")
+            raw_asset_code = operation.get("selected_asset_code", operation.get("asset_code"))
+            if "selected_asset_code" in operation:
+                operation["selected_asset_code"] = db_asset_code
+            if "asset_code" in operation:
+                operation["asset_code"] = db_asset_code
+            if db_asset_code != raw_asset_code:
+                operation["selected_asset_code"] = db_asset_code
+                operation["asset_code"] = db_asset_code
+            db_selected_asset_path = converted.get("selected_asset_local_relative_path")
+            raw_selected_asset_path = operation.get(
+                "selected_asset_path",
+                operation.get(
+                    "selected_asset_local_relative_path",
+                    operation.get("asset_local_relative_path"),
+                ),
+            )
+            if "selected_asset_path" in operation:
+                operation["selected_asset_path"] = db_selected_asset_path
+            if "selected_asset_local_relative_path" in operation:
+                operation["selected_asset_local_relative_path"] = db_selected_asset_path
+            if "asset_local_relative_path" in operation:
+                operation["asset_local_relative_path"] = db_selected_asset_path
+            if db_selected_asset_path != raw_selected_asset_path:
+                operation["selected_asset_local_relative_path"] = db_selected_asset_path
+            match_score = converted.get("match_score")
+            if match_score is not None or "match_score" in operation:
+                operation["match_score"] = float(match_score) if isinstance(match_score, Decimal) else match_score
+            match_reasons = list(converted.get("match_reasons") or [])
+            if match_reasons or "match_reasons" in operation:
+                operation["match_reasons"] = match_reasons
+            db_script_content = converted.get("script_block_content")
+            raw_script_content = operation.get("script_block_content", operation.get("script_text"))
+            if "script_block_content" in operation:
+                operation["script_block_content"] = db_script_content
+            if "script_text" in operation:
+                operation["script_text"] = db_script_content
+            if db_script_content != raw_script_content:
+                operation["script_block_content"] = db_script_content
             return operation
-        converted = {**details, **converted}
+        public_fields = {
+            "operation_type",
+            "operation_name",
+            "sort_order",
+            "status",
+            "scene_name",
+            "layer_name",
+            "layer_role",
+            "required_category",
+            "accepted_asset_types",
+            "replacement_policy",
+            "selected_asset_code",
+            "selected_asset_title",
+            "selected_asset_display_code",
+            "selected_asset_local_file_code",
+            "selected_asset_original_filename",
+            "selected_asset_local_relative_path",
+            "selected_asset_browser_use_hint",
+            "match_score",
+            "match_reasons",
+            "selection_source",
+            "script_block_code",
+            "script_block_content",
+            "target_live_room_id",
+            "scene_index",
+            "layer_id",
+            "layer_type",
+            "need_type",
+            "asset_code",
+            "asset_display_code",
+            "asset_local_file_code",
+            "asset_original_filename",
+            "asset_local_relative_path",
+            "asset_browser_use_hint",
+            "material_id",
+            "maitu_material_id",
+            "source_material_type",
+            "source_material_url",
+            "source_cover_url",
+            "speaker_id",
+            "digital_human_image_id",
+            "x",
+            "y",
+            "width",
+            "height",
+            "z_index",
+            "script_text",
+            "blocked_reason",
+            "blocks_execution",
+            "instruction",
+            "details",
+        }
+        converted = {key: value for key, value in converted.items() if key in public_fields}
+        converted["details"] = details
         if converted.get("accepted_asset_types") is None:
             converted["accepted_asset_types"] = []
         if converted.get("match_reasons") is None:

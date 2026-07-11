@@ -103,6 +103,21 @@ def _require_bound_draft_target(operation_plan: dict, requested_live_room_id: st
     return plan_live_room_id
 
 
+def _require_executable_script_layout_plan(operation_plan: dict) -> None:
+    status = str(operation_plan.get("status") or "").strip()
+    blocked_reasons = [str(reason) for reason in (operation_plan.get("blocked_reasons") or []) if str(reason)]
+    can_execute = operation_plan.get("can_execute") is True
+    manual_review_required = operation_plan.get("manual_review_required") is True
+    status_is_executable = status == "ready"
+    if not status_is_executable or not can_execute or manual_review_required or blocked_reasons:
+        reasons = ", ".join(blocked_reasons) if blocked_reasons else "none"
+        raise SystemExit(
+            "Script-layout plan is not executable before material resolution: "
+            f"status={status or 'missing'}, can_execute={can_execute}, "
+            f"manual_review_required={manual_review_required}, blocked_reasons={reasons}"
+        )
+
+
 def _require_bound_live_scene_target(operation_plan: dict, requested_live_room_id: str) -> str:
     raw_plan_live_room_id = operation_plan.get("target_live_room_id")
     plan_live_room_id = str(raw_plan_live_room_id).strip() if raw_plan_live_room_id is not None else ""
@@ -196,6 +211,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     material_resolution: MaituMaterialResolutionResult | None = None
     if args.resolve_maitu_materials:
         source_operation_plan = load_script_layout_operation_plan()
+        _require_executable_script_layout_plan(source_operation_plan)
         if args.script_layout_draft_execute:
             _require_bound_draft_target(source_operation_plan, args.target_live_room_id)
         if args.dry_run:

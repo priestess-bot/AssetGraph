@@ -550,3 +550,87 @@ def test_script_layout_draft_dry_run_refuses_production_execution_result_writeba
 
     assert "simulations must not update production execution state" in str(exc_info.value)
     assert FakeAssetGraphClient.writes == []
+
+
+def test_resolve_maitu_materials_rejects_blocked_plan_before_resolver_side_effects(monkeypatch) -> None:
+    build_plan_code = "MT-BUILD-BLOCKED-000001"
+    operation_plan = {
+        "build_plan_code": build_plan_code,
+        "source": "script_content_layout_build_plan_rule_v1",
+        "status": "blocked_script_quality",
+        "can_execute": False,
+        "manual_review_required": True,
+        "blocked_reasons": ["script_quality_gate_failed"],
+        "operations": [
+            {
+                "operation_type": "insert_asset_layer",
+                "operation_name": "不得上传的素材",
+                "status": "ready",
+                "asset_code": "AG-IMG-BLOCKED",
+            }
+        ],
+    }
+
+    class BlockedPlanClient:
+        def __init__(self, _base_url: str) -> None:
+            pass
+
+        def get_live_room_build_plan_operation_plan(self, requested_code: str) -> dict:
+            assert requested_code == build_plan_code
+            return operation_plan
+
+    class UnexpectedResolver:
+        def __init__(self, **_kwargs) -> None:
+            raise AssertionError("resolver construction is already a forbidden side effect boundary")
+
+    monkeypatch.setattr(worker_main, "AssetGraphClient", BlockedPlanClient, raising=False)
+    monkeypatch.setattr(worker_main, "MaituMaterialResolver", UnexpectedResolver, raising=False)
+
+    with pytest.raises(SystemExit) as exc_info:
+        worker_main.main(
+            [
+                "--build-plan-code",
+                build_plan_code,
+                "--resolve-maitu-materials",
+            ]
+        )
+
+    message = str(exc_info.value)
+    assert "not executable" in message
+    assert "script_quality_gate_failed" in message
+
+
+@pytest.mark.parametrize(
+    ("override", "expected_marker"),
+    [
+        ({"status": "draft"}, "status=draft"),
+        ({"status": "execution_manual_review"}, "status=execution_manual_review"),
+        ({"can_execute": False}, "can_execute=False"),
+        ({"manual_review_required": True}, "manual_review_required=True"),
+        ({"blocked_reasons": ["blocked_by_test"]}, "blocked_by_test"),
+    ],
+)
+def test_script_layout_plan_gate_rejects_each_independent_blocker(override, expected_marker) -> None:
+    operation_plan = {
+        "status": "ready",
+        "can_execute": True,
+        "manual_review_required": False,
+        "blocked_reasons": [],
+        **override,
+    }
+
+    with pytest.raises(SystemExit) as exc_info:
+        worker_main._require_executable_script_layout_plan(operation_plan)
+
+    assert expected_marker in str(exc_info.value)
+
+
+def test_script_layout_plan_gate_accepts_fully_executable_plan() -> None:
+    worker_main._require_executable_script_layout_plan(
+        {
+            "status": "ready",
+            "can_execute": True,
+            "manual_review_required": False,
+            "blocked_reasons": [],
+        }
+    )

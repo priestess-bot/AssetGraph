@@ -50,6 +50,15 @@ class FakeBrowserUseCliSession:
         )
 
 
+def executable_script_layout_gate() -> dict[str, Any]:
+    return {
+        "status": "ready",
+        "can_execute": True,
+        "manual_review_required": False,
+        "blocked_reasons": [],
+    }
+
+
 def test_check_config_rejects_conflicting_execution_mode_before_client_start(monkeypatch) -> None:
     client_started = False
 
@@ -284,6 +293,7 @@ def test_main_resolves_maitu_materials_and_writes_resolved_plan(monkeypatch, cap
     plan_path.write_text(
         json.dumps(
             {
+                **executable_script_layout_gate(),
                 "build_plan_code": "MT-LAYOUT-BUILD-20260710-000001",
                 "operations": [
                     {
@@ -497,7 +507,7 @@ def test_main_rejects_unbound_or_mismatched_real_draft_target_before_resolver_si
 ) -> None:
     started: list[str] = []
     plan_path = tmp_path / "target-gate-plan.json"
-    payload: dict[str, Any] = {"operations": []}
+    payload: dict[str, Any] = {**executable_script_layout_gate(), "operations": []}
     if plan_target is not None:
         payload["target_live_room_id"] = plan_target
     plan_path.write_text(json.dumps(payload), encoding="utf-8")
@@ -580,6 +590,7 @@ def test_main_fail_closes_before_draft_execution_when_material_resolution_is_man
     plan_path.write_text(
         json.dumps(
             {
+                **executable_script_layout_gate(),
                 "target_live_room_id": "50001",
                 "operations": [{"operation_type": "insert_asset_layer", "asset_code": "AG-MISSING"}],
             }
@@ -642,7 +653,13 @@ def test_main_fail_closes_on_nonempty_resolver_issues_even_when_count_is_zero(mo
         "material_resolution_status": "matched_existing_maitu_material",
     }
     plan_path.write_text(
-        json.dumps({"target_live_room_id": "50001", "operations": [resolved_operation]}),
+        json.dumps(
+            {
+                **executable_script_layout_gate(),
+                "target_live_room_id": "50001",
+                "operations": [resolved_operation],
+            }
+        ),
         encoding="utf-8",
     )
     runner_started = False
@@ -700,6 +717,7 @@ def test_main_fail_closes_on_nonempty_resolver_issues_even_when_count_is_zero(mo
 def test_main_fail_closes_when_resolver_claims_resolved_but_binding_is_incomplete(monkeypatch, capsys, tmp_path: Path) -> None:
     plan_path = tmp_path / "plan.json"
     source_plan = {
+        **executable_script_layout_gate(),
         "target_live_room_id": "50001",
         "operations": [
             {"operation_type": "insert_asset_layer", "asset_code": "AG-IMG-1", "layer_type": "product_image"}
@@ -764,6 +782,7 @@ def test_main_fail_closes_when_resolver_claims_resolved_but_binding_is_incomplet
 def test_main_passes_resolved_plan_into_draft_execution(monkeypatch, capsys, tmp_path: Path) -> None:
     plan_path = tmp_path / "plan.json"
     source_plan = {
+        **executable_script_layout_gate(),
         "target_live_room_id": "50002",
         "operations": [{"operation_type": "insert_asset_layer", "asset_code": "AG-IMG-1"}],
     }
