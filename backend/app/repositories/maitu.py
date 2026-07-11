@@ -18,6 +18,13 @@ from app.core.maitu_retry_intent import (
     is_canonical_retry_operation_intent,
 )
 from app.core.secret_hygiene import contains_durable_secret
+from app.services.maitu_asset_taxonomy import (
+    asset_matches_product_identity,
+    asset_matches_required_category,
+    asset_product_identity_mentioned_in_text,
+    product_identity_keywords,
+    required_category_variants,
+)
 from app.services.code_generator import (
     BusinessObjectType,
     format_jd_live_metric_session_code,
@@ -3198,6 +3205,25 @@ class MaituMaterialSlotRepository:
             },
         }
 
+    @staticmethod
+    def _required_category_filter(required_category: str) -> tuple[str, list[Any]]:
+        variant_clauses: list[str] = []
+        values: list[Any] = []
+        for variant in required_category_variants(required_category):
+            clauses = ["maitu_category = %s"]
+            values.append(variant.maitu_category)
+            if variant.maitu_type is not None:
+                clauses.append("maitu_type = %s")
+                values.append(variant.maitu_type)
+            if variant.usages:
+                placeholders = ", ".join(["%s"] * len(variant.usages))
+                clauses.append(f"usage IN ({placeholders})")
+                values.extend(variant.usages)
+            variant_clauses.append(f"({' AND '.join(clauses)})")
+        if not variant_clauses:
+            return "FALSE", []
+        return f"({' OR '.join(variant_clauses)})", values
+
     def select_assets_for_script_asset_need(
         self,
         need: dict[str, Any],
@@ -3205,12 +3231,14 @@ class MaituMaterialSlotRepository:
         *,
         limit: int = 1,
     ) -> list[dict[str, Any]]:
-        required_category = need.get("required_category")
+        required_category = str(need.get("required_category") or "").strip()
         if not required_category:
             return []
+        need = {**need, "required_category": required_category}
         accepted_asset_types = [str(item) for item in (need.get("accepted_asset_types") or []) if str(item) != "TEXT"]
-        where_clauses = ["deleted_at IS NULL", "maitu_category = %s"]
-        values: list[Any] = [required_category]
+        category_clause, category_values = self._required_category_filter(required_category)
+        where_clauses = ["deleted_at IS NULL", category_clause]
+        values: list[Any] = list(category_values)
         if accepted_asset_types:
             placeholders = ", ".join(["%s"] * len(accepted_asset_types))
             where_clauses.append(f"asset_type IN ({placeholders})")
@@ -3233,10 +3261,18 @@ class MaituMaterialSlotRepository:
                 tuple(values),
             )
             rows = cursor.fetchall()
+        selectable_rows = [dict(row) for row in rows]
+        if str(required_category) == "product_image":
+            identity_keywords = product_identity_keywords(need.get("keywords") or [])
+            selectable_rows = [
+                row
+                for row in selectable_rows
+                if asset_matches_product_identity(row, identity_keywords)
+            ]
         candidates = [
-            self._score_script_asset_need_candidate(dict(row), need, scene)
-            for row in rows
-            if not self._is_direct_layer_forbidden_template_asset(dict(row), need)
+            self._score_script_asset_need_candidate(row, need, scene)
+            for row in selectable_rows
+            if not self._is_direct_layer_forbidden_template_asset(row, need)
         ]
         candidates.sort(key=lambda candidate: (candidate["match_score"], str(candidate.get("asset_code") or "")), reverse=True)
         return candidates[:limit]
@@ -3255,12 +3291,14 @@ class MaituMaterialSlotRepository:
         scene: dict[str, Any],
         script_context: str,
     ) -> dict[str, Any] | None:
-        required_category = layer.get("required_category")
+        required_category = str(layer.get("required_category") or "").strip()
         if not required_category:
             return None
+        layer = {**layer, "required_category": required_category}
         accepted_asset_types = [str(item) for item in (layer.get("accepted_asset_types") or [])]
-        where_clauses = ["deleted_at IS NULL", "maitu_category = %s"]
-        values: list[Any] = [required_category]
+        category_clause, category_values = self._required_category_filter(required_category)
+        where_clauses = ["deleted_at IS NULL", category_clause]
+        values: list[Any] = list(category_values)
         if accepted_asset_types:
             placeholders = ", ".join(["%s"] * len(accepted_asset_types))
             where_clauses.append(f"asset_type IN ({placeholders})")
@@ -3288,6 +3326,17 @@ class MaituMaterialSlotRepository:
             for row in rows
             if not self._is_direct_layer_forbidden_template_asset(dict(row), layer)
         ]
+        if required_category == "product_image":
+            identity_keywords = product_identity_keywords(layer.get("keywords") or [])
+            selectable_rows = [
+                row
+                for row in selectable_rows
+                if (
+                    asset_matches_product_identity(row, identity_keywords)
+                    if identity_keywords
+                    else asset_product_identity_mentioned_in_text(row, script_context)
+                )
+            ]
         scored = [self._score_live_room_asset_candidate(row, layer, scene, script_context) for row in selectable_rows]
         if not scored:
             return None
@@ -3331,9 +3380,15 @@ class MaituMaterialSlotRepository:
         reasons: list[str] = []
         required_category = need.get("required_category")
         accepted_asset_types = [str(item) for item in (need.get("accepted_asset_types") or []) if str(item) != "TEXT"]
-        if asset.get("maitu_category") == required_category:
+        if asset_matches_required_category(asset, str(required_category or "")):
             score += 0.55
-            reasons.append(f"maitu_category matches required_category: {required_category}")
+            if asset.get("maitu_category") == required_category:
+                reasons.append(f"maitu_category matches required_category: {required_category}")
+            else:
+                reasons.append(
+                    f"native Maitu taxonomy maps {asset.get('maitu_type')}/{asset.get('usage')} "
+                    f"to required_category: {required_category}"
+                )
         if not accepted_asset_types or asset.get("asset_type") in accepted_asset_types:
             score += 0.20
             reasons.append(f"asset_type accepted: {asset.get('asset_type')}")
@@ -3395,9 +3450,15 @@ class MaituMaterialSlotRepository:
         reasons: list[str] = []
         required_category = layer.get("required_category")
         accepted_asset_types = [str(item) for item in (layer.get("accepted_asset_types") or [])]
-        if asset.get("maitu_category") == required_category:
+        if asset_matches_required_category(asset, str(required_category or "")):
             score += 0.55
-            reasons.append(f"maitu_category matches required_category: {required_category}")
+            if asset.get("maitu_category") == required_category:
+                reasons.append(f"maitu_category matches required_category: {required_category}")
+            else:
+                reasons.append(
+                    f"native Maitu taxonomy maps {asset.get('maitu_type')}/{asset.get('usage')} "
+                    f"to required_category: {required_category}"
+                )
         if not accepted_asset_types or asset.get("asset_type") in accepted_asset_types:
             score += 0.20
             reasons.append(f"asset_type accepted: {asset.get('asset_type')}")
