@@ -3,11 +3,14 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
+from dataclasses import FrozenInstanceError
 from pathlib import Path
 from typing import Sequence
 
 import pytest
 
+import browser_use_worker.browser_cli_session as browser_cli_session_module
 from browser_use_worker.browser_cli_session import BrowserUseCliSession, BrowserUseCliSessionConfig
 from browser_use_worker.maitu_executor import MaituBrowserExecutionError
 
@@ -44,10 +47,557 @@ def make_session(outputs: list[str]) -> tuple[BrowserUseCliSession, FakeRunner]:
             login_url="https://live2.maituai.com/Login",
             headed=True,
             timeout_seconds=12,
+            session_name=None,
+            cdp_url=None,
         ),
         runner=runner,
     )
     return session, runner
+
+
+def test_default_config_uses_visible_chrome_cdp_and_named_session(monkeypatch) -> None:
+    monkeypatch.delenv("BROWSER_USE_SESSION_NAME", raising=False)
+    monkeypatch.delenv("BROWSER_USE_CDP_URL", raising=False)
+
+    config = BrowserUseCliSessionConfig()
+
+    assert config.session_name == "assetgraph-maitu"
+    assert config.cdp_url == "http://127.0.0.1:9222"
+    assert config.no_proxy_hosts == ("127.0.0.1", "localhost")
+    assert config.timeout_seconds == 120.0
+
+
+def _running_cdp_session(
+    *,
+    name: str = "assetgraph-maitu-test",
+    cdp_url: str = "ws://127.0.0.1:9222/devtools/browser/test",
+    config: str = "cdp",
+) -> str:
+    return json.dumps(
+        {
+            "sessions": [
+                {
+                    "name": name,
+                    "phase": "running",
+                    "pid": 1234,
+                    "config": config,
+                    "cdp_url": cdp_url,
+                }
+            ]
+        }
+    )
+
+
+def test_named_session_attaches_cdp_with_read_only_state_then_reuses_session() -> None:
+    runner = FakeRunner(
+        ['{"sessions": []}', "first", _running_cdp_session(), _running_cdp_session(), "second"]
+    )
+    session = BrowserUseCliSession(
+        BrowserUseCliSessionConfig(
+            browser_use_repo="D:/browser-use",
+            session_name="assetgraph-maitu-test",
+            cdp_url="http://127.0.0.1:9222",
+        ),
+        runner=runner,
+    )
+
+    assert session._call_browser_use(["state"]) == "first"
+    assert session._call_browser_use(["state"]) == "second"
+
+    assert runner.commands == [
+        ("uv", "run", "browser-use", "--json", "sessions"),
+        (
+            "uv",
+            "run",
+            "browser-use",
+            "--session",
+            "assetgraph-maitu-test",
+            "--cdp-url",
+            "http://127.0.0.1:9222",
+            "state",
+        ),
+        ("uv", "run", "browser-use", "--json", "sessions"),
+        ("uv", "run", "browser-use", "--json", "sessions"),
+        ("uv", "run", "browser-use", "--session", "assetgraph-maitu-test", "state"),
+    ]
+
+
+def test_first_mutating_command_runs_only_after_read_only_attach_and_transport_readback() -> None:
+    runner = FakeRunner(['{"sessions": []}', "attached", _running_cdp_session(), "clicked"])
+    session = BrowserUseCliSession(
+        BrowserUseCliSessionConfig(
+            browser_use_repo="D:/browser-use",
+            session_name="assetgraph-maitu-test",
+            cdp_url="http://127.0.0.1:9222",
+        ),
+        runner=runner,
+    )
+
+    assert session._call_browser_use(["click", "42"]) == "clicked"
+    assert runner.commands[1][-1] == "state"
+    assert "--cdp-url" in runner.commands[1]
+    assert runner.commands[2][-2:] == ("--json", "sessions")
+    assert runner.commands[3][-2:] == ("click", "42")
+    assert "--cdp-url" not in runner.commands[3]
+
+
+def test_cdp_attached_open_does_not_start_a_second_headed_browser() -> None:
+    runner = FakeRunner(['{"sessions": []}', "attached", _running_cdp_session(), "opened"])
+    session = BrowserUseCliSession(
+        BrowserUseCliSessionConfig(
+            browser_use_repo="D:/browser-use",
+            home_url="https://live2.maituai.com/",
+            headed=True,
+            session_name="assetgraph-maitu-test",
+            cdp_url="http://127.0.0.1:9222",
+        ),
+        runner=runner,
+    )
+
+    session.open_home()
+
+    assert runner.commands[0] == ("uv", "run", "browser-use", "--json", "sessions")
+    assert runner.commands[1][-1] == "state"
+    assert runner.commands[2][-2:] == ("--json", "sessions")
+    assert "--headed" not in runner.commands[3]
+    assert runner.commands[3][-2:] == ("open", "https://live2.maituai.com/")
+
+
+def test_existing_named_session_is_discovered_before_cdp_attach() -> None:
+    commands: list[tuple[str, ...]] = []
+
+    def runner(args: Sequence[str], *, cwd: str | None, timeout_seconds: float) -> str:
+        command = tuple(args)
+        commands.append(command)
+        if command[-1] == "sessions":
+            return _running_cdp_session()
+        if "--cdp-url" in command:
+            raise AssertionError("running named session must be reused without reapplying CDP config")
+        return "existing named session"
+
+    session = BrowserUseCliSession(
+        BrowserUseCliSessionConfig(
+            browser_use_repo="D:/browser-use",
+            session_name="assetgraph-maitu-test",
+            cdp_url="http://127.0.0.1:9222",
+        ),
+        runner=runner,
+    )
+
+    assert session._call_browser_use(["state"]) == "existing named session"
+    assert session._call_browser_use(["state"]) == "existing named session"
+    assert commands == [
+        ("uv", "run", "browser-use", "--json", "sessions"),
+        ("uv", "run", "browser-use", "--session", "assetgraph-maitu-test", "state"),
+        ("uv", "run", "browser-use", "--json", "sessions"),
+        ("uv", "run", "browser-use", "--session", "assetgraph-maitu-test", "state"),
+    ]
+    assert all("--cdp-url" not in command for command in commands)
+
+
+def test_reused_named_session_is_revalidated_before_every_business_command() -> None:
+    runner = FakeRunner(
+        [
+            _running_cdp_session(),
+            "first",
+            _running_cdp_session(
+                cdp_url="wss://remote.example/devtools/browser/replaced",
+                config="cloud",
+            ),
+        ]
+    )
+    session = BrowserUseCliSession(
+        BrowserUseCliSessionConfig(
+            browser_use_repo="D:/browser-use",
+            session_name="assetgraph-maitu-test",
+            cdp_url="http://127.0.0.1:9222",
+        ),
+        runner=runner,
+    )
+
+    assert session._call_browser_use(["state"]) == "first"
+    with pytest.raises(MaituBrowserExecutionError, match="transport"):
+        session._call_browser_use(["click", "42"])
+
+    assert runner.commands[-1] == ("uv", "run", "browser-use", "--json", "sessions")
+    assert all(command[-2:] != ("click", "42") for command in runner.commands)
+
+
+def test_production_runner_rejects_disabled_named_transport() -> None:
+    with pytest.raises(ValueError, match="production runner requires"):
+        BrowserUseCliSession(BrowserUseCliSessionConfig(session_name=None, cdp_url=None))
+
+
+def test_transport_config_is_immutable_after_validation() -> None:
+    config = BrowserUseCliSessionConfig()
+    session = BrowserUseCliSession(config, runner=FakeRunner([]))
+
+    with pytest.raises(FrozenInstanceError):
+        session.config.cdp_url = None
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        BrowserUseCliSessionConfig(session_name="unsafe session", cdp_url="http://127.0.0.1:9222"),
+        BrowserUseCliSessionConfig(session_name="unsafe.session", cdp_url="http://127.0.0.1:9222"),
+        BrowserUseCliSessionConfig(session_name="safe-session", cdp_url=None),
+        BrowserUseCliSessionConfig(session_name=None, cdp_url="http://127.0.0.1:9222"),
+        BrowserUseCliSessionConfig(session_name="safe-session", cdp_url="http://192.0.2.10:9222"),
+        BrowserUseCliSessionConfig(session_name="safe-session", cdp_url="http://user@127.0.0.1:9222"),
+    ],
+)
+def test_transport_config_rejects_unsafe_named_session_or_remote_cdp(config) -> None:
+    with pytest.raises(ValueError):
+        BrowserUseCliSession(config, runner=FakeRunner([]))
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        {
+            "name": "assetgraph-maitu-test",
+            "phase": "running",
+            "pid": 1234,
+            "config": "cloud",
+            "cdp_url": "wss://remote.example/devtools/browser/test",
+        },
+        {
+            "name": "assetgraph-maitu-test",
+            "phase": "running",
+            "pid": 1234,
+            "config": "cdp",
+        },
+        {
+            "name": "assetgraph-maitu-test",
+            "phase": "running",
+            "pid": 1234,
+            "config": "cdp",
+            "cdp_url": "ws://127.0.0.1:9333/devtools/browser/wrong-port",
+        },
+    ],
+)
+def test_existing_named_session_rejects_untrusted_or_unknown_transport(entry) -> None:
+    runner = FakeRunner([json.dumps({"sessions": [entry]})])
+    session = BrowserUseCliSession(
+        BrowserUseCliSessionConfig(
+            browser_use_repo="D:/browser-use",
+            session_name="assetgraph-maitu-test",
+            cdp_url="http://127.0.0.1:9222",
+        ),
+        runner=runner,
+    )
+
+    with pytest.raises(MaituBrowserExecutionError, match="transport"):
+        session._call_browser_use(["state"])
+
+    assert runner.commands == [("uv", "run", "browser-use", "--json", "sessions")]
+
+
+def test_config_mismatch_fallback_requires_revalidated_loopback_session() -> None:
+    commands: list[tuple[str, ...]] = []
+
+    def runner(args: Sequence[str], *, cwd: str | None, timeout_seconds: float) -> str:
+        command = tuple(args)
+        commands.append(command)
+        if command[-1] == "sessions":
+            if len([item for item in commands if item[-1] == "sessions"]) == 1:
+                raise MaituBrowserExecutionError("sessions temporarily unavailable")
+            return _running_cdp_session(
+                cdp_url="wss://remote.example/devtools/browser/test",
+                config="cloud",
+            )
+        if "--cdp-url" in command:
+            raise MaituBrowserExecutionError("Session is already running with different config")
+        raise AssertionError("must not fall back to an unvalidated existing session")
+
+    session = BrowserUseCliSession(
+        BrowserUseCliSessionConfig(
+            browser_use_repo="D:/browser-use",
+            session_name="assetgraph-maitu-test",
+            cdp_url="http://127.0.0.1:9222",
+        ),
+        runner=runner,
+    )
+
+    with pytest.raises(MaituBrowserExecutionError, match="transport"):
+        session._call_browser_use(["state"])
+
+    assert len(commands) == 3
+    assert commands[0][-2:] == ("--json", "sessions")
+    assert "--cdp-url" in commands[1]
+    assert commands[2][-2:] == ("--json", "sessions")
+
+
+def test_config_mismatch_fallback_revalidates_transport_and_lease_before_reuse() -> None:
+    commands: list[tuple[str, ...]] = []
+    guard_calls = 0
+
+    def runner(args: Sequence[str], *, cwd: str | None, timeout_seconds: float) -> str:
+        command = tuple(args)
+        commands.append(command)
+        if command[-1] == "sessions":
+            if len([item for item in commands if item[-1] == "sessions"]) == 1:
+                raise MaituBrowserExecutionError("sessions temporarily unavailable")
+            return _running_cdp_session()
+        if "--cdp-url" in command:
+            raise MaituBrowserExecutionError("Session is already running with different config")
+        return "trusted existing session"
+
+    def guard() -> bool:
+        nonlocal guard_calls
+        guard_calls += 1
+        return True
+
+    session = BrowserUseCliSession(
+        BrowserUseCliSessionConfig(
+            browser_use_repo="D:/browser-use",
+            session_name="assetgraph-maitu-test",
+            cdp_url="http://127.0.0.1:9222",
+        ),
+        runner=runner,
+    )
+    session.set_execution_guard(guard)
+
+    assert session._call_browser_use(["state"]) == "trusted existing session"
+    assert guard_calls == 4
+    assert [command[-1] for command in commands] == ["sessions", "state", "sessions", "state"]
+    assert "--cdp-url" in commands[1]
+    assert "--cdp-url" not in commands[3]
+
+
+def test_lease_guard_is_rechecked_before_discovery_and_browser_command() -> None:
+    runner = FakeRunner(['{"sessions": []}'])
+    session = BrowserUseCliSession(
+        BrowserUseCliSessionConfig(
+            browser_use_repo="D:/browser-use",
+            session_name="assetgraph-maitu-test",
+            cdp_url="http://127.0.0.1:9222",
+        ),
+        runner=runner,
+    )
+    guard_calls = 0
+
+    def guard() -> bool:
+        nonlocal guard_calls
+        guard_calls += 1
+        return guard_calls == 1
+
+    session.set_execution_guard(guard)
+
+    with pytest.raises(MaituBrowserExecutionError, match="lease"):
+        session._call_browser_use(["state"])
+
+    assert guard_calls == 2
+    assert runner.commands == [("uv", "run", "browser-use", "--json", "sessions")]
+
+
+def test_named_session_process_lock_is_acquired_before_first_external_command(monkeypatch) -> None:
+    events: list[str] = []
+
+    def acquire(session_name: str, timeout_seconds: float) -> None:
+        assert session_name == "assetgraph-maitu-test"
+        assert timeout_seconds == 120.0
+        events.append("lock")
+
+    monkeypatch.setattr(browser_cli_session_module, "_acquire_process_session_lock", acquire, raising=False)
+
+    sessions_calls = 0
+
+    def runner(args: Sequence[str], *, cwd: str | None, timeout_seconds: float) -> str:
+        nonlocal sessions_calls
+        events.append("runner")
+        if args[-1] == "sessions":
+            sessions_calls += 1
+            return '{"sessions": []}' if sessions_calls == 1 else _running_cdp_session()
+        return "state"
+
+    session = BrowserUseCliSession(
+        BrowserUseCliSessionConfig(
+            browser_use_repo="D:/browser-use",
+            session_name="assetgraph-maitu-test",
+            cdp_url="http://127.0.0.1:9222",
+        ),
+        runner=runner,
+    )
+
+    session._session_lock_acquired = True
+    assert session._call_browser_use(["state"]) == "state"
+    assert session._call_browser_use(["state"]) == "state"
+    assert events == [
+        "lock",
+        "runner",
+        "runner",
+        "runner",
+        "lock",
+        "runner",
+        "runner",
+    ]
+
+
+def test_named_session_process_lock_rejects_a_second_worker_process() -> None:
+    session_name = f"assetgraph-lock-test-{os.getpid()}"
+    code = (
+        "import time; "
+        "from browser_use_worker.browser_cli_session import _acquire_process_session_lock; "
+        f"_acquire_process_session_lock({session_name!r}, 2.0); "
+        "print('locked', flush=True); time.sleep(5)"
+    )
+    child = subprocess.Popen(
+        [sys.executable, "-c", code],
+        cwd=Path(__file__).parents[1],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert child.stdout is not None
+        assert child.stdout.readline().strip() == "locked"
+        with pytest.raises(MaituBrowserExecutionError, match="owned by another worker"):
+            browser_cli_session_module._acquire_process_session_lock(session_name, 0.2)
+    finally:
+        child.terminate()
+        child.wait(timeout=5)
+
+    browser_cli_session_module._acquire_process_session_lock(session_name, 0.5)
+    browser_cli_session_module._acquire_process_session_lock(session_name, 0.5)
+
+
+@pytest.mark.skipif(not hasattr(os, "fork"), reason="POSIX fork semantics")
+def test_fork_child_cannot_reuse_parent_process_lock_ownership() -> None:
+    session_name = f"assetgraph-fork-lock-test-{os.getpid()}"
+    browser_cli_session_module._acquire_process_session_lock(session_name, 0.5)
+
+    child_pid = os.fork()
+    if child_pid == 0:
+        try:
+            browser_cli_session_module._acquire_process_session_lock(session_name, 0.2)
+        except MaituBrowserExecutionError:
+            os._exit(0)
+        os._exit(1)
+
+    waited_pid, status = os.waitpid(child_pid, 0)
+    assert waited_pid == child_pid
+    assert os.waitstatus_to_exitcode(status) == 0
+
+
+def test_config_mismatch_path_shares_one_timeout_budget_across_four_commands(monkeypatch) -> None:
+    clock = [0.0]
+    timeouts: list[float] = []
+    sessions_calls = 0
+
+    monkeypatch.setattr(browser_cli_session_module.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(browser_cli_session_module, "_acquire_process_session_lock", lambda *_args: None, raising=False)
+
+    def runner(args: Sequence[str], *, cwd: str | None, timeout_seconds: float) -> str:
+        nonlocal sessions_calls
+        timeouts.append(timeout_seconds)
+        clock[0] += 1.0
+        if args[-1] == "sessions":
+            sessions_calls += 1
+            if sessions_calls == 1:
+                raise MaituBrowserExecutionError("sessions temporarily unavailable")
+            return _running_cdp_session()
+        if "--cdp-url" in args:
+            raise MaituBrowserExecutionError("Session is already running with different config")
+        return "state"
+
+    session = BrowserUseCliSession(
+        BrowserUseCliSessionConfig(
+            browser_use_repo="D:/browser-use",
+            timeout_seconds=10.0,
+            session_name="assetgraph-maitu-test",
+            cdp_url="http://127.0.0.1:9222",
+        ),
+        runner=runner,
+    )
+
+    assert session._call_browser_use(["state"]) == "state"
+    assert timeouts == [10.0, 9.0, 8.0, 7.0]
+
+
+def test_session_lock_wait_and_transport_share_one_timeout_budget(monkeypatch) -> None:
+    clock = [0.0]
+    lock_timeouts: list[float] = []
+    runner_timeouts: list[float] = []
+
+    monkeypatch.setattr(browser_cli_session_module.time, "monotonic", lambda: clock[0])
+
+    def acquire(_session_name: str, timeout_seconds: float) -> None:
+        lock_timeouts.append(timeout_seconds)
+        clock[0] += 3.0
+
+    monkeypatch.setattr(browser_cli_session_module, "_acquire_process_session_lock", acquire)
+
+    def runner(args: Sequence[str], *, cwd: str | None, timeout_seconds: float) -> str:
+        runner_timeouts.append(timeout_seconds)
+        clock[0] += 2.0
+        return (
+            _running_cdp_session(name="assetgraph-maitu-budget-test")
+            if args[-1] == "sessions"
+            else "state"
+        )
+
+    session = BrowserUseCliSession(
+        BrowserUseCliSessionConfig(
+            browser_use_repo="D:/browser-use",
+            timeout_seconds=10.0,
+            session_name="assetgraph-maitu-budget-test",
+            cdp_url="http://127.0.0.1:9222",
+        ),
+        runner=runner,
+    )
+
+    assert session._call_browser_use(["state"]) == "state"
+    assert lock_timeouts == [10.0]
+    assert runner_timeouts == [7.0, 5.0]
+
+
+def test_headed_fallback_reuses_the_original_timeout_deadline(monkeypatch) -> None:
+    clock = [0.0]
+    timeouts: list[float] = []
+
+    monkeypatch.setattr(browser_cli_session_module.time, "monotonic", lambda: clock[0])
+
+    def runner(args: Sequence[str], *, cwd: str | None, timeout_seconds: float) -> str:
+        timeouts.append(timeout_seconds)
+        if len(timeouts) == 1:
+            clock[0] += 3.0
+            raise MaituBrowserExecutionError("Session is already running with different config")
+        return "opened"
+
+    session = BrowserUseCliSession(
+        BrowserUseCliSessionConfig(
+            timeout_seconds=10.0,
+            headed=True,
+            session_name=None,
+            cdp_url=None,
+        ),
+        runner=runner,
+    )
+
+    session.open_url("https://live2.maituai.com/")
+
+    assert timeouts == [10.0, 7.0]
+
+
+def test_runner_internal_type_error_never_replays_browser_command() -> None:
+    calls = 0
+
+    def runner(args: Sequence[str], *, cwd: str | None, timeout_seconds: float) -> str:
+        nonlocal calls
+        calls += 1
+        raise TypeError("runner implementation failed after dispatch")
+
+    session = BrowserUseCliSession(
+        BrowserUseCliSessionConfig(session_name=None, cdp_url=None),
+        runner=runner,
+    )
+
+    with pytest.raises(TypeError, match="after dispatch"):
+        session._call_browser_use(["state"])
+
+    assert calls == 1
 
 
 def test_read_current_state_parses_reference_room_from_browser_use_eval() -> None:
@@ -114,7 +664,13 @@ def test_probe_opens_maitu_home_when_current_page_is_elsewhere() -> None:
 def test_open_home_falls_back_to_existing_session_on_headed_config_mismatch() -> None:
     runner = ConfigMismatchRunner()
     session = BrowserUseCliSession(
-        BrowserUseCliSessionConfig(browser_use_repo="D:/browser-use", home_url="https://live2.maituai.com/", headed=True),
+        BrowserUseCliSessionConfig(
+            browser_use_repo="D:/browser-use",
+            home_url="https://live2.maituai.com/",
+            headed=True,
+            session_name=None,
+            cdp_url=None,
+        ),
         runner=runner,
     )
 
@@ -733,6 +1289,8 @@ def test_subprocess_runner_scrubs_parent_python_environment(monkeypatch) -> None
     monkeypatch.setenv("PYTHONPATH", "C:/broken/hermes/site-packages")
     monkeypatch.setenv("PYTHONHOME", "C:/broken/python")
     monkeypatch.setenv("VIRTUAL_ENV", "D:/AssetGraph/workers/browser-use/.venv")
+    monkeypatch.setenv("UV_PROJECT_ENVIRONMENT", "D:/wrong/.venv")
+    monkeypatch.setenv("NO_PROXY", "example.com")
     monkeypatch.setattr(subprocess, "run", fake_run)
 
     session = BrowserUseCliSession(BrowserUseCliSessionConfig(browser_use_repo="D:/browser-use"))
@@ -745,3 +1303,21 @@ def test_subprocess_runner_scrubs_parent_python_environment(monkeypatch) -> None
     assert "PYTHONHOME" not in env
     assert "VIRTUAL_ENV" not in env
     assert env["UV_PROJECT_ENVIRONMENT"] == os.path.join("D:/browser-use", ".venv")
+    assert env["NO_PROXY"] == "example.com,127.0.0.1,localhost"
+    assert env["no_proxy"] == "example.com,127.0.0.1,localhost"
+
+
+def test_ipv6_loopback_cdp_is_added_to_both_no_proxy_spellings(monkeypatch) -> None:
+    monkeypatch.setenv("NO_PROXY", "example.com")
+    session = BrowserUseCliSession(
+        BrowserUseCliSessionConfig(
+            session_name="safe-session",
+            cdp_url="http://[::1]:9222",
+        ),
+        runner=FakeRunner([]),
+    )
+
+    env = session._subprocess_env("D:/browser-use")
+
+    assert env["NO_PROXY"] == "example.com,127.0.0.1,localhost,::1"
+    assert env["no_proxy"] == "example.com,127.0.0.1,localhost,::1"

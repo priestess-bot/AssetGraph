@@ -7,8 +7,13 @@ from uuid import UUID
 
 import pytest
 
+import browser_use_worker.browser_cli_session as browser_cli_session_module
 import browser_use_worker.runner as runner_module
-from browser_use_worker.browser_cli_session import BrowserUseCliSession, BrowserUseCliSessionConfig
+from browser_use_worker.browser_cli_session import (
+    BrowserUseCliSession,
+    BrowserUseCliSessionConfig,
+    _TRUSTED_BROWSER_USE_CLI_SESSION_RUN_COMMAND,
+)
 from browser_use_worker.client import AssetGraphClientError
 from browser_use_worker.config import WorkerConfig
 from browser_use_worker.maitu_executor import MaituBrowserExecutionError, MaituBrowserUseExecutor
@@ -767,6 +772,65 @@ def test_worker_rejects_exact_session_with_injected_runner_before_claim() -> Non
     assert client.claim_payloads == []
     assert client.heartbeats == []
     assert client.results == []
+
+
+def test_worker_rejects_restored_trusted_runner_on_test_only_disabled_transport_before_claim() -> None:
+    client = FakeClient(sample_bundle())
+    session = BrowserUseCliSession(
+        config=BrowserUseCliSessionConfig(
+            timeout_seconds=1.0,
+            session_name=None,
+            cdp_url=None,
+        ),
+        runner=lambda *_args, **_kwargs: "",
+    )
+    session._runner = MethodType(_TRUSTED_BROWSER_USE_CLI_SESSION_RUN_COMMAND, session)
+    session._runner_accepts_context = True
+    executor = MaituBrowserUseExecutor(asset_client=client, session=session)
+    worker = BrowserUseWorker(
+        config=WorkerConfig(api_base_url="http://assetgraph", worker_id="worker-1"),
+        client=client,
+        executor=executor,
+    )
+
+    assert worker.run_once() is False
+    assert client.claim_payloads == []
+    assert client.heartbeats == []
+    assert client.results == []
+    assert client.releases == []
+
+
+def test_worker_rejects_runner_when_browser_module_trusted_constant_is_rebound(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = FakeClient(sample_bundle())
+    session = BrowserUseCliSession(config=BrowserUseCliSessionConfig(timeout_seconds=1.0))
+
+    def injected_runner(
+        _session: BrowserUseCliSession,
+        _args: Any,
+        **_kwargs: Any,
+    ) -> str:
+        return "injected"
+
+    monkeypatch.setattr(
+        browser_cli_session_module,
+        "_TRUSTED_BROWSER_USE_CLI_SESSION_RUN_COMMAND",
+        injected_runner,
+    )
+    session._runner = MethodType(injected_runner, session)
+    executor = MaituBrowserUseExecutor(asset_client=client, session=session)
+    worker = BrowserUseWorker(
+        config=WorkerConfig(api_base_url="http://assetgraph", worker_id="worker-1"),
+        client=client,
+        executor=executor,
+    )
+
+    assert worker.run_once() is False
+    assert client.claim_payloads == []
+    assert client.heartbeats == []
+    assert client.results == []
+    assert client.releases == []
 
 
 def test_worker_rejects_spoofed_bound_method_runner_before_claim() -> None:

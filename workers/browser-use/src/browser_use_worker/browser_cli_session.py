@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import atexit
+import inspect
 import json
 import os
 import re
 import subprocess
+import tempfile
+import threading
 import time
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from types import MethodType
 from typing import Any, Callable
@@ -17,15 +21,106 @@ from .maitu_executor import MaituBrowserExecutionError
 
 CommandRunner = Callable[[Sequence[str],], str]
 
+_SESSION_LOCK_GUARD = threading.Lock()
+_HELD_SESSION_LOCKS: dict[str, tuple[int, Any]] = {}
 
-@dataclass(slots=True)
+
+def _release_process_session_locks() -> None:
+    for _owner_pid, lock_file in list(_HELD_SESSION_LOCKS.values()):
+        try:
+            lock_file.seek(0)
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+        except (OSError, ValueError):
+            pass
+        finally:
+            lock_file.close()
+    _HELD_SESSION_LOCKS.clear()
+
+
+def _reset_process_session_locks_after_fork() -> None:
+    global _SESSION_LOCK_GUARD
+    for _owner_pid, lock_file in list(_HELD_SESSION_LOCKS.values()):
+        try:
+            lock_file.close()
+        except (OSError, ValueError):
+            pass
+    _HELD_SESSION_LOCKS.clear()
+    _SESSION_LOCK_GUARD = threading.Lock()
+
+
+def _acquire_process_session_lock(session_name: str, timeout_seconds: float) -> None:
+    """Hold one named browser session exclusively for this worker process."""
+    with _SESSION_LOCK_GUARD:
+        owner_pid = os.getpid()
+        held_lock = _HELD_SESSION_LOCKS.get(session_name)
+        if held_lock is not None and held_lock[0] == owner_pid:
+            return
+        if held_lock is not None:
+            try:
+                held_lock[1].close()
+            except (OSError, ValueError):
+                pass
+            _HELD_SESSION_LOCKS.pop(session_name, None)
+        lock_root = Path(os.getenv("LOCALAPPDATA") or tempfile.gettempdir()) / "AssetGraph" / "browser-use-locks"
+        lock_root.mkdir(parents=True, exist_ok=True)
+        lock_file = (lock_root / f"{session_name}.lock").open("a+b")
+        lock_file.seek(0, os.SEEK_END)
+        if lock_file.tell() == 0:
+            lock_file.write(b"\0")
+            lock_file.flush()
+        deadline = time.monotonic() + timeout_seconds
+        while True:
+            try:
+                lock_file.seek(0)
+                if os.name == "nt":
+                    import msvcrt
+
+                    msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                _HELD_SESSION_LOCKS[session_name] = (owner_pid, lock_file)
+                return
+            except OSError as exc:
+                if time.monotonic() >= deadline:
+                    lock_file.close()
+                    raise MaituBrowserExecutionError(
+                        f"Browser-use named session {session_name!r} is owned by another worker process.",
+                        retryable=True,
+                        retry_instruction="Wait for the current browser workflow to finish before retrying.",
+                    ) from exc
+                time.sleep(0.1)
+
+
+atexit.register(_release_process_session_locks)
+if hasattr(os, "register_at_fork"):
+    os.register_at_fork(after_in_child=_reset_process_session_locks_after_fork)
+
+
+@dataclass(slots=True, frozen=True)
 class BrowserUseCliSessionConfig:
     browser_use_repo: str = "D:/browser-use"
     home_url: str = "https://live2.maituai.com/"
     login_url: str = "https://live2.maituai.com/Login"
     headed: bool = True
-    timeout_seconds: float = 60.0
+    timeout_seconds: float = 120.0
     read_only: bool = True
+    session_name: str | None = field(
+        default_factory=lambda: os.getenv("BROWSER_USE_SESSION_NAME", "assetgraph-maitu").strip() or None
+    )
+    cdp_url: str | None = field(
+        default_factory=lambda: os.getenv("BROWSER_USE_CDP_URL", "http://127.0.0.1:9222").strip() or None
+    )
+    no_proxy_hosts: tuple[str, ...] = ("127.0.0.1", "localhost")
+
 
 
 @dataclass(slots=True)
@@ -86,7 +181,18 @@ class BrowserUseCliSession:
     save/go-live controls are never clicked by this session.
     """
 
-    __slots__ = ("config", "_runner", "_execution_guard", "last_probe")
+    __slots__ = (
+        "config",
+        "_runner",
+        "_runner_accepts_context",
+        "_allow_disabled_transport",
+        "_transport_identity",
+        "_execution_guard",
+        "_session_lock_acquired",
+        "_session_checked",
+        "_cdp_initialized",
+        "last_probe",
+    )
 
     PAGE_SUMMARY_SCRIPT = "(() => JSON.stringify({title:document.title,href:location.href,text:document.body?.innerText||''}))()"
     IMAGE_UPLOAD_LAYER_TYPES = {
@@ -127,16 +233,60 @@ class BrowserUseCliSession:
         runner: Callable[[Sequence[str]], str] | Callable[..., str] | None = None,
     ) -> None:
         self.config = config or BrowserUseCliSessionConfig()
+        self._allow_disabled_transport = runner is not None
+        self._validate_transport_config(allow_disabled_transport=self._allow_disabled_transport)
+        self._transport_identity = (self.config.session_name, self.config.cdp_url)
         # Bind the import-time trusted function directly. Resolving
         # ``self._run_command`` here would execute a class descriptor replaced
         # before construction, earlier than the Worker's pre-claim trust gate.
-        self._runner = (
-            runner
-            if runner is not None
-            else MethodType(_TRUSTED_BROWSER_USE_CLI_SESSION_RUN_COMMAND, self)
-        )
+        self._runner = runner if runner is not None else MethodType(_TRUSTED_BROWSER_USE_CLI_SESSION_RUN_COMMAND, self)
+        self._runner_accepts_context = runner is None or self._callable_accepts_runner_context(runner)
         self._execution_guard: Callable[[], bool] | None = None
+        self._session_lock_acquired = False
+        self._session_checked = False
+        self._cdp_initialized = False
         self.last_probe: MaituPageProbe | None = None
+
+    @staticmethod
+    def _callable_accepts_runner_context(runner: Callable[..., str]) -> bool:
+        try:
+            parameters = inspect.signature(runner).parameters.values()
+        except (TypeError, ValueError):
+            return False
+        names = {parameter.name for parameter in parameters}
+        return {"cwd", "timeout_seconds"}.issubset(names) or any(
+            parameter.kind is inspect.Parameter.VAR_KEYWORD for parameter in parameters
+        )
+
+    def _validate_transport_config(self, *, allow_disabled_transport: bool) -> None:
+        session_name = self.config.session_name
+        cdp_url = self.config.cdp_url
+        if (session_name is None) != (cdp_url is None):
+            raise ValueError("Browser-use session_name and cdp_url must be configured together")
+        if session_name is None and not allow_disabled_transport:
+            raise ValueError("Browser-use production runner requires a named loopback CDP transport")
+        if session_name is not None and re.fullmatch(r"[A-Za-z0-9_-]{1,80}", session_name) is None:
+            raise ValueError("Browser-use session_name must contain only letters, numbers, underscore, or hyphen")
+        if cdp_url is None:
+            return
+        try:
+            parsed = urlparse(cdp_url)
+            port = parsed.port
+        except ValueError as exc:
+            raise ValueError("Browser-use cdp_url must be a valid loopback HTTP URL") from exc
+        if (
+            parsed.scheme not in {"http", "https"}
+            or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}
+            or parsed.username is not None
+            or parsed.password is not None
+            or port is None
+        ):
+            raise ValueError("Browser-use cdp_url must target an explicit loopback HTTP port")
+
+    def _require_transport_config(self) -> None:
+        self._validate_transport_config(allow_disabled_transport=self._allow_disabled_transport)
+        if (self.config.session_name, self.config.cdp_url) != self._transport_identity:
+            raise ValueError("Browser-use transport identity cannot change after session construction")
 
     def set_execution_guard(self, guard: Callable[[], bool] | None) -> None:
         self._execution_guard = guard
@@ -224,13 +374,14 @@ class BrowserUseCliSession:
 
     def open_url(self, url: str) -> None:
         args = ["open", url]
-        if self.config.headed:
+        if self.config.headed and self.config.cdp_url is None:
             args = ["--headed", *args]
+        deadline = time.monotonic() + self.config.timeout_seconds
         try:
-            self._call_browser_use(args)
+            self._call_browser_use(args, deadline=deadline)
         except MaituBrowserExecutionError as exc:
             if self.config.headed and "different config" in str(exc):
-                self._call_browser_use(["open", url])
+                self._call_browser_use(["open", url], deadline=deadline)
                 return
             raise
 
@@ -1145,18 +1296,171 @@ class BrowserUseCliSession:
         logged_in = self._looks_like_logged_in(title, url, text) and not login_required
         return MaituPageProbe(title=title, url=url, text=text, logged_in=logged_in, login_required=login_required)
 
-    def _call_browser_use(self, args: Sequence[str]) -> str:
+    def _call_browser_use(self, args: Sequence[str], *, deadline: float | None = None) -> str:
+        self._require_transport_config()
+        if deadline is None:
+            deadline = time.monotonic() + self.config.timeout_seconds
+        self._ensure_process_session_lock(deadline=deadline)
+        transport_was_initialized = self._cdp_initialized
+        self._discover_existing_named_session(
+            deadline=deadline,
+            force=transport_was_initialized,
+            fail_on_query_error=transport_was_initialized,
+        )
+        session_args: list[str] = []
+        if self.config.session_name is not None:
+            session_args.extend(("--session", self.config.session_name))
+        attach_cdp = self.config.cdp_url is not None and not self._cdp_initialized
+        if not attach_cdp:
+            return self._invoke_runner(
+                ("uv", "run", "browser-use", *session_args, *args),
+                deadline=deadline,
+            )
+        attach_args = [*session_args, "--cdp-url", self.config.cdp_url]
+        try:
+            attach_result = self._invoke_runner(
+                ("uv", "run", "browser-use", *attach_args, "state"),
+                deadline=deadline,
+            )
+        except MaituBrowserExecutionError as exc:
+            message = str(exc).lower()
+            if "different config" not in message and "already running" not in message:
+                raise
+            self._discover_existing_named_session(
+                deadline=deadline,
+                force=True,
+                require_existing=True,
+            )
+        else:
+            self._discover_existing_named_session(
+                deadline=deadline,
+                force=True,
+                require_existing=True,
+            )
+            if tuple(args) == ("state",):
+                return attach_result
+        return self._invoke_runner(
+            ("uv", "run", "browser-use", *session_args, *args),
+            deadline=deadline,
+        )
+
+    def _ensure_process_session_lock(self, *, deadline: float) -> None:
+        if self.config.session_name is None:
+            return
+        timeout_seconds = deadline - time.monotonic()
+        if timeout_seconds <= 0:
+            raise MaituBrowserExecutionError(
+                "browser-use session lock timeout budget was exhausted before acquisition",
+                retryable=True,
+                retry_instruction="Wait for the current browser workflow to finish before retrying.",
+            )
+        _acquire_process_session_lock(self.config.session_name, timeout_seconds)
+        self._session_lock_acquired = True
+
+    def _discover_existing_named_session(
+        self,
+        *,
+        deadline: float,
+        force: bool = False,
+        require_existing: bool = False,
+        fail_on_query_error: bool = False,
+    ) -> bool:
+        if (
+            (self._session_checked and not force)
+            or self.config.session_name is None
+            or self.config.cdp_url is None
+        ):
+            return self._cdp_initialized
+        self._session_checked = True
+        try:
+            output = self._invoke_runner(
+                ("uv", "run", "browser-use", "--json", "sessions"),
+                deadline=deadline,
+            )
+        except MaituBrowserExecutionError:
+            if require_existing or fail_on_query_error:
+                raise
+            return False
+        payload = self._parse_json_object(output)
+        sessions = payload.get("sessions") if isinstance(payload, dict) else None
+        matching = next(
+            (
+                entry
+                for entry in sessions or []
+                if isinstance(entry, dict) and entry.get("name") == self.config.session_name
+            ),
+            None,
+        )
+        if matching is None:
+            if require_existing:
+                raise self._untrusted_transport_error("the named session could not be rediscovered")
+            self._cdp_initialized = False
+            return False
+        if str(matching.get("phase") or "").casefold() != "running":
+            if require_existing:
+                raise self._untrusted_transport_error("the named session is not running")
+            self._cdp_initialized = False
+            return False
+        if not self._session_transport_matches(matching):
+            raise self._untrusted_transport_error("its live transport does not match the configured loopback CDP")
+        self._cdp_initialized = True
+        return True
+
+    def _session_transport_matches(self, entry: dict[str, Any]) -> bool:
+        config_tokens = {part.strip().casefold() for part in str(entry.get("config") or "").split(",")}
+        actual_url = str(entry.get("cdp_url") or "").strip()
+        expected_url = self.config.cdp_url
+        if "cdp" not in config_tokens or "cloud" in config_tokens or not actual_url or expected_url is None:
+            return False
+        try:
+            actual = urlparse(actual_url)
+            expected = urlparse(expected_url)
+            actual_port = actual.port
+            expected_port = expected.port
+        except ValueError:
+            return False
+        return (
+            actual.scheme in {"http", "https", "ws", "wss"}
+            and actual.hostname in {"127.0.0.1", "localhost", "::1"}
+            and actual.username is None
+            and actual.password is None
+            and actual_port is not None
+            and actual_port == expected_port
+        )
+
+    def _untrusted_transport_error(self, reason: str) -> MaituBrowserExecutionError:
+        return MaituBrowserExecutionError(
+            f"Browser-use named session transport is untrusted: {reason}.",
+            retryable=False,
+            retry_instruction="Close the conflicting session and recreate it from the configured loopback CDP endpoint.",
+        )
+
+    def _require_execution_guard(self) -> None:
         if self._execution_guard is not None and not self._execution_guard():
             raise MaituBrowserExecutionError(
                 "retry lease guard rejected browser command before execution",
                 retryable=True,
                 retry_instruction="Reclaim the retry task with a fresh lease before continuing.",
             )
-        command = ("uv", "run", "browser-use", *args)
-        try:
-            return self._runner(command, cwd=self.config.browser_use_repo, timeout_seconds=self.config.timeout_seconds)  # type: ignore[misc]
-        except TypeError:
-            return self._runner(command)  # type: ignore[misc]
+
+    def _invoke_runner(self, command: Sequence[str], *, deadline: float | None = None) -> str:
+        self._require_execution_guard()
+        timeout_seconds = self.config.timeout_seconds
+        if deadline is not None:
+            timeout_seconds = deadline - time.monotonic()
+            if timeout_seconds <= 0:
+                raise MaituBrowserExecutionError(
+                    "browser-use CLI transport timeout budget was exhausted before execution",
+                    retryable=True,
+                    retry_instruction="Verify the named browser session is responsive before retrying.",
+                )
+        if self._runner_accepts_context:
+            return self._runner(
+                command,
+                cwd=self.config.browser_use_repo,
+                timeout_seconds=timeout_seconds,
+            )  # type: ignore[misc]
+        return self._runner(command)  # type: ignore[misc]
 
     def _eval_json(self, script: str) -> dict[str, Any]:
         result = self._parse_json_object(self._call_browser_use(["eval", script]))
@@ -1190,13 +1494,31 @@ class BrowserUseCliSession:
             )
         return output
 
-    @staticmethod
-    def _subprocess_env(cwd: str | None) -> dict[str, str]:
+    def _subprocess_env(self, cwd: str | None) -> dict[str, str]:
         env = dict(os.environ)
         for key in ("PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV"):
             env.pop(key, None)
         if cwd:
-            env.setdefault("UV_PROJECT_ENVIRONMENT", os.path.join(cwd, ".venv"))
+            env["UV_PROJECT_ENVIRONMENT"] = os.path.join(cwd, ".venv")
+        existing: list[str] = []
+        seen: set[str] = set()
+        for key in ("NO_PROXY", "no_proxy"):
+            for part in (item.strip() for item in env.get(key, "").split(",")):
+                if part and part.casefold() not in seen:
+                    existing.append(part)
+                    seen.add(part.casefold())
+        bypass_hosts = list(self.config.no_proxy_hosts)
+        if self.config.cdp_url is not None:
+            cdp_host = urlparse(self.config.cdp_url).hostname
+            if cdp_host is not None:
+                bypass_hosts.append(cdp_host)
+        for host in bypass_hosts:
+            if host.casefold() not in seen:
+                existing.append(host)
+                seen.add(host.casefold())
+        no_proxy = ",".join(existing)
+        env["NO_PROXY"] = no_proxy
+        env["no_proxy"] = no_proxy
         return env
 
     @staticmethod

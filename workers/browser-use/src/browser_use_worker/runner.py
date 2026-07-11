@@ -318,7 +318,6 @@ class BrowserUseWorker:
             BrowserUseCliSession,
             BrowserUseCliSessionConfig,
             _TRUSTED_BROWSER_USE_CLI_SESSION_METHODS,
-            _TRUSTED_BROWSER_USE_CLI_SESSION_RUN_COMMAND,
         )
         from .maitu_executor import MaituBrowserUseExecutor, _TRUSTED_MAITU_EXECUTOR_METHODS
 
@@ -334,9 +333,22 @@ class BrowserUseWorker:
                 retry_task_code,
             )
             return False
-        if type(self.executor.session.config) is not BrowserUseCliSessionConfig:
+        session_config = self.executor.session.config
+        if type(session_config) is not BrowserUseCliSessionConfig:
             LOGGER.error(
                 "Rejected retry task %s: trusted Browser-use CLI session requires the built-in config type",
+                retry_task_code,
+            )
+            return False
+        if (
+            not str(session_config.session_name or "").strip()
+            or not str(session_config.cdp_url or "").strip()
+            or getattr(self.executor.session, "_allow_disabled_transport", None) is not False
+            or getattr(self.executor.session, "_transport_identity", None)
+            != (session_config.session_name, session_config.cdp_url)
+        ):
+            LOGGER.error(
+                "Rejected retry task %s: real queue execution requires immutable named loopback CDP transport",
                 retry_task_code,
             )
             return False
@@ -364,11 +376,20 @@ class BrowserUseWorker:
                 retry_task_code,
             )
             return False
+        trusted_run_command = next(
+            (
+                expected_descriptor
+                for method_name, expected_descriptor in _TRUSTED_BROWSER_USE_CLI_SESSION_METHODS
+                if method_name == "_run_command"
+            ),
+            None,
+        )
         session_runner = getattr(self.executor.session, "_runner", None)
         if (
-            type(session_runner) is not MethodType
+            trusted_run_command is None
+            or type(session_runner) is not MethodType
             or session_runner.__self__ is not self.executor.session
-            or session_runner.__func__ is not _TRUSTED_BROWSER_USE_CLI_SESSION_RUN_COMMAND
+            or session_runner.__func__ is not trusted_run_command
         ):
             LOGGER.error(
                 "Rejected retry task %s: trusted Browser-use CLI session cannot use an injected command runner",
