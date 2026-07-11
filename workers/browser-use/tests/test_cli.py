@@ -461,6 +461,78 @@ def test_script_layout_draft_execute_cli_reads_plan_file_and_runs_in_memory_dry_
     assert output["actions"][-1]["action_type"] == "manual_review_save_not_clicked"
 
 
+def test_script_layout_draft_execute_cli_fetches_persisted_plan_by_build_plan_code(monkeypatch, capsys) -> None:
+    build_plan_code = "MT-BUILD-20260711-000001"
+    operation_plan = {
+        "build_plan_code": build_plan_code,
+        "source": "script_content_layout_build_plan_rule_v1",
+        "status": "ready",
+        "target_live_room_id": "SMOKE-ROOM-PERSISTED",
+        "can_execute": True,
+        "manual_review_required": False,
+        "operations": [
+            {
+                "operation_type": "preflight_content_build_plan",
+                "operation_name": "预检",
+                "status": "ready",
+                "target_live_room_id": "SMOKE-ROOM-PERSISTED",
+            },
+            {
+                "operation_type": "fill_default_scene",
+                "operation_name": "填充默认场景",
+                "status": "ready",
+                "scene_index": 0,
+                "scene_name": "开场",
+            },
+            {
+                "operation_type": "write_script",
+                "operation_name": "写脚本",
+                "status": "ready",
+                "scene_index": 0,
+                "scene_name": "开场",
+                "script_text": "欢迎来到张裕直播间。",
+            },
+            {
+                "operation_type": "verify_scene",
+                "operation_name": "验证",
+                "status": "ready",
+                "scene_index": 0,
+                "scene_name": "开场",
+            },
+            {
+                "operation_type": "save_draft",
+                "operation_name": "保存草稿",
+                "status": "ready",
+            },
+        ],
+    }
+
+    class PersistedPlanClient:
+        def __init__(self, _base_url: str) -> None:
+            pass
+
+        def get_live_room_build_plan_operation_plan(self, requested_code: str) -> dict:
+            assert requested_code == build_plan_code
+            return operation_plan
+
+    monkeypatch.setattr(worker_main, "AssetGraphClient", PersistedPlanClient, raising=False)
+
+    exit_code = worker_main.main(
+        [
+            "--build-plan-code",
+            build_plan_code,
+            "--script-layout-draft-execute",
+            "--dry-run",
+        ]
+    )
+
+    assert exit_code == 2
+    output = json.loads(capsys.readouterr().out)
+    assert output["target_live_room_id"] == "SMOKE-ROOM-PERSISTED"
+    assert output["failure_count"] == 0
+    assert output["executed_action_count"] == 4
+
+
 def test_script_layout_draft_dry_run_refuses_production_execution_result_writeback(monkeypatch) -> None:
     FakeAssetGraphClient.writes = []
     monkeypatch.setattr(worker_main, "AssetGraphClient", FakeAssetGraphClient, raising=False)

@@ -79,7 +79,13 @@ def _selected_cli_modes(args: argparse.Namespace) -> list[str]:
     if args.plan_code and not args.preflight:
         modes.append("replacement_plan")
     if args.build_plan_code and args.dry_run and not any(
-        (args.live_scene_fill, args.non_destructive_build, args.preflight_build)
+        (
+            args.live_scene_fill,
+            args.non_destructive_build,
+            args.preflight_build,
+            args.resolve_maitu_materials,
+            args.script_layout_draft_execute,
+        )
     ):
         modes.append("build_plan_dry_run")
     return modes
@@ -141,6 +147,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     selected_modes = _selected_cli_modes(args)
     if len(selected_modes) > 1:
         raise SystemExit(f"Conflicting CLI modes: {', '.join(selected_modes)}")
+    if args.resolve_maitu_materials or args.script_layout_draft_execute:
+        source_count = int(bool(args.script_layout_build_plan_file)) + int(bool(args.build_plan_code))
+        if source_count != 1:
+            raise SystemExit(
+                "Script-layout mode requires exactly one plan source: "
+                "--script-layout-build-plan-file or --build-plan-code"
+            )
     if args.check_config:
         print(json.dumps(asdict(config), ensure_ascii=False, indent=2))
         return 0
@@ -165,13 +178,24 @@ def main(argv: Sequence[str] | None = None) -> int:
             client = AssetGraphClient(config.api_base_url)
         return client
 
+    source_operation_plan: dict | None = None
+
+    def load_script_layout_operation_plan() -> dict:
+        nonlocal source_operation_plan
+        if source_operation_plan is None:
+            if args.script_layout_build_plan_file:
+                plan_path = Path(args.script_layout_build_plan_file)
+                source_operation_plan = json.loads(plan_path.read_text(encoding="utf-8"))
+            else:
+                source_operation_plan = assetgraph_client().get_live_room_build_plan_operation_plan(
+                    str(args.build_plan_code)
+                )
+        return source_operation_plan
+
     resolved_operation_plan: dict | None = None
     material_resolution: MaituMaterialResolutionResult | None = None
     if args.resolve_maitu_materials:
-        if not args.script_layout_build_plan_file:
-            raise SystemExit("--resolve-maitu-materials requires --script-layout-build-plan-file")
-        plan_path = Path(args.script_layout_build_plan_file)
-        source_operation_plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        source_operation_plan = load_script_layout_operation_plan()
         if args.script_layout_draft_execute:
             _require_bound_draft_target(source_operation_plan, args.target_live_room_id)
         if args.dry_run:
@@ -275,10 +299,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 2 if capture_blocked or capture_failed else 0
     if args.script_layout_draft_execute:
-        if not args.script_layout_build_plan_file:
-            raise SystemExit("--script-layout-draft-execute requires --script-layout-build-plan-file")
-        plan_path = Path(args.script_layout_build_plan_file)
-        operation_plan = resolved_operation_plan or json.loads(plan_path.read_text(encoding="utf-8"))
+        operation_plan = resolved_operation_plan or load_script_layout_operation_plan()
         if args.dry_run:
             target_live_room_id = args.target_live_room_id or operation_plan.get("target_live_room_id")
             session = InMemoryScriptLayoutDraftSession(live_room_id=str(target_live_room_id or "DRY-RUN-ROOM"))

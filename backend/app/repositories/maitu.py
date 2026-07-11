@@ -365,6 +365,106 @@ class MaituMaterialSlotRepository:
             row = cursor.fetchone()
         return self._normalize_live_room_blueprint(row) if row else None
 
+    def create_script_layout_build_plan(
+        self,
+        build_plan: dict[str, Any],
+        *,
+        plan_name: str,
+    ) -> dict[str, Any]:
+        """Persist a script-driven BuildPlan without requiring a reference blueprint."""
+        build_plan_code = self._next_build_plan_code()
+        normalized_plan_name = str(plan_name or "剧本驱动 BuildPlan").strip()[:255]
+        metadata = {key: value for key, value in build_plan.items() if key != "operations"}
+        operations = [dict(operation) for operation in (build_plan.get("operations") or [])]
+        try:
+            with self.connection.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO maitu_live_room_build_plans (
+                        build_plan_code, blueprint_code, plan_name, target_app, executor,
+                        status, strategy, description, details
+                    )
+                    VALUES (%s, %s, %s, 'maitu', 'browser_use', %s, %s, %s, %s)
+                    RETURNING *
+                    """,
+                    (
+                        build_plan_code,
+                        None,
+                        normalized_plan_name,
+                        str(build_plan.get("status") or "draft"),
+                        "script_driven_layout_v1",
+                        "由直播剧本、素材需求、真实素材选择和布局计划生成。",
+                        Jsonb(
+                            {
+                                "contract_version": "script_layout_build_plan_v1",
+                                "script_layout_build_plan": metadata,
+                            }
+                        ),
+                    ),
+                )
+                plan = cursor.fetchone()
+                for operation in operations:
+                    cursor.execute(
+                        """
+                        INSERT INTO maitu_live_room_build_plan_operations (
+                            build_plan_id, build_plan_code, operation_type, operation_name,
+                            sort_order, status, scene_name, layer_name, layer_role,
+                            required_category, accepted_asset_types, replacement_policy,
+                            selected_asset_code, selected_asset_title, selected_asset_display_code,
+                            selected_asset_local_file_code, selected_asset_original_filename,
+                            selected_asset_local_relative_path, selected_asset_browser_use_hint,
+                            match_score, match_reasons, selection_source,
+                            script_block_code, script_block_content, instruction, details
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """,
+                        (
+                            plan["id"],
+                            build_plan_code,
+                            operation["operation_type"],
+                            operation.get("operation_name") or operation["operation_type"],
+                            int(operation.get("sort_order") or 0),
+                            operation.get("status") or "planned",
+                            operation.get("scene_name"),
+                            operation.get("layer_id") or operation.get("layer_name"),
+                            operation.get("layer_type") or operation.get("layer_role"),
+                            operation.get("required_category"),
+                            Jsonb(operation.get("accepted_asset_types") or []),
+                            operation.get("replacement_policy"),
+                            operation.get("asset_code"),
+                            operation.get("asset_title"),
+                            operation.get("asset_display_code"),
+                            operation.get("asset_local_file_code"),
+                            operation.get("asset_original_filename"),
+                            operation.get("asset_local_relative_path"),
+                            operation.get("asset_browser_use_hint"),
+                            operation.get("match_score"),
+                            Jsonb(operation.get("match_reasons") or []),
+                            operation.get("selection_source"),
+                            operation.get("script_block_code"),
+                            operation.get("script_text"),
+                            operation.get("instruction") or "按剧本驱动 BuildPlan 执行并回读验证。",
+                            Jsonb(
+                                {
+                                    "contract_version": "script_layout_operation_v1",
+                                    "script_layout_operation": operation,
+                                }
+                            ),
+                        ),
+                    )
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+        return {
+            **build_plan,
+            "build_plan_code": build_plan_code,
+            "plan_name": normalized_plan_name,
+            "browser_use_operations_url": (
+                f"/api/maitu/live-room-build-plans/{build_plan_code}/browser-use-operations"
+            ),
+        }
+
     def create_live_room_build_plan(self, payload: dict[str, Any]) -> dict[str, Any] | None:
         blueprint = self.get_live_room_blueprint_by_code(payload["blueprint_code"])
         if blueprint is None:
@@ -568,14 +668,31 @@ class MaituMaterialSlotRepository:
             None,
         )
         preflight_details = preflight.get("details") if isinstance(preflight, dict) and isinstance(preflight.get("details"), dict) else {}
+        raw_plan_details = plan.get("details") if isinstance(plan.get("details"), dict) else {}
+        namespaced_plan_details = raw_plan_details.get("script_layout_build_plan")
+        plan_details = (
+            namespaced_plan_details
+            if raw_plan_details.get("contract_version") == "script_layout_build_plan_v1"
+            and isinstance(namespaced_plan_details, dict)
+            else raw_plan_details
+        )
         return {
             "build_plan_code": plan["build_plan_code"],
             "blueprint_code": plan["blueprint_code"],
             "reference_room_id": blueprint.get("reference_room_id") if blueprint else None,
             "reference_room_name": blueprint.get("reference_room_name") if blueprint else None,
-            "target_live_room_id": preflight_details.get("target_live_room_id"),
+            "target_live_room_id": (
+                plan_details.get("target_live_room_id")
+                or preflight_details.get("target_live_room_id")
+            ),
             "executor": plan["executor"],
             "target_app": plan["target_app"],
+            "source": plan_details.get("source"),
+            "status": plan_details.get("status") or plan.get("status"),
+            "build_mode": plan_details.get("build_mode"),
+            "can_execute": plan_details.get("can_execute"),
+            "manual_review_required": bool(plan_details.get("manual_review_required", False)),
+            "blocked_reasons": list(plan_details.get("blocked_reasons") or []),
             "operations": operations,
         }
 
@@ -586,6 +703,11 @@ class MaituMaterialSlotRepository:
 
         execution_code = self._next_execution_code()
         operation_results = payload.get("operation_results", [])
+        execution_details = {
+            **(payload.get("details") or {}),
+            "ready_for_go_live": bool(payload.get("ready_for_go_live", False)),
+            "manual_review_required": bool(payload.get("manual_review_required", False)),
+        }
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
                 """
@@ -593,9 +715,9 @@ class MaituMaterialSlotRepository:
                     execution_code, build_plan_code, blueprint_code, executor,
                     execution_status, mode, started_at, finished_at, failure_type,
                     retryable, retry_instruction, error_message, screenshot_asset_code,
-                    dom_snapshot_asset_code, result_summary
+                    dom_snapshot_asset_code, result_summary, details
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING *
                 """,
                 (
@@ -614,11 +736,20 @@ class MaituMaterialSlotRepository:
                     payload.get("screenshot_asset_code"),
                     payload.get("dom_snapshot_asset_code"),
                     payload.get("result_summary"),
+                    Jsonb(execution_details),
                 ),
             )
             execution = cursor.fetchone()
 
             for sort_order, operation in enumerate(operation_results):
+                operation_details = {
+                    **(operation.get("details") or {}),
+                    **{
+                        key: operation[key]
+                        for key in ("scene_index", "clip_id", "layer_id", "layer_type", "asset_code")
+                        if operation.get(key) is not None
+                    },
+                }
                 cursor.execute(
                     """
                     INSERT INTO maitu_live_room_build_plan_operation_results (
@@ -646,7 +777,7 @@ class MaituMaterialSlotRepository:
                         operation.get("error_message"),
                         operation.get("screenshot_asset_code"),
                         operation.get("dom_snapshot_asset_code"),
-                        Jsonb(operation.get("details", {})),
+                        Jsonb(operation_details),
                         sort_order,
                     ),
                 )
@@ -3489,6 +3620,8 @@ class MaituMaterialSlotRepository:
             return "execution_failed"
         if execution_status == "blocked":
             return "execution_blocked"
+        if execution_status == "completed_with_manual_review":
+            return "execution_manual_review"
         return "execution_reported"
 
     @staticmethod
@@ -4597,12 +4730,27 @@ class MaituMaterialSlotRepository:
         converted = dict(row)
         if "id" in converted and converted["id"] is not None:
             converted["id"] = str(converted["id"])
+        if converted.get("details") is None:
+            converted["details"] = {}
         converted.setdefault("operations", [])
         return converted
 
     @staticmethod
     def _normalize_live_room_build_plan_operation(row: dict[str, Any]) -> dict[str, Any]:
         converted = dict(row)
+        details = converted.get("details") if isinstance(converted.get("details"), dict) else {}
+        script_layout_operation = details.get("script_layout_operation")
+        if (
+            details.get("contract_version") == "script_layout_operation_v1"
+            and isinstance(script_layout_operation, dict)
+        ):
+            operation = dict(script_layout_operation)
+            for key in ("operation_type", "operation_name", "sort_order", "status", "instruction"):
+                operation[key] = converted[key]
+            if converted.get("scene_name") is not None:
+                operation["scene_name"] = converted["scene_name"]
+            return operation
+        converted = {**details, **converted}
         if converted.get("accepted_asset_types") is None:
             converted["accepted_asset_types"] = []
         if converted.get("match_reasons") is None:
@@ -4654,6 +4802,10 @@ class MaituMaterialSlotRepository:
         converted = dict(row)
         if "id" in converted and converted["id"] is not None:
             converted["id"] = str(converted["id"])
+        details = converted.get("details") if isinstance(converted.get("details"), dict) else {}
+        converted["details"] = details
+        converted["ready_for_go_live"] = bool(details.get("ready_for_go_live", False))
+        converted["manual_review_required"] = bool(details.get("manual_review_required", False))
         converted.setdefault("operation_results", [])
         return converted
 
@@ -4671,8 +4823,9 @@ class MaituMaterialSlotRepository:
         converted = dict(row)
         if "id" in converted and converted["id"] is not None:
             converted["id"] = str(converted["id"])
-        if converted.get("details") is None:
-            converted["details"] = {}
+        details = converted.get("details") if isinstance(converted.get("details"), dict) else {}
+        converted = {**details, **converted}
+        converted["details"] = details
         return converted
 
     @staticmethod

@@ -174,3 +174,15 @@ def test_retry_mutation_intent_migration_is_replayable_and_stores_authoritative_
     assert "readiness_status VARCHAR(32) NOT NULL" in sql
     assert "CREATE INDEX IF NOT EXISTS idx_maitu_material_slots_target_clip" in sql
     assert "claim_token" not in sql
+
+
+def test_script_driven_build_plan_persistence_migration_stores_plan_metadata() -> None:
+    migration = MIGRATIONS_DIR / "020_script_driven_build_plan_persistence.sql"
+
+    assert migration.exists()
+    sql = migration.read_text(encoding="utf-8")
+    assert "ALTER TABLE maitu_live_room_build_plans" in sql
+    assert "ADD COLUMN IF NOT EXISTS details JSONB" in sql
+    assert "jsonb_typeof(details) = 'object'" in sql
+    assert "ALTER COLUMN blueprint_code DROP NOT NULL" in sql
+    assert "maitu_live_room_build_plan_executions" in sql

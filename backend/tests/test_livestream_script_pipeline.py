@@ -11,6 +11,9 @@ from app.main import app
 
 
 class FakeScriptPipelineAssetRepository:
+    def __init__(self) -> None:
+        self.persisted_script_build_plans: dict[str, dict[str, Any]] = {}
+
     def select_assets_for_script_asset_need(
         self,
         need: dict[str, Any],
@@ -35,6 +38,22 @@ class FakeScriptPipelineAssetRepository:
                 "match_reasons": ["test fixture matches generated script asset need"],
             }
         ][:limit]
+
+    def create_script_layout_build_plan(
+        self,
+        build_plan: dict[str, Any],
+        *,
+        plan_name: str,
+    ) -> dict[str, Any]:
+        code = f"MT-BUILD-20260711-{len(self.persisted_script_build_plans) + 1:06d}"
+        persisted = {
+            **build_plan,
+            "build_plan_code": code,
+            "plan_name": plan_name,
+            "browser_use_operations_url": f"/api/maitu/live-room-build-plans/{code}/browser-use-operations",
+        }
+        self.persisted_script_build_plans[code] = persisted
+        return persisted
 
 
 @pytest.fixture
@@ -355,6 +374,10 @@ def test_script_driven_build_pipeline_uses_generated_script_for_assets_layout_an
     assert body["gap_report"]["blocking_gap_count"] == 0
     assert body["layout_plan"]["status"] == "ready_for_build_plan"
     assert body["build_plan"]["can_execute"] is True
+    assert body["build_plan"]["build_plan_code"] == "MT-BUILD-20260711-000001"
+    assert body["build_plan"]["browser_use_operations_url"] == (
+        "/api/maitu/live-room-build-plans/MT-BUILD-20260711-000001/browser-use-operations"
+    )
     operations = body["build_plan"]["operations"]
     assert operations[1]["operation_type"] == "fill_default_scene"
     assert any(operation["operation_type"] == "create_scene" for operation in operations)

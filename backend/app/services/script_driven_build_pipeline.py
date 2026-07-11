@@ -72,6 +72,11 @@ class ScriptDrivenBuildPipeline:
         else:
             status = "manual_review_required"
 
+        build_plan = self.repository.create_script_layout_build_plan(
+            build_plan,
+            plan_name=f"{script_draft['title']} 剧本驱动 BuildPlan",
+        )
+
         return {
             "source": SOURCE,
             "status": status,

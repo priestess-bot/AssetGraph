@@ -325,6 +325,9 @@ class MaituScriptLayoutBuildPlanRead(BaseModel):
     blocked_reasons: list[str] = Field(default_factory=list)
     operation_count: int = 0
     operations: list[dict[str, Any]] = Field(default_factory=list)
+    build_plan_code: str | None = None
+    plan_name: str | None = None
+    browser_use_operations_url: str | None = None
 
 
 class MaituScriptDrivenBuildPipelineCreate(BaseModel):
@@ -585,6 +588,8 @@ class MaituLiveRoomSceneBuildPlanCreate(BaseModel):
 
 
 class MaituLiveRoomBuildPlanOperationRead(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     operation_type: str
     operation_name: str
     sort_order: int
@@ -607,6 +612,32 @@ class MaituLiveRoomBuildPlanOperationRead(BaseModel):
     selection_source: str | None = None
     script_block_code: str | None = None
     script_block_content: str | None = None
+    target_live_room_id: str | None = None
+    scene_index: int | None = None
+    layer_id: str | None = None
+    layer_type: str | None = None
+    need_type: str | None = None
+    asset_code: str | None = None
+    asset_display_code: str | None = None
+    asset_local_file_code: str | None = None
+    asset_original_filename: str | None = None
+    asset_local_relative_path: str | None = None
+    asset_browser_use_hint: str | None = None
+    material_id: int | None = None
+    maitu_material_id: int | None = None
+    source_material_type: str | None = None
+    source_material_url: str | None = None
+    source_cover_url: str | None = None
+    speaker_id: int | None = None
+    digital_human_image_id: int | None = None
+    x: int | float | None = None
+    y: int | float | None = None
+    width: int | float | None = None
+    height: int | float | None = None
+    z_index: int | None = None
+    script_text: str | None = None
+    blocked_reason: str | None = None
+    blocks_execution: bool | None = None
     instruction: str
     details: dict[str, Any] = Field(default_factory=dict)
 
@@ -614,7 +645,7 @@ class MaituLiveRoomBuildPlanOperationRead(BaseModel):
 class MaituLiveRoomBuildPlanRead(BaseModel):
     id: str
     build_plan_code: str
-    blueprint_code: str
+    blueprint_code: str | None = None
     plan_name: str
     target_app: str = "maitu"
     executor: str = "browser_use"
@@ -628,12 +659,18 @@ class MaituLiveRoomBuildPlanRead(BaseModel):
 
 class MaituLiveRoomBuildPlanOperationPlanResponse(BaseModel):
     build_plan_code: str
-    blueprint_code: str
+    blueprint_code: str | None = None
     reference_room_id: str | None = None
     reference_room_name: str | None = None
     target_live_room_id: str | None = None
     executor: str = "browser_use"
     target_app: str = "maitu"
+    source: str | None = None
+    status: str | None = None
+    build_mode: str | None = None
+    can_execute: bool | None = None
+    manual_review_required: bool = False
+    blocked_reasons: list[str] = Field(default_factory=list)
     operations: list[MaituLiveRoomBuildPlanOperationRead] = Field(default_factory=list)
 
 
@@ -643,6 +680,11 @@ class MaituLiveRoomBuildPlanOperationResultCreate(BaseModel):
     operation_name: str | None = Field(default=None, max_length=255)
     scene_name: str | None = Field(default=None, max_length=128)
     layer_name: str | None = Field(default=None, max_length=128)
+    scene_index: int | None = Field(default=None, ge=0)
+    clip_id: int | None = None
+    layer_id: str | int | None = None
+    layer_type: str | None = Field(default=None, max_length=64)
+    asset_code: str | None = Field(default=None, max_length=64)
     action_type: str | None = Field(default=None, max_length=64)
     status: str = Field(..., max_length=32)
     failure_type: str | None = Field(default=None, max_length=64)
@@ -672,6 +714,9 @@ class MaituLiveRoomBuildPlanExecutionResultCreate(BaseModel):
     screenshot_asset_code: str | None = Field(default=None, max_length=64)
     dom_snapshot_asset_code: str | None = Field(default=None, max_length=64)
     result_summary: str | None = None
+    ready_for_go_live: bool = False
+    manual_review_required: bool = False
+    details: dict[str, Any] = Field(default_factory=dict)
     operation_results: list[MaituLiveRoomBuildPlanOperationResultCreate] = Field(default_factory=list)
 
 
@@ -679,7 +724,7 @@ class MaituLiveRoomBuildPlanExecutionResultRead(BaseModel):
     id: str
     execution_code: str
     build_plan_code: str
-    blueprint_code: str
+    blueprint_code: str | None = None
     executor: str
     execution_status: str
     mode: str
@@ -692,6 +737,9 @@ class MaituLiveRoomBuildPlanExecutionResultRead(BaseModel):
     screenshot_asset_code: str | None = None
     dom_snapshot_asset_code: str | None = None
     result_summary: str | None = None
+    ready_for_go_live: bool = False
+    manual_review_required: bool = False
+    details: dict[str, Any] = Field(default_factory=dict)
     operation_results: list[MaituLiveRoomBuildPlanOperationResultRead] = Field(default_factory=list)
     created_at: datetime | None = None
     updated_at: datetime | None = None
