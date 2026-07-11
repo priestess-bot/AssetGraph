@@ -2,10 +2,24 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.core.config import settings
+from app.core.maitu_retry_intent import is_canonical_retry_before_state
 from app.core.secret_hygiene import contains_durable_secret
 from app.schemas.assets import MaituAssetCategory, MaituReplacementPolicy
+
+
+def _validate_secret_free_worker_identity(value: str) -> str:
+    operator_token = settings.maitu_reconciliation_operator_token
+    forbidden_values = (
+        (operator_token.get_secret_value(),)
+        if operator_token is not None and operator_token.get_secret_value()
+        else ()
+    )
+    if contains_durable_secret(value, forbidden_values=forbidden_values):
+        raise ValueError("worker identity must not contain credentials")
+    return value
 
 
 class MaituScriptScenePlanCreate(BaseModel):
@@ -709,6 +723,10 @@ class MaituMaterialSlotCreate(BaseModel):
     scene_index: int | None = Field(default=None, ge=0)
     layer_name: str | None = Field(default=None, max_length=128)
     layer_index: int | None = Field(default=None, ge=0)
+    target_live_room_id: str | None = Field(default=None, min_length=1, max_length=64)
+    target_clip_id: int | None = Field(default=None, gt=0)
+    target_layer_id: int | None = Field(default=None, gt=0)
+    expected_before_state: dict[str, Any] = Field(default_factory=dict)
     required_category: MaituAssetCategory
     accepted_asset_types: list[str] = Field(default_factory=list)
     aspect_ratio: str | None = Field(default=None, max_length=32)
@@ -720,6 +738,15 @@ class MaituMaterialSlotCreate(BaseModel):
     replacement_policy: MaituReplacementPolicy = MaituReplacementPolicy.KEEP_LAYOUT
     description: str | None = None
 
+    @model_validator(mode="after")
+    def validate_expected_before_state(self) -> "MaituMaterialSlotCreate":
+        if self.expected_before_state and not is_canonical_retry_before_state(
+            self.expected_before_state,
+            target_layer_id=self.target_layer_id,
+        ):
+            raise ValueError("expected_before_state must be an exact canonical layer snapshot")
+        return self
+
 
 class MaituMaterialSlotUpdate(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
@@ -730,6 +757,10 @@ class MaituMaterialSlotUpdate(BaseModel):
     scene_index: int | None = Field(default=None, ge=0)
     layer_name: str | None = Field(default=None, max_length=128)
     layer_index: int | None = Field(default=None, ge=0)
+    target_live_room_id: str | None = Field(default=None, min_length=1, max_length=64)
+    target_clip_id: int | None = Field(default=None, gt=0)
+    target_layer_id: int | None = Field(default=None, gt=0)
+    expected_before_state: dict[str, Any] = Field(default_factory=dict)
     required_category: MaituAssetCategory | None = None
     accepted_asset_types: list[str] | None = None
     aspect_ratio: str | None = Field(default=None, max_length=32)
@@ -740,6 +771,21 @@ class MaituMaterialSlotUpdate(BaseModel):
     z_index: int | None = None
     replacement_policy: MaituReplacementPolicy | None = None
     description: str | None = None
+
+    @model_validator(mode="after")
+    def validate_expected_before_state(self) -> "MaituMaterialSlotUpdate":
+        target_layer_updated = "target_layer_id" in self.model_fields_set
+        before_state_updated = "expected_before_state" in self.model_fields_set
+        if target_layer_updated and not before_state_updated:
+            raise ValueError("target_layer_id and expected_before_state must be updated together")
+        if self.expected_before_state and not target_layer_updated:
+            raise ValueError("target_layer_id and expected_before_state must be updated together")
+        if self.expected_before_state and not is_canonical_retry_before_state(
+            self.expected_before_state,
+            target_layer_id=self.target_layer_id,
+        ):
+            raise ValueError("expected_before_state must be an exact canonical layer snapshot")
+        return self
 
 
 class MaituMaterialSlotRead(MaituMaterialSlotCreate):
@@ -785,6 +831,7 @@ class MaituCandidateAssetsResponse(BaseModel):
 class MaituReplacementPlanCreate(BaseModel):
     plan_name: str = Field(..., min_length=1, max_length=255)
     maitu_project_code: str | None = Field(default=None, max_length=64)
+    target_live_room_id: str | None = Field(default=None, min_length=1, max_length=64)
     scene_name: str | None = Field(default=None, max_length=128)
     slot_codes: list[str] = Field(default_factory=list)
     strategy: str = Field(default="best_match", max_length=64)
@@ -809,6 +856,7 @@ class MaituReplacementPlanRead(BaseModel):
     plan_code: str
     plan_name: str
     maitu_project_code: str | None = None
+    target_live_room_id: str | None = None
     scene_name: str | None = None
     status: str
     strategy: str
@@ -941,11 +989,15 @@ class MaituRetryQueueClaimNextCreate(BaseModel):
     scene_name: str | None = Field(default=None, max_length=128)
     max_attempts: int = Field(default=3, ge=1)
 
+    validate_claimed_by = field_validator("claimed_by")(_validate_secret_free_worker_identity)
+
 
 class MaituRetryLeaseIdentity(BaseModel):
     claimed_by: str = Field(..., min_length=1, max_length=128)
     claim_token: UUID
     lease_version: int = Field(..., ge=1)
+
+    validate_claimed_by = field_validator("claimed_by")(_validate_secret_free_worker_identity)
 
 
 class MaituRetryOperationCheckpointBeginCreate(MaituRetryLeaseIdentity):
@@ -971,31 +1023,20 @@ class MaituRetryOperationCheckpointCompleteCreate(MaituRetryOperationCheckpointB
         if self.evidence.get("verified") is not True:
             raise ValueError("checkpoint evidence must contain verified=true")
 
-        claim_token = str(self.claim_token).lower()
-        if self.result_summary and claim_token in self.result_summary.lower():
-            raise ValueError("checkpoint summary must not contain the active claim token")
-
-        def contains_secret(candidate: Any) -> bool:
-            if isinstance(candidate, dict):
-                for key, item in candidate.items():
-                    key_text = str(key).lower()
-                    if claim_token in key_text:
-                        return True
-                    normalized_key = "".join(character for character in key_text if character.isalnum())
-                    if any(
-                        marker in normalized_key
-                        for marker in ("authorization", "credential", "password", "secret", "cookie", "token")
-                    ):
-                        return True
-                    if contains_secret(item):
-                        return True
-                return False
-            if isinstance(candidate, list):
-                return any(contains_secret(item) for item in candidate)
-            return isinstance(candidate, str) and claim_token in candidate.lower()
-
-        if contains_secret(self.evidence):
-            raise ValueError("checkpoint evidence must not contain credentials or the active claim token")
+        operator_token = settings.maitu_reconciliation_operator_token
+        forbidden_values = (
+            (operator_token.get_secret_value(),)
+            if operator_token is not None and operator_token.get_secret_value()
+            else ()
+        )
+        if contains_durable_secret(
+            {
+                "result_summary": self.result_summary,
+                "evidence": self.evidence,
+            },
+            forbidden_values=forbidden_values,
+        ):
+            raise ValueError("checkpoint durable fields must not contain credentials or the active claim token")
         return self
 
 
@@ -1096,35 +1137,63 @@ class MaituRetryTaskExecutionResultCreate(MaituRetryLeaseIdentity):
     retry_instruction: str | None = None
 
     @model_validator(mode="after")
-    def reject_claim_token_in_durable_fields(self) -> "MaituRetryTaskExecutionResultCreate":
-        claim_token = str(self.claim_token).lower()
-        durable_values = (
-            str(self.retry_execution_id),
-            self.last_retry_execution_code,
-            self.result_summary,
-            self.error_message,
-            self.screenshot_asset_code,
-            self.retry_instruction,
+    def reject_credentials_in_durable_fields(self) -> "MaituRetryTaskExecutionResultCreate":
+        operator_token = settings.maitu_reconciliation_operator_token
+        forbidden_values = (
+            (operator_token.get_secret_value(),)
+            if operator_token is not None and operator_token.get_secret_value()
+            else ()
         )
-        if any(value is not None and claim_token in value.lower() for value in durable_values):
-            raise ValueError("retry execution result fields must not contain the active claim token")
+        if contains_durable_secret(
+            {
+                "last_retry_execution_code": self.last_retry_execution_code,
+                "result_summary": self.result_summary,
+                "error_message": self.error_message,
+                "screenshot_asset_code": self.screenshot_asset_code,
+                "retry_instruction": self.retry_instruction,
+            },
+            forbidden_values=forbidden_values,
+        ):
+            raise ValueError(
+                "retry execution result durable fields must not contain credentials or the active claim token"
+            )
         return self
 
 
 class MaituRetryBrowserUseOperationRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    contract_version: str
+    target_app: str
     operation_key: str
     operation_fingerprint: str
     operation_type: str
     retry_task_code: str
+    authoritative_intent: dict[str, Any]
+    target_live_room_id: str | None = None
+    target_clip_id: str | int | None = None
+    target_scene_name: str | None = None
+    target_layer_id: str | int | None = None
+    expected_before_state: dict[str, Any] | None = None
+    desired_after_state: dict[str, Any] | None = None
     slot_code: str | None = None
     slot_name: str | None = None
     scene_name: str | None = None
     layer_name: str | None = None
     asset_code: str | None = None
     asset_title: str | None = None
+    selected_asset_type: str | None = None
+    selected_asset_status: str | None = None
+    accepted_asset_types: list[str] = Field(default_factory=list)
+    maitu_material_id: int | None = None
+    source_material_type: str | None = None
+    binding_verification_source: str | None = None
+    binding_verified_at: str | None = None
+    binding_scope: str | None = None
     replacement_policy: str | None = None
     failure_type: str | None = None
     status: str
+    blocked_reasons: list[str] = Field(default_factory=list)
     instruction: str
 
 

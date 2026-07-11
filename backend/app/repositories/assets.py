@@ -9,6 +9,10 @@ from psycopg.rows import dict_row
 from app.services.code_generator import AssetType, format_asset_code
 
 
+class AssetBindingLeaseConflictError(RuntimeError):
+    """An active retry worker lease freezes the asset's Maitu binding."""
+
+
 class AssetRepository:
     writable_fields = (
         "asset_type",
@@ -339,10 +343,35 @@ class AssetRepository:
         data = {field: payload[field] for field in fields if field in payload}
         if not data:
             return self.get_by_code(asset_code)
+        data.update(
+            {
+                "maitu_binding_verification_source": None,
+                "maitu_binding_verified_at": None,
+                "maitu_binding_scope": None,
+            }
+        )
         assignments = ", ".join(f"{field} = %s" for field in data)
         values = [data[field] for field in data]
         values.append(asset_code)
         with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT retry_task_code, status,
+                       status = 'in_progress' AND claim_expires_at >= now() AS lease_active
+                FROM maitu_execution_retry_tasks
+                WHERE asset_code = %s
+                  AND deleted_at IS NULL
+                ORDER BY retry_task_code
+                FOR UPDATE
+                """,
+                (asset_code,),
+            )
+            retry_tasks = cursor.fetchall()
+            if any(task.get("lease_active") is True for task in retry_tasks):
+                self.connection.rollback()
+                raise AssetBindingLeaseConflictError(
+                    "asset Maitu material binding cannot change during an active retry worker lease"
+                )
             cursor.execute(
                 f"""
                 UPDATE assets

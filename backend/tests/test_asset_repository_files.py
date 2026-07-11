@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.repositories.assets import AssetRepository
+import pytest
+
+from app.repositories.assets import AssetBindingLeaseConflictError, AssetRepository
 
 
 class FakeCursor:
@@ -31,12 +33,16 @@ class FakeConnection:
         self.fetchall_results = fetchall_results or []
         self.executed: list[tuple[str, tuple[Any, ...]]] = []
         self.commit_count = 0
+        self.rollback_count = 0
 
     def cursor(self, *args: Any, **kwargs: Any) -> FakeCursor:
         return FakeCursor(self)
 
     def commit(self) -> None:
         self.commit_count += 1
+
+    def rollback(self) -> None:
+        self.rollback_count += 1
 
 
 def test_get_by_local_file_code_returns_matching_asset() -> None:
@@ -110,3 +116,79 @@ def test_update_status_returns_updated_asset_and_commits() -> None:
 
     assert row == {"asset_code": "AG-IMG-1", "status": "stored"}
     assert connection.commit_count == 1
+
+
+def test_material_binding_update_is_blocked_during_active_retry_lease() -> None:
+    connection = FakeConnection(
+        fetchall_results=[[{"retry_task_code": "MT-RETRY-1", "status": "in_progress", "lease_active": True}]]
+    )
+    repository = AssetRepository(connection)  # type: ignore[arg-type]
+
+    with pytest.raises(AssetBindingLeaseConflictError, match="active retry worker lease"):
+        repository.update_maitu_material_binding(
+            "AG-IMG-1",
+            {
+                "maitu_material_id": 202,
+                "source_material_type": "image",
+                "source_material_url": "https://example.invalid/material/202.png",
+            },
+        )
+
+    assert connection.rollback_count == 1
+    assert len(connection.executed) == 1
+    assert "maitu_execution_retry_tasks" in connection.executed[0][0]
+    assert "FOR UPDATE" in connection.executed[0][0]
+
+
+def test_material_binding_update_locks_pending_retry_tasks_before_asset_mutation() -> None:
+    updated = {
+        "asset_code": "AG-IMG-1",
+        "maitu_material_id": 203,
+        "source_material_type": "image",
+    }
+    connection = FakeConnection(
+        fetchone_results=[updated],
+        fetchall_results=[[{"retry_task_code": "MT-RETRY-1", "status": "pending", "lease_active": False}]],
+    )
+
+    row = AssetRepository(connection).update_maitu_material_binding(
+        "AG-IMG-1",
+        {"maitu_material_id": 203, "source_material_type": "image"},
+    )
+
+    assert row == updated
+    lock_sql = connection.executed[0][0]
+    lock_where = lock_sql.split("WHERE", 1)[1]
+    assert "status = 'in_progress'" not in lock_where
+    assert "claim_expires_at >= now()" not in lock_where
+    assert "ORDER BY retry_task_code" in lock_sql
+    assert "FOR UPDATE" in lock_sql
+
+
+def test_material_binding_update_clears_previous_verification_metadata() -> None:
+    updated = {
+        "asset_code": "AG-IMG-1",
+        "maitu_material_id": 202,
+        "source_material_type": "image",
+        "maitu_binding_verification_source": None,
+        "maitu_binding_verified_at": None,
+        "maitu_binding_scope": None,
+    }
+    connection = FakeConnection(fetchone_results=[updated], fetchall_results=[[]])
+    repository = AssetRepository(connection)  # type: ignore[arg-type]
+
+    row = repository.update_maitu_material_binding(
+        "AG-IMG-1",
+        {
+            "maitu_material_id": 202,
+            "source_material_type": "image",
+        },
+    )
+
+    assert row == updated
+    assert connection.commit_count == 1
+    update_sql, values = connection.executed[1]
+    assert "maitu_binding_verification_source = %s" in update_sql
+    assert "maitu_binding_verified_at = %s" in update_sql
+    assert "maitu_binding_scope = %s" in update_sql
+    assert values[-4:-1] == (None, None, None)

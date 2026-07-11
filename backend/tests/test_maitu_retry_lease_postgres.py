@@ -2,16 +2,20 @@ from __future__ import annotations
 
 import os
 import threading
+import time
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 import psycopg
 import pytest
+from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 
+from app.repositories.assets import AssetRepository
 from app.repositories.maitu import (
     MaituMaterialSlotRepository,
-    RetryCheckpointConflictError,
     RetryExecutionConflictError,
     RetryLeaseConflictError,
 )
@@ -28,23 +32,90 @@ def _insert_retry_task(
     slot_code: str | None = None,
     failure_type: str = "missing_layer",
 ) -> None:
+    asset_code = f"AG-IMG-IT-{retry_task_code[-12:]}"
+    canonical_slot_code = slot_code or f"MT-SLOT-IT-{retry_task_code[-12:]}"
     with connection.cursor() as cursor:
         cursor.execute(
             """
+            UPDATE maitu_execution_retry_tasks
+            SET status = 'succeeded', claimed_by = NULL, claimed_at = NULL,
+                claim_token = NULL, claim_expires_at = NULL, updated_at = now()
+            WHERE retry_task_code LIKE 'MT-RETRY-IT-%'
+                AND status IN ('pending', 'in_progress', 'manual_required', 'failed')
+            """
+        )
+        cursor.execute(
+            """
             INSERT INTO maitu_execution_retry_tasks (
-                retry_task_code, plan_code, execution_code, slot_code, failure_type,
-                retryable, status, retry_attempt_count
+                retry_task_code, plan_code, execution_code, slot_code, asset_code,
+                failure_type, retryable, status, retry_attempt_count
             )
-            VALUES (%s, %s, %s, %s, %s, true, 'pending', 0)
+            VALUES (%s, %s, %s, %s, %s, %s, true, 'pending', 0)
             """,
             (
                 retry_task_code,
                 f"PLAN-{retry_task_code}",
                 f"EXEC-{retry_task_code}",
                 slot_code,
+                asset_code,
                 failure_type,
             ),
         )
+        layer_name = "integration-layer"
+        if slot_code is not None:
+            cursor.execute(
+                "SELECT layer_name FROM maitu_material_slots WHERE slot_code = %s",
+                (slot_code,),
+            )
+            slot_row = cursor.fetchone()
+            layer_name = slot_row[0] if slot_row is not None else layer_name
+        task = {
+            "retry_task_code": retry_task_code,
+            "slot_code": canonical_slot_code,
+            "asset_code": asset_code,
+            "failure_type": failure_type,
+            "retryable": True,
+            "status": "pending",
+        }
+        plan = {
+            "maitu_project_code": "MT-PROJ-IT",
+            "target_live_room_id": "38336",
+            "scene_name": "integration-scene",
+        }
+        slot = {
+            "scene_name": "integration-scene",
+            "layer_name": layer_name,
+            "slot_name": "integration-slot",
+            "target_live_room_id": "38336",
+            "target_clip_id": 501,
+            "target_layer_id": 601,
+            "accepted_asset_types": ["IMG"],
+            "replacement_policy": "keep_layout",
+            "expected_before_state": {
+                "layer_id": 601,
+                "material_id": 101,
+                "left": 12.0,
+                "top": 24.0,
+                "width": 320.0,
+                "height": 180.0,
+                "z_index": 4,
+            },
+        }
+        plan_item = {
+            "selected_asset_code": asset_code,
+            "binding_asset_code": asset_code,
+            "selected_asset_type": "IMG",
+            "selected_asset_status": "stored",
+            "selected_asset_title": "integration asset",
+            "replacement_policy": "keep_layout",
+            "selected_asset_maitu_material_id": 202,
+            "selected_asset_source_material_type": "image",
+            "selected_asset_binding_verification_source": "maitu_readback",
+            "selected_asset_binding_verified_at": datetime(2026, 7, 11, tzinfo=UTC),
+            "selected_asset_binding_scope": "live_room:38336",
+        }
+        operations = MaituMaterialSlotRepository._build_retry_operations(task, plan, slot, plan_item)
+        MaituMaterialSlotRepository._insert_retry_operation_intents(cursor, operations)
     connection.commit()
 
 
@@ -56,44 +127,6 @@ def _claim(repository: MaituMaterialSlotRepository, worker_id: str) -> dict[str,
     return claimed
 
 
-def _complete_all_checkpoints(
-    repository: MaituMaterialSlotRepository,
-    retry_task_code: str,
-    claim: dict[str, Any],
-    *,
-    worker_id: str = "worker-a",
-) -> list[dict[str, Any]]:
-    plan = repository.get_retry_task_browser_use_operation_plan(retry_task_code)
-    assert plan is not None
-    completed: list[dict[str, Any]] = []
-    for operation in plan["operations"]:
-        attempt_id = uuid4()
-        begin_payload = {
-            "claimed_by": worker_id,
-            "claim_token": claim["claim_token"],
-            "lease_version": claim["lease_version"],
-            "attempt_id": attempt_id,
-            "operation_fingerprint": operation["operation_fingerprint"],
-        }
-        begun = repository.begin_retry_operation_checkpoint(
-            retry_task_code,
-            operation["operation_key"],
-            begin_payload,
-        )
-        assert begun is not None and begun["decision"] == "execute"
-        completion = repository.complete_retry_operation_checkpoint(
-            retry_task_code,
-            operation["operation_key"],
-            {
-                **begin_payload,
-                "completion_id": uuid4(),
-                "evidence": {"verified": True, "operation_key": operation["operation_key"]},
-            },
-        )
-        assert completion is not None and completion["state"] == "completed"
-        completed.append(completion)
-    return completed
-
 
 def test_postgres_operation_checkpoint_migration_replays() -> None:
     migration = (
@@ -102,12 +135,157 @@ def test_postgres_operation_checkpoint_migration_replays() -> None:
     reconciliation_migration = (
         Path(__file__).resolve().parents[1] / "migrations" / "018_maitu_retry_operation_reconciliation.sql"
     ).read_text(encoding="utf-8")
+    intent_migration = (
+        Path(__file__).resolve().parents[1] / "migrations" / "019_maitu_retry_mutation_intent.sql"
+    ).read_text(encoding="utf-8")
     with psycopg.connect(DATABASE_URL) as connection:
         with connection.cursor() as cursor:
             cursor.execute(migration)
             cursor.execute(reconciliation_migration)
+            cursor.execute(intent_migration)
             cursor.execute(migration)
             cursor.execute(reconciliation_migration)
+            cursor.execute(intent_migration)
+        connection.commit()
+
+
+def test_postgres_retry_operation_intent_rows_reject_update_and_delete() -> None:
+    retry_task_code = f"MT-RETRY-IT-{uuid4().hex[:12]}"
+    with psycopg.connect(DATABASE_URL) as connection:
+        _insert_retry_task(connection, retry_task_code)
+        for statement in (
+            "UPDATE maitu_retry_operation_intents SET readiness_status = 'blocked' WHERE retry_task_code = %s",
+            "DELETE FROM maitu_retry_operation_intents WHERE retry_task_code = %s",
+        ):
+            with pytest.raises(psycopg.errors.RaiseException, match="intents are immutable"):
+                with connection.cursor() as cursor:
+                    cursor.execute(statement, (retry_task_code,))
+            connection.rollback()
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "UPDATE maitu_execution_retry_tasks SET status = 'succeeded' WHERE retry_task_code = %s",
+                (retry_task_code,),
+            )
+        connection.commit()
+
+
+def test_postgres_retry_task_creation_freezes_immutable_operation_intents() -> None:
+    suffix = uuid4().hex[:10]
+    plan_code = f"PLAN-{suffix}"
+    execution_code = f"EXEC-{suffix}"
+    slot_code = f"SLOT-{suffix}"
+    asset_code = f"AG-IMG-{suffix}"
+    before_state = {
+        "layer_id": 601,
+        "material_id": 101,
+        "left": 12.0,
+        "top": 24.0,
+        "width": 320.0,
+        "height": 180.0,
+        "z_index": 4,
+    }
+    with psycopg.connect(DATABASE_URL) as connection:
+        repository = MaituMaterialSlotRepository(connection)
+        with connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                INSERT INTO assets (
+                    asset_code, asset_type, original_filename, status, maitu_material_id,
+                    source_material_type, maitu_binding_verification_source,
+                    maitu_binding_verified_at, maitu_binding_scope
+                ) VALUES (%s, 'IMG', 'product.png', 'stored', 202, 'image', 'maitu_readback', %s, 'live_room:38336')
+                """,
+                (asset_code, datetime(2026, 7, 11, tzinfo=UTC)),
+            )
+            cursor.execute(
+                """
+                INSERT INTO maitu_material_slots (
+                    slot_code, slot_name, required_category, accepted_asset_types,
+                    scene_name, layer_name,
+                    target_live_room_id, target_clip_id, target_layer_id,
+                    expected_before_state, replacement_policy
+                ) VALUES (%s, '商品主图', 'product_image', 'IMG', '场景一', 'layer-8',
+                          '38336', 501, 601, %s, 'keep_layout')
+                """,
+                (slot_code, Jsonb(before_state)),
+            )
+            cursor.execute(
+                """
+                INSERT INTO maitu_replacement_plans (
+                    plan_code, plan_name, maitu_project_code, target_live_room_id, scene_name
+                ) VALUES (%s, '冻结意图测试', 'MT-PROJ-1', '38336', '场景一')
+                RETURNING id
+                """,
+                (plan_code,),
+            )
+            plan_id = cursor.fetchone()["id"]
+            cursor.execute(
+                """
+                INSERT INTO maitu_replacement_plan_items (
+                    plan_id, plan_code, slot_code, slot_name, selected_asset_code,
+                    selected_asset_title, replacement_policy
+                ) VALUES (%s, %s, %s, '商品主图', %s, '商品图', 'keep_layout')
+                """,
+                (plan_id, plan_code, slot_code, asset_code),
+            )
+            repository._insert_retry_task(
+                cursor,
+                execution_code,
+                plan_code,
+                {"executor": "browser_use"},
+                {
+                    "slot_code": slot_code,
+                    "asset_code": asset_code,
+                    "failure_type": "missing_layer",
+                    "retryable": True,
+                },
+            )
+        connection.commit()
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT retry_task_code FROM maitu_execution_retry_tasks WHERE execution_code = %s",
+                (execution_code,),
+            )
+            retry_task_code = cursor.fetchone()[0]
+            cursor.execute(
+                """
+                SELECT operation_key, readiness_status, intent_payload
+                FROM maitu_retry_operation_intents
+                WHERE retry_task_code = %s
+                ORDER BY CASE operation_key WHEN 'primary' THEN 0 ELSE 1 END
+                """,
+                (retry_task_code,),
+            )
+            snapshots = cursor.fetchall()
+        assert [(row[0], row[1]) for row in snapshots] == [
+            ("primary", "ready"),
+            ("save_project", "blocked"),
+        ]
+        frozen_primary = snapshots[0][2]
+        assert frozen_primary["maitu_material_id"] == 202
+        assert frozen_primary["binding_verification_source"] == "maitu_readback"
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "UPDATE assets SET maitu_material_id = 999 WHERE asset_code = %s",
+                (asset_code,),
+            )
+            cursor.execute(
+                "UPDATE maitu_material_slots SET target_layer_id = 999 WHERE slot_code = %s",
+                (slot_code,),
+            )
+        connection.commit()
+
+        operation_plan = repository.get_retry_task_browser_use_operation_plan(retry_task_code)
+        assert operation_plan is not None
+        assert operation_plan["operations"][0] == frozen_primary
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "UPDATE maitu_execution_retry_tasks SET status = 'succeeded' WHERE retry_task_code = %s",
+                (retry_task_code,),
+            )
         connection.commit()
 
 
@@ -183,13 +361,13 @@ def test_postgres_recoverable_release_receipt_is_idempotent_without_attempt_incr
                 (retry_execution_id,),
             )
             cursor.execute(
-                "DELETE FROM maitu_execution_retry_tasks WHERE retry_task_code = %s",
+                "UPDATE maitu_execution_retry_tasks SET status = 'succeeded' WHERE retry_task_code = %s",
                 (retry_task_code,),
             )
         connection.commit()
 
 
-def test_postgres_checkpoint_complete_skips_and_old_begun_requires_reconciliation() -> None:
+def test_postgres_completed_checkpoint_skips_after_reclaim_and_blocked_save_stays_closed() -> None:
     retry_task_code = f"MT-RETRY-IT-{uuid4().hex[:12]}"
     with psycopg.connect(DATABASE_URL) as connection:
         repository = MaituMaterialSlotRepository(connection)
@@ -198,6 +376,9 @@ def test_postgres_checkpoint_complete_skips_and_old_begun_requires_reconciliatio
         plan = repository.get_retry_task_browser_use_operation_plan(retry_task_code)
         assert plan is not None
         primary, save = plan["operations"]
+        assert primary["status"] == "ready"
+        assert save["status"] == "blocked"
+        assert save["blocked_reasons"] == ["save_project_not_implemented"]
 
         primary_attempt = uuid4()
         primary_begin_payload = {
@@ -225,16 +406,6 @@ def test_postgres_checkpoint_complete_skips_and_old_begun_requires_reconciliatio
         duplicate_complete = repository.complete_retry_operation_checkpoint(
             retry_task_code, primary["operation_key"], complete_payload
         )
-        save_attempt = uuid4()
-        save_begin_payload = {
-            "claimed_by": "worker-a",
-            "claim_token": first_claim["claim_token"],
-            "lease_version": first_claim["lease_version"],
-            "attempt_id": save_attempt,
-            "operation_fingerprint": save["operation_fingerprint"],
-        }
-        repository.begin_retry_operation_checkpoint(retry_task_code, save["operation_key"], save_begin_payload)
-
         assert begun is not None and begun["decision"] == "execute"
         assert duplicate_begin is not None and duplicate_begin["attempt_id"] == str(primary_attempt)
         assert completed is not None and completed["state"] == "completed"
@@ -263,7 +434,7 @@ def test_postgres_checkpoint_complete_skips_and_old_begun_requires_reconciliatio
                 """,
                 (retry_task_code,),
             )
-            assert cursor.fetchall() == [("primary", "completed"), ("save_project", "reconcile_required")]
+            assert cursor.fetchall() == [("primary", "completed")]
 
         second_claim = _claim(repository, "worker-b")
         primary_skip = repository.begin_retry_operation_checkpoint(
@@ -277,20 +448,8 @@ def test_postgres_checkpoint_complete_skips_and_old_begun_requires_reconciliatio
                 "operation_fingerprint": primary["operation_fingerprint"],
             },
         )
-        save_reconcile = repository.begin_retry_operation_checkpoint(
-            retry_task_code,
-            save["operation_key"],
-            {
-                "claimed_by": "worker-b",
-                "claim_token": second_claim["claim_token"],
-                "lease_version": second_claim["lease_version"],
-                "attempt_id": uuid4(),
-                "operation_fingerprint": save["operation_fingerprint"],
-            },
-        )
 
         assert primary_skip is not None and primary_skip["decision"] == "skip"
-        assert save_reconcile is not None and save_reconcile["decision"] == "reconcile"
         with connection.cursor() as cursor:
             cursor.execute(
                 "SELECT completion_evidence::text FROM maitu_retry_operation_checkpoints WHERE retry_task_code = %s",
@@ -344,18 +503,18 @@ def test_postgres_explicit_release_marks_begun_checkpoint_reconcile_required() -
                 (retry_task_code,),
             )
             cursor.execute(
-                "DELETE FROM maitu_execution_retry_tasks WHERE retry_task_code = %s",
+                "UPDATE maitu_execution_retry_tasks SET status = 'succeeded' WHERE retry_task_code = %s",
                 (retry_task_code,),
             )
         connection.commit()
 
 
-def test_postgres_confirmed_completion_reconciliation_is_idempotent_and_skips_replay() -> None:
+def test_postgres_primary_completion_reconciliation_is_idempotent_and_skips_replay() -> None:
     retry_task_code = f"MT-RETRY-IT-{uuid4().hex[:12]}"
     reconciliation_id = uuid4()
     with psycopg.connect(DATABASE_URL) as connection:
         repository = MaituMaterialSlotRepository(connection)
-        _insert_retry_task(connection, retry_task_code, failure_type="save_failed")
+        _insert_retry_task(connection, retry_task_code)
         first_claim = _claim(repository, "worker-a")
         plan = repository.get_retry_task_browser_use_operation_plan(retry_task_code)
         assert plan is not None
@@ -388,7 +547,7 @@ def test_postgres_confirmed_completion_reconciliation_is_idempotent_and_skips_re
             "operation_fingerprint": operation["operation_fingerprint"],
             "resolution": "confirmed_completed",
             "resolved_by": "operator-it",
-            "resolution_summary": "authoritative readback confirmed save",
+            "resolution_summary": "authoritative readback confirmed mutation",
             "evidence": {"verified": True, "operation_applied": True, "readback": "saved"},
         }
         first = repository.reconcile_retry_operation_checkpoint(
@@ -420,52 +579,6 @@ def test_postgres_confirmed_completion_reconciliation_is_idempotent_and_skips_re
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                UPDATE maitu_retry_operation_reconciliations
-                SET resolved_by = 'operator-TAMPERED'
-                WHERE reconciliation_id = %s
-                """,
-                (reconciliation_id,),
-            )
-        connection.commit()
-        with pytest.raises(RetryCheckpointConflictError, match="does not prove"):
-            repository.create_retry_task_execution_result(
-                retry_task_code,
-                {
-                    "retry_execution_id": uuid4(),
-                    "retry_execution_status": "succeeded",
-                    "claimed_by": "worker-b",
-                    "claim_token": second_claim["claim_token"],
-                    "lease_version": second_claim["lease_version"],
-                    "result_summary": "tampered reconciliation receipt must not be accepted",
-                },
-            )
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                UPDATE maitu_retry_operation_reconciliations
-                SET resolved_by = 'operator-it'
-                WHERE reconciliation_id = %s
-                """,
-                (reconciliation_id,),
-            )
-        connection.commit()
-
-        succeeded = repository.create_retry_task_execution_result(
-            retry_task_code,
-            {
-                "retry_execution_id": uuid4(),
-                "retry_execution_status": "succeeded",
-                "claimed_by": "worker-b",
-                "claim_token": second_claim["claim_token"],
-                "lease_version": second_claim["lease_version"],
-                "result_summary": "reconciliation-backed completion accepted",
-            },
-        )
-        assert succeeded is not None and succeeded["status"] == "succeeded"
-
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
                 SELECT state, completion_source, completion_reconciliation_id, completed_lease_version,
                        completion_evidence->>'operation_applied'
                 FROM maitu_retry_operation_checkpoints
@@ -491,7 +604,7 @@ def test_postgres_confirmed_completion_reconciliation_is_idempotent_and_skips_re
                 "DELETE FROM maitu_retry_operation_checkpoints WHERE retry_task_code = %s",
                 (retry_task_code,),
             )
-            cursor.execute("DELETE FROM maitu_execution_retry_tasks WHERE retry_task_code = %s", (retry_task_code,))
+            cursor.execute("UPDATE maitu_execution_retry_tasks SET status = 'succeeded' WHERE retry_task_code = %s", (retry_task_code,))
         connection.commit()
 
 
@@ -524,7 +637,7 @@ def test_postgres_slot_authoritative_intent_is_frozen_for_active_retry_lease() -
             )
             assert cursor.fetchone() == ("layer-before", None)
             cursor.execute(
-                "DELETE FROM maitu_execution_retry_tasks WHERE retry_task_code = %s",
+                "UPDATE maitu_execution_retry_tasks SET status = 'succeeded' WHERE retry_task_code = %s",
                 (retry_task_code,),
             )
             cursor.execute("DELETE FROM maitu_material_slots WHERE slot_code = %s", (slot_code,))
@@ -610,7 +723,7 @@ def test_postgres_slot_mutation_and_claim_serialize_on_retry_task_row() -> None:
 
         operation_plan = mutation_repository.get_retry_task_browser_use_operation_plan(retry_task_code)
         assert operation_plan is not None
-        assert operation_plan["operations"][0]["layer_name"] == "layer-after"
+        assert operation_plan["operations"][0]["layer_name"] == "layer-before"
 
         with mutation_connection.cursor() as cursor:
             cursor.execute(
@@ -618,28 +731,127 @@ def test_postgres_slot_mutation_and_claim_serialize_on_retry_task_row() -> None:
                 (retry_task_code,),
             )
             cursor.execute(
-                "DELETE FROM maitu_execution_retry_tasks WHERE retry_task_code = %s",
+                "UPDATE maitu_execution_retry_tasks SET status = 'succeeded' WHERE retry_task_code = %s",
                 (retry_task_code,),
             )
             cursor.execute("DELETE FROM maitu_material_slots WHERE slot_code = %s", (slot_code,))
         mutation_connection.commit()
 
 
-def test_postgres_concurrent_duplicate_result_increments_attempt_once() -> None:
+def test_postgres_asset_binding_update_and_claim_serialize_on_retry_task_row() -> None:
+    retry_task_code = f"MT-RETRY-IT-{uuid4().hex[:12]}"
+    asset_code = f"AG-IMG-IT-{retry_task_code[-12:]}"
+    with psycopg.connect(DATABASE_URL) as setup_connection:
+        _insert_retry_task(setup_connection, retry_task_code)
+        with setup_connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO assets (
+                    asset_code, asset_type, original_filename, status, maitu_material_id,
+                    source_material_type, maitu_binding_verification_source,
+                    maitu_binding_verified_at, maitu_binding_scope
+                )
+                VALUES (%s, 'IMG', 'binding-race.png', 'stored', 202, 'image',
+                        'maitu_readback', %s, 'live_room:38336')
+                ON CONFLICT (asset_code) DO UPDATE SET
+                    maitu_material_id = EXCLUDED.maitu_material_id,
+                    source_material_type = EXCLUDED.source_material_type,
+                    maitu_binding_verification_source = EXCLUDED.maitu_binding_verification_source,
+                    maitu_binding_verified_at = EXCLUDED.maitu_binding_verified_at,
+                    maitu_binding_scope = EXCLUDED.maitu_binding_scope
+                """,
+                (asset_code, datetime(2026, 7, 11, tzinfo=UTC)),
+            )
+        setup_connection.commit()
+
+    binding_started = threading.Event()
+    binding_done = threading.Event()
+    binding_pid: dict[str, int] = {}
+    binding_result: dict[str, Any] = {}
+    binding_errors: list[BaseException] = []
+
+    with psycopg.connect(DATABASE_URL) as asset_blocker:
+        with asset_blocker.cursor() as cursor:
+            cursor.execute("SELECT asset_code FROM assets WHERE asset_code = %s FOR UPDATE", (asset_code,))
+            assert cursor.fetchone() == (asset_code,)
+
+        def update_binding_while_asset_row_is_locked() -> None:
+            try:
+                with psycopg.connect(DATABASE_URL) as binding_connection:
+                    binding_pid["value"] = binding_connection.info.backend_pid
+                    binding_started.set()
+                    binding_result["row"] = AssetRepository(binding_connection).update_maitu_material_binding(
+                        asset_code,
+                        {"maitu_material_id": 203, "source_material_type": "image"},
+                    )
+            except BaseException as exc:  # pragma: no cover - parent assertion reports it
+                binding_errors.append(exc)
+            finally:
+                binding_done.set()
+
+        binding_thread = threading.Thread(target=update_binding_while_asset_row_is_locked)
+        binding_thread.start()
+        assert binding_started.wait(timeout=2)
+
+        blocked_on_asset = False
+        with psycopg.connect(DATABASE_URL) as observer:
+            for _ in range(100):
+                with observer.cursor() as cursor:
+                    cursor.execute(
+                        "SELECT wait_event_type, query FROM pg_stat_activity WHERE pid = %s",
+                        (binding_pid["value"],),
+                    )
+                    activity = cursor.fetchone()
+                if activity and activity[0] == "Lock" and "UPDATE assets" in activity[1]:
+                    blocked_on_asset = True
+                    break
+                time.sleep(0.02)
+        assert blocked_on_asset is True
+
+        with psycopg.connect(DATABASE_URL) as claim_connection:
+            claimed_during_binding = MaituMaterialSlotRepository(claim_connection).claim_next_retry_task(
+                {
+                    "claimed_by": "worker-binding-race",
+                    "lock_ttl_seconds": 60,
+                    "max_attempts": 3,
+                    "failure_type": "missing_layer",
+                }
+            )
+        assert claimed_during_binding is None
+
+        asset_blocker.rollback()
+        assert binding_done.wait(timeout=5)
+        binding_thread.join(timeout=5)
+
+    assert binding_errors == []
+    assert binding_result["row"]["maitu_material_id"] == 203
+
+    with psycopg.connect(DATABASE_URL) as verify_connection:
+        repository = MaituMaterialSlotRepository(verify_connection)
+        claimed_after_binding = _claim(repository, "worker-binding-race")
+        assert claimed_after_binding["retry_task_code"] == retry_task_code
+        operation_plan = repository.get_retry_task_browser_use_operation_plan(retry_task_code)
+        assert operation_plan is not None
+        assert operation_plan["operations"][0]["maitu_material_id"] == 202
+        with verify_connection.cursor() as cursor:
+            cursor.execute(
+                "UPDATE maitu_execution_retry_tasks SET status = 'succeeded' WHERE retry_task_code = %s",
+                (retry_task_code,),
+            )
+            cursor.execute("DELETE FROM assets WHERE asset_code = %s", (asset_code,))
+        verify_connection.commit()
+
+
+def test_postgres_concurrent_duplicate_release_writes_one_receipt_without_attempt_increment() -> None:
     retry_task_code = f"MT-RETRY-IT-{uuid4().hex[:12]}"
     retry_execution_id = str(uuid4())
     with psycopg.connect(DATABASE_URL) as setup_connection:
         _insert_retry_task(setup_connection, retry_task_code)
         claim = _claim(MaituMaterialSlotRepository(setup_connection), "worker-a")
-        _complete_all_checkpoints(
-            MaituMaterialSlotRepository(setup_connection),
-            retry_task_code,
-            claim,
-        )
 
     payload = {
         "retry_execution_id": retry_execution_id,
-        "retry_execution_status": "succeeded",
+        "retry_execution_status": "released",
         "claimed_by": "worker-a",
         "claim_token": claim["claim_token"],
         "lease_version": claim["lease_version"],
@@ -681,7 +893,7 @@ def test_postgres_concurrent_duplicate_result_increments_attempt_once() -> None:
                 """,
                 (retry_execution_id, retry_task_code),
             )
-            assert cursor.fetchone() == (1, 1)
+            assert cursor.fetchone() == (0, 1)
 
         conflicting_payload = {**payload, "result_summary": "different"}
         with pytest.raises(RetryExecutionConflictError):

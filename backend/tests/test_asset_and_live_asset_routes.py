@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from app.api.routes import assets, lives
 from app.main import app
+from app.repositories.assets import AssetBindingLeaseConflictError
 
 
 class FakeAssetRepository:
@@ -386,6 +387,35 @@ def test_patch_asset_maitu_material_binding_for_real_insert(client: TestClient) 
     get_response = client.get(f"/api/assets/{asset_code}")
     assert get_response.status_code == 200
     assert get_response.json()["maitu_material_id"] == 881001
+
+
+def test_patch_asset_material_binding_returns_409_during_active_retry_lease() -> None:
+    class ConflictAssetRepository(FakeAssetRepository):
+        def update_maitu_material_binding(self, asset_code: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+            raise AssetBindingLeaseConflictError(
+                "asset Maitu material binding cannot change during an active retry worker lease"
+            )
+
+    repository = ConflictAssetRepository()
+    asset = repository.create({"asset_type": "IMG", "original_filename": "product.png"})
+    app.dependency_overrides[assets.get_asset_repository] = lambda: repository
+    try:
+        with TestClient(app, raise_server_exceptions=False) as test_client:
+            response = test_client.patch(
+                f"/api/assets/{asset['asset_code']}/maitu-material-binding",
+                json={
+                    "maitu_material_id": 881001,
+                    "source_material_type": "image",
+                    "source_material_url": "https://static.maituai.example/materials/product.png",
+                },
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": "Asset Maitu material binding cannot change during an active retry worker lease"
+    }
 
 
 def test_link_asset_to_live_and_list_assets(client: TestClient) -> None:

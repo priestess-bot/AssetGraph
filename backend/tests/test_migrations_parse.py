@@ -151,3 +151,26 @@ def test_maitu_retry_operation_reconciliation_migration_is_replayable_and_audite
     assert "confirmed_not_applied" in sql
     assert "operation_applied" in sql
     assert "claim_token" not in sql
+
+
+def test_retry_mutation_intent_migration_is_replayable_and_stores_authoritative_target() -> None:
+    migration = MIGRATIONS_DIR / "019_maitu_retry_mutation_intent.sql"
+
+    assert migration.exists()
+    sql = migration.read_text(encoding="utf-8")
+    assert "ADD COLUMN IF NOT EXISTS target_live_room_id VARCHAR(64)" in sql
+    assert "ADD COLUMN IF NOT EXISTS target_clip_id BIGINT" in sql
+    assert "ADD COLUMN IF NOT EXISTS target_layer_id BIGINT" in sql
+    assert "ADD COLUMN IF NOT EXISTS expected_before_state JSONB" in sql
+    assert "jsonb_typeof(expected_before_state) = 'object'" in sql
+    assert "ADD COLUMN IF NOT EXISTS maitu_binding_verification_source VARCHAR(64)" in sql
+    assert "ADD COLUMN IF NOT EXISTS maitu_binding_verified_at TIMESTAMPTZ" in sql
+    assert "ADD COLUMN IF NOT EXISTS maitu_binding_scope VARCHAR(128)" in sql
+    assert "CREATE TABLE IF NOT EXISTS maitu_retry_operation_intents" in sql
+    assert "PRIMARY KEY (retry_task_code, operation_key)" in sql
+    assert "contract_version VARCHAR(32) NOT NULL" in sql
+    assert "intent_fingerprint VARCHAR(64) NOT NULL" in sql
+    assert "intent_payload JSONB NOT NULL" in sql
+    assert "readiness_status VARCHAR(32) NOT NULL" in sql
+    assert "CREATE INDEX IF NOT EXISTS idx_maitu_material_slots_target_clip" in sql
+    assert "claim_token" not in sql

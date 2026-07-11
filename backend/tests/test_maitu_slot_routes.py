@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -894,6 +895,10 @@ class FakeMaituMaterialSlotRepository:
             "scene_index": payload.get("scene_index"),
             "layer_name": payload.get("layer_name"),
             "layer_index": payload.get("layer_index"),
+            "target_live_room_id": payload.get("target_live_room_id"),
+            "target_clip_id": payload.get("target_clip_id"),
+            "target_layer_id": payload.get("target_layer_id"),
+            "expected_before_state": payload.get("expected_before_state", {}),
             "required_category": payload["required_category"],
             "accepted_asset_types": payload.get("accepted_asset_types", []),
             "aspect_ratio": payload.get("aspect_ratio"),
@@ -1106,7 +1111,22 @@ class FakeMaituMaterialSlotRepository:
                     "slot_name": slot.get("slot_name"),
                     "required_category": slot.get("required_category"),
                     "selected_asset_code": candidate.get("asset_code") if candidate else None,
+                    "binding_asset_code": candidate.get("asset_code") if candidate else None,
+                    "selected_asset_type": candidate.get("asset_type") if candidate else None,
+                    "selected_asset_status": candidate.get("status") if candidate else None,
                     "selected_asset_title": candidate.get("title") if candidate else None,
+                    "selected_asset_maitu_material_id": candidate.get("maitu_material_id") if candidate else None,
+                    "selected_asset_source_material_type": candidate.get("source_material_type") if candidate else None,
+                    "selected_asset_source_material_url": candidate.get("source_material_url") if candidate else None,
+                    "selected_asset_binding_verification_source": candidate.get(
+                        "maitu_binding_verification_source"
+                    )
+                    if candidate
+                    else None,
+                    "selected_asset_binding_verified_at": candidate.get("maitu_binding_verified_at")
+                    if candidate
+                    else None,
+                    "selected_asset_binding_scope": candidate.get("maitu_binding_scope") if candidate else None,
                     "match_score": candidate.get("match_score") if candidate else None,
                     "match_reasons": candidate.get("match_reasons", []) if candidate else [],
                     "replacement_policy": candidate.get("replacement_policy") if candidate else slot.get("replacement_policy"),
@@ -1119,6 +1139,7 @@ class FakeMaituMaterialSlotRepository:
             "plan_code": code,
             "plan_name": payload["plan_name"],
             "maitu_project_code": payload.get("maitu_project_code"),
+            "target_live_room_id": payload.get("target_live_room_id"),
             "scene_name": payload.get("scene_name"),
             "status": "draft",
             "strategy": payload.get("strategy", "best_match"),
@@ -3003,6 +3024,18 @@ def test_create_list_get_update_and_delete_maitu_slot(client: TestClient) -> Non
             "scene_index": 0,
             "layer_name": "layer_8",
             "layer_index": 8,
+            "target_live_room_id": "38336",
+            "target_clip_id": 501,
+            "target_layer_id": 601,
+            "expected_before_state": {
+                "layer_id": 601,
+                "material_id": 101,
+                "left": 840,
+                "top": 180,
+                "width": 460,
+                "height": 460,
+                "z_index": 8,
+            },
             "required_category": "product_image",
             "accepted_asset_types": ["IMG"],
             "aspect_ratio": "1:1",
@@ -3022,6 +3055,10 @@ def test_create_list_get_update_and_delete_maitu_slot(client: TestClient) -> Non
     assert created["required_category"] == "product_image"
     assert created["accepted_asset_types"] == ["IMG"]
     assert created["replacement_policy"] == "keep_layout"
+    assert created["target_live_room_id"] == "38336"
+    assert created["target_clip_id"] == 501
+    assert created["target_layer_id"] == 601
+    assert created["expected_before_state"]["material_id"] == 101
 
     list_response = client.get(
         "/api/maitu/slots",
@@ -3089,6 +3126,7 @@ def test_create_list_and_get_replacement_plan(client: TestClient) -> None:
         json={
             "plan_name": "京东空白直播间商品素材替换方案",
             "maitu_project_code": "MT-PROJ-20260707-000001",
+            "target_live_room_id": "38336",
             "scene_name": "京东空白直播间",
             "slot_codes": [slot_code],
             "strategy": "best_match",
@@ -3099,6 +3137,7 @@ def test_create_list_and_get_replacement_plan(client: TestClient) -> None:
     assert create_response.status_code == 201
     plan = create_response.json()
     assert plan["plan_code"] == "MT-PLAN-20260707-000001"
+    assert plan["target_live_room_id"] == "38336"
     assert plan["items"][0]["slot_code"] == slot_code
     assert plan["items"][0]["selected_asset_code"] == "AG-IMG-20260707-000001"
     assert plan["items"][0]["status"] == "selected"
@@ -3357,10 +3396,103 @@ def test_retry_task_browser_use_operations_plan_contains_minimal_retry_steps(cli
     assert operation["asset_code"] == "AG-IMG-20260707-000001"
     assert operation["asset_title"] == "胶原蛋白商品主图-白底款"
     assert operation["failure_type"] == "missing_layer"
-    assert operation["status"] == "ready"
+    assert operation["status"] == "blocked"
+    assert operation["blocked_reasons"] == [
+        "missing_target_live_room_id",
+        "missing_target_clip_id",
+        "missing_target_layer_id",
+        "missing_expected_before_state",
+        "asset_not_stored",
+        "asset_material_type_mismatch",
+        "missing_verified_maitu_material_binding",
+    ]
     assert "重试任务" in operation["instruction"]
     assert "只重试槽位" in operation["instruction"]
     assert "保持原图层位置和尺寸不变" in operation["instruction"]
+
+
+def test_retry_task_operation_plan_is_ready_with_complete_authoritative_intent(
+    client: TestClient,
+    repository: FakeMaituMaterialSlotRepository,
+) -> None:
+    repository.assets[0].update(
+        {
+            "maitu_material_id": 202,
+            "status": "stored",
+            "source_material_type": "image",
+            "source_material_url": "https://static.maituai.example/materials/product-202.png",
+            "maitu_binding_verification_source": "maitu_readback",
+            "maitu_binding_verified_at": datetime(2026, 7, 11, tzinfo=UTC),
+            "maitu_binding_scope": "live_room:38336",
+        }
+    )
+    slot = client.post(
+        "/api/maitu/slots",
+        json={
+            "slot_name": "商品主图",
+            "maitu_project_code": "MT-PROJ-20260707-000001",
+            "scene_name": "京东空白直播间",
+            "layer_name": "layer_8",
+            "target_live_room_id": "38336",
+            "target_clip_id": 501,
+            "target_layer_id": 601,
+            "expected_before_state": {
+                "layer_id": 601,
+                "material_id": 101,
+                "left": 840,
+                "top": 180,
+                "width": 460,
+                "height": 460,
+                "z_index": 8,
+            },
+            "required_category": "product_image",
+            "accepted_asset_types": ["IMG"],
+        },
+    ).json()
+    plan = client.post(
+        "/api/maitu/replacement-plans",
+        json={
+            "plan_name": "权威商品图重试方案",
+            "maitu_project_code": "MT-PROJ-20260707-000001",
+            "target_live_room_id": "38336",
+            "scene_name": "京东空白直播间",
+            "slot_codes": [slot["slot_code"]],
+        },
+    ).json()
+    execution = client.post(
+        f"/api/maitu/replacement-plans/{plan['plan_code']}/execution-results",
+        json={
+            "executor": "browser_use",
+            "execution_status": "partial_failed",
+            "operation_results": [
+                {
+                    "slot_code": slot["slot_code"],
+                    "operation_type": "replace_layer_asset",
+                    "asset_code": "AG-IMG-20260707-000001",
+                    "status": "failed",
+                    "failure_type": "missing_layer",
+                    "retryable": True,
+                }
+            ],
+        },
+    ).json()
+    retry_task = client.get(
+        "/api/maitu/retry-tasks",
+        params={"execution_code": execution["execution_code"]},
+    ).json()[0]
+
+    operation = client.get(
+        f"/api/maitu/retry-tasks/{retry_task['retry_task_code']}/browser-use-operations"
+    ).json()["operations"][0]
+
+    assert operation["status"] == "ready"
+    assert operation["blocked_reasons"] == []
+    assert operation["target_live_room_id"] == "38336"
+    assert operation["target_clip_id"] == 501
+    assert operation["target_layer_id"] == 601
+    assert operation["maitu_material_id"] == 202
+    assert operation["expected_before_state"]["material_id"] == 101
+    assert operation["desired_after_state"]["maitu_material_id"] == 202
 
 
 def _create_retry_task(client: TestClient, *, plan_name: str = "商品主图重试结果方案") -> dict[str, Any]:
@@ -3482,7 +3614,9 @@ def test_retry_operation_checkpoint_rejects_stale_lease_and_fingerprint_drift(cl
     drift = client.post(path, json={**base_payload, "operation_fingerprint": "f" * 64})
 
     assert stale.status_code == 409
+    assert stale.json() == {"detail": "Retry lease conflict"}
     assert drift.status_code == 409
+    assert drift.json() == {"detail": "Retry checkpoint conflict"}
 
 
 def test_active_retry_lease_freezes_slot_and_explicit_release_requires_reconciliation(client: TestClient) -> None:
@@ -3503,8 +3637,12 @@ def test_active_retry_lease_freezes_slot_and_explicit_release_requires_reconcili
     assert client.post(f"{checkpoint_path}/begin", json=begin_payload).status_code == 200
 
     slot_code = retry_task["slot_code"]
-    assert client.patch(f"/api/maitu/slots/{slot_code}", json={"layer_name": "unsafe-layer"}).status_code == 409
-    assert client.delete(f"/api/maitu/slots/{slot_code}").status_code == 409
+    frozen_patch = client.patch(f"/api/maitu/slots/{slot_code}", json={"layer_name": "unsafe-layer"})
+    frozen_delete = client.delete(f"/api/maitu/slots/{slot_code}")
+    assert frozen_patch.status_code == 409
+    assert frozen_patch.json() == {"detail": "Retry lease conflict"}
+    assert frozen_delete.status_code == 409
+    assert frozen_delete.json() == {"detail": "Retry lease conflict"}
 
     released = client.post(
         f"/api/maitu/retry-tasks/{retry_task['retry_task_code']}/release",
@@ -3699,6 +3837,7 @@ def test_retry_task_execution_result_is_owned_and_idempotent(client: TestClient)
         json=result_payload,
     )
     assert blocked_response.status_code == 409
+    assert blocked_response.json() == {"detail": "Retry checkpoint conflict"}
 
     operation_plan = client.get(
         f"/api/maitu/retry-tasks/{retry_task['retry_task_code']}/browser-use-operations"

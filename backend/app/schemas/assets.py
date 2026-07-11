@@ -1,3 +1,4 @@
+from datetime import datetime
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -127,3 +128,6 @@ class AssetRead(AssetCreate):
 
     id: str
     asset_code: str
+    maitu_binding_verification_source: str | None = None
+    maitu_binding_verified_at: datetime | None = None
+    maitu_binding_scope: str | None = None

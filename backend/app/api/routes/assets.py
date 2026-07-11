@@ -10,7 +10,7 @@ from psycopg import Connection
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.repositories.assets import AssetRepository
+from app.repositories.assets import AssetBindingLeaseConflictError, AssetRepository
 from app.schemas.assets import AssetCreate, AssetFileRead, AssetMaituMaterialBindingUpdate, AssetRead
 from app.services.asset_candidates import AssetRetrievalIndex
 from app.services.object_storage import MinioObjectStorage, ObjectStorage, build_asset_object_key, content_type_for_path
@@ -201,7 +201,13 @@ def update_asset_maitu_material_binding(
     payload: AssetMaituMaterialBindingUpdate,
     repository: Annotated[AssetRepository, Depends(get_asset_repository)],
 ) -> dict:
-    row = repository.update_maitu_material_binding(asset_code, payload.model_dump(exclude_unset=True))
+    try:
+        row = repository.update_maitu_material_binding(asset_code, payload.model_dump(exclude_unset=True))
+    except AssetBindingLeaseConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Asset Maitu material binding cannot change during an active retry worker lease",
+        ) from exc
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found")
     return row

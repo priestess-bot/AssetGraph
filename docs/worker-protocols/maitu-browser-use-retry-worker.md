@@ -19,7 +19,7 @@ Browser use worker 负责：
 ```text
 打开/操作麦兔软件
 按 operation_plan 执行失败槽位的最小化重试
-保存项目
+仅在 `retry_save_project` 具备权威保存证明且 `status=ready` 时保存项目
 截图留痕
 把结果回写给 AssetGraph
 ```
@@ -116,18 +116,40 @@ POST /api/maitu/retry-worker/next
     "scene_name": "京东空白直播间",
     "operations": [
       {
+        "contract_version": "maitu-retry-mutation-v1",
+        "target_app": "maitu",
+        "operation_key": "primary",
+        "operation_fingerprint": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
         "operation_type": "retry_replace_layer_asset",
         "retry_task_code": "MT-RETRY-20260708-000001",
-        "slot_code": "MT-SLOT-20260708-000001",
-        "slot_name": "商品主图",
+        "authoritative_intent": {"contract_version": "maitu-retry-mutation-v1", "...": "完整 canonical fingerprint input，实际响应不省略"},
+        "target_live_room_id": "38336",
+        "target_clip_id": 501,
+        "target_scene_name": "京东空白直播间",
         "scene_name": "京东空白直播间",
+        "target_layer_id": 601,
+        "expected_before_state": {"layer_id": 601, "material_id": 101, "left": 12.0, "top": 24.0, "width": 320.0, "height": 180.0, "z_index": 4},
+        "desired_after_state": {"maitu_material_id": 202, "source_material_type": "image", "replacement_policy": "keep_layout", "geometry": {"left": 12.0, "top": 24.0, "width": 320.0, "height": 180.0, "z_index": 4}},
+        "slot_code": "MT-SLOT-20260708-000001",
         "layer_name": "layer_8",
         "asset_code": "AG-IMG-20260708-000001",
-        "asset_title": "胶原蛋白商品主图-白底款",
-        "replacement_policy": "keep_layout",
-        "failure_type": "missing_layer",
+        "selected_asset_type": "IMG",
+        "source_material_type": "image",
         "status": "ready",
+        "blocked_reasons": [],
         "instruction": "执行重试任务...只重试槽位...保持原图层位置和尺寸不变..."
+      },
+      {
+        "contract_version": "maitu-retry-mutation-v1",
+        "target_app": "maitu",
+        "operation_key": "save_project",
+        "operation_fingerprint": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+        "operation_type": "retry_save_project",
+        "retry_task_code": "MT-RETRY-20260708-000001",
+        "authoritative_intent": {"contract_version": "maitu-retry-mutation-v1", "...": "完整 canonical fingerprint input，实际响应不省略"},
+        "status": "blocked",
+        "blocked_reasons": ["save_project_not_implemented"],
+        "instruction": "保存麦兔项目并以权威持久化状态确认保存完成。"
       }
     ]
   }
@@ -142,7 +164,7 @@ POST /api/maitu/retry-worker/next
 
 worker 应 sleep 后重试，不要把 404 视为异常报警。
 
-`claim_token` 是当前领取的不可猜测租约凭据，只在 claim-next 和 retry-worker/next 的成功响应中返回；普通 retry task 列表和 GET 不返回它。worker 不得记录或跨任务复用该值。每次重新领取都会生成新 token 并递增 `lease_version`。
+`claim_token` 是当前领取的不可猜测租约凭据，只在 claim-next 和 retry-worker/next 的成功响应中返回；普通 retry task 列表和 GET 不返回它。worker 不得记录或跨任务复用该值。每次重新领取都会生成新 token 并递增 `lease_version`。`claimed_by` 只能是非敏感 Worker 身份标识；Schema 与 Repository 均拒绝其中的 Bearer、provider token、claim token 或 operator secret，防止其进入 task、checkpoint、receipt 和响应。
 
 ### 租约续租
 
@@ -168,6 +190,26 @@ heartbeat、release 和 execution-results 都要求任务仍为 `in_progress`、
 每个 non-dry-run 队列任务只允许内置的 exact `MaituBrowserUseExecutor`，其 session 也必须是 exact `BrowserUseCliSession`；structural Protocol、子类或第三方 executor/session 即使自报 guard/timeout 支持也会在 claim、heartbeat 或浏览器调用前被拒绝。所有关键 executor/session 方法必须仍绑定到原始类实现，实例级 `MethodType` 覆盖、注入 command runner 以及与 Worker 不同的 asset client 同样在 claim 前拒绝。`BrowserUseWorker.run_once()` 在 dry-run 下会在 claim 前直接拒绝，保证公开 Worker API 也不会修改队列；只读 dry-run 必须走不领取任务的 plan/build-plan 路径。受信任的 concrete executor 必须实现执行 guard，并从受信任 session 读取单次外部副作用的最大 timeout。Worker 只在该 timeout 小于租约 TTL 的 80% 时执行。具体麦兔 CLI session 在每条 browser-use 命令前同步 heartbeat；因此单条阻塞命令即使无法在进程内强制取消，也会从 timeout 起被限制在当前 TTL 内，下一条副作用前仍需重新通过 lease guard。
 
 通用 `PATCH /retry-tasks/{code}` 只允许修改 `result_summary` / `retry_instruction`，且任务为 `in_progress` 时返回 409。`status`、`retry_attempt_count` 和执行编号只能通过带租约身份及 receipt 的 execution-results/release 协议改变。
+
+### Phase 6C-C0 immutable mutation intent
+
+生产 retry task 与 `maitu_retry_operation_intents` snapshot 在同一数据库事务中创建。Snapshot 使用 `maitu-retry-mutation-v1`，创建后由数据库 trigger 禁止 UPDATE/DELETE；历史任务缺少 snapshot 时只能返回 `status=blocked` 和固定原因 `missing_immutable_intent_snapshot`，不得从当前可变 plan/slot/asset 动态升级为可执行操作。
+
+每个 snapshot 都包含 `authoritative_intent`。其中冻结并由 `operation_fingerprint` 覆盖：retry task/operation identity、项目、plan/slot room 与 scene、clip/layer、exact pre/post state、三方 Asset identity、Asset 状态/类型与 Slot allowlist、verified Maitu material binding、replacement policy、Worker `instruction` 和 contract version。Backend 在写入前以及每次读取/checkpoint 前都会：
+
+1. 校验 `authoritative_intent` exact key set 和 canonical 类型；
+2. 重算 SHA-256 fingerprint；
+3. 校验 payload 与冗余数据库列、顶层执行字段一致；兼容别名 `scene_name` 必须与 fingerprint 覆盖的 `target_scene_name` exact 相等；
+4. 递归拒绝 credential、claim/provider/operator secret；
+5. 对 `ready` replacement 重新验证 project、room/scene/clip/layer、exact before-state、derived after-state、三方 Asset identity、`IMG ↔ image` / `VID ↔ video`、verified binding scope/time/source。
+
+`expected_before_state` 非空时必须是 exact 七键数值快照（`layer_id/material_id/left/top/width/height/z_index`），不允许额外键、布尔值、`NaN/Infinity`、非正 material/width/height 或 layer mismatch。PATCH 更换 `target_layer_id` 时必须在同一请求中提交匹配的新 snapshot（或显式 `{}` 清空为未观测）；非空 snapshot 也不能脱离 target layer 单独写入。
+
+任一步失败都 fail closed；畸形或被搬运的 `ready` snapshot 不能 begin checkpoint。Operation-plan 顶层 `maitu_project_code` 与 `scene_name` 也从通过上述校验的 immutable snapshot 派生，Worker 不得使用当前可变 plan/slot 值替代。
+
+Checkpoint completion 的 summary/evidence 与 execution-result 的全部持久化文本都使用共享 secret hygiene 检查，拒绝 Bearer、provider token、claim token 和配置的 operator secret。Worker completion fingerprint 会在重复 complete 与 success gate 时从数据库持久化内容重算；execution receipt 保存 claim token 的单向 SHA-256 绑定而不保存原 token，并从完整持久化 payload 与冗余列重算 fingerprint。所有 lease/checkpoint/idempotency 冲突只返回固定 409 文本，不回显内部异常。
+
+普通 Asset binding PATCH 不能授予 `maitu_readback` verification，且修改 binding 会原子清空旧 verification。Binding mutation 会先按稳定顺序锁定该 Asset 的全部关联 retry-task rows，再检查 active lease，从而与 pending→claim 线性化；claim 已先发生时固定返回 409，binding 已先完成时后续 claim 继续使用既有 immutable snapshot。Slot authoritative intent 使用同样的 task-row 锁屏障。
 
 ---
 
@@ -227,7 +269,9 @@ python -m browser_use_worker --plan-code MT-PLAN-20260709-000001 --preflight --s
 
 worker 必须按 `operation_plan.operations` 执行。
 
-Phase 6C-A 将每个 retry task 展开为显式副作用 operation：通常是 `primary` 与 `save_project`；`save_failed` 只返回一个 `save_project`，避免双重保存。每个 operation 必须携带稳定的 `operation_key`、64 位小写十六进制 `operation_fingerprint` 和 `status=ready`。
+Phase 6C-C0 将每个 retry task 冻结为 immutable explicit operations：替换任务通常包含 `primary` 和 `save_project`，但只有满足完整 canonical mutation contract 的 `primary` 可为 `ready`。在 Phase 6C-C2 提供权威保存证明前，`retry_save_project` 必须固定为 `blocked`，原因是 `save_project_not_implemented`；`save_failed` 因而也只能返回 blocked save。每个 operation 必须携带稳定的 `operation_key`、`authoritative_intent`、64 位小写十六进制 `operation_fingerprint`、`status` 和 `blocked_reasons`。
+
+Worker 必须先检查整个 retry operation plan：任何 operation 非 `ready` 都禁止打开 mutation session、禁止 begin 其他 operation、禁止回写 `succeeded`。当前 C0 的生产 Worker 仍保持关闭；C1/C2 分别实现 replacement readback 与 save proof 后才能改变对应 readiness。
 
 执行原则：
 
@@ -236,7 +280,7 @@ Phase 6C-A 将每个 retry task 展开为显式副作用 operation：通常是 `
 3. 不改变原场景结构。
 4. 保持原 `layer_name`、位置、尺寸、层级。
 5. 只替换目标素材资源。
-6. 替换后保存麦兔项目。
+6. 只有 `retry_save_project.status=ready` 且保存证明契约已实现时才保存；C0 固定禁止。
 7. 如有截图能力，保存截图并回写 `screenshot_asset_code`。
 
 ---
@@ -247,7 +291,7 @@ Phase 6C-A 将每个 retry task 展开为显式副作用 operation：通常是 `
 |---|---|
 | `retry_replace_layer_asset` | 重新定位场景/图层/槽位，替换素材，保持布局 |
 | `retry_asset_upload_and_replace` | 重新上传素材，再替换到目标槽位 |
-| `retry_save_project` | 重新保存项目，必要时截图确认 |
+| `retry_save_project` | C0 固定 blocked；C2 只有在实现权威持久化证明后才允许保存 |
 | `recover_login_then_retry` | 先恢复登录，再重新执行替换 |
 | `resolve_missing_slot_asset` | 素材缺失，通常需要重新查询或人工确认 |
 | `manual_retry_required` | 不自动操作，回写 manual_required |
@@ -349,6 +393,8 @@ POST /api/maitu/retry-tasks/{retry_task_code}/operations/{operation_key}/reconci
 ---
 
 ## 8. 成功回写
+
+只有 operation plan 中所有 authoritative operation 都为 `ready` 且均有安全、已验证的 completed checkpoint 时，才允许提交 `succeeded`。C0 的 `retry_save_project` 固定 blocked，因此当前生产 retry mutation 不得提交 `succeeded`；以下请求格式仅在 C2 save proof barrier 落地后适用。
 
 ### 请求
 
