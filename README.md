@@ -38,6 +38,8 @@ AssetGraph 是一个面向麦兔软件与数字人直播业务的多模态视频
 - 麦兔参考直播间/蓝图 API ingestion：提供 `/api/maitu/live-room-blueprints/import-reference`、`GET /api/maitu/live-room-blueprints`、`GET /api/maitu/live-room-blueprints/{blueprint_code}`，把 Browser-use Observe-derived Profile/Blueprint artifact 持久化为后端对象
 - 麦兔 BuildPlan dry-run：提供 `/api/maitu/live-room-build-plans`、`GET /api/maitu/live-room-build-plans/{build_plan_code}`、`GET /api/maitu/live-room-build-plans/{build_plan_code}/browser-use-operations`，把 `MT-BP-*` 蓝图转换为可审阅的 Browser-use 操作序列；worker 支持 `--build-plan-code MT-BUILD-* --dry-run` 打印安全摘要，默认只规划/预检，不点击正式开播
 - 麦兔 BuildPlan 剧本上下文自动选材：`strategy=script_context_best_match` / `auto_select_assets=true` 会按 `script_blocks`、图层角色、`required_category`、`accepted_asset_types` 从素材库选 Top-1，写入 `selected_asset_code`、Browser-use 友好编号、本地文件码、匹配分和原因；模板预览 `MT-TPL-*` 只作为风格/结构索引，不能作为背景/装饰等直接图层素材；仍只进入 dry-run/预检，不真实上传替换
+- 直播剧本生成 Stage 0：`POST /api/maitu/livestream-script-drafts` 从结构化、已核验的商品事实生成24小时循环纯口播、结构化段落与质量报告；不推断直播间商品总数，不使用未核验促销，不为目标时长重复内容
+- 剧本驱动完整自动化：`POST /api/maitu/script-driven-build-pipelines` 一次运行剧本生成/质量门禁 → 场景计划 → 素材需求 → 真实素材选择 → 缺口报告 → 布局 → BuildPlan；质量未过时保留审阅产物但强制 `can_execute=false`，始终不授权正式开播
 - 麦兔模板场景组件索引：导入 LiveRoomBlueprint 时同步物化 `TemplateScene / TemplateComponent` 索引，提供 `/api/maitu/live-room-template-scenes`、`/api/maitu/live-room-template-scenes/{scene_template_code}/components`，并让 `scene-components/by-script` 走正式组件索引返回单场景组件详情，不再依赖临时解析大 JSON
 - 麦兔单场景 BuildPlan dry-run：提供 `POST /api/maitu/live-room-scene-build-plans`，输入剧本查询和目标脚本后先匹配一个 `TemplateScene`，再基于该场景的 `TemplateComponent` 生成 `preflight_scene_build_plan -> create_scene_from_template -> insert_template_component* -> add_script_block -> save_live_room` 的可审阅单场景计划；默认只生成计划，不真实上传/插入/开播
 - 麦兔 BuildPlan 只读 preflight：worker 支持 `--build-plan-code MT-BUILD-* --preflight-build`，拉取 BuildPlan operations 并只读校验登录态、liveRoomId、场景、激活场景图层、直播脚本面板、`save_live_room=manual_review` 与禁开播规则；已支持单场景计划中的 `preflight_scene_build_plan`、`create_scene_from_template`、`insert_template_component`
@@ -235,6 +237,7 @@ python -m browser_use_worker --plan-code MT-PLAN-20260709-000001 --preflight --s
 - `docs/mvp-architecture.md`：MVP 架构、编号规范、数据库表结构、MinIO 路径、Milvus collection、Neo4j schema 和 API 清单。
 - `docs/maitu-function-map.md`：麦兔功能地图与 AssetGraph 建模参考，记录首页、数字分身、素材管理、商品库、直播记录、直播间编辑器、互动配置和场景类型。
 - `docs/maitu-live-room-builder.md`：从0搭建麦兔直播间的能力设计，定义 ReferenceRoomProfile、LiveRoomBlueprint、SceneBlueprint、LayerBlueprint、BuildPlan 和 Browser-use 创建/插入/保存类 operation；`scripts/extract_maitu_reference_room.py` 可把 Observe JSON 转成参考直播间 Profile/蓝图 artifact。
+- `docs/livestream-script-generation-pipeline.md`：剧本生成 Stage 0 与完整自动化质量契约，定义结构化事实输入、纯口播输出、范围/时长/促销门禁，以及剧本到场景、素材、布局和 BuildPlan 的追溯关系。
 - `docs/asset-numbering/asset_naming_rules_20260709_v3_browser_use.md`：Browser use 友好的麦兔素材编号与重命名预案，按数字分身/背景/装饰/视频/模版等麦兔真实类型设计，包含用途、主体、角色、标签和重复素材组。
 - `docs/asset-numbering/duplicate_asset_analysis_20260709.md`：麦兔素材重复原因分析，说明数字分身封面/预览、默认音色封面、重复 material_id 指向同一 URL 等来源，并给出去重建模建议。
 - `docs/asset-numbering/rename_execution_summary_20260709.md`：V3 Browser-use 友好素材重命名执行结果，记录执行策略、manifest、回滚清单和复查统计。

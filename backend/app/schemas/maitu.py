@@ -22,6 +22,87 @@ def _validate_secret_free_worker_identity(value: str) -> str:
     return value
 
 
+class MaituLivestreamScriptProductBrief(BaseModel):
+    product_name: str = Field(..., min_length=1, max_length=255)
+    product_code: str | None = Field(default=None, max_length=64)
+    positioning: str = Field(..., min_length=1)
+    verified_facts: list[str] = Field(..., min_length=1)
+    tasting_notes: list[str] = Field(default_factory=list)
+    scenarios: list[str] = Field(default_factory=list)
+    selection_guidance: str | None = None
+    objection_response: str | None = None
+    asset_keywords: list[str] = Field(default_factory=list)
+    verified_promotion_claims: list[str] = Field(default_factory=list)
+    unverified_promotion_claims: list[str] = Field(default_factory=list)
+
+
+class MaituLivestreamScriptDraftCreate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=255)
+    platform: str = Field(default="京东", min_length=1, max_length=64)
+    target_duration_minutes: int = Field(default=30, ge=1, le=480)
+    words_per_minute: int = Field(default=165, ge=80, le=400)
+    always_on_24h: bool = True
+    catalog_total_verified: bool = False
+    catalog_total: int | None = Field(default=None, ge=1)
+    host_persona: str = Field(default="懂产品但不卖弄，替观众缩小选择", min_length=1)
+    include_compliance_notice: bool = True
+    products: list[MaituLivestreamScriptProductBrief] = Field(..., min_length=1)
+
+    @model_validator(mode="after")
+    def validate_catalog_total(self) -> "MaituLivestreamScriptDraftCreate":
+        if self.catalog_total_verified and self.catalog_total is None:
+            raise ValueError("catalog_total is required when catalog_total_verified=true")
+        return self
+
+
+class MaituLivestreamScriptSectionRead(BaseModel):
+    section_index: int
+    section_type: str
+    scene_name: str
+    scene_goal: str
+    product_name: str | None = None
+    product_code: str | None = None
+    duration_seconds: int
+    script: str
+    keywords: list[str] = Field(default_factory=list)
+    information_owner: str
+    manual_review: bool = False
+    review_reasons: list[str] = Field(default_factory=list)
+
+
+class MaituLivestreamScriptQualityReportRead(BaseModel):
+    catalog_scope_safe: bool
+    time_neutral: bool
+    padding_free: bool
+    fresh_draft_from_structured_sources: bool
+    duplicate_paragraph_count: int
+    forbidden_hits: list[str] = Field(default_factory=list)
+    dropped_unverified_claims: list[str] = Field(default_factory=list)
+    removed_unverified_claim_sentences: list[str] = Field(default_factory=list)
+    removed_duplicate_sentences: list[str] = Field(default_factory=list)
+    chinese_character_count: int
+    estimated_duration_seconds: int
+    target_duration_seconds: int
+    material_sufficiency_status: str
+    warnings: list[str] = Field(default_factory=list)
+
+
+class MaituLivestreamScriptDraftRead(BaseModel):
+    source: str
+    title: str
+    platform: str
+    target_duration_minutes: int
+    always_on_24h: bool
+    catalog_total_verified: bool
+    spoken_script: str
+    section_count: int
+    sections: list[MaituLivestreamScriptSectionRead] = Field(default_factory=list)
+    quality_report: MaituLivestreamScriptQualityReportRead
+    scene_plan_payload: dict[str, Any]
+    manual_review_required: bool = False
+    review_reasons: list[str] = Field(default_factory=list)
+
+
 class MaituScriptScenePlanCreate(BaseModel):
     script_text: str = Field(..., min_length=1)
     target_scene_count: int | None = Field(default=None, ge=1, le=50)
@@ -244,6 +325,30 @@ class MaituScriptLayoutBuildPlanRead(BaseModel):
     blocked_reasons: list[str] = Field(default_factory=list)
     operation_count: int = 0
     operations: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class MaituScriptDrivenBuildPipelineCreate(BaseModel):
+    script_request: MaituLivestreamScriptDraftCreate
+    build_mode: str = Field(default="strict", max_length=64)
+    target_live_room_id: str | None = Field(default=None, max_length=64)
+    include_default_host: bool = True
+    max_candidates_per_need: int = Field(default=1, ge=1, le=20)
+    canvas_width: int = Field(default=1080, ge=1, le=10000)
+    canvas_height: int = Field(default=1920, ge=1, le=10000)
+
+
+class MaituScriptDrivenBuildPipelineRead(BaseModel):
+    source: str
+    status: str
+    ready_for_go_live: bool = False
+    script_draft: MaituLivestreamScriptDraftRead
+    scene_plan: MaituScriptScenePlanRead
+    asset_need_plan: MaituScriptAssetNeedPlanRead
+    asset_selection_plan: MaituScriptAssetSelectionPlanRead
+    gap_report: MaituScriptAssetGapReportRead
+    layout_plan: MaituScriptLayoutPlanRead
+    build_plan: MaituScriptLayoutBuildPlanRead
+    stage_order: list[str] = Field(default_factory=list)
 
 
 class MaituScriptSceneTemplateMatchCreate(BaseModel):

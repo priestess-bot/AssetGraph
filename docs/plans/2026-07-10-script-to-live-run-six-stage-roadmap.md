@@ -10,6 +10,30 @@
 
 ---
 
+## Stage 0 — Livestream script generation and quality gate
+
+**Objective:** Generate the authoritative spoken script from structured verified facts before any scene, asset, layout, or BuildPlan work starts.
+
+**Implemented contract:**
+
+1. `POST /api/maitu/livestream-script-drafts` returns pure spoken text, traceable content sections, duration estimates, and a quality report.
+2. `POST /api/maitu/script-driven-build-pipelines` runs script generation through scene planning, content-derived asset needs, real asset selection, gap reporting, layout, and BuildPlan generation.
+3. Unknown catalog totals are never inferred from the submitted products.
+4. Unverified promotions are excluded from spoken text and recorded as dropped claims.
+5. Insufficient verified material never triggers repeated filler; it blocks automatic execution with `script_quality_review_required` while keeping review artifacts.
+6. The result always keeps `ready_for_go_live=false`; the generated plan only targets a draft room.
+
+**Acceptance:**
+
+```text
+Generated sections are the exact source of downstream write_script operations.
+Asset needs are derived from generated scene content and keywords.
+No unverified promotion or catalog-size assumption enters spoken text.
+Quality failure keeps artifacts but forces build_plan.can_execute=false.
+```
+
+---
+
 ## Stage 1 — Stable single-scene live draft fill
 
 **Objective:** Convert the already-working single-scene `MT-BUILD-*` plan into a repeatable worker command that fills the default first Maitu clip instead of incorrectly creating an extra first scene.

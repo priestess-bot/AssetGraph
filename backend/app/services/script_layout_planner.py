@@ -57,6 +57,10 @@ class ScriptLayoutPlanner:
             )
             for scene in sorted(scenes, key=lambda item: int(item.get("scene_index") or 0))
         ]
+        manual_review_required = any(scene["status"] != "ready" for scene in layout_scenes)
+        if status == "ready_for_build_plan" and manual_review_required:
+            status = "manual_review_required"
+            can_generate_executable_build_plan = False
         return {
             "source": SOURCE,
             "build_mode": normalized_mode,
@@ -65,7 +69,7 @@ class ScriptLayoutPlanner:
             "blocking_gap_count": blocking_gap_count,
             "can_generate_layout": can_generate_layout,
             "can_generate_executable_build_plan": can_generate_executable_build_plan,
-            "manual_review_required": any(scene["status"] != "ready" for scene in layout_scenes),
+            "manual_review_required": manual_review_required,
             "scenes": layout_scenes,
         }
 
@@ -86,7 +90,7 @@ class ScriptLayoutPlanner:
         )
         if overall_status == "blocked_missing_required_assets" and has_missing:
             scene_status = "blocked_missing_required_assets"
-        elif has_missing:
+        elif has_missing or bool(scene.get("manual_review")):
             scene_status = "manual_review_required"
         else:
             scene_status = "ready"

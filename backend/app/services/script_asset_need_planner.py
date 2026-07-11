@@ -19,6 +19,8 @@ PRODUCT_KEYWORDS = (
     "红酒",
 )
 
+GENERIC_PRODUCT_KEYWORDS = {"干红", "葡萄酒", "红酒"}
+
 REGION_KEYWORDS = (
     "宁夏",
     "贺兰山东麓",
@@ -136,13 +138,19 @@ class ScriptAssetNeedPlanner:
             )
 
         product_hits = self._hits(text, PRODUCT_KEYWORDS)
+        specific_product_hits = [keyword for keyword in product_hits if keyword not in GENERIC_PRODUCT_KEYWORDS]
         region_hits = self._hits(text, REGION_KEYWORDS)
         promotion_hits = self._hits(text, PROMOTION_KEYWORDS)
         tasting_hits = self._hits(text, TASTING_KEYWORDS)
         brand_hits = self._hits(text, BRAND_KEYWORDS)
 
-        if product_hits or scene_goal in {"product_explanation", "conversion"}:
-            product_keywords = self._dedupe([*product_hits, *self._hits(text, ("750ml", "整箱", "礼盒"))])
+        needs_product_image = scene_goal in {"product_explanation", "conversion"} or (
+            bool(specific_product_hits) and scene_goal not in {"transition", "closing"}
+        )
+        if needs_product_image:
+            product_keywords = self._dedupe(
+                [*specific_product_hits, *self._hits(text, ("750ml", "整箱", "礼盒"))]
+            )
             if not product_keywords and incoming_keywords:
                 product_keywords = incoming_keywords[:4]
             needs.append(
@@ -247,7 +255,9 @@ class ScriptAssetNeedPlanner:
         content_need_count = sum(1 for need in needs if need["need_type"] not in {"script_text", "digital_human"})
         review_reasons = list(scene.get("review_reasons") or [])
         manual_review = bool(scene.get("manual_review"))
-        if len(script) < 12 or content_need_count == 0:
+        if len(script) < 12 or (
+            content_need_count == 0 and scene_goal not in {"transition", "closing"}
+        ):
             manual_review = True
             review_reasons.append("insufficient_content_for_asset_needs")
 

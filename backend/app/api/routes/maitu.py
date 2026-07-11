@@ -15,7 +15,9 @@ from app.repositories.maitu import (
     RetryLeaseConflictError,
 )
 from app.services.asset_candidates import AssetCandidate, AssetRetrievalIndex
+from app.services.livestream_script_writer import LivestreamScriptWriter
 from app.services.qwen3_client import Qwen3Client, Qwen3ClientError
+from app.services.script_driven_build_pipeline import ScriptDrivenBuildPipeline
 from app.services.script_asset_gap_reporter import ScriptAssetGapReporter
 from app.services.script_asset_need_planner import ScriptAssetNeedPlanner
 from app.services.script_asset_selector import ScriptAssetSelector
@@ -26,6 +28,8 @@ from app.services.script_scene_template_matcher import ScriptSceneTemplateMatche
 from app.schemas.maitu import (
     MaituBrowserUseOperationPlanResponse,
     MaituCandidateAssetsResponse,
+    MaituLivestreamScriptDraftCreate,
+    MaituLivestreamScriptDraftRead,
     MaituLiveRoomBlueprintImportCreate,
     MaituLiveRoomBlueprintRead,
     MaituLiveRoomBuildPlanCreate,
@@ -57,6 +61,8 @@ from app.schemas.maitu import (
     MaituScriptAssetNeedPlanRead,
     MaituScriptAssetSelectionCreate,
     MaituScriptAssetSelectionPlanRead,
+    MaituScriptDrivenBuildPipelineCreate,
+    MaituScriptDrivenBuildPipelineRead,
     MaituScriptScenePlanCreate,
     MaituScriptScenePlanRead,
     MaituReplacementPlanCreate,
@@ -160,6 +166,35 @@ def get_slot_candidate_qwen3_client_factory() -> Callable[[], Qwen3Client]:
         )
 
     return build_client
+
+
+@router.post(
+    "/livestream-script-drafts",
+    response_model=MaituLivestreamScriptDraftRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_livestream_script_draft(payload: MaituLivestreamScriptDraftCreate) -> dict:
+    return LivestreamScriptWriter().generate(payload.model_dump())
+
+
+@router.post(
+    "/script-driven-build-pipelines",
+    response_model=MaituScriptDrivenBuildPipelineRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_script_driven_build_pipeline(
+    payload: MaituScriptDrivenBuildPipelineCreate,
+    repository: Annotated[MaituMaterialSlotRepository, Depends(get_maitu_slot_repository)],
+) -> dict:
+    return ScriptDrivenBuildPipeline(repository).run(
+        payload.script_request.model_dump(),
+        build_mode=payload.build_mode,
+        target_live_room_id=payload.target_live_room_id,
+        include_default_host=payload.include_default_host,
+        max_candidates_per_need=payload.max_candidates_per_need,
+        canvas_width=payload.canvas_width,
+        canvas_height=payload.canvas_height,
+    )
 
 
 @router.post("/script-scene-plans", response_model=MaituScriptScenePlanRead, status_code=status.HTTP_201_CREATED)
