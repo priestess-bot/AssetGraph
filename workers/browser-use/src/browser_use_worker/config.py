@@ -10,6 +10,7 @@ from dataclasses import dataclass
 class WorkerConfig:
     api_base_url: str
     worker_id: str
+    script_layout_worker_token: str | None = None
     lock_ttl_seconds: int = 900
     lease_heartbeat_interval_seconds: float = 30.0
     poll_interval_seconds: float = 5.0
@@ -29,6 +30,7 @@ class WorkerConfig:
         return cls(
             api_base_url=os.getenv("ASSETGRAPH_API_BASE_URL", "http://127.0.0.1:8000").rstrip("/"),
             worker_id=os.getenv("BROWSER_USE_WORKER_ID", default_worker_id),
+            script_layout_worker_token=os.getenv("ASSETGRAPH_SCRIPT_LAYOUT_WORKER_TOKEN") or None,
             lock_ttl_seconds=int(os.getenv("BROWSER_USE_LOCK_TTL_SECONDS", "900")),
             lease_heartbeat_interval_seconds=float(os.getenv("BROWSER_USE_LEASE_HEARTBEAT_INTERVAL_SECONDS", "30")),
             poll_interval_seconds=float(os.getenv("BROWSER_USE_POLL_INTERVAL_SECONDS", "5")),

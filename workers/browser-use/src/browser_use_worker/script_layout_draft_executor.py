@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -8,7 +9,7 @@ class MaituScriptLayoutDraftSession(Protocol):
     def read_live_room(self, live_room_id: str) -> dict[str, Any]:
         """Read the target Maitu live room draft."""
 
-    def rename_clip(self, clip_id: int, name: str) -> dict[str, Any]:
+    def rename_clip(self, *, live_room_id: str, clip_id: int, name: str) -> dict[str, Any]:
         """Rename an existing clip/scene without clicking go-live."""
 
     def create_scene(self, *, live_room_id: str, scene_name: str, scene_index: int) -> dict[str, Any]:
@@ -59,6 +60,30 @@ class ScriptLayoutDraftResult:
     actions: list[ScriptLayoutDraftActionResult]
 
 
+class ScriptLayoutDraftCheckpointStore(Protocol):
+    def begin_operation(self, operation_index: int, operation: dict[str, Any]) -> dict[str, Any]:
+        """Return an execute/skip/reconcile decision before any operation side effect."""
+
+    def dispatch_operation(self, operation_index: int, operation: dict[str, Any]) -> dict[str, Any]:
+        """Persist the mutating dispatched boundary immediately before the external call."""
+
+    def invalidate_operation(
+        self,
+        operation_index: int,
+        operation: dict[str, Any],
+        evidence: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Move stale completed evidence into reconcile_required under the active fence."""
+
+    def complete_operation(
+        self,
+        operation_index: int,
+        operation: dict[str, Any],
+        action: ScriptLayoutDraftActionResult,
+    ) -> dict[str, Any]:
+        """Persist verified completion evidence idempotently."""
+
+
 class ScriptLayoutDraftRunner:
     """Execute a content-driven layout BuildPlan into a safe Maitu draft.
 
@@ -82,14 +107,22 @@ class ScriptLayoutDraftRunner:
         }
     )
 
-    def __init__(self, *, session: MaituScriptLayoutDraftSession) -> None:
+    def __init__(
+        self,
+        *,
+        session: MaituScriptLayoutDraftSession,
+        checkpoint_store: ScriptLayoutDraftCheckpointStore | None = None,
+    ) -> None:
         self.session = session
+        self.checkpoint_store = checkpoint_store
         self._room_cache: dict[str, Any] | None = None
         self._clip_ids_by_scene: dict[int, int] = {}
+        self._material_ids_by_layer: dict[tuple[int | None, str], int] = {}
 
     def run(self, operation_plan: dict[str, Any], *, target_live_room_id: str | None = None) -> ScriptLayoutDraftResult:
         self._room_cache = None
         self._clip_ids_by_scene.clear()
+        self._material_ids_by_layer.clear()
         plan_status = self._optional_string(operation_plan.get("status"))
         operations = operation_plan.get("operations") if isinstance(operation_plan.get("operations"), list) else []
         plan_live_room_id = self._optional_string(operation_plan.get("target_live_room_id"))
@@ -203,10 +236,125 @@ class ScriptLayoutDraftRunner:
                     )
                 )
                 break
+            checkpoint: dict[str, Any] | None = None
+            if self.checkpoint_store is not None:
+                try:
+                    checkpoint = self.checkpoint_store.begin_operation(index, operation)
+                except Exception as exc:  # pragma: no cover - runtime boundary
+                    actions.append(
+                        self._failed_action(
+                            index,
+                            operation,
+                            "checkpoint_begin",
+                            f"checkpoint begin failed before side effect: {exc}",
+                        )
+                    )
+                    break
+                decision = self._optional_string(checkpoint.get("decision"))
+                frozen_intent = checkpoint.get("intent_snapshot")
+                if frozen_intent is None:
+                    frozen_intent = operation
+                if not isinstance(frozen_intent, dict):
+                    actions.append(
+                        self._failed_action(
+                            index,
+                            operation,
+                            "checkpoint_manifest",
+                            "checkpoint response omitted the backend-frozen operation intent",
+                        )
+                    )
+                    break
+                operation = frozen_intent
+                if decision == "reconcile":
+                    actions.append(
+                        self._failed_action(
+                            index,
+                            operation,
+                            "checkpoint_reconcile_required",
+                            "operation has uncertain prior side effects; reconcile authoritative Maitu state before retry",
+                        )
+                    )
+                    break
+                if decision == "skip" and operation.get("operation_type") not in {
+                    "preflight_content_build_plan",
+                    "verify_scene",
+                }:
+                    if checkpoint.get("effect_class") == "mutating" and not self._checkpoint_evidence_matches_room(
+                        live_room_id,
+                        operation,
+                        checkpoint,
+                    ):
+                        try:
+                            self.checkpoint_store.invalidate_operation(
+                                index,
+                                operation,
+                                {
+                                    "reason": "authoritative_room_state_mismatch",
+                                    "operation_applied": False,
+                                    "go_live_clicked": False,
+                                },
+                            )
+                            invalidation_summary = (
+                                "completed checkpoint evidence no longer matches authoritative Maitu room state"
+                            )
+                        except Exception as exc:  # pragma: no cover - runtime boundary
+                            invalidation_summary = f"checkpoint evidence mismatch and invalidation failed safely: {exc}"
+                        actions.append(
+                            self._failed_action(
+                                index,
+                                operation,
+                                "checkpoint_reconcile_required",
+                                invalidation_summary,
+                            )
+                        )
+                        break
+                    action = self._action_from_checkpoint(index, operation, checkpoint)
+                    self._hydrate_checkpoint_dependencies(action, checkpoint)
+                    actions.append(action)
+                    continue
+
+            if (
+                self.checkpoint_store is not None
+                and checkpoint is not None
+                and checkpoint.get("effect_class") == "mutating"
+            ):
+                try:
+                    checkpoint = self.checkpoint_store.dispatch_operation(index, operation)
+                except Exception as exc:  # pragma: no cover - runtime boundary
+                    actions.append(
+                        self._failed_action(
+                            index,
+                            operation,
+                            "checkpoint_dispatch",
+                            f"checkpoint dispatch failed before side effect: {exc}",
+                        )
+                    )
+                    break
+
             action = self._run_operation(index, operation, live_room_id)
-            actions.append(action)
             if action.status == "failed":
+                actions.append(action)
                 break
+            if checkpoint is not None and checkpoint.get("decision") == "skip":
+                self._hydrate_checkpoint_dependencies(action, checkpoint)
+                actions.append(action)
+                continue
+            if self.checkpoint_store is not None:
+                try:
+                    self.checkpoint_store.complete_operation(index, operation, action)
+                except Exception as exc:  # pragma: no cover - runtime boundary
+                    actions.append(
+                        self._failed_action(
+                            index,
+                            operation,
+                            "checkpoint_complete",
+                            f"side effect may have succeeded but checkpoint completion failed: {exc}",
+                            scene_index=action.scene_index,
+                            scene_name=action.scene_name,
+                        )
+                    )
+                    break
+            actions.append(action)
 
         executed_action_count = sum(1 for action in actions if action.status == "completed")
         skipped_action_count = sum(1 for action in actions if action.status == "skipped")
@@ -238,6 +386,172 @@ class ScriptLayoutDraftRunner:
             failure_count=failure_count,
             actions=actions,
         )
+
+    def _action_from_checkpoint(
+        self,
+        index: int,
+        operation: dict[str, Any],
+        checkpoint: dict[str, Any],
+    ) -> ScriptLayoutDraftActionResult:
+        evidence = checkpoint.get("completion_evidence")
+        evidence = evidence if isinstance(evidence, dict) else {}
+        details = checkpoint.get("details")
+        details = details if isinstance(details, dict) else {}
+        summary = self._optional_string(details.get("summary")) or (
+            f"Skipped already completed operation {operation.get('operation_type')} from verified checkpoint."
+        )
+        return ScriptLayoutDraftActionResult(
+            operation_index=index,
+            operation_type=self._optional_string(checkpoint.get("operation_type"))
+            or self._optional_string(operation.get("operation_type")),
+            operation_name=self._optional_string(checkpoint.get("operation_name"))
+            or self._optional_string(operation.get("operation_name")),
+            action_type=self._optional_string(checkpoint.get("action_type")) or "checkpoint_skip",
+            status=self._optional_string(checkpoint.get("status")) or "completed",
+            summary=summary,
+            scene_index=self._optional_int(evidence.get("scene_index"))
+            if evidence.get("scene_index") is not None
+            else self._optional_int(operation.get("scene_index")),
+            scene_name=self._optional_string(checkpoint.get("scene_name"))
+            or self._optional_string(operation.get("scene_name")),
+            clip_id=self._optional_int(evidence.get("clip_id")),
+            layer_id=self._optional_string(evidence.get("layer_id"))
+            or self._optional_string(operation.get("layer_id")),
+            layer_type=self._optional_string(evidence.get("layer_type"))
+            or self._optional_string(operation.get("layer_type")),
+            asset_code=self._optional_string(evidence.get("asset_code"))
+            or self._optional_string(operation.get("asset_code")),
+            details={**details, "checkpoint_skip": True, "completion_evidence": evidence},
+        )
+
+    def _checkpoint_evidence_matches_room(
+        self,
+        live_room_id: str,
+        operation: dict[str, Any],
+        checkpoint: dict[str, Any],
+    ) -> bool:
+        evidence = checkpoint.get("completion_evidence")
+        if not isinstance(evidence, dict):
+            return False
+        if evidence.get("verified") is not True or evidence.get("operation_applied") is not True:
+            return False
+        if self._optional_string(evidence.get("target_live_room_id")) != live_room_id:
+            return False
+        try:
+            room = self.session.read_live_room(live_room_id)
+        except Exception:  # pragma: no cover - runtime boundary
+            return False
+        self._room_cache = room
+        if (
+            self._optional_string(room.get("id")) != live_room_id
+            or room.get("_assetgraph_read_environment") != "working"
+            or not self._room_is_confirmed_not_live(room)
+        ):
+            return False
+        topics = room.get("topics") if isinstance(room.get("topics"), list) else []
+        topic = topics[0] if topics and isinstance(topics[0], dict) else {}
+        clips = topic.get("clips") if isinstance(topic.get("clips"), list) else []
+        clip_id = self._optional_int(evidence.get("clip_id"))
+        clip = next((item for item in clips if self._optional_int(item.get("id")) == clip_id), None)
+        if clip is None:
+            return False
+        operation_type = self._optional_string(operation.get("operation_type"))
+        if operation_type in {"fill_default_scene", "create_scene"}:
+            expected_name = self._optional_string(operation.get("scene_name"))
+            expected_index = self._optional_int(operation.get("scene_index"))
+            return (
+                self._optional_string(clip.get("name")) == expected_name
+                and self._optional_int(clip.get("order_num")) == expected_index
+            )
+        materials = clip.get("clip_materials") if isinstance(clip.get("clip_materials"), list) else []
+        if operation_type in {"insert_asset_layer", "position_asset_layer"}:
+            material_id = self._optional_int(evidence.get("material_id"))
+            if material_id is None:
+                return False
+            material = next(
+                (
+                    item
+                    for item in materials
+                    if self._optional_int(item.get("id")) == material_id
+                ),
+                None,
+            )
+            if material is None:
+                return False
+            expected_layer = self._optional_string(operation.get("layer_id"))
+            if expected_layer and self._optional_string(material.get("name")) != expected_layer:
+                return False
+            expected_source_id = self._optional_int(operation.get("material_id") or operation.get("maitu_material_id"))
+            expected_source_type = self._optional_string(operation.get("source_material_type"))
+            if expected_source_type == "decorative_video":
+                expected_source_type = "video"
+            if expected_source_type == "digital_human":
+                source_matches = (
+                    self._optional_int(material.get("speaker_id")) == self._optional_int(operation.get("speaker_id"))
+                    and self._optional_int(material.get("digital_human_image_id"))
+                    == self._optional_int(operation.get("digital_human_image_id"))
+                )
+            else:
+                source_matches = (
+                    self._optional_int(material.get("material_id")) == expected_source_id
+                    and self._optional_string(material.get("url"))
+                    == self._optional_string(operation.get("source_material_url"))
+                )
+            if self._optional_string(material.get("type")) != expected_source_type or not source_matches:
+                return False
+            if operation_type == "insert_asset_layer":
+                return True
+            style = material.get("style_front")
+            if isinstance(style, str):
+                try:
+                    style = json.loads(style)
+                except json.JSONDecodeError:
+                    return False
+            style = style if isinstance(style, dict) else {}
+            expected_values = {
+                "left": operation.get("x"),
+                "top": operation.get("y"),
+                "width": operation.get("width"),
+                "height": operation.get("height"),
+                "zIndex": operation.get("z_index"),
+            }
+            return all(
+                expected is None or self._optional_float(style.get(key)) == self._optional_float(expected)
+                for key, expected in expected_values.items()
+            )
+        if operation_type == "write_script":
+            script_text = self._optional_string(operation.get("script_text"))
+            text_materials = [item for item in materials if item.get("type") == "text"]
+            expected_text_material_id = self._optional_int(evidence.get("text_material_id"))
+            return (
+                len(text_materials) == 1
+                and expected_text_material_id is not None
+                and self._optional_int(text_materials[0].get("id")) == expected_text_material_id
+                and self._optional_string(text_materials[0].get("content")) == script_text
+            )
+        return False
+
+    def _hydrate_checkpoint_dependencies(
+        self,
+        action: ScriptLayoutDraftActionResult,
+        checkpoint: dict[str, Any],
+    ) -> None:
+        evidence = checkpoint.get("completion_evidence")
+        evidence = evidence if isinstance(evidence, dict) else {}
+        scene_index = self._optional_int(evidence.get("scene_index"))
+        if scene_index is None:
+            scene_index = action.scene_index
+        clip_id = self._optional_int(evidence.get("clip_id"))
+        if clip_id is None:
+            clip_id = action.clip_id
+        if scene_index is not None and clip_id is not None:
+            self._clip_ids_by_scene[scene_index] = clip_id
+        material_id = self._optional_int(evidence.get("material_id"))
+        intent = checkpoint.get("intent_snapshot")
+        intent = intent if isinstance(intent, dict) else {}
+        layer_key = self._optional_string(evidence.get("layer_id")) or self._optional_string(intent.get("layer_id"))
+        if material_id is not None and layer_key:
+            self._material_ids_by_layer[(scene_index, layer_key)] = material_id
 
     def _run_operation(self, index: int, operation: dict[str, Any], live_room_id: str) -> ScriptLayoutDraftActionResult:
         operation_type = self._optional_string(operation.get("operation_type"))
@@ -339,7 +653,20 @@ class ScriptLayoutDraftRunner:
             status="completed",
             summary="Read target draft room and confirmed a default clip is available; go-live not clicked.",
             clip_id=self._optional_int(default_clip.get("id")),
-            details={"target_live_room_id": live_room_id, "default_clip_name": default_clip.get("name"), "go_live_clicked": False},
+            details={
+                "target_live_room_id": live_room_id,
+                "default_clip_name": default_clip.get("name"),
+                "preflight_result": {
+                    "verified": True,
+                    "verification_source": "working_room_readback",
+                    "live_room_id": live_room_id,
+                    "environment": "working",
+                    "not_live": True,
+                    "default_clip_id": self._optional_int(default_clip.get("id")),
+                    "default_clip_name": default_clip.get("name"),
+                },
+                "go_live_clicked": False,
+            },
         )
 
     def _fill_default_scene(self, index: int, operation: dict[str, Any], live_room_id: str) -> ScriptLayoutDraftActionResult:
@@ -350,7 +677,7 @@ class ScriptLayoutDraftRunner:
             if default_clip is None:
                 raise RuntimeError("target room has no default clip")
             clip_id = int(default_clip["id"])
-            result = self.session.rename_clip(clip_id, scene_name)
+            result = self.session.rename_clip(live_room_id=live_room_id, clip_id=clip_id, name=scene_name)
             self._clip_ids_by_scene[scene_index] = clip_id
         except Exception as exc:  # pragma: no cover - runtime boundary
             return self._failed_action(index, operation, "map_default_clip", str(exc), scene_index=scene_index, scene_name=scene_name)
@@ -421,6 +748,17 @@ class ScriptLayoutDraftRunner:
                 asset_code=asset_code,
                 details={"insert_result": result, "manual_required": True, "go_live_clicked": False},
             )
+        material_id = self._optional_int(result.get("material_id"))
+        layer_key = self._optional_string(operation.get("layer_id"))
+        if material_id is None or not layer_key:
+            return self._failed_action(
+                index,
+                operation,
+                "insert_asset_layer",
+                "authoritative insert readback omitted material identity",
+                scene_index=scene_index,
+            )
+        self._material_ids_by_layer[(scene_index, layer_key)] = material_id
         return ScriptLayoutDraftActionResult(
             operation_index=index,
             operation_type="insert_asset_layer",
@@ -442,8 +780,23 @@ class ScriptLayoutDraftRunner:
         clip_id = self._clip_id_for_scene(scene_index)
         if clip_id is None:
             return self._failed_action(index, operation, "position_asset_layer", "scene has no mapped clip_id", scene_index=scene_index)
+        layer_key = self._optional_string(operation.get("layer_id"))
+        material_id = self._material_ids_by_layer.get((scene_index, layer_key or ""))
+        if material_id is None:
+            return self._failed_action(
+                index,
+                operation,
+                "position_asset_layer",
+                "position requires the exact clip-material id produced by insert checkpoint",
+                scene_index=scene_index,
+            )
+        positioned_operation = {**operation, "clip_material_id": material_id}
         try:
-            result = self.session.position_asset_layer(live_room_id=live_room_id, clip_id=clip_id, operation=operation)
+            result = self.session.position_asset_layer(
+                live_room_id=live_room_id,
+                clip_id=clip_id,
+                operation=positioned_operation,
+            )
         except Exception as exc:  # pragma: no cover - runtime boundary
             return self._failed_action(index, operation, "position_asset_layer", str(exc), scene_index=scene_index)
         if self._optional_string(result.get("status")) in {"manual_required", "skipped"}:
@@ -531,8 +884,34 @@ class ScriptLayoutDraftRunner:
         clip_id = self._clip_id_for_scene(scene_index)
         if clip_id is None:
             return self._failed_action(index, operation, "verify_scene", "scene has no mapped clip_id", scene_index=scene_index, scene_name=scene_name)
+        verified_operation = dict(operation)
+        expected_layers = operation.get("expected_layers")
+        if isinstance(expected_layers, list):
+            dynamic_layers: list[dict[str, Any]] = []
+            for layer in expected_layers:
+                if not isinstance(layer, dict):
+                    return self._failed_action(
+                        index, operation, "verify_scene", "frozen expected layer is not an object", scene_index=scene_index
+                    )
+                layer_id = self._optional_string(layer.get("layer_id"))
+                material_id = self._material_ids_by_layer.get((scene_index, layer_id or ""))
+                if material_id is None:
+                    return self._failed_action(
+                        index,
+                        operation,
+                        "verify_scene",
+                        "verify requires the exact clip-material id produced by insert checkpoint",
+                        scene_index=scene_index,
+                    )
+                dynamic_layers.append({**layer, "material_id": material_id})
+            verified_operation["expected_layers"] = dynamic_layers
         try:
-            result = self.session.verify_scene(live_room_id=live_room_id, clip_id=clip_id, scene_name=scene_name, operation=operation)
+            result = self.session.verify_scene(
+                live_room_id=live_room_id,
+                clip_id=clip_id,
+                scene_name=scene_name,
+                operation=verified_operation,
+            )
         except Exception as exc:  # pragma: no cover - runtime boundary
             return self._failed_action(index, operation, "verify_scene", str(exc), scene_index=scene_index, scene_name=scene_name)
         return ScriptLayoutDraftActionResult(
@@ -661,6 +1040,15 @@ class ScriptLayoutDraftRunner:
         except (TypeError, ValueError):
             return None
 
+    @staticmethod
+    def _optional_float(value: Any) -> float | None:
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
 
 class InMemoryScriptLayoutDraftSession:
     """Local no-browser session for smoke tests and dry-run CLI execution."""
@@ -679,19 +1067,21 @@ class InMemoryScriptLayoutDraftSession:
     def read_live_room(self, live_room_id: str) -> dict[str, Any]:
         return self.room
 
-    def rename_clip(self, clip_id: int, name: str) -> dict[str, Any]:
+    def rename_clip(self, *, live_room_id: str, clip_id: int, name: str) -> dict[str, Any]:
+        if str(live_room_id) != str(self.live_room_id):
+            raise RuntimeError(f"live room mismatch: expected {self.live_room_id}, got {live_room_id}")
         clip = self._find_clip(clip_id)
         if clip is None:
             raise RuntimeError(f"clip not found: {clip_id}")
         previous = clip.get("name")
         clip["name"] = name
-        return {"clip_id": clip_id, "previous_name": previous, "name": name, "dry_run": True}
+        return {"clip_id": clip_id, "previous_name": previous, "name": name, "verified": True, "dry_run": True}
 
     def create_scene(self, *, live_room_id: str, scene_name: str, scene_index: int) -> dict[str, Any]:
         clip = {"id": self._next_clip_id, "name": scene_name, "order_num": scene_index, "clip_materials": []}
         self._next_clip_id += 1
         self.room["topics"][0]["clips"].append(clip)
-        return {"clip_id": clip["id"], "name": scene_name, "dry_run": True}
+        return {"clip_id": clip["id"], "name": scene_name, "verified": True, "dry_run": True}
 
     def insert_asset_layer(self, *, live_room_id: str, clip_id: int, operation: dict[str, Any]) -> dict[str, Any]:
         clip = self._required_clip(clip_id)
@@ -708,7 +1098,13 @@ class InMemoryScriptLayoutDraftSession:
             "z_index": operation.get("z_index"),
         }
         clip["clip_materials"].append(material)
-        return {"clip_id": clip_id, "material": material, "dry_run": True}
+        return {
+            "clip_id": clip_id,
+            "material_id": material["id"],
+            "material": material,
+            "verified": True,
+            "dry_run": True,
+        }
 
     def position_asset_layer(self, *, live_room_id: str, clip_id: int, operation: dict[str, Any]) -> dict[str, Any]:
         clip = self._required_clip(clip_id)
@@ -724,13 +1120,13 @@ class InMemoryScriptLayoutDraftSession:
                         "z_index": operation.get("z_index"),
                     }
                 )
-                return {"clip_id": clip_id, "layer_id": layer_id, "dry_run": True}
+                return {"clip_id": clip_id, "layer_id": layer_id, "verified": True, "dry_run": True}
         raise RuntimeError(f"layer not found for positioning: {layer_id}")
 
     def write_script(self, *, live_room_id: str, clip_id: int, scene_name: str, script_text: str) -> dict[str, Any]:
         self._required_clip(clip_id)
         self._scripts_by_clip[clip_id] = script_text
-        return {"clip_id": clip_id, "script_length": len(script_text), "dry_run": True}
+        return {"clip_id": clip_id, "script_length": len(script_text), "verified": True, "dry_run": True}
 
     def verify_scene(self, *, live_room_id: str, clip_id: int, scene_name: str, operation: dict[str, Any]) -> dict[str, Any]:
         clip = self._required_clip(clip_id)
@@ -739,6 +1135,7 @@ class InMemoryScriptLayoutDraftSession:
             "scene_name": clip.get("name") or scene_name,
             "visual_count": len(clip.get("clip_materials") or []),
             "script_present": bool(self._scripts_by_clip.get(clip_id)),
+            "verified": True,
             "dry_run": True,
         }
 
@@ -762,7 +1159,7 @@ def build_script_layout_draft_execution_payload(result: ScriptLayoutDraftResult)
         "result_summary": result.summary,
         "ready_for_go_live": result.ready_for_go_live,
         "manual_review_required": result.manual_review_required,
-        "operation_results": [_action_to_operation_result(action) for action in result.actions],
+        "operation_results": [script_layout_action_to_operation_result(action) for action in result.actions],
     }
     if result.status == "blocked":
         payload["failure_type"] = "layout_build_plan_blocked"
@@ -771,7 +1168,7 @@ def build_script_layout_draft_execution_payload(result: ScriptLayoutDraftResult)
     return payload
 
 
-def _action_to_operation_result(action: ScriptLayoutDraftActionResult) -> dict[str, Any]:
+def script_layout_action_to_operation_result(action: ScriptLayoutDraftActionResult) -> dict[str, Any]:
     row: dict[str, Any] = {
         "operation_index": action.operation_index,
         "operation_type": action.operation_type or "unknown",

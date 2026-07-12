@@ -11,7 +11,11 @@ from typing import Sequence
 import pytest
 
 import browser_use_worker.browser_cli_session as browser_cli_session_module
-from browser_use_worker.browser_cli_session import BrowserUseCliSession, BrowserUseCliSessionConfig
+from browser_use_worker.browser_cli_session import (
+    BrowserUseCliSession,
+    BrowserUseCliSessionConfig,
+    is_trusted_browser_use_cli_session,
+)
 from browser_use_worker.maitu_executor import MaituBrowserExecutionError
 
 
@@ -36,6 +40,23 @@ class FakeRunner:
         if not self.outputs:
             raise AssertionError(f"No fake output left for command: {args}")
         return self.outputs.pop(0)
+
+
+def test_production_session_trust_gate_rejects_injected_runner_or_rebound_method(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = BrowserUseCliSessionConfig(
+        session_name="assetgraph-trust-test",
+        cdp_url="http://127.0.0.1:9222",
+    )
+    trusted = BrowserUseCliSession(config=config)
+    assert is_trusted_browser_use_cli_session(trusted) is True
+
+    injected = BrowserUseCliSession(config=config, runner=FakeRunner([]))
+    assert is_trusted_browser_use_cli_session(injected) is False
+
+    monkeypatch.setattr(BrowserUseCliSession, "read_page_summary", lambda _self: {})
+    assert is_trusted_browser_use_cli_session(trusted) is False
 
 
 def make_session(outputs: list[str]) -> tuple[BrowserUseCliSession, FakeRunner]:
@@ -802,7 +823,7 @@ def test_live_scene_fill_api_methods_use_browser_use_eval() -> None:
     ])
 
     assert session.read_live_room("40173") == room_payload
-    assert session.rename_clip(416425, "商品01-场景01") == rename_payload
+    assert session.rename_clip(live_room_id="40173", clip_id=416425, name="商品01-场景01") == rename_payload
     assert session.fill_clip_from_template(
         live_room_id="40173",
         target_clip_id=416425,
@@ -819,6 +840,8 @@ def test_live_scene_fill_api_methods_use_browser_use_eval() -> None:
     assert "live_rooms/40173" in runner.commands[0][4]
     assert "_assetgraph_read_environment:'working'" in runner.commands[0][4]
     assert "clips/416425" in runner.commands[1][4]
+    assert '\"liveRoomId\": \"40173\"' in runner.commands[1][4]
+    assert runner.commands[1][4].index("rename target clip not found") < runner.commands[1][4].index("xhr('PUT'")
     assert "replace_clip_materials" in runner.commands[2][4]
     assert "const count = args.componentOperations.length;" in runner.commands[2][4]
     assert "|| visualMaterials.length" not in runner.commands[2][4]
@@ -871,10 +894,19 @@ def test_script_layout_draft_api_methods_use_browser_use_eval() -> None:
     assert len(runner.commands) == 5
     assert all(command[:4] == ("uv", "run", "browser-use", "eval") for command in runner.commands)
     assert "'POST', 'clips'" in runner.commands[0][4]
+    assert "created scene response did not include an authoritative clip id" in runner.commands[0][4]
+    assert "find((clip) => clip.name === args.sceneName" not in runner.commands[0][4]
     assert "missing_maitu_material_binding" in runner.commands[1][4]
     assert "'PUT', 'clip_materials/'" in runner.commands[2][4]
+    assert "exact clip-material source identity mismatch before position mutation" in runner.commands[2][4]
     assert "'POST', 'clip_materials'" in runner.commands[3][4]
+    assert "script target clip identity mismatch before write" in runner.commands[3][4]
+    assert "script target clip identity mismatch after write" in runner.commands[3][4]
     assert "'live_rooms/' + args.liveRoomId" in runner.commands[4][4]
+    assert "const expectedLayers = arr(op.expected_layers)" in runner.commands[4][4]
+    assert "const exactNumber =" in runner.commands[4][4]
+    assert "text_material_id:texts[0].id" in runner.commands[4][4]
+    assert "verify scene layer source or geometry mismatch" in runner.commands[4][4]
     assert all("location.origin !== 'https://live2.maituai.com'" in command[4] for command in runner.commands)
     assert all("(localStorage.getItem('token') || '').trim()" in command[4] for command in runner.commands)
     assert all("if (!token)" in command[4] for command in runner.commands)

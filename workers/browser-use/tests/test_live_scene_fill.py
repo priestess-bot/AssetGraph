@@ -28,7 +28,7 @@ class FakeLiveSceneFillSession:
         self.calls.append(("read_live_room", live_room_id))
         return self.room
 
-    def rename_clip(self, clip_id: int, name: str) -> dict:
+    def rename_clip(self, *, live_room_id: str, clip_id: int, name: str) -> dict:
         self.calls.append(("rename_clip", {"clip_id": clip_id, "name": name}))
         for clip in self.room["topics"][0]["clips"]:
             if clip["id"] == clip_id:

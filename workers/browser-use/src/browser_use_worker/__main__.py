@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from dataclasses import asdict
 from pathlib import Path
 
-from .browser_cli_session import BrowserUseCliSession
+from .browser_cli_session import BrowserUseCliSession, is_trusted_browser_use_cli_session
 from .build_plan_dry_run import BuildPlanDryRun
 from .build_plan_non_destructive import BuildPlanNonDestructiveRunner, build_non_destructive_execution_payload
 from .build_plan_preflight import BuildPlanPreflight
@@ -19,10 +19,10 @@ from .live_scene_fill import LiveSceneFillRunner, build_live_scene_fill_executio
 from .maitu_material_resolver import MaituMaterialResolutionResult, MaituMaterialResolver
 from .preflight import ReplacementPlanPreflight
 from .runner import BrowserUseWorker, DryRunBrowserUseExecutor
+from .script_layout_checkpoint import AssetGraphScriptLayoutCheckpointStore
 from .script_layout_draft_executor import (
     InMemoryScriptLayoutDraftSession,
     ScriptLayoutDraftRunner,
-    build_script_layout_draft_execution_payload,
 )
 
 
@@ -170,12 +170,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "--script-layout-build-plan-file or --build-plan-code"
             )
     if args.check_config:
-        print(json.dumps(asdict(config), ensure_ascii=False, indent=2))
+        config_output = asdict(config)
+        if config_output.get("script_layout_worker_token"):
+            config_output["script_layout_worker_token"] = "[CONFIGURED]"
+        print(json.dumps(config_output, ensure_ascii=False, indent=2))
         return 0
-    if args.script_layout_draft_execute and not args.dry_run and not args.resolve_maitu_materials:
-        raise SystemExit(
-            "Real --script-layout-draft-execute requires --resolve-maitu-materials so the complete plan is validated before draft mutation"
-        )
     if args.probe_maitu:
         probe = BrowserUseCliSession().probe_current_page(open_if_needed=True)
         print(json.dumps(asdict(probe), ensure_ascii=True, indent=2))
@@ -191,6 +190,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         nonlocal client
         if client is None:
             client = AssetGraphClient(config.api_base_url)
+            if hasattr(client, "script_layout_worker_token"):
+                client.script_layout_worker_token = config.script_layout_worker_token
+            if hasattr(client, "worker_id"):
+                client.worker_id = config.worker_id
         return client
 
     source_operation_plan: dict | None = None
@@ -209,6 +212,11 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     resolved_operation_plan: dict | None = None
     material_resolution: MaituMaterialResolutionResult | None = None
+    if args.resolve_maitu_materials and args.script_layout_draft_execute:
+        raise SystemExit(
+            "--resolve-maitu-materials and --script-layout-draft-execute must run as separate phases; "
+            "persist verified bindings first, then start the fenced draft execution"
+        )
     if args.resolve_maitu_materials:
         source_operation_plan = load_script_layout_operation_plan()
         _require_executable_script_layout_plan(source_operation_plan)
@@ -316,25 +324,34 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2 if capture_blocked or capture_failed else 0
     if args.script_layout_draft_execute:
         operation_plan = resolved_operation_plan or load_script_layout_operation_plan()
+        checkpoint_store: AssetGraphScriptLayoutCheckpointStore | None = None
         if args.dry_run:
             target_live_room_id = args.target_live_room_id or operation_plan.get("target_live_room_id")
             session = InMemoryScriptLayoutDraftSession(live_room_id=str(target_live_room_id or "DRY-RUN-ROOM"))
         else:
             target_live_room_id = _require_bound_draft_target(operation_plan, args.target_live_room_id)
             session = BrowserUseCliSession()
-        result = ScriptLayoutDraftRunner(session=session).run(
+            if not is_trusted_browser_use_cli_session(session):
+                raise SystemExit("real script-layout execution requires the sealed Browser-use CLI session")
+            checkpoint_store = AssetGraphScriptLayoutCheckpointStore.start(
+                client=assetgraph_client(),
+                operation_plan=operation_plan,
+                target_live_room_id=target_live_room_id,
+            )
+            session.set_execution_guard(checkpoint_store.ensure_lease_active)
+        result = ScriptLayoutDraftRunner(session=session, checkpoint_store=checkpoint_store).run(
             operation_plan,
             target_live_room_id=str(target_live_room_id) if target_live_room_id is not None else None,
         )
-        if args.write_result:
-            build_plan_code = operation_plan.get("build_plan_code")
-            if not build_plan_code:
-                raise SystemExit("--script-layout-draft-execute --write-result requires build_plan_code in the JSON plan")
-            execution_result = assetgraph_client().write_live_room_build_plan_execution_result(
-                str(build_plan_code),
-                build_script_layout_draft_execution_payload(result),
+        if checkpoint_store is not None:
+            execution_result = checkpoint_store.finalize(result)
+            print(
+                json.dumps(
+                    {"worker_result": asdict(result), "execution_result": execution_result},
+                    ensure_ascii=False,
+                    indent=2,
+                )
             )
-            print(json.dumps({"worker_result": asdict(result), "execution_result": execution_result}, ensure_ascii=False, indent=2))
         else:
             print(json.dumps(asdict(result), ensure_ascii=False, indent=2))
         unattended_success = (

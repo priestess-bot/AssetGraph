@@ -111,6 +111,80 @@ def test_write_live_room_build_plan_execution_result_uses_execution_results_endp
     ]
 
 
+def test_script_layout_checkpoint_client_sends_worker_capability_headers(monkeypatch) -> None:
+    captured: dict[str, Any] = {}
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args) -> None:
+            return None
+
+        @staticmethod
+        def read() -> bytes:
+            return b"{}"
+
+    def fake_urlopen(request, *, timeout):
+        captured["request"] = request
+        captured["timeout"] = timeout
+        return Response()
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    worker_token = "-".join(["unit", "test", "worker"])
+    client = AssetGraphClient(
+        "http://assetgraph",
+        script_layout_worker_token=worker_token,
+        worker_id="worker-A",
+    )
+
+    client.start_script_layout_execution("MT-BUILD-20260712-000001", {"x": 1})
+
+    request = captured["request"]
+    assert request.get_header("Authorization") == f"Bearer {worker_token}"
+    assert request.get_header("X-assetgraph-worker-id") == "worker-A"
+
+
+def test_script_layout_checkpoint_client_uses_nested_execution_endpoints() -> None:
+    client = RecordingClient()
+    build_plan_code = "MT-BUILD-20260712-000001"
+    execution_code = "MT-EXEC-20260712-000001"
+    start_payload = {"plan_fingerprint": "a" * 64, "target_live_room_id": "47000002"}
+    begin_payload = {"operation_fingerprint": "b" * 64, "attempt_id": "attempt"}
+    complete_payload = {**begin_payload, "completion_id": "completion", "evidence": {"verified": True}}
+    finalize_payload = {"execution_status": "completed_with_manual_review"}
+
+    client.start_script_layout_execution(build_plan_code, start_payload)
+    client.begin_script_layout_execution_operation(build_plan_code, execution_code, 2, begin_payload)
+    client.dispatch_script_layout_execution_operation(build_plan_code, execution_code, 2, begin_payload)
+    client.invalidate_script_layout_execution_operation(build_plan_code, execution_code, 2, begin_payload)
+    client.complete_script_layout_execution_operation(build_plan_code, execution_code, 2, complete_payload)
+    client.finalize_script_layout_execution(build_plan_code, execution_code, finalize_payload)
+
+    base = (
+        "/api/maitu/live-room-build-plans/MT-BUILD-20260712-000001/"
+        "script-layout-executions"
+    )
+    assert client.calls == [
+        ("POST", f"{base}/start", start_payload),
+        ("POST", f"{base}/{execution_code}/operations/2/begin", begin_payload),
+        ("POST", f"{base}/{execution_code}/operations/2/dispatch", begin_payload),
+        ("POST", f"{base}/{execution_code}/operations/2/invalidate", begin_payload),
+        ("POST", f"{base}/{execution_code}/operations/2/complete", complete_payload),
+        ("POST", f"{base}/{execution_code}/finalize", finalize_payload),
+    ]
+
+
+@pytest.mark.parametrize("code", ["../escape", "MT-BUILD/OTHER", "MT-BUILD?x=1", ""])
+def test_script_layout_checkpoint_client_rejects_invalid_path_segments(code: str) -> None:
+    client = RecordingClient()
+
+    with pytest.raises(AssetGraphClientError):
+        client.start_script_layout_execution(code, {"plan_fingerprint": "a" * 64})
+
+    assert client.calls == []
+
+
 def test_get_jd_live_metric_session_uses_metric_session_endpoint() -> None:
     client = RecordingClient()
 

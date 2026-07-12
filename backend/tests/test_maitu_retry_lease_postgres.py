@@ -13,7 +13,7 @@ import pytest
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
-from app.repositories.assets import AssetRepository
+from app.repositories.assets import AssetBindingReceiptReplayError, AssetRepository
 from app.repositories.maitu import (
     MaituMaterialSlotRepository,
     RetryExecutionConflictError,
@@ -738,6 +738,39 @@ def test_postgres_slot_mutation_and_claim_serialize_on_retry_task_row() -> None:
         mutation_connection.commit()
 
 
+def test_postgres_asset_binding_receipt_nonce_is_one_shot() -> None:
+    asset_code = f"AG-IMG-IT-{uuid4().hex[:12]}"
+    nonce = uuid4()
+    with psycopg.connect(DATABASE_URL) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO assets (asset_code, asset_type, original_filename, status)
+                VALUES (%s, 'IMG', 'nonce.png', 'stored')
+                """,
+                (asset_code,),
+            )
+        connection.commit()
+        repository = AssetRepository(connection)
+        payload = {
+            "maitu_material_id": 901,
+            "source_material_type": "image",
+            "source_material_url": "https://cdn.example/nonce.png",
+            "maitu_binding_verification_source": "maitu_inventory_readback",
+            "maitu_binding_verified_at": datetime.now(UTC),
+            "maitu_binding_scope": "assetgraph_script_layout_material_binding_v1",
+            "maitu_binding_inventory_fingerprint": "a" * 64,
+            "maitu_binding_readback_nonce": nonce,
+            "maitu_binding_attestation": "b" * 64,
+        }
+        assert repository.update_maitu_material_binding(asset_code, payload) is not None
+        with pytest.raises(AssetBindingReceiptReplayError, match="already consumed"):
+            repository.update_maitu_material_binding(asset_code, payload)
+        with connection.cursor() as cursor:
+            cursor.execute("DELETE FROM assets WHERE asset_code = %s", (asset_code,))
+        connection.commit()
+
+
 def test_postgres_asset_binding_update_and_claim_serialize_on_retry_task_row() -> None:
     retry_task_code = f"MT-RETRY-IT-{uuid4().hex[:12]}"
     asset_code = f"AG-IMG-IT-{retry_task_code[-12:]}"
@@ -802,7 +835,7 @@ def test_postgres_asset_binding_update_and_claim_serialize_on_retry_task_row() -
                         (binding_pid["value"],),
                     )
                     activity = cursor.fetchone()
-                if activity and activity[0] == "Lock" and "UPDATE assets" in activity[1]:
+                if activity and activity[0] == "Lock" and "assets" in activity[1]:
                     blocked_on_asset = True
                     break
                 time.sleep(0.02)

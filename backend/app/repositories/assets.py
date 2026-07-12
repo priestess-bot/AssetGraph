@@ -13,6 +13,10 @@ class AssetBindingLeaseConflictError(RuntimeError):
     """An active retry worker lease freezes the asset's Maitu binding."""
 
 
+class AssetBindingReceiptReplayError(RuntimeError):
+    """A signed Maitu inventory receipt nonce was already consumed."""
+
+
 class AssetRepository:
     writable_fields = (
         "asset_type",
@@ -339,17 +343,30 @@ class AssetRepository:
             "source_cover_url",
             "speaker_id",
             "digital_human_image_id",
+            "maitu_binding_verification_source",
+            "maitu_binding_verified_at",
+            "maitu_binding_scope",
+            "maitu_binding_inventory_fingerprint",
+            "maitu_binding_readback_nonce",
+            "maitu_binding_attestation",
         )
         data = {field: payload[field] for field in fields if field in payload}
         if not data:
             return self.get_by_code(asset_code)
-        data.update(
-            {
-                "maitu_binding_verification_source": None,
-                "maitu_binding_verified_at": None,
-                "maitu_binding_scope": None,
-            }
+        verification_fields = (
+            "maitu_binding_verification_source",
+            "maitu_binding_verified_at",
+            "maitu_binding_scope",
+            "maitu_binding_inventory_fingerprint",
+            "maitu_binding_readback_nonce",
+            "maitu_binding_attestation",
         )
+        supplied_verification = set(verification_fields).intersection(payload)
+        if supplied_verification:
+            if supplied_verification != set(verification_fields):
+                raise ValueError("authoritative Maitu binding receipt fields must be supplied together")
+        else:
+            data.update({field: None for field in verification_fields})
         assignments = ", ".join(f"{field} = %s" for field in data)
         values = [data[field] for field in data]
         values.append(asset_code)
@@ -372,6 +389,25 @@ class AssetRepository:
                 raise AssetBindingLeaseConflictError(
                     "asset Maitu material binding cannot change during an active retry worker lease"
                 )
+            cursor.execute(
+                """
+                SELECT maitu_binding_readback_nonce
+                FROM assets
+                WHERE asset_code = %s AND deleted_at IS NULL
+                FOR UPDATE
+                """,
+                (asset_code,),
+            )
+            current_asset = cursor.fetchone()
+            if current_asset is None:
+                self.connection.commit()
+                return None
+            supplied_nonce = data.get("maitu_binding_readback_nonce")
+            if supplied_nonce is not None and str(current_asset.get("maitu_binding_readback_nonce")) == str(
+                supplied_nonce
+            ):
+                self.connection.rollback()
+                raise AssetBindingReceiptReplayError("Maitu binding readback receipt nonce was already consumed")
             cursor.execute(
                 f"""
                 UPDATE assets

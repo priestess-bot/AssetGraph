@@ -1,3 +1,4 @@
+import math
 from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
@@ -10,6 +11,18 @@ from app.core.secret_hygiene import contains_durable_secret
 from app.schemas.assets import MaituAssetCategory, MaituReplacementPolicy
 
 
+def _without_public_material_url_fields(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _without_public_material_url_fields(item)
+            for key, item in value.items()
+            if key not in {"source_material_url", "source_cover_url"}
+        }
+    if isinstance(value, list):
+        return [_without_public_material_url_fields(item) for item in value]
+    return value
+
+
 def _validate_secret_free_worker_identity(value: str) -> str:
     operator_token = settings.maitu_reconciliation_operator_token
     forbidden_values = (
@@ -20,6 +33,26 @@ def _validate_secret_free_worker_identity(value: str) -> str:
     if contains_durable_secret(value, forbidden_values=forbidden_values):
         raise ValueError("worker identity must not contain credentials")
     return value
+
+
+def _require_canonical_json_value(value: Any, *, path: str = "$") -> None:
+    if value is None or isinstance(value, (str, bool, int)):
+        return
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError(f"{path} contains a non-finite number")
+        return
+    if isinstance(value, list):
+        for index, item in enumerate(value):
+            _require_canonical_json_value(item, path=f"{path}[{index}]")
+        return
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise ValueError(f"{path} contains a non-string object key")
+            _require_canonical_json_value(item, path=f"{path}.{key}")
+        return
+    raise ValueError(f"{path} contains a non-JSON value")
 
 
 class MaituLivestreamScriptProductBrief(BaseModel):
@@ -673,6 +706,12 @@ class MaituLiveRoomBuildPlanOperationPlanResponse(BaseModel):
     can_execute: bool | None = None
     manual_review_required: bool = False
     blocked_reasons: list[str] = Field(default_factory=list)
+    checkpoint_source_fingerprint: str | None = Field(
+        default=None,
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-f]{64}$",
+    )
     operations: list[MaituLiveRoomBuildPlanOperationRead] = Field(default_factory=list)
 
 
@@ -701,6 +740,29 @@ class MaituLiveRoomBuildPlanOperationResultCreate(BaseModel):
 class MaituLiveRoomBuildPlanOperationResultRead(MaituLiveRoomBuildPlanOperationResultCreate):
     id: str | None = None
     sort_order: int = 0
+    operation_fingerprint: str | None = Field(default=None, min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    effect_class: Literal["mutating", "read_only", "manual_noop"] | None = None
+    intent_snapshot: dict[str, Any] | None = None
+    checkpoint_state: Literal[
+        "not_started",
+        "prepared",
+        "dispatched",
+        "reconcile_required",
+        "retry_authorized",
+        "completed",
+        "observed",
+        "manual_required",
+    ] | None = None
+    decision: Literal["execute", "skip", "reconcile"] | None = None
+    attempt_id: UUID | None = None
+    completion_id: UUID | None = None
+    completion_evidence: dict[str, Any] = Field(default_factory=dict)
+    dispatched_at: datetime | None = None
+    completed_at: datetime | None = None
+    reconciled_attempt_id: UUID | None = None
+    reconciliation_resolution: Literal["confirmed_completed", "confirmed_not_applied"] | None = None
+    reconciliation_evidence: dict[str, Any] = Field(default_factory=dict)
+    reconciled_at: datetime | None = None
 
 
 class MaituLiveRoomBuildPlanExecutionResultCreate(BaseModel):
@@ -721,12 +783,31 @@ class MaituLiveRoomBuildPlanExecutionResultCreate(BaseModel):
     details: dict[str, Any] = Field(default_factory=dict)
     operation_results: list[MaituLiveRoomBuildPlanOperationResultCreate] = Field(default_factory=list)
 
+    @model_validator(mode="after")
+    def require_unique_operation_indexes(self) -> "MaituLiveRoomBuildPlanExecutionResultCreate":
+        indexes = [item.operation_index for item in self.operation_results]
+        if len(indexes) != len(set(indexes)):
+            raise ValueError("operation_results must not contain duplicate operation_index values")
+        return self
+
 
 class MaituLiveRoomBuildPlanExecutionResultRead(BaseModel):
     id: str
     execution_code: str
     build_plan_code: str
     blueprint_code: str | None = None
+    execution_attempt_id: UUID | None = None
+    plan_fingerprint: str | None = Field(default=None, min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    manifest_fingerprint: str | None = Field(default=None, min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    expected_operation_count: int | None = Field(default=None, ge=0)
+    checkpoint_contract: str | None = Field(default=None, max_length=64)
+    lease_version: int = Field(default=0, ge=0)
+    lease_acquired_at: datetime | None = None
+    lease_expires_at: datetime | None = None
+    lease_reconcile_not_before: datetime | None = None
+    finalization_id: UUID | None = None
+    finalization_fingerprint: str | None = Field(default=None, min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    finalized_at: datetime | None = None
     executor: str
     execution_status: str
     mode: str
@@ -745,6 +826,205 @@ class MaituLiveRoomBuildPlanExecutionResultRead(BaseModel):
     operation_results: list[MaituLiveRoomBuildPlanOperationResultRead] = Field(default_factory=list)
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+
+class MaituScriptLayoutExecutionLeaseRead(MaituLiveRoomBuildPlanExecutionResultRead):
+    start_request_id: UUID
+    run_attempt_id: UUID
+    lease_owner: str = Field(max_length=128)
+    lease_token: UUID
+
+
+class MaituScriptLayoutExecutionManifestOperation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operation_index: int = Field(ge=0)
+    intent: dict[str, Any]
+
+    @model_validator(mode="after")
+    def require_canonical_secret_free_intent(self) -> "MaituScriptLayoutExecutionManifestOperation":
+        _require_canonical_json_value(self.intent)
+        if contains_durable_secret(_without_public_material_url_fields(self.intent)):
+            raise ValueError("operation intent must not contain credentials")
+        return self
+
+
+class MaituScriptLayoutExecutionStartCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    start_request_id: UUID
+    run_attempt_id: UUID
+    source_plan_fingerprint: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    target_live_room_id: str = Field(min_length=1, max_length=64)
+    operations: list[MaituScriptLayoutExecutionManifestOperation] = Field(min_length=1)
+    mode: Literal["script_layout_draft"] = "script_layout_draft"
+    checkpoint_contract: Literal["script_layout_checkpoint_v1"] = "script_layout_checkpoint_v1"
+
+    @model_validator(mode="after")
+    def require_distinct_identities_and_exact_manifest_indexes(self) -> "MaituScriptLayoutExecutionStartCreate":
+        if self.start_request_id == self.run_attempt_id:
+            raise ValueError("start_request_id and run_attempt_id must differ")
+        indexes = [item.operation_index for item in self.operations]
+        if indexes != list(range(len(indexes))):
+            raise ValueError("operations must contain each contiguous operation_index exactly once")
+        first_intent = self.operations[0].intent
+        if (
+            first_intent.get("operation_type") != "preflight_content_build_plan"
+            or first_intent.get("status") != "ready"
+            or str(first_intent.get("target_live_room_id") or self.target_live_room_id) != self.target_live_room_id
+        ):
+            raise ValueError("operations must start with target-bound ready preflight")
+        return self
+
+
+class MaituScriptLayoutExecutionCheckpointBeginCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operation_fingerprint: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    attempt_id: UUID
+    lease_token: UUID
+    lease_version: int = Field(ge=1)
+
+
+class MaituScriptLayoutExecutionCheckpointDispatchCreate(MaituScriptLayoutExecutionCheckpointBeginCreate):
+    pass
+
+
+class MaituScriptLayoutExecutionRenewCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    run_attempt_id: UUID
+    lease_token: UUID
+    lease_version: int = Field(ge=1)
+
+
+class MaituScriptLayoutExecutionCheckpointInvalidateCreate(MaituScriptLayoutExecutionCheckpointBeginCreate):
+    evidence: dict[str, Any]
+
+    @model_validator(mode="after")
+    def require_verified_invalidation_evidence(self) -> "MaituScriptLayoutExecutionCheckpointInvalidateCreate":
+        if self.evidence.get("verified") is not True or self.evidence.get("checkpoint_invalid") is not True:
+            raise ValueError("checkpoint invalidation requires verified checkpoint_invalid evidence")
+        if "readback_attestation" in self.evidence or "readback_attestation_algorithm" in self.evidence:
+            raise ValueError("checkpoint invalidation must not contain a client-supplied attestation")
+        public_evidence_fields = {
+            "operation_fingerprint",
+        }
+        secret_evidence = {key: value for key, value in self.evidence.items() if key not in public_evidence_fields}
+        if contains_durable_secret(_without_public_material_url_fields(secret_evidence)):
+            raise ValueError("checkpoint invalidation evidence must not contain credentials")
+        return self
+
+
+class MaituScriptLayoutExecutionCheckpointCompleteCreate(MaituScriptLayoutExecutionCheckpointBeginCreate):
+    completion_id: UUID
+    result_summary: str | None = None
+    evidence: dict[str, Any]
+    operation_result: MaituLiveRoomBuildPlanOperationResultCreate
+
+    @model_validator(mode="after")
+    def require_verified_matching_evidence(self) -> "MaituScriptLayoutExecutionCheckpointCompleteCreate":
+        if self.completion_id == self.attempt_id:
+            raise ValueError("completion_id must differ from attempt_id")
+        if self.evidence.get("verified") is not True:
+            raise ValueError("checkpoint evidence must contain verified=true")
+        for field_name in ("operation_index", "operation_type"):
+            evidence_value = self.evidence.get(field_name)
+            result_value = getattr(self.operation_result, field_name)
+            if evidence_value is not None and evidence_value != result_value:
+                raise ValueError(f"checkpoint evidence {field_name} must match operation_result")
+        if "readback_attestation" in self.evidence or "readback_attestation_algorithm" in self.evidence:
+            raise ValueError("checkpoint completion must not contain a client-supplied attestation")
+        public_evidence_fields = {
+            "operation_fingerprint",
+        }
+        secret_evidence = {key: value for key, value in self.evidence.items() if key not in public_evidence_fields}
+        durable_payload = {
+            "result_summary": self.result_summary,
+            "evidence": secret_evidence,
+            "operation_result": self.operation_result.model_dump(exclude_none=True),
+        }
+        if contains_durable_secret(_without_public_material_url_fields(durable_payload)):
+            raise ValueError("checkpoint durable fields must not contain credentials")
+        return self
+
+
+class MaituScriptLayoutExecutionCheckpointReconcileCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operation_fingerprint: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    reconciliation_id: UUID
+    reconciled_attempt_id: UUID
+    resolution: Literal["confirmed_completed", "confirmed_not_applied"]
+    resolution_summary: str = Field(min_length=1)
+    evidence: dict[str, Any]
+    operation_result: MaituLiveRoomBuildPlanOperationResultCreate | None = None
+
+    @model_validator(mode="after")
+    def require_verified_resolution_evidence(self) -> "MaituScriptLayoutExecutionCheckpointReconcileCreate":
+        if self.evidence.get("verified") is not True:
+            raise ValueError("reconciliation evidence must contain verified=true")
+        expected_applied = self.resolution == "confirmed_completed"
+        if self.evidence.get("operation_applied") is not expected_applied:
+            raise ValueError("reconciliation evidence operation_applied must match resolution")
+        if expected_applied and self.operation_result is None:
+            raise ValueError("confirmed_completed reconciliation requires operation_result")
+        if not expected_applied and self.operation_result is not None:
+            raise ValueError("confirmed_not_applied reconciliation must not include operation_result")
+        if self.operation_result is not None:
+            for field_name in ("operation_index", "operation_type"):
+                evidence_value = self.evidence.get(field_name)
+                result_value = getattr(self.operation_result, field_name)
+                if evidence_value != result_value:
+                    raise ValueError(f"reconciliation evidence {field_name} must match operation_result")
+        if "readback_attestation" in self.evidence or "readback_attestation_algorithm" in self.evidence:
+            raise ValueError("checkpoint reconciliation must not contain a client-supplied attestation")
+        public_evidence_fields = {
+            "operation_fingerprint",
+        }
+        secret_evidence = {key: value for key, value in self.evidence.items() if key not in public_evidence_fields}
+        durable_payload = {
+            "resolution_summary": self.resolution_summary,
+            "evidence": secret_evidence,
+            "operation_result": self.operation_result.model_dump(exclude_none=True) if self.operation_result else None,
+        }
+        if contains_durable_secret(_without_public_material_url_fields(durable_payload)):
+            raise ValueError("reconciliation durable fields must not contain credentials")
+        return self
+
+
+class MaituScriptLayoutExecutionFinalizeCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    finalization_id: UUID
+    run_attempt_id: UUID
+    lease_token: UUID
+    lease_version: int = Field(ge=1)
+    executor: Literal["browser_use"] = "browser_use"
+    execution_status: Literal["completed", "completed_with_manual_review", "failed", "blocked"]
+    mode: Literal["script_layout_draft"] = "script_layout_draft"
+    failure_type: str | None = Field(default=None, max_length=64)
+    retryable: bool = False
+    retry_instruction: str | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    error_message: str | None = None
+    screenshot_asset_code: str | None = Field(default=None, max_length=64)
+    dom_snapshot_asset_code: str | None = Field(default=None, max_length=64)
+    result_summary: str | None = None
+    ready_for_go_live: bool = False
+    manual_review_required: bool = False
+    details: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def require_safe_draft_finalization_flags(self) -> "MaituScriptLayoutExecutionFinalizeCreate":
+        if self.ready_for_go_live:
+            raise ValueError("script-layout draft execution can never declare ready_for_go_live")
+        if self.execution_status == "completed" and self.manual_review_required:
+            raise ValueError("completed execution cannot require manual review")
+        if self.execution_status == "completed_with_manual_review" and not self.manual_review_required:
+            raise ValueError("completed_with_manual_review requires manual_review_required=true")
+        return self
 
 
 JD_LIVE_CORE_METRIC_NAMES = [

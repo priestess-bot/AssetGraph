@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class MaituAssetCategory(StrEnum):
@@ -117,10 +117,41 @@ class AssetFileRead(BaseModel):
 class AssetMaituMaterialBindingUpdate(BaseModel):
     maitu_material_id: int | None = Field(default=None, ge=1)
     source_material_type: str | None = Field(default=None, max_length=64)
-    source_material_url: str | None = None
-    source_cover_url: str | None = None
+    source_material_url: str | None = Field(default=None, max_length=2048)
+    source_cover_url: str | None = Field(default=None, max_length=2048)
     speaker_id: int | None = Field(default=None, ge=1)
     digital_human_image_id: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def validate_complete_replacement(self) -> "AssetMaituMaterialBindingUpdate":
+        expected_fields = {
+            "maitu_material_id",
+            "source_material_type",
+            "source_material_url",
+            "source_cover_url",
+            "speaker_id",
+            "digital_human_image_id",
+        }
+        if self.model_fields_set != expected_fields:
+            raise ValueError("Maitu material binding must replace every identity field")
+        if self.source_material_type == "digital_human":
+            if (
+                self.maitu_material_id is not None
+                or self.source_material_url is not None
+                or self.speaker_id is None
+                or self.digital_human_image_id is None
+            ):
+                raise ValueError("digital-human binding requires speaker/image ids and no regular material identity")
+            return self
+        if (
+            self.source_material_type not in {"image", "video", "decorative_video"}
+            or self.maitu_material_id is None
+            or not str(self.source_material_url or "").startswith("https://")
+            or self.speaker_id is not None
+            or self.digital_human_image_id is not None
+        ):
+            raise ValueError("regular binding requires complete HTTPS material identity and no digital-human ids")
+        return self
 
 
 class AssetRead(AssetCreate):

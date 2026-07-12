@@ -32,7 +32,7 @@ class FakeScriptLayoutDraftSession:
         self.calls.append(("read_live_room", live_room_id))
         return self.room
 
-    def rename_clip(self, clip_id: int, name: str) -> dict:
+    def rename_clip(self, *, live_room_id: str, clip_id: int, name: str) -> dict:
         self.calls.append(("rename_clip", {"clip_id": clip_id, "name": name}))
         for clip in self.room["topics"][0]["clips"]:
             if clip["id"] == clip_id:
@@ -50,7 +50,12 @@ class FakeScriptLayoutDraftSession:
     def insert_asset_layer(self, *, live_room_id: str, clip_id: int, operation: dict) -> dict:
         self.calls.append(("insert_asset_layer", {"clip_id": clip_id, "asset_code": operation.get("asset_code")}))
         self.layers_by_clip.setdefault(clip_id, []).append(dict(operation))
-        return {"clip_id": clip_id, "asset_code": operation.get("asset_code"), "layer_id": operation.get("layer_id")}
+        return {
+            "clip_id": clip_id,
+            "material_id": 70000 + len(self.layers_by_clip[clip_id]),
+            "asset_code": operation.get("asset_code"),
+            "layer_id": operation.get("layer_id"),
+        }
 
     def position_asset_layer(self, *, live_room_id: str, clip_id: int, operation: dict) -> dict:
         self.calls.append(("position_asset_layer", {"clip_id": clip_id, "layer_id": operation.get("layer_id")}))
@@ -277,7 +282,7 @@ def test_script_layout_draft_runner_blocks_strict_blocked_plan_without_browser_c
 
 def test_script_layout_draft_runner_stops_after_first_failed_operation() -> None:
     class FailingRenameSession(FakeScriptLayoutDraftSession):
-        def rename_clip(self, clip_id: int, name: str) -> dict:
+        def rename_clip(self, *, live_room_id: str, clip_id: int, name: str) -> dict:
             self.calls.append(("rename_clip", {"clip_id": clip_id, "name": name}))
             raise RuntimeError("rename failed after an uncertain remote response")
 
@@ -588,8 +593,9 @@ def test_script_layout_draft_runner_skips_ready_asset_when_maitu_binding_is_miss
     position_action = next(action for action in result.actions if action.operation_type == "position_asset_layer")
     assert insert_action.status == "skipped"
     assert insert_action.action_type == "manual_required_asset_binding"
-    assert position_action.status == "skipped"
-    assert position_action.action_type == "manual_required_position_binding"
+    assert position_action.status == "failed"
+    assert position_action.action_type == "position_asset_layer"
+    assert "exact clip-material id" in position_action.summary
     assert result.ready_for_go_live is False
 
 
@@ -620,3 +626,224 @@ def test_script_layout_draft_skipped_binding_marks_result_manual_review() -> Non
     assert result.status == "completed_with_manual_review"
     assert result.manual_review_required is True
     assert result.actions[-1].status == "skipped"
+
+
+class FakeCheckpointStore:
+    def __init__(self, decisions: dict[int, dict], *, fail_complete_index: int | None = None) -> None:
+        self.decisions = decisions
+        self.fail_complete_index = fail_complete_index
+        self.begins: list[int] = []
+        self.dispatches: list[int] = []
+        self.invalidations: list[int] = []
+        self.completions: list[int] = []
+
+    def begin_operation(self, operation_index: int, operation: dict) -> dict:
+        self.begins.append(operation_index)
+        decision = dict(self.decisions.get(operation_index, {"decision": "execute"}))
+        decision.setdefault(
+            "effect_class",
+            "mutating"
+            if operation.get("operation_type")
+            in {"fill_default_scene", "create_scene", "insert_asset_layer", "position_asset_layer", "write_script"}
+            else "read_only",
+        )
+        return decision
+
+    def dispatch_operation(self, operation_index: int, operation: dict) -> dict:
+        self.dispatches.append(operation_index)
+        return {"decision": "execute", "effect_class": "mutating", "checkpoint_state": "dispatched"}
+
+    def invalidate_operation(self, operation_index: int, operation: dict, evidence: dict) -> dict:
+        self.invalidations.append(operation_index)
+        return {"decision": "reconcile", "effect_class": "mutating", "checkpoint_state": "reconcile_required"}
+
+    def complete_operation(self, operation_index: int, operation: dict, action: object) -> dict:
+        if operation_index == self.fail_complete_index:
+            raise RuntimeError("checkpoint completion timeout")
+        self.completions.append(operation_index)
+        return {"decision": "skip", "checkpoint_state": "completed"}
+
+
+def checkpoint_plan() -> dict:
+    return {
+        "status": "ready",
+        "target_live_room_id": "47000002",
+        "manual_review_required": False,
+        "operations": [
+            {
+                "operation_type": "preflight_content_build_plan",
+                "status": "ready",
+                "target_live_room_id": "47000002",
+            },
+            {
+                "operation_type": "fill_default_scene",
+                "status": "ready",
+                "scene_index": 0,
+                "scene_name": "开场",
+            },
+            {
+                "operation_type": "insert_asset_layer",
+                "status": "ready",
+                "scene_index": 0,
+                "scene_name": "开场",
+                "layer_id": "scene-00-background",
+                "layer_type": "background_image",
+                "asset_code": "AG-IMG-BG",
+            },
+        ],
+    }
+
+
+def test_checkpoint_skip_revalidates_preflight_and_hydrates_clip_dependency() -> None:
+    session = FakeScriptLayoutDraftSession()
+    session.room["topics"][0]["clips"][0]["name"] = "开场"
+    checkpoints = FakeCheckpointStore(
+        {
+            0: {
+                "decision": "skip",
+                "status": "completed",
+                "completion_evidence": {"verified": True, "scene_index": 0, "clip_id": 416425},
+            },
+            1: {
+                "decision": "skip",
+                "status": "completed",
+                "effect_class": "mutating",
+                "completion_evidence": {
+                    "verified": True,
+                    "operation_applied": True,
+                    "target_live_room_id": "47000002",
+                    "scene_index": 0,
+                    "clip_id": 416425,
+                },
+            },
+        }
+    )
+
+    result = ScriptLayoutDraftRunner(session=session, checkpoint_store=checkpoints).run(checkpoint_plan())
+
+    assert result.status == "completed"
+    assert ("read_live_room", "47000002") in session.calls
+    assert not any(call[0] == "rename_clip" for call in session.calls)
+    assert ("insert_asset_layer", {"clip_id": 416425, "asset_code": "AG-IMG-BG"}) in session.calls
+    assert checkpoints.dispatches == [2]
+    assert checkpoints.completions == [2]
+
+
+def test_checkpoint_skip_with_stale_room_evidence_is_invalidated_before_later_side_effects() -> None:
+    session = FakeScriptLayoutDraftSession()
+    checkpoints = FakeCheckpointStore(
+        {
+            1: {
+                "decision": "skip",
+                "status": "completed",
+                "effect_class": "mutating",
+                "completion_evidence": {
+                    "verified": True,
+                    "operation_applied": True,
+                    "target_live_room_id": "47000002",
+                    "scene_index": 0,
+                    "clip_id": 416425,
+                },
+            }
+        }
+    )
+
+    result = ScriptLayoutDraftRunner(session=session, checkpoint_store=checkpoints).run(checkpoint_plan())
+
+    assert result.status == "failed"
+    assert result.actions[-1].action_type == "checkpoint_reconcile_required"
+    assert checkpoints.invalidations == [1]
+    assert not any(call[0] in {"rename_clip", "insert_asset_layer"} for call in session.calls)
+
+
+def test_checkpoint_reconcile_decision_stops_before_mutation() -> None:
+    session = FakeScriptLayoutDraftSession()
+    checkpoints = FakeCheckpointStore(
+        {
+            1: {
+                "decision": "reconcile",
+                "checkpoint_state": "reconcile_required",
+                "attempt_id": "11111111-1111-4111-8111-111111111111",
+            }
+        }
+    )
+
+    result = ScriptLayoutDraftRunner(session=session, checkpoint_store=checkpoints).run(checkpoint_plan())
+
+    assert result.status == "failed"
+    assert result.actions[-1].action_type == "checkpoint_reconcile_required"
+    assert not any(call[0] in {"rename_clip", "insert_asset_layer"} for call in session.calls)
+    assert checkpoints.completions == [0]
+
+
+def test_checkpoint_complete_failure_stops_after_uncertain_side_effect() -> None:
+    session = FakeScriptLayoutDraftSession()
+    checkpoints = FakeCheckpointStore({}, fail_complete_index=1)
+
+    result = ScriptLayoutDraftRunner(session=session, checkpoint_store=checkpoints).run(checkpoint_plan())
+
+    assert result.status == "failed"
+    assert any(call[0] == "rename_clip" for call in session.calls)
+    assert not any(call[0] == "insert_asset_layer" for call in session.calls)
+    assert result.actions[-1].action_type == "checkpoint_complete"
+    assert "timeout" in result.actions[-1].summary
+
+
+def test_completed_position_skip_revalidates_exact_material_source_identity() -> None:
+    session = FakeScriptLayoutDraftSession()
+    session.room["topics"][0]["clips"][0].update(
+        {
+            "id": 416425,
+            "name": "开场",
+            "clip_materials": [
+                {
+                    "id": 510001,
+                    "name": "hero-layer",
+                    "material_id": 610001,
+                    "type": "image",
+                    "url": "https://static.example/hero.png",
+                    "style_front": {
+                        "left": 10,
+                        "top": 20,
+                        "width": 300,
+                        "height": 400,
+                        "zIndex": 5,
+                    },
+                }
+            ],
+        }
+    )
+    operation = {
+        "operation_type": "position_asset_layer",
+        "scene_index": 0,
+        "scene_name": "开场",
+        "layer_id": "hero-layer",
+        "layer_type": "product_image",
+        "asset_code": "AG-IMG-HERO",
+        "material_id": 610001,
+        "source_material_type": "image",
+        "source_material_url": "https://static.example/hero.png",
+        "x": 10,
+        "y": 20,
+        "width": 300,
+        "height": 400,
+        "z_index": 5,
+    }
+    checkpoint = {
+        "completion_evidence": {
+            "verified": True,
+            "operation_applied": True,
+            "target_live_room_id": "47000002",
+            "clip_id": 416425,
+            "material_id": 510001,
+        }
+    }
+    runner = ScriptLayoutDraftRunner(session=session)
+
+    assert runner._checkpoint_evidence_matches_room(
+        "47000002", operation, checkpoint
+    )
+    session.room["topics"][0]["clips"][0]["clip_materials"][0]["material_id"] = 610002
+    assert not runner._checkpoint_evidence_matches_room(
+        "47000002", operation, checkpoint
+    )

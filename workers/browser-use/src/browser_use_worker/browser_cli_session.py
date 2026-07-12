@@ -233,6 +233,8 @@ class BrowserUseCliSession:
         runner: Callable[[Sequence[str]], str] | Callable[..., str] | None = None,
     ) -> None:
         self.config = config or BrowserUseCliSessionConfig()
+        if self.config.timeout_seconds <= 0 or self.config.timeout_seconds > 120:
+            raise ValueError("timeout_seconds must be within the fenced lease safety budget (0, 120]")
         self._allow_disabled_transport = runner is not None
         self._validate_transport_config(allow_disabled_transport=self._allow_disabled_transport)
         self._transport_identity = (self.config.session_name, self.config.cdp_url)
@@ -689,8 +691,13 @@ class BrowserUseCliSession:
 """.strip().replace("__ARGS__", json.dumps(args, ensure_ascii=False))
         return self._eval_json(script)
 
-    def rename_clip(self, clip_id: int, name: str) -> dict[str, Any]:
-        args = {"clipId": int(clip_id), "name": name, "clipPath": f"clips/{int(clip_id)}"}
+    def rename_clip(self, *, live_room_id: str, clip_id: int, name: str) -> dict[str, Any]:
+        args = {
+            "liveRoomId": str(live_room_id),
+            "clipId": int(clip_id),
+            "name": name,
+            "clipPath": f"clips/{int(clip_id)}",
+        }
         script = """
 (() => {
   const args = __ARGS__;
@@ -709,17 +716,19 @@ class BrowserUseCliSession:
     if (!(x.status >= 200 && x.status < 300)) throw new Error(method + ' ' + path + ' failed ' + x.status);
     return data;
   }
-  const roomId = new URLSearchParams(location.search).get('liveRoomId');
-  let clip = {id: args.clipId};
-  if (roomId) {
-    const room = unwrap(xhr('GET', 'live_rooms/' + roomId + '?env=working&include_qa_clips=true'));
-    const clips = ((room.topics || [])[0] || {}).clips || [];
-    clip = clips.find((item) => String(item.id) === String(args.clipId)) || clip;
-  }
+  if (!args.liveRoomId) throw new Error('rename verification requires explicit liveRoomId');
+  const room = unwrap(xhr('GET', 'live_rooms/' + args.liveRoomId + '?env=working&include_qa_clips=true'));
+  const clips = ((room.topics || [])[0] || {}).clips || [];
+  const clip = clips.find((item) => String(item.id) === String(args.clipId));
+  if (!clip) throw new Error('rename target clip not found in authoritative working room');
   const payload = {...clip, name: args.name};
   delete payload.clip_materials;
   const response = unwrap(xhr('PUT', args.clipPath, payload));
-  return JSON.stringify({clip_id: args.clipId, name: args.name, response});
+  const verifiedRoom = unwrap(xhr('GET', 'live_rooms/' + args.liveRoomId + '?env=working&include_qa_clips=true'));
+  const verifiedClips = ((verifiedRoom.topics || [])[0] || {}).clips || [];
+  const verifiedClip = verifiedClips.find((item) => String(item.id) === String(args.clipId));
+  if (!verifiedClip || verifiedClip.name !== args.name) throw new Error('clip rename authoritative readback mismatch');
+  return JSON.stringify({clip_id: args.clipId, name: args.name, response, verified:true, verification_source:'working_room_readback'});
 })()
 """.strip().replace("__ARGS__", json.dumps(args, ensure_ascii=False))
         return self._eval_json(script)
@@ -882,16 +891,20 @@ class BrowserUseCliSession:
   const created = unwrap(xhr('POST', 'clips', payload).data);
   const verifyRoom = unwrap(xhr('GET', 'live_rooms/' + args.liveRoomId + '?env=working&include_qa_clips=true').data);
   const verifyClips = arr((arr(verifyRoom.topics)[0] || {}).clips);
-  const matched = verifyClips.find((clip) => String(clip.id) === String(created && created.id))
-    || verifyClips.find((clip) => clip.name === args.sceneName && Number(clip.order_num || 0) === args.sceneIndex)
-    || created;
+  if (!created || !created.id) throw new Error('created scene response did not include an authoritative clip id');
+  const matched = verifyClips.find((clip) => String(clip.id) === String(created.id));
+  if (!matched || !matched.id || matched.name !== args.sceneName || Number(matched.order_num || 0) !== args.sceneIndex) {
+    throw new Error('created scene authoritative readback mismatch');
+  }
   return JSON.stringify({
     status: 'created',
     live_room_id: args.liveRoomId,
-    clip_id: matched && matched.id,
-    name: matched && matched.name || args.sceneName,
-    order_num: matched && matched.order_num,
+    clip_id: matched.id,
+    name: matched.name,
+    order_num: matched.order_num,
     response: created,
+    verified: true,
+    verification_source: 'working_room_readback',
     go_live_clicked: false,
   });
 })()
@@ -987,14 +1000,48 @@ class BrowserUseCliSession:
     style_front: JSON.stringify(style),
   };
   const created = unwrap(xhr('POST', 'clip_materials', payload).data);
+  const verifyRoom = unwrap(xhr('GET', 'live_rooms/' + args.liveRoomId + '?env=working&include_qa_clips=true').data);
+  const verifyClips = ((verifyRoom.topics || [])[0] || {}).clips || [];
+  const verifyClip = verifyClips.find((item) => String(item.id) === String(args.clipId)) || {};
+  const verifiedMaterial = (verifyClip.clip_materials || []).find((item) => String(item.id) === String(created && created.id));
+  const verifiedStyle = verifiedMaterial && (typeof verifiedMaterial.style_front === 'string'
+    ? JSON.parse(verifiedMaterial.style_front || '{}') : (verifiedMaterial.style_front || {}));
+  if (!verifiedMaterial || !verifiedMaterial.id || verifiedMaterial.name !== payload.name
+      || verifiedMaterial.type !== materialType
+      || String(verifiedMaterial.material_id || '') !== String(materialId || '')
+      || String(verifiedMaterial.url || '') !== String(sourceUrl || '')
+      || String(verifiedMaterial.digital_human_image_id || '') !== String(digitalHumanImageId || '')
+      || String(verifiedMaterial.speaker_id || '') !== String(speakerId || '')
+      || Number(verifiedStyle.left) !== Number(style.left)
+      || Number(verifiedStyle.top) !== Number(style.top)
+      || Number(verifiedStyle.width) !== Number(style.width)
+      || Number(verifiedStyle.height) !== Number(style.height)
+      || Number(verifiedStyle.zIndex) !== Number(style.zIndex)) {
+    throw new Error('inserted material authoritative readback mismatch');
+  }
   return JSON.stringify({
     status: 'inserted',
     live_room_id: args.liveRoomId,
     clip_id: args.clipId,
     layer_id: op.layer_id || null,
+    layer_type: op.layer_type || null,
+    scene_index: op.scene_index,
+    scene_name: op.scene_name || null,
     asset_code: op.asset_code || null,
     material_id: created && created.id,
+    source_material_id: materialId,
+    source_material_type: materialType,
+    source_material_url: sourceUrl,
+    speaker_id: speakerId,
+    digital_human_image_id: digitalHumanImageId,
+    left: style.left,
+    top: style.top,
+    width: style.width,
+    height: style.height,
+    z_index: style.zIndex,
     response: created,
+    verified: true,
+    verification_source: 'working_room_readback',
     go_live_clicked: false,
   });
 })()
@@ -1027,12 +1074,18 @@ class BrowserUseCliSession:
   const clips = arr((arr(room.topics)[0] || {}).clips);
   const clip = clips.find((item) => String(item.id) === String(args.clipId)) || {};
   const materials = arr(clip.clip_materials);
-  const material = materials.find((item) => String(item.id) === String(op.material_id || op.maitu_material_id || ''))
-    || materials.find((item) => item.name === op.layer_id || item.name === op.layer_type)
-    || materials.find((item) => item.asset_code && item.asset_code === op.asset_code);
+  const material = materials.find((item) => String(item.id) === String(op.clip_material_id || ''));
   if (!material || !material.id) {
-    return JSON.stringify({status:'manual_required', reason:'target_material_not_found', layer_id:op.layer_id || null, asset_code:op.asset_code || null, go_live_clicked:false});
+    throw new Error('exact clip-material id not found before position mutation');
   }
+  const expectedType = op.source_material_type === 'decorative_video' ? 'video' : op.source_material_type;
+  const sourceMatches = material.type === expectedType
+    && (expectedType === 'digital_human'
+      ? String(material.speaker_id || '') === String(op.speaker_id || '')
+        && String(material.digital_human_image_id || '') === String(op.digital_human_image_id || '')
+      : String(material.material_id || '') === String(op.material_id || op.maitu_material_id || '')
+        && String(material.url || '') === String(op.source_material_url || ''));
+  if (!sourceMatches) throw new Error('exact clip-material source identity mismatch before position mutation');
   const style = {...(typeof material.style_front === 'string' ? JSON.parse(material.style_front || '{}') : (material.style_front || {}))};
   style.left = op.x || 0;
   style.top = op.y || 0;
@@ -1041,7 +1094,23 @@ class BrowserUseCliSession:
   style.zIndex = op.z_index || material.layer_n || 1;
   const payload = {...material, left: style.left, top: style.top, width: style.width, height: style.height, layer_n: style.zIndex, style_front: JSON.stringify(style)};
   const updated = unwrap(xhr('PUT', 'clip_materials/' + material.id, payload).data);
-  return JSON.stringify({status:'positioned', clip_id:args.clipId, material_id:material.id, layer_id:op.layer_id || null, response:updated, go_live_clicked:false});
+  const verifyRoom = unwrap(xhr('GET', 'live_rooms/' + args.liveRoomId + '?env=working&include_qa_clips=true').data);
+  const verifyClips = arr((arr(verifyRoom.topics)[0] || {}).clips);
+  const verifyClip = verifyClips.find((item) => String(item.id) === String(args.clipId)) || {};
+  const verifiedMaterial = arr(verifyClip.clip_materials).find((item) => String(item.id) === String(material.id));
+  const verifiedStyle = verifiedMaterial && (typeof verifiedMaterial.style_front === 'string' ? JSON.parse(verifiedMaterial.style_front || '{}') : (verifiedMaterial.style_front || {}));
+  const verifiedSourceMatches = verifiedMaterial && verifiedMaterial.type === expectedType
+    && (expectedType === 'digital_human'
+      ? String(verifiedMaterial.speaker_id || '') === String(op.speaker_id || '')
+        && String(verifiedMaterial.digital_human_image_id || '') === String(op.digital_human_image_id || '')
+      : String(verifiedMaterial.material_id || '') === String(op.material_id || op.maitu_material_id || '')
+        && String(verifiedMaterial.url || '') === String(op.source_material_url || ''));
+  if (!verifiedMaterial || !verifiedSourceMatches || Number(verifiedStyle.left) !== Number(style.left) || Number(verifiedStyle.top) !== Number(style.top)
+      || Number(verifiedStyle.width) !== Number(style.width) || Number(verifiedStyle.height) !== Number(style.height)
+      || Number(verifiedStyle.zIndex) !== Number(style.zIndex)) {
+    throw new Error('positioned material authoritative readback mismatch');
+  }
+  return JSON.stringify({status:'positioned', clip_id:args.clipId, scene_index:op.scene_index, scene_name:op.scene_name || null, material_id:material.id, layer_id:op.layer_id || null, layer_type:op.layer_type || null, asset_code:op.asset_code || null, source_material_id:material.material_id || null, source_material_type:material.type || null, source_material_url:material.url || null, speaker_id:material.speaker_id || null, digital_human_image_id:material.digital_human_image_id || null, left:style.left, top:style.top, width:style.width, height:style.height, z_index:style.zIndex, response:updated, verified:true, verification_source:'working_room_readback', go_live_clicked:false});
 })()
 """.strip().replace("__ARGS__", json.dumps(args, ensure_ascii=False))
         return self._eval_json(script)
@@ -1070,6 +1139,7 @@ class BrowserUseCliSession:
   const room = unwrap(xhr('GET', 'live_rooms/' + args.liveRoomId + '?env=working&include_qa_clips=true').data);
   const clips = arr((arr(room.topics)[0] || {}).clips);
   const clip = clips.find((item) => String(item.id) === String(args.clipId)) || {};
+  if (!clip.id || clip.name !== args.sceneName) throw new Error('script target clip identity mismatch before write');
   const existingTexts = arr(clip.clip_materials).filter((material) => material.type === 'text');
   let textMaterial = null;
   if (existingTexts.length > 0) {
@@ -1083,11 +1153,12 @@ class BrowserUseCliSession:
   }
   const verifyRoom = unwrap(xhr('GET', 'live_rooms/' + args.liveRoomId + '?env=working&include_qa_clips=true').data);
   const verifyClip = arr((arr(verifyRoom.topics)[0] || {}).clips).find((item) => String(item.id) === String(args.clipId)) || {};
+  if (!verifyClip.id || verifyClip.name !== args.sceneName) throw new Error('script target clip identity mismatch after write');
   const verifiedTexts = arr(verifyClip.clip_materials).filter((material) => material.type === 'text');
   if (verifiedTexts.length !== 1 || verifiedTexts[0].content !== args.scriptText) {
     throw new Error('script write readback was not unique and authoritative');
   }
-  return JSON.stringify({status:'written', live_room_id:args.liveRoomId, clip_id:args.clipId, scene_name:args.sceneName, text_material_id:(textMaterial && textMaterial.id) || verifiedTexts[0].id, script_length:(args.scriptText || '').length, script_content_verified:true, go_live_clicked:false});
+  return JSON.stringify({status:'written', live_room_id:args.liveRoomId, clip_id:args.clipId, scene_name:args.sceneName, text_material_id:(textMaterial && textMaterial.id) || verifiedTexts[0].id, script_length:(args.scriptText || '').length, script_content_verified:true, verified:true, verification_source:'working_room_readback', go_live_clicked:false});
 })()
 """.strip().replace("__ARGS__", json.dumps(args, ensure_ascii=False))
         return self._eval_json(script)
@@ -1115,11 +1186,46 @@ class BrowserUseCliSession:
   }
   const room = unwrap(xhr('GET', 'live_rooms/' + args.liveRoomId + '?env=working&include_qa_clips=true').data);
   const clips = arr((arr(room.topics)[0] || {}).clips);
-  const clip = clips.find((item) => String(item.id) === String(args.clipId)) || {};
+  const clip = clips.find((item) => String(item.id) === String(args.clipId));
+  if (!clip || String(clip.id) !== String(args.clipId) || clip.name !== args.sceneName) {
+    throw new Error('verify scene target clip identity mismatch');
+  }
   const materials = arr(clip.clip_materials);
   const texts = materials.filter((m) => m.type === 'text');
   const visuals = materials.filter((m) => m.type !== 'text' && m.type !== 'audio');
-  return JSON.stringify({status:'verified', live_room_id:args.liveRoomId, clip_id:args.clipId, scene_name:clip.name || args.sceneName, visual_count:visuals.length, text_count:texts.length, script_present:texts.length > 0, material_ids:materials.map((m) => m.id), go_live_clicked:false});
+  const op = args.operation || {};
+  const expectedLayers = arr(op.expected_layers);
+  const exactNumber = (actual, expected) => actual !== null && actual !== undefined && actual !== ''
+    && expected !== null && expected !== undefined && expected !== ''
+    && Number.isFinite(Number(actual)) && Number.isFinite(Number(expected))
+    && Number(actual) === Number(expected);
+  if (visuals.length !== Number(op.expected_visual_count) || expectedLayers.length !== visuals.length) {
+    throw new Error('verify scene visual count mismatch');
+  }
+  const verifiedLayers = expectedLayers.map((expected) => {
+    const matches = visuals.filter((material) => String(material.id) === String(expected.material_id || ''));
+    if (matches.length !== 1 || matches[0].name !== expected.layer_id) throw new Error('verify scene layer identity mismatch');
+    const material = matches[0];
+    const style = typeof material.style_front === 'string' ? JSON.parse(material.style_front || '{}') : (material.style_front || {});
+    const sourceMatches = material.type === expected.source_material_type
+      && (expected.source_material_type === 'digital_human'
+        ? String(material.speaker_id || '') === String(expected.speaker_id || '')
+          && String(material.digital_human_image_id || '') === String(expected.digital_human_image_id || '')
+        : String(material.material_id || '') === String(expected.source_material_id || '')
+          && String(material.url || '') === String(expected.source_material_url || ''));
+    if (!sourceMatches
+        || !exactNumber(style.left, expected.left) || !exactNumber(style.top, expected.top)
+        || !exactNumber(style.width, expected.width) || !exactNumber(style.height, expected.height)
+        || !exactNumber(style.zIndex, expected.z_index)) {
+      throw new Error('verify scene layer source or geometry mismatch');
+    }
+    return {...expected, material_id:material.id};
+  });
+  if (texts.length !== Number(op.expected_text_count)
+      || texts.length !== 1 || texts[0].content !== op.expected_script_text) {
+    throw new Error('verify scene script mismatch');
+  }
+  return JSON.stringify({status:'verified', live_room_id:args.liveRoomId, clip_id:args.clipId, scene_index:op.scene_index, scene_name:clip.name, expected_visual_count:visuals.length, expected_text_count:texts.length, expected_script_sha256:op.expected_script_sha256, verified_layers:verifiedLayers, text_material_id:texts[0].id, verified_script_text:texts[0].content, material_ids:materials.map((m) => m.id), verified:true, verification_source:'working_room_readback', go_live_clicked:false});
 })()
 """.strip().replace("__ARGS__", json.dumps(args, ensure_ascii=False))
         return self._eval_json(script)
@@ -1615,3 +1721,47 @@ _TRUSTED_BROWSER_USE_CLI_SESSION_METHODS = tuple(
     if callable(descriptor) or type(descriptor) in {staticmethod, classmethod, property}
 )
 _TRUSTED_BROWSER_USE_CLI_SESSION_RUN_COMMAND = vars(BrowserUseCliSession)["_run_command"]
+
+
+def is_trusted_browser_use_cli_session(session: Any) -> bool:
+    """Fail closed unless a real execution uses the sealed built-in session and transport."""
+
+    if type(session) is not BrowserUseCliSession:
+        return False
+    config = session.config
+    if type(config) is not BrowserUseCliSessionConfig:
+        return False
+    if (
+        not str(config.session_name or "").strip()
+        or not str(config.cdp_url or "").strip()
+        or getattr(session, "_allow_disabled_transport", None) is not False
+        or getattr(session, "_transport_identity", None) != (config.session_name, config.cdp_url)
+    ):
+        return False
+    for method_name, expected_descriptor in _TRUSTED_BROWSER_USE_CLI_SESSION_METHODS:
+        candidate = getattr(session, method_name, None)
+        if isinstance(expected_descriptor, staticmethod):
+            if candidate is not expected_descriptor.__func__:
+                return False
+        elif isinstance(expected_descriptor, classmethod):
+            if not (
+                type(candidate) is MethodType
+                and candidate.__self__ is type(session)
+                and candidate.__func__ is expected_descriptor.__func__
+            ):
+                return False
+        elif isinstance(expected_descriptor, property):
+            if vars(type(session)).get(method_name) is not expected_descriptor:
+                return False
+        elif not (
+            type(candidate) is MethodType
+            and candidate.__self__ is session
+            and candidate.__func__ is expected_descriptor
+        ):
+            return False
+    runner = getattr(session, "_runner", None)
+    return bool(
+        type(runner) is MethodType
+        and runner.__self__ is session
+        and runner.__func__ is _TRUSTED_BROWSER_USE_CLI_SESSION_RUN_COMMAND
+    )

@@ -59,3 +59,18 @@ def contains_durable_secret(candidate: Any, *, forbidden_values: Iterable[str] =
         )
 
     return contains(candidate)
+
+
+def contains_forbidden_value(candidate: Any, *, forbidden_values: Iterable[str]) -> bool:
+    """Detect configured credentials without treating public UUID identities as secrets."""
+
+    forbidden = tuple(value for value in forbidden_values if value)
+
+    def contains(value: Any) -> bool:
+        if isinstance(value, dict):
+            return any(contains(key) or contains(item) for key, item in value.items())
+        if isinstance(value, (list, tuple)):
+            return any(contains(item) for item in value)
+        return isinstance(value, str) and any(secret in value for secret in forbidden)
+
+    return contains(candidate)

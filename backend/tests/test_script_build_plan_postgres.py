@@ -8,7 +8,7 @@ import psycopg
 import pytest
 from psycopg.types.json import Jsonb
 
-from app.repositories.maitu import MaituMaterialSlotRepository
+from app.repositories.maitu import BuildPlanCheckpointConflictError, MaituMaterialSlotRepository
 from app.schemas.maitu import (
     MaituLiveRoomBuildPlanExecutionResultCreate,
     MaituLiveRoomBuildPlanOperationPlanResponse,
@@ -225,17 +225,12 @@ def test_postgres_persists_script_layout_plan_and_round_trips_worker_fields() ->
                     ],
                 }
             ).model_dump(exclude_none=True)
-            execution = repository.create_live_room_build_plan_execution_result(code, execution_payload)
-            assert execution is not None
-            assert execution["blueprint_code"] is None
-            assert execution["ready_for_go_live"] is False
-            assert execution["manual_review_required"] is True
-            assert execution["operation_results"][0]["scene_index"] == 0
-            assert execution["operation_results"][0]["clip_id"] == 470001
-            assert execution["operation_results"][0]["layer_id"] == "scene-00-product_image"
+            with pytest.raises(BuildPlanCheckpointConflictError, match="fenced checkpoint"):
+                repository.create_live_room_build_plan_execution_result(code, execution_payload)
             persisted_plan = repository.get_live_room_build_plan_by_code(code)
             assert persisted_plan is not None
-            assert persisted_plan["status"] == "execution_manual_review"
+            assert persisted_plan["status"] == "ready"
+            assert repository.list_live_room_build_plan_execution_results(code) == []
         finally:
             with connection.cursor() as cursor:
                 cursor.execute(

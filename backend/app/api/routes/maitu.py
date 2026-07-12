@@ -1,14 +1,18 @@
-import hmac
-from typing import Annotated, Callable
+from typing import Annotated, Any, Callable
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from psycopg import Connection
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.secret_hygiene import contains_durable_secret
+from app.api.auth import (
+    reject_maitu_durable_secret,
+    require_maitu_reconciliation_operator,
+    require_maitu_script_layout_worker,
+)
 from app.repositories.maitu import (
+    BuildPlanCheckpointConflictError,
     MaituMaterialSlotRepository,
     RetryCheckpointConflictError,
     RetryExecutionConflictError,
@@ -16,6 +20,13 @@ from app.repositories.maitu import (
 )
 from app.services.asset_candidates import AssetCandidate, AssetRetrievalIndex
 from app.services.livestream_script_writer import LivestreamScriptWriter
+from app.services.maitu_authority import (
+    MaituAuthorityConfigurationError,
+    MaituAuthorityError,
+    MaituAuthorityUpstreamError,
+    MaituAuthorityVerifier,
+    get_maitu_authority_verifier,
+)
 from app.services.qwen3_client import Qwen3Client, Qwen3ClientError
 from app.services.script_driven_build_pipeline import ScriptDrivenBuildPipeline
 from app.services.script_asset_gap_reporter import ScriptAssetGapReporter
@@ -35,12 +46,22 @@ from app.schemas.maitu import (
     MaituLiveRoomBuildPlanCreate,
     MaituLiveRoomBuildPlanExecutionResultCreate,
     MaituLiveRoomBuildPlanExecutionResultRead,
+    MaituLiveRoomBuildPlanOperationResultRead,
     MaituLiveRoomBuildPlanOperationPlanResponse,
     MaituLiveRoomBuildPlanRead,
     MaituLiveRoomComponentSearchResultRead,
     MaituLiveRoomSceneBuildPlanCreate,
     MaituScriptLayoutBuildPlanCreate,
     MaituScriptLayoutBuildPlanRead,
+    MaituScriptLayoutExecutionCheckpointBeginCreate,
+    MaituScriptLayoutExecutionCheckpointCompleteCreate,
+    MaituScriptLayoutExecutionCheckpointDispatchCreate,
+    MaituScriptLayoutExecutionCheckpointInvalidateCreate,
+    MaituScriptLayoutExecutionCheckpointReconcileCreate,
+    MaituScriptLayoutExecutionFinalizeCreate,
+    MaituScriptLayoutExecutionLeaseRead,
+    MaituScriptLayoutExecutionRenewCreate,
+    MaituScriptLayoutExecutionStartCreate,
     MaituScriptLayoutPlanCreate,
     MaituScriptLayoutPlanRead,
     MaituJdLiveMetricSampleCreate,
@@ -94,54 +115,132 @@ router = APIRouter(prefix="/maitu", tags=["maitu"])
 _RETRY_LEASE_CONFLICT_DETAIL = "Retry lease conflict"
 _RETRY_CHECKPOINT_CONFLICT_DETAIL = "Retry checkpoint conflict"
 _RETRY_EXECUTION_CONFLICT_DETAIL = "Retry idempotency conflict"
+_BUILD_PLAN_CHECKPOINT_CONFLICT_DETAIL = "BuildPlan checkpoint conflict"
 
 
 def get_maitu_slot_repository(connection: Annotated[Connection, Depends(get_db)]) -> MaituMaterialSlotRepository:
     return MaituMaterialSlotRepository(connection)
 
 
-def require_maitu_reconciliation_operator(
-    authorization: Annotated[str | None, Header()] = None,
-) -> str:
-    configured = settings.maitu_reconciliation_operator_token
-    if configured is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Maitu reconciliation operator authentication is not configured",
-        )
-    scheme, separator, supplied = (authorization or "").partition(" ")
-    if separator != " " or scheme.lower() != "bearer" or not supplied:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Operator authentication required")
-    if not hmac.compare_digest(supplied, configured.get_secret_value()):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Operator authentication failed")
-    operator_id = settings.maitu_reconciliation_operator_id.strip()
-    if not operator_id:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Maitu reconciliation operator identity is not configured",
-        )
-    return operator_id
+_PROTOCOL_ID_FIELDS = {
+    "start_request_id",
+    "run_attempt_id",
+    "lease_token",
+    "attempt_id",
+    "expected_attempt_id",
+    "execution_attempt_id",
+    "claim_token",
+    "completion_id",
+    "reconciliation_id",
+    "reconciled_attempt_id",
+    "finalization_id",
+    # Public content hashes, not bearer capabilities. Configured credentials
+    # are still compared against the complete payload before these exclusions.
+    "source_plan_fingerprint",
+    "operation_fingerprint",
+    "inventory_snapshot_sha256",
+    "source_material_url",
+    "source_cover_url",
+}
 
 
-def reject_reconciliation_operator_secret(payload: MaituRetryOperationReconciliationCreate) -> None:
-    configured = settings.maitu_reconciliation_operator_token
-    if configured is None:  # pragma: no cover - authentication dependency rejects this first
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Maitu reconciliation operator authentication is not configured",
-        )
-    operator_secret = configured.get_secret_value()
-    if contains_durable_secret(
-        {
-            "resolution_summary": payload.resolution_summary,
-            "evidence": payload.evidence,
-        },
-        forbidden_values=(operator_secret,),
+def reject_reconciliation_operator_secret(payload: Any) -> None:
+    reject_maitu_durable_secret(payload, protocol_fields=_PROTOCOL_ID_FIELDS)
+
+
+def reject_script_layout_worker_secret(payload: Any) -> None:
+    reject_maitu_durable_secret(payload, protocol_fields=_PROTOCOL_ID_FIELDS)
+
+
+def _checkpoint_for_backend_authority(
+    repository: MaituMaterialSlotRepository,
+    build_plan_code: str,
+    execution_code: str,
+    operation_index: int,
+    payload: dict[str, Any],
+    *,
+    require_worker_fence: bool,
+) -> dict[str, Any]:
+    execution = repository.get_live_room_build_plan_execution_result_by_code(build_plan_code, execution_code)
+    if execution is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Script-layout execution not found")
+    checkpoints = execution.get("operation_results")
+    checkpoint = next(
+        (
+            item
+            for item in checkpoints or []
+            if isinstance(item, dict) and item.get("operation_index") == operation_index
+        ),
+        None,
+    )
+    if not isinstance(checkpoint, dict) or checkpoint.get("operation_fingerprint") != payload.get(
+        "operation_fingerprint"
     ):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Reconciliation durable fields must not contain operator credentials",
-        )
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_BUILD_PLAN_CHECKPOINT_CONFLICT_DETAIL)
+    if require_worker_fence:
+        expected = {
+            "lease_token": str(execution.get("lease_token")),
+            "lease_version": execution.get("lease_version"),
+            "lease_owner": execution.get("lease_owner"),
+            "attempt_id": str(execution.get("run_attempt_id")),
+        }
+        if any(str(payload.get(key)) != str(value) for key, value in expected.items()):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_BUILD_PLAN_CHECKPOINT_CONFLICT_DETAIL)
+    return checkpoint
+
+
+def _public_execution_result(row: dict[str, Any]) -> dict[str, Any]:
+    public = dict(row)
+    if row.get("checkpoint_contract") != "script_layout_checkpoint_v1":
+        for key in (
+            "start_request_id",
+            "run_attempt_id",
+            "lease_owner",
+            "lease_token",
+            "lease_version",
+            "lease_acquired_at",
+            "lease_expires_at",
+            "lease_reconcile_not_before",
+        ):
+            public.pop(key, None)
+        return public
+    for key in (
+        "execution_attempt_id",
+        "start_request_id",
+        "run_attempt_id",
+        "lease_owner",
+        "lease_token",
+        "plan_fingerprint",
+        "manifest_fingerprint",
+        "checkpoint_contract",
+        "lease_version",
+        "lease_acquired_at",
+        "lease_expires_at",
+        "lease_reconcile_not_before",
+        "finalization_id",
+        "finalization_fingerprint",
+        "details",
+    ):
+        public.pop(key, None)
+    public_operations: list[dict[str, Any]] = []
+    for raw_operation in row.get("operation_results") or []:
+        operation = dict(raw_operation)
+        for key in (
+            "id",
+            "operation_fingerprint",
+            "intent_snapshot",
+            "attempt_id",
+            "completion_id",
+            "completion_evidence",
+            "reconciled_attempt_id",
+            "reconciliation_resolution",
+            "reconciliation_evidence",
+            "details",
+        ):
+            operation.pop(key, None)
+        public_operations.append(operation)
+    public["operation_results"] = public_operations
+    return public
 
 
 def get_slot_asset_retrieval_index_factory() -> Callable[[], AssetRetrievalIndex]:
@@ -519,6 +618,10 @@ def get_live_room_build_plan(
 @router.get(
     "/live-room-build-plans/{build_plan_code}/browser-use-operations",
     response_model=MaituLiveRoomBuildPlanOperationPlanResponse,
+    # The response is fed back verbatim as the fenced start manifest. Do not
+    # inject Pydantic defaults that were absent from the persisted BuildPlan,
+    # otherwise strict intent freezing correctly treats them as drift.
+    response_model_exclude_unset=True,
 )
 def get_live_room_build_plan_browser_use_operations(
     build_plan_code: str,
@@ -540,15 +643,285 @@ def create_live_room_build_plan_execution_result(
     payload: MaituLiveRoomBuildPlanExecutionResultCreate,
     repository: Annotated[MaituMaterialSlotRepository, Depends(get_maitu_slot_repository)],
 ) -> dict:
-    row = repository.create_live_room_build_plan_execution_result(build_plan_code, payload.model_dump(exclude_none=True))
+    try:
+        row = repository.create_live_room_build_plan_execution_result(
+            build_plan_code, payload.model_dump(exclude_none=True)
+        )
+    except BuildPlanCheckpointConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_BUILD_PLAN_CHECKPOINT_CONFLICT_DETAIL) from exc
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Maitu live-room build plan not found")
     return row
 
 
+@router.post(
+    "/live-room-build-plans/{build_plan_code}/script-layout-executions/start",
+    response_model=MaituScriptLayoutExecutionLeaseRead,
+)
+def start_script_layout_execution(
+    build_plan_code: str,
+    payload: MaituScriptLayoutExecutionStartCreate,
+    repository: Annotated[MaituMaterialSlotRepository, Depends(get_maitu_slot_repository)],
+    worker_id: Annotated[str, Depends(require_maitu_script_layout_worker)],
+) -> dict:
+    reject_script_layout_worker_secret(payload)
+    durable_payload = payload.model_dump(mode="json")
+    durable_payload["lease_owner"] = worker_id
+    try:
+        row = repository.start_script_layout_execution(build_plan_code, durable_payload)
+    except BuildPlanCheckpointConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_BUILD_PLAN_CHECKPOINT_CONFLICT_DETAIL) from exc
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Maitu live-room build plan not found")
+    return row
+
+
+@router.post(
+    "/live-room-build-plans/{build_plan_code}/script-layout-executions/{execution_code}/renew",
+    response_model=MaituScriptLayoutExecutionLeaseRead,
+)
+def renew_script_layout_execution(
+    build_plan_code: str,
+    execution_code: str,
+    payload: MaituScriptLayoutExecutionRenewCreate,
+    repository: Annotated[MaituMaterialSlotRepository, Depends(get_maitu_slot_repository)],
+    worker_id: Annotated[str, Depends(require_maitu_script_layout_worker)],
+) -> dict:
+    reject_script_layout_worker_secret(payload)
+    durable_payload = payload.model_dump(mode="json")
+    durable_payload["lease_owner"] = worker_id
+    try:
+        row = repository.renew_script_layout_execution(build_plan_code, execution_code, durable_payload)
+    except BuildPlanCheckpointConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_BUILD_PLAN_CHECKPOINT_CONFLICT_DETAIL) from exc
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Script-layout execution not found")
+    return row
+
+
+@router.post(
+    "/live-room-build-plans/{build_plan_code}/script-layout-executions/{execution_code}/operations/{operation_index}/begin",
+    response_model=MaituLiveRoomBuildPlanOperationResultRead,
+)
+def begin_script_layout_execution_operation(
+    build_plan_code: str,
+    execution_code: str,
+    operation_index: int,
+    payload: MaituScriptLayoutExecutionCheckpointBeginCreate,
+    repository: Annotated[MaituMaterialSlotRepository, Depends(get_maitu_slot_repository)],
+    worker_id: Annotated[str, Depends(require_maitu_script_layout_worker)],
+) -> dict:
+    reject_script_layout_worker_secret(payload)
+    durable_payload = payload.model_dump(mode="json")
+    durable_payload["lease_owner"] = worker_id
+    try:
+        row = repository.begin_script_layout_execution_operation(
+            build_plan_code,
+            execution_code,
+            operation_index,
+            durable_payload,
+        )
+    except BuildPlanCheckpointConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_BUILD_PLAN_CHECKPOINT_CONFLICT_DETAIL) from exc
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Script-layout execution not found")
+    return row
+
+
+@router.post(
+    "/live-room-build-plans/{build_plan_code}/script-layout-executions/{execution_code}/operations/{operation_index}/dispatch",
+    response_model=MaituLiveRoomBuildPlanOperationResultRead,
+)
+def dispatch_script_layout_execution_operation(
+    build_plan_code: str,
+    execution_code: str,
+    operation_index: int,
+    payload: MaituScriptLayoutExecutionCheckpointDispatchCreate,
+    repository: Annotated[MaituMaterialSlotRepository, Depends(get_maitu_slot_repository)],
+    worker_id: Annotated[str, Depends(require_maitu_script_layout_worker)],
+) -> dict:
+    reject_script_layout_worker_secret(payload)
+    durable_payload = payload.model_dump(mode="json")
+    durable_payload["lease_owner"] = worker_id
+    try:
+        row = repository.dispatch_script_layout_execution_operation(
+            build_plan_code,
+            execution_code,
+            operation_index,
+            durable_payload,
+        )
+    except BuildPlanCheckpointConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_BUILD_PLAN_CHECKPOINT_CONFLICT_DETAIL) from exc
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Script-layout execution not found")
+    return row
+
+
+@router.post(
+    "/live-room-build-plans/{build_plan_code}/script-layout-executions/{execution_code}/operations/{operation_index}/invalidate",
+    response_model=MaituLiveRoomBuildPlanOperationResultRead,
+)
+def invalidate_script_layout_execution_operation(
+    build_plan_code: str,
+    execution_code: str,
+    operation_index: int,
+    payload: MaituScriptLayoutExecutionCheckpointInvalidateCreate,
+    repository: Annotated[MaituMaterialSlotRepository, Depends(get_maitu_slot_repository)],
+    worker_id: Annotated[str, Depends(require_maitu_script_layout_worker)],
+) -> dict:
+    reject_script_layout_worker_secret(payload)
+    durable_payload = payload.model_dump(mode="json")
+    durable_payload["lease_owner"] = worker_id
+    try:
+        row = repository.invalidate_script_layout_execution_operation(
+            build_plan_code,
+            execution_code,
+            operation_index,
+            durable_payload,
+        )
+    except BuildPlanCheckpointConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_BUILD_PLAN_CHECKPOINT_CONFLICT_DETAIL) from exc
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Script-layout execution not found")
+    return row
+
+
+@router.post(
+    "/live-room-build-plans/{build_plan_code}/script-layout-executions/{execution_code}/operations/{operation_index}/complete",
+    response_model=MaituLiveRoomBuildPlanOperationResultRead,
+)
+def complete_script_layout_execution_operation(
+    build_plan_code: str,
+    execution_code: str,
+    operation_index: int,
+    payload: MaituScriptLayoutExecutionCheckpointCompleteCreate,
+    repository: Annotated[MaituMaterialSlotRepository, Depends(get_maitu_slot_repository)],
+    worker_id: Annotated[str, Depends(require_maitu_script_layout_worker)],
+    authority: Annotated[MaituAuthorityVerifier, Depends(get_maitu_authority_verifier)],
+) -> dict:
+    reject_script_layout_worker_secret(payload)
+    durable_payload = payload.model_dump(mode="json", exclude_none=True)
+    durable_payload["lease_owner"] = worker_id
+    checkpoint = _checkpoint_for_backend_authority(
+        repository,
+        build_plan_code,
+        execution_code,
+        operation_index,
+        durable_payload,
+        require_worker_fence=True,
+    )
+    try:
+        durable_payload = authority.attest_completion(
+            build_plan_code=build_plan_code,
+            execution_code=execution_code,
+            operation_index=operation_index,
+            checkpoint=checkpoint,
+            payload=durable_payload,
+        )
+    except MaituAuthorityError as exc:
+        status_code = (
+            status.HTTP_503_SERVICE_UNAVAILABLE
+            if isinstance(exc, (MaituAuthorityConfigurationError, MaituAuthorityUpstreamError))
+            else status.HTTP_409_CONFLICT
+        )
+        raise HTTPException(status_code=status_code, detail="Backend Maitu checkpoint verification failed") from exc
+    try:
+        row = repository.complete_script_layout_execution_operation(
+            build_plan_code,
+            execution_code,
+            operation_index,
+            durable_payload,
+        )
+    except BuildPlanCheckpointConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_BUILD_PLAN_CHECKPOINT_CONFLICT_DETAIL) from exc
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Script-layout execution not found")
+    return row
+
+
+@router.post(
+    "/live-room-build-plans/{build_plan_code}/script-layout-executions/{execution_code}/operations/{operation_index}/reconcile",
+    response_model=MaituLiveRoomBuildPlanOperationResultRead,
+)
+def reconcile_script_layout_execution_operation(
+    build_plan_code: str,
+    execution_code: str,
+    operation_index: int,
+    payload: MaituScriptLayoutExecutionCheckpointReconcileCreate,
+    repository: Annotated[MaituMaterialSlotRepository, Depends(get_maitu_slot_repository)],
+    reconciled_by: Annotated[str, Depends(require_maitu_reconciliation_operator)],
+    authority: Annotated[MaituAuthorityVerifier, Depends(get_maitu_authority_verifier)],
+) -> dict:
+    reject_reconciliation_operator_secret(payload)
+    durable_payload = payload.model_dump(mode="json")
+    durable_payload["reconciled_by"] = reconciled_by
+    checkpoint = _checkpoint_for_backend_authority(
+        repository,
+        build_plan_code,
+        execution_code,
+        operation_index,
+        durable_payload,
+        require_worker_fence=False,
+    )
+    try:
+        durable_payload = authority.attest_reconciliation(
+            build_plan_code=build_plan_code,
+            execution_code=execution_code,
+            operation_index=operation_index,
+            checkpoint=checkpoint,
+            payload=durable_payload,
+        )
+    except MaituAuthorityError as exc:
+        status_code = (
+            status.HTTP_503_SERVICE_UNAVAILABLE
+            if isinstance(exc, (MaituAuthorityConfigurationError, MaituAuthorityUpstreamError))
+            else status.HTTP_409_CONFLICT
+        )
+        raise HTTPException(status_code=status_code, detail="Backend Maitu reconciliation verification failed") from exc
+    try:
+        row = repository.reconcile_script_layout_execution_operation(
+            build_plan_code,
+            execution_code,
+            operation_index,
+            durable_payload,
+        )
+    except BuildPlanCheckpointConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_BUILD_PLAN_CHECKPOINT_CONFLICT_DETAIL) from exc
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Script-layout execution not found")
+    return row
+
+
+@router.post(
+    "/live-room-build-plans/{build_plan_code}/script-layout-executions/{execution_code}/finalize",
+    response_model=MaituLiveRoomBuildPlanExecutionResultRead,
+)
+def finalize_script_layout_execution(
+    build_plan_code: str,
+    execution_code: str,
+    payload: MaituScriptLayoutExecutionFinalizeCreate,
+    repository: Annotated[MaituMaterialSlotRepository, Depends(get_maitu_slot_repository)],
+    worker_id: Annotated[str, Depends(require_maitu_script_layout_worker)],
+) -> dict:
+    reject_script_layout_worker_secret(payload)
+    durable_payload = payload.model_dump(mode="json", exclude_none=True)
+    durable_payload["lease_owner"] = worker_id
+    try:
+        row = repository.finalize_script_layout_execution(
+            build_plan_code,
+            execution_code,
+            durable_payload,
+        )
+    except BuildPlanCheckpointConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_BUILD_PLAN_CHECKPOINT_CONFLICT_DETAIL) from exc
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Script-layout execution not found")
+    return row
+
+
 @router.get(
     "/live-room-build-plans/{build_plan_code}/execution-results",
-    response_model=list[MaituLiveRoomBuildPlanExecutionResultRead],
+    response_model=list[dict[str, Any]],
 )
 def list_live_room_build_plan_execution_results(
     build_plan_code: str,
@@ -569,12 +942,12 @@ def list_live_room_build_plan_execution_results(
     )
     if rows is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Maitu live-room build plan not found")
-    return rows
+    return [_public_execution_result(row) for row in rows]
 
 
 @router.get(
     "/live-room-build-plans/{build_plan_code}/execution-results/{execution_code}",
-    response_model=MaituLiveRoomBuildPlanExecutionResultRead,
+    response_model=dict[str, Any],
 )
 def get_live_room_build_plan_execution_result(
     build_plan_code: str,
@@ -584,7 +957,7 @@ def get_live_room_build_plan_execution_result(
     row = repository.get_live_room_build_plan_execution_result_by_code(build_plan_code, execution_code)
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Maitu live-room build execution result not found")
-    return row
+    return _public_execution_result(row)
 
 
 @router.post("/jd-live-metric-sessions", response_model=MaituJdLiveMetricSessionRead, status_code=status.HTTP_201_CREATED)

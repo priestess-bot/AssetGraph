@@ -3,16 +3,29 @@ from typing import Annotated
 import hashlib
 import shutil
 import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from psycopg import Connection
 
 from app.core.config import settings
+from app.api.auth import reject_maitu_durable_secret, require_maitu_script_layout_worker
 from app.core.database import get_db
-from app.repositories.assets import AssetBindingLeaseConflictError, AssetRepository
+from app.repositories.assets import (
+    AssetBindingLeaseConflictError,
+    AssetBindingReceiptReplayError,
+    AssetRepository,
+)
 from app.schemas.assets import AssetCreate, AssetFileRead, AssetMaituMaterialBindingUpdate, AssetRead
 from app.services.asset_candidates import AssetRetrievalIndex
+from app.services.maitu_authority import (
+    MaituAuthorityConfigurationError,
+    MaituAuthorityError,
+    MaituAuthorityUpstreamError,
+    MaituAuthorityVerifier,
+    get_maitu_authority_verifier,
+)
 from app.services.object_storage import MinioObjectStorage, ObjectStorage, build_asset_object_key, content_type_for_path
 from app.services.qwen3_client import Qwen3Client, Qwen3ClientError
 
@@ -200,9 +213,49 @@ def update_asset_maitu_material_binding(
     asset_code: str,
     payload: AssetMaituMaterialBindingUpdate,
     repository: Annotated[AssetRepository, Depends(get_asset_repository)],
+    _worker_id: Annotated[str, Depends(require_maitu_script_layout_worker)],
+    authority: Annotated[MaituAuthorityVerifier, Depends(get_maitu_authority_verifier)],
 ) -> dict:
+    binding = payload.model_dump(mode="json")
+    reject_maitu_durable_secret(
+        binding,
+        protocol_fields=("source_material_url", "source_cover_url"),
+    )
     try:
-        row = repository.update_maitu_material_binding(asset_code, payload.model_dump(exclude_unset=True))
+        attested_binding = authority.attest_binding(asset_code, binding)
+    except MaituAuthorityError as exc:
+        status_code = (
+            status.HTTP_503_SERVICE_UNAVAILABLE
+            if isinstance(exc, (MaituAuthorityConfigurationError, MaituAuthorityUpstreamError))
+            else status.HTTP_422_UNPROCESSABLE_CONTENT
+        )
+        raise HTTPException(status_code=status_code, detail="Backend Maitu inventory verification failed") from exc
+    durable_payload = {
+        **{
+            field_name: attested_binding[field_name]
+            for field_name in (
+                "maitu_material_id",
+                "source_material_type",
+                "source_material_url",
+                "source_cover_url",
+                "speaker_id",
+                "digital_human_image_id",
+            )
+        },
+        "maitu_binding_verification_source": "backend_maitu_inventory_readback",
+        "maitu_binding_verified_at": datetime.now(UTC),
+        "maitu_binding_scope": "assetgraph_script_layout_material_binding_v2",
+        "maitu_binding_inventory_fingerprint": attested_binding["inventory_snapshot_sha256"],
+        "maitu_binding_readback_nonce": attested_binding["readback_nonce"],
+        "maitu_binding_attestation": attested_binding["readback_attestation"],
+    }
+    try:
+        row = repository.update_maitu_material_binding(asset_code, durable_payload)
+    except AssetBindingReceiptReplayError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Maitu material binding readback receipt was already consumed",
+        ) from exc
     except AssetBindingLeaseConflictError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

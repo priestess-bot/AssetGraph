@@ -147,7 +147,7 @@ def test_material_binding_update_locks_pending_retry_tasks_before_asset_mutation
         "source_material_type": "image",
     }
     connection = FakeConnection(
-        fetchone_results=[updated],
+        fetchone_results=[{"maitu_binding_readback_nonce": None}, updated],
         fetchall_results=[[{"retry_task_code": "MT-RETRY-1", "status": "pending", "lease_active": False}]],
     )
 
@@ -174,7 +174,9 @@ def test_material_binding_update_clears_previous_verification_metadata() -> None
         "maitu_binding_verified_at": None,
         "maitu_binding_scope": None,
     }
-    connection = FakeConnection(fetchone_results=[updated], fetchall_results=[[]])
+    connection = FakeConnection(
+        fetchone_results=[{"maitu_binding_readback_nonce": None}, updated], fetchall_results=[[]]
+    )
     repository = AssetRepository(connection)  # type: ignore[arg-type]
 
     row = repository.update_maitu_material_binding(
@@ -187,8 +189,11 @@ def test_material_binding_update_clears_previous_verification_metadata() -> None
 
     assert row == updated
     assert connection.commit_count == 1
-    update_sql, values = connection.executed[1]
+    update_sql, values = connection.executed[2]
     assert "maitu_binding_verification_source = %s" in update_sql
     assert "maitu_binding_verified_at = %s" in update_sql
     assert "maitu_binding_scope = %s" in update_sql
-    assert values[-4:-1] == (None, None, None)
+    assert "maitu_binding_inventory_fingerprint = %s" in update_sql
+    assert "maitu_binding_readback_nonce = %s" in update_sql
+    assert "maitu_binding_attestation = %s" in update_sql
+    assert values[-7:-1] == (None, None, None, None, None, None)

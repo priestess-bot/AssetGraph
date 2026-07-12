@@ -282,65 +282,61 @@ class MaituMaterialResolver:
                 issues=issues,
             )
 
-        for asset_code, layer_type, asset, local_path in upload_intents:
-            try:
-                uploaded = self.session.upload_maitu_material(asset=asset, local_path=local_path, layer_type=layer_type)
-            except Exception as exc:  # pragma: no cover - runtime boundary
-                issues.append(self._issue(asset_code, "maitu_material_upload_failed", f"Maitu material upload failed safely: {exc}"))
-                break
-            if not isinstance(uploaded, dict):
-                issues.append(
-                    self._issue(
-                        asset_code,
-                        "invalid_maitu_material_binding",
-                        "Maitu upload returned an invalid material record.",
-                    )
+        if upload_intents:
+            issues.extend(
+                self._issue(
+                    asset_code,
+                    "fenced_material_preparation_required",
+                    (
+                        "No existing Maitu material matched. Automatic upload is disabled until "
+                        "material preparation is covered by a durable dispatched checkpoint."
+                    ),
                 )
-                break
-            binding = self._binding_from_material(uploaded)
-            if not self._has_executable_binding(binding, layer_type=layer_type, asset=asset):
-                issues.append(
-                    self._issue(
-                        asset_code,
-                        "invalid_maitu_material_binding",
-                        "Uploaded Maitu material is incomplete or incompatible with the planned layer type.",
-                    )
-                )
-                break
-            resolutions[asset_code] = (binding, "uploaded_to_maitu")
-            uploaded_count += 1
-
-        if issues:
+                for asset_code, _layer_type, _asset, _local_path in upload_intents
+            )
             self._mark_issues_manual(operations, issues)
             return self._result(
                 resolved_plan,
                 reused_binding_count=reused_binding_count,
                 remote_match_count=remote_match_count,
-                uploaded_count=uploaded_count,
+                uploaded_count=0,
                 issues=issues,
             )
 
         for asset_code, layer_type in targets:
             binding, resolution_status = resolutions[asset_code]
-            if resolution_status != "reused_assetgraph_binding":
-                try:
-                    persisted = self.asset_client.update_asset_maitu_material_binding(asset_code, binding)
-                except Exception as exc:  # pragma: no cover - runtime boundary
-                    issues.append(self._issue(asset_code, "binding_writeback_failed", f"AssetGraph binding write-back failed safely: {exc}"))
-                    break
-                if (
-                    not isinstance(persisted, dict)
-                    or str(persisted.get("asset_code") or "").strip() != asset_code
-                    or not self._persisted_binding_matches(binding, persisted)
-                ):
-                    issues.append(
-                        self._issue(
-                            asset_code,
-                            "binding_writeback_verification_failed",
-                            "AssetGraph binding write-back response did not preserve the verified Maitu binding.",
-                        )
+            try:
+                persisted = self.asset_client.update_asset_maitu_material_binding(asset_code, binding)
+            except Exception as exc:  # pragma: no cover - runtime boundary
+                issues.append(self._issue(asset_code, "binding_writeback_failed", f"AssetGraph binding write-back failed safely: {exc}"))
+                break
+            persisted_binding = self._binding_from_asset(persisted) if isinstance(persisted, dict) else {}
+            critical_fields = (
+                "maitu_material_id",
+                "source_material_type",
+                "source_material_url",
+                "speaker_id",
+                "digital_human_image_id",
+            )
+            if (
+                not isinstance(persisted, dict)
+                or str(persisted.get("asset_code") or "").strip() != asset_code
+                or persisted.get("maitu_binding_verification_source") != "backend_maitu_inventory_readback"
+                or persisted.get("maitu_binding_scope") != "assetgraph_script_layout_material_binding_v2"
+                or not persisted.get("maitu_binding_verified_at")
+                or any(persisted_binding.get(field) != binding.get(field) for field in critical_fields)
+                or not self._has_executable_binding(persisted_binding, layer_type=layer_type, asset=persisted)
+            ):
+                issues.append(
+                    self._issue(
+                        asset_code,
+                        "binding_writeback_verification_failed",
+                        "AssetGraph binding write-back response did not return a complete backend-authoritative binding receipt.",
                     )
-                    break
+                )
+                break
+            binding = persisted_binding
+            resolutions[asset_code] = (binding, resolution_status)
             self._apply_binding(operations, asset_code, binding, resolution_status)
 
         if issues:
@@ -463,27 +459,23 @@ class MaituMaterialResolver:
 
     @classmethod
     def _binding_from_asset(cls, asset: dict[str, Any]) -> dict[str, Any]:
-        return {
-            field: asset[field]
-            for field in cls.BINDING_FIELDS
-            if asset.get(field) is not None and (not isinstance(asset.get(field), str) or str(asset[field]).strip())
-        }
+        return {field: asset.get(field) for field in cls.BINDING_FIELDS}
 
     @classmethod
     def _binding_from_material(cls, material: dict[str, Any]) -> dict[str, Any]:
+        source_type = material.get("type") or material.get("source_material_type")
+        is_digital_human = str(source_type or "").strip().lower() == "digital_human"
         values = {
-            "maitu_material_id": material.get("id") or material.get("material_id"),
-            "source_material_type": material.get("type") or material.get("source_material_type"),
-            "source_material_url": material.get("url") or material.get("source_material_url"),
+            "maitu_material_id": None if is_digital_human else material.get("id") or material.get("material_id"),
+            "source_material_type": source_type,
+            "source_material_url": None
+            if is_digital_human
+            else material.get("url") or material.get("source_material_url"),
             "source_cover_url": material.get("cover_url") or material.get("source_cover_url"),
             "speaker_id": material.get("speaker_id"),
             "digital_human_image_id": material.get("digital_human_image_id"),
         }
-        return {
-            field: value
-            for field, value in values.items()
-            if value is not None and (not isinstance(value, str) or value.strip())
-        }
+        return values
 
     @classmethod
     def _has_executable_binding(
@@ -681,6 +673,10 @@ class MaituMaterialResolver:
         actual = cls._binding_from_asset(persisted_asset)
         for field, expected_value in expected.items():
             actual_value = actual.get(field)
+            if expected_value is None:
+                if actual_value is not None:
+                    return False
+                continue
             if field in {"maitu_material_id", "speaker_id", "digital_human_image_id"}:
                 try:
                     if int(actual_value) != int(expected_value):
@@ -737,8 +733,11 @@ class MaituMaterialResolver:
             if not isinstance(operation, dict) or operation.get("asset_code") != asset_code:
                 continue
             operation.update(binding)
-            if binding.get("maitu_material_id") is not None:
-                operation["material_id"] = binding["maitu_material_id"]
+            # ``material_id`` is the executor alias for the authoritative
+            # regular-material ID. Set it even when null so a digital-human
+            # binding cannot retain a stale regular material identity from the
+            # source BuildPlan.
+            operation["material_id"] = binding.get("maitu_material_id")
             operation["material_resolution_status"] = resolution_status
             operation.pop("material_resolution_reason", None)
 

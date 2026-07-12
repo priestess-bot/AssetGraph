@@ -8,6 +8,37 @@ from fastapi.testclient import TestClient
 from app.api.routes import assets, lives
 from app.main import app
 from app.repositories.assets import AssetBindingLeaseConflictError
+from app.services.maitu_authority import MaituAuthorityError
+
+
+READBACK_NONCE = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+
+
+def material_binding(binding: dict[str, Any]) -> dict[str, Any]:
+    return {
+        field: binding.get(field)
+        for field in (
+            "maitu_material_id",
+            "source_material_type",
+            "source_material_url",
+            "source_cover_url",
+            "speaker_id",
+            "digital_human_image_id",
+        )
+    }
+
+
+class FakeMaituAuthorityVerifier:
+    def attest_binding(self, asset_code: str, binding: dict[str, Any]) -> dict[str, Any]:
+        del asset_code
+        if binding.get("source_material_url") == "https://cdn.example/tampered.png":
+            raise MaituAuthorityError("material binding URL differs from backend Maitu inventory readback")
+        return {
+            **binding,
+            "inventory_snapshot_sha256": "a" * 64,
+            "readback_nonce": READBACK_NONCE,
+            "readback_attestation": "b" * 64,
+        }
 
 
 class FakeAssetRepository:
@@ -187,6 +218,8 @@ def client() -> TestClient:
     live_repo = FakeLiveSessionRepository()
     app.dependency_overrides[assets.get_asset_repository] = lambda: asset_repo
     app.dependency_overrides[lives.get_live_session_repository] = lambda: live_repo
+    app.dependency_overrides[assets.require_maitu_script_layout_worker] = lambda: "asset-binding-test-worker"
+    app.dependency_overrides[assets.get_maitu_authority_verifier] = FakeMaituAuthorityVerifier
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
@@ -369,12 +402,16 @@ def test_patch_asset_maitu_material_binding_for_real_insert(client: TestClient) 
 
     response = client.patch(
         f"/api/assets/{asset_code}/maitu-material-binding",
-        json={
-            "maitu_material_id": 881001,
-            "source_material_type": "image",
-            "source_material_url": "https://static.maituai.example/materials/longyu-long8.png",
-            "source_cover_url": "https://static.maituai.example/materials/longyu-long8-cover.png",
-        },
+        json=material_binding(
+            {
+                "maitu_material_id": 881001,
+                "source_material_type": "image",
+                "source_material_url": "https://static.maituai.example/materials/longyu-long8.png",
+                "source_cover_url": "https://static.maituai.example/materials/longyu-long8-cover.png",
+                "speaker_id": None,
+                "digital_human_image_id": None,
+            },
+        ),
     )
 
     assert response.status_code == 200
@@ -383,13 +420,43 @@ def test_patch_asset_maitu_material_binding_for_real_insert(client: TestClient) 
     assert body["source_material_type"] == "image"
     assert body["source_material_url"].endswith("longyu-long8.png")
     assert body["source_cover_url"].endswith("longyu-long8-cover.png")
-
+    assert body["maitu_binding_verification_source"] == "backend_maitu_inventory_readback"
+    assert body["maitu_binding_verified_at"] is not None
+    assert body["maitu_binding_scope"] == "assetgraph_script_layout_material_binding_v2"
+    assert "maitu_binding_readback_nonce" not in body
+    assert "maitu_binding_attestation" not in body
+    assert "maitu_binding_inventory_fingerprint" not in body
     get_response = client.get(f"/api/assets/{asset_code}")
     assert get_response.status_code == 200
     assert get_response.json()["maitu_material_id"] == 881001
 
 
-def test_patch_asset_material_binding_returns_409_during_active_retry_lease() -> None:
+def test_patch_asset_binding_rejects_empty_partial_or_authority_mismatched_replacement(client: TestClient) -> None:
+    asset_code = client.post(
+        "/api/assets",
+        json={"asset_type": "IMG", "original_filename": "receipt.png"},
+    ).json()["asset_code"]
+    endpoint = f"/api/assets/{asset_code}/maitu-material-binding"
+    assert client.patch(endpoint, json={}).status_code == 422
+    assert client.patch(endpoint, json={"maitu_material_id": 901}).status_code == 422
+    payload = material_binding(
+        {
+            "maitu_material_id": 901,
+            "source_material_type": "image",
+            "source_material_url": "https://cdn.example/receipt.png",
+            "source_cover_url": None,
+            "speaker_id": None,
+            "digital_human_image_id": None,
+        },
+    )
+    payload["source_material_url"] = "https://cdn.example/tampered.png"
+    response = client.patch(endpoint, json=payload)
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Backend Maitu inventory verification failed"
+
+
+def test_patch_asset_material_binding_returns_409_during_active_retry_lease(
+) -> None:
     class ConflictAssetRepository(FakeAssetRepository):
         def update_maitu_material_binding(self, asset_code: str, payload: dict[str, Any]) -> dict[str, Any] | None:
             raise AssetBindingLeaseConflictError(
@@ -399,15 +466,22 @@ def test_patch_asset_material_binding_returns_409_during_active_retry_lease() ->
     repository = ConflictAssetRepository()
     asset = repository.create({"asset_type": "IMG", "original_filename": "product.png"})
     app.dependency_overrides[assets.get_asset_repository] = lambda: repository
+    app.dependency_overrides[assets.require_maitu_script_layout_worker] = lambda: "asset-binding-test-worker"
+    app.dependency_overrides[assets.get_maitu_authority_verifier] = FakeMaituAuthorityVerifier
     try:
         with TestClient(app, raise_server_exceptions=False) as test_client:
             response = test_client.patch(
                 f"/api/assets/{asset['asset_code']}/maitu-material-binding",
-                json={
-                    "maitu_material_id": 881001,
-                    "source_material_type": "image",
-                    "source_material_url": "https://static.maituai.example/materials/product.png",
-                },
+                json=material_binding(
+                    {
+                        "maitu_material_id": 901,
+                        "source_material_type": "image",
+                        "source_material_url": "https://cdn.example/bg.png",
+                        "source_cover_url": None,
+                        "speaker_id": None,
+                        "digital_human_image_id": None,
+                    },
+                ),
             )
     finally:
         app.dependency_overrides.clear()

@@ -17,6 +17,8 @@ class AssetGraphClientError(RuntimeError):
 class AssetGraphClient:
     base_url: str
     timeout_seconds: float = 30.0
+    script_layout_worker_token: str | None = None
+    worker_id: str | None = None
 
     def claim_next_retry_task(self, payload: dict[str, Any]) -> dict[str, Any] | None:
         try:
@@ -47,6 +49,120 @@ class AssetGraphClient:
 
     def write_live_room_build_plan_execution_result(self, build_plan_code: str, payload: dict[str, Any]) -> dict[str, Any]:
         return self._request_json("POST", f"/api/maitu/live-room-build-plans/{build_plan_code}/execution-results", payload)
+
+    def start_script_layout_execution(self, build_plan_code: str, payload: dict[str, Any]) -> dict[str, Any]:
+        build_plan_segment = self._canonical_path_segment(build_plan_code, field_name="build_plan_code")
+        return self._request_json(
+            "POST",
+            f"/api/maitu/live-room-build-plans/{build_plan_segment}/script-layout-executions/start",
+            payload,
+        )
+
+    def renew_script_layout_execution(
+        self,
+        build_plan_code: str,
+        execution_code: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        build_plan_segment = self._canonical_path_segment(build_plan_code, field_name="build_plan_code")
+        execution_segment = self._canonical_path_segment(execution_code, field_name="execution_code")
+        return self._request_json(
+            "POST",
+            (
+                f"/api/maitu/live-room-build-plans/{build_plan_segment}/script-layout-executions/"
+                f"{execution_segment}/renew"
+            ),
+            payload,
+        )
+
+    def begin_script_layout_execution_operation(
+        self,
+        build_plan_code: str,
+        execution_code: str,
+        operation_index: int,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        build_plan_segment = self._canonical_path_segment(build_plan_code, field_name="build_plan_code")
+        execution_segment = self._canonical_path_segment(execution_code, field_name="execution_code")
+        return self._request_json(
+            "POST",
+            (
+                f"/api/maitu/live-room-build-plans/{build_plan_segment}/script-layout-executions/"
+                f"{execution_segment}/operations/{operation_index}/begin"
+            ),
+            payload,
+        )
+
+    def dispatch_script_layout_execution_operation(
+        self,
+        build_plan_code: str,
+        execution_code: str,
+        operation_index: int,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        build_plan_segment = self._canonical_path_segment(build_plan_code, field_name="build_plan_code")
+        execution_segment = self._canonical_path_segment(execution_code, field_name="execution_code")
+        return self._request_json(
+            "POST",
+            (
+                f"/api/maitu/live-room-build-plans/{build_plan_segment}/script-layout-executions/"
+                f"{execution_segment}/operations/{operation_index}/dispatch"
+            ),
+            payload,
+        )
+
+    def invalidate_script_layout_execution_operation(
+        self,
+        build_plan_code: str,
+        execution_code: str,
+        operation_index: int,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        build_plan_segment = self._canonical_path_segment(build_plan_code, field_name="build_plan_code")
+        execution_segment = self._canonical_path_segment(execution_code, field_name="execution_code")
+        return self._request_json(
+            "POST",
+            (
+                f"/api/maitu/live-room-build-plans/{build_plan_segment}/script-layout-executions/"
+                f"{execution_segment}/operations/{operation_index}/invalidate"
+            ),
+            payload,
+        )
+
+    def complete_script_layout_execution_operation(
+        self,
+        build_plan_code: str,
+        execution_code: str,
+        operation_index: int,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        build_plan_segment = self._canonical_path_segment(build_plan_code, field_name="build_plan_code")
+        execution_segment = self._canonical_path_segment(execution_code, field_name="execution_code")
+        return self._request_json(
+            "POST",
+            (
+                f"/api/maitu/live-room-build-plans/{build_plan_segment}/script-layout-executions/"
+                f"{execution_segment}/operations/{operation_index}/complete"
+            ),
+            payload,
+        )
+
+    def finalize_script_layout_execution(
+        self,
+        build_plan_code: str,
+        execution_code: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        build_plan_segment = self._canonical_path_segment(build_plan_code, field_name="build_plan_code")
+        execution_segment = self._canonical_path_segment(execution_code, field_name="execution_code")
+        return self._request_json(
+            "POST",
+            (
+                f"/api/maitu/live-room-build-plans/{build_plan_segment}/script-layout-executions/"
+                f"{execution_segment}/finalize"
+            ),
+            payload,
+        )
 
     def get_jd_live_metric_session(self, capture_session_code: str) -> dict[str, Any]:
         return self._request_json("GET", f"/api/maitu/jd-live-metric-sessions/{capture_session_code}")
@@ -232,6 +348,11 @@ class AssetGraphClient:
     ) -> dict[str, Any]:
         body = None
         headers = {"Accept": "application/json"}
+        if self.script_layout_worker_token:
+            headers["Authorization"] = f"Bearer {self.script_layout_worker_token}"
+            if not self.worker_id:
+                raise AssetGraphClientError("Script-layout worker authentication requires worker_id")
+            headers["X-AssetGraph-Worker-ID"] = self.worker_id
         if payload is not None:
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             headers["Content-Type"] = "application/json"

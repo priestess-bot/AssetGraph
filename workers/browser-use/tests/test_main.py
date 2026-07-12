@@ -37,6 +37,9 @@ class FakeAssetGraphClient:
 
 
 class FakeBrowserUseCliSession:
+    def set_execution_guard(self, guard: Any) -> None:
+        self.execution_guard = guard
+
     def read_jd_live_dashboard_state(self, *, open_url: str | None = None) -> JdLiveDashboardState:
         assert open_url == "https://jm.jd.com/live-data"
         return JdLiveDashboardState(
@@ -74,6 +77,18 @@ def test_check_config_rejects_conflicting_execution_mode_before_client_start(mon
 
     assert "Conflicting CLI modes" in str(exc_info.value)
     assert client_started is False
+
+
+def test_check_config_redacts_script_layout_worker_capability(monkeypatch, capsys) -> None:
+    worker_token = "worker-capability-must-not-print"
+    monkeypatch.setenv("ASSETGRAPH_SCRIPT_LAYOUT_WORKER_TOKEN", worker_token)
+
+    assert worker_main.main(["--check-config"]) == 0
+
+    output = capsys.readouterr().out
+    assert worker_token not in output
+    parsed = json.loads(output)
+    assert parsed["script_layout_worker_token"] == "[CONFIGURED]"
 
 
 def test_main_captures_jd_metric_samples_with_interval(monkeypatch, capsys) -> None:
@@ -228,7 +243,7 @@ def test_main_runs_live_scene_fill_and_writes_execution_result(monkeypatch, caps
                 "topics": [{"clips": [{"id": 416425, "name": "未命名", "order_num": 0}]}],
             }
 
-        def rename_clip(self, clip_id: int, name: str) -> dict[str, Any]:
+        def rename_clip(self, *, live_room_id: str, clip_id: int, name: str) -> dict[str, Any]:
             return {"clip_id": clip_id, "name": name}
 
         def fill_clip_from_template(self, **kwargs) -> dict[str, Any]:
@@ -325,7 +340,14 @@ def test_main_resolves_maitu_materials_and_writes_resolved_plan(monkeypatch, cap
         def update_asset_maitu_material_binding(self, requested_asset_code: str, payload: dict[str, Any]) -> dict[str, Any]:
             assert requested_asset_code == asset_code
             self.binding_updates.append(dict(payload))
-            self.asset.update(payload)
+            self.asset.update(
+                {
+                    **payload,
+                    "maitu_binding_verification_source": "backend_maitu_inventory_readback",
+                    "maitu_binding_scope": "assetgraph_script_layout_material_binding_v2",
+                    "maitu_binding_verified_at": "2026-07-12T14:00:00Z",
+                }
+            )
             return dict(self.asset)
 
     class ResolverSession(FakeBrowserUseCliSession):
@@ -460,7 +482,6 @@ def test_main_rejects_conflicting_cli_modes_before_clients_or_browser_start(
 @pytest.mark.parametrize(
     ("extra_args", "expected_message"),
     [
-        ([], "requires --resolve-maitu-materials"),
         (["--probe-maitu"], "Conflicting CLI modes"),
         (["--observe-maitu"], "Conflicting CLI modes"),
     ],
@@ -536,7 +557,7 @@ def test_main_rejects_unbound_or_mismatched_real_draft_target_before_resolver_si
             ]
         )
 
-    assert "target" in str(exc_info.value).lower()
+    assert "separate phases" in str(exc_info.value).lower()
     assert started == []
 
 
@@ -628,7 +649,6 @@ def test_main_fail_closes_before_draft_execution_when_material_resolution_is_man
     exit_code = worker_main.main(
         [
             "--resolve-maitu-materials",
-            "--script-layout-draft-execute",
             "--script-layout-build-plan-file",
             str(plan_path),
             "--target-live-room-id",
@@ -701,7 +721,6 @@ def test_main_fail_closes_on_nonempty_resolver_issues_even_when_count_is_zero(mo
     exit_code = worker_main.main(
         [
             "--resolve-maitu-materials",
-            "--script-layout-draft-execute",
             "--script-layout-build-plan-file",
             str(plan_path),
             "--target-live-room-id",
@@ -766,7 +785,6 @@ def test_main_fail_closes_when_resolver_claims_resolved_but_binding_is_incomplet
     exit_code = worker_main.main(
         [
             "--resolve-maitu-materials",
-            "--script-layout-draft-execute",
             "--script-layout-build-plan-file",
             str(plan_path),
             "--target-live-room-id",
@@ -781,14 +799,16 @@ def test_main_fail_closes_when_resolver_claims_resolved_but_binding_is_incomplet
 
 def test_main_passes_resolved_plan_into_draft_execution(monkeypatch, capsys, tmp_path: Path) -> None:
     plan_path = tmp_path / "plan.json"
-    source_plan = {
-        **executable_script_layout_gate(),
-        "target_live_room_id": "50002",
-        "operations": [{"operation_type": "insert_asset_layer", "asset_code": "AG-IMG-1"}],
-    }
     resolved_plan = {
+        "build_plan_code": "MT-BUILD-20260712-000001",
+        "checkpoint_source_fingerprint": "c" * 64,
         "target_live_room_id": "50002",
         "operations": [
+            {
+                "operation_type": "preflight_content_build_plan",
+                "status": "ready",
+                "target_live_room_id": "50002",
+            },
             {
                 "operation_type": "insert_asset_layer",
                 "asset_code": "AG-IMG-1",
@@ -798,10 +818,10 @@ def test_main_passes_resolved_plan_into_draft_execution(monkeypatch, capsys, tmp
                 "source_material_type": "image",
                 "source_material_url": "https://static.example/gift.png",
                 "material_resolution_status": "matched_existing_maitu_material",
-            }
-        ]
+            },
+        ],
     }
-    plan_path.write_text(json.dumps(source_plan), encoding="utf-8")
+    plan_path.write_text(json.dumps(resolved_plan), encoding="utf-8")
     captured: dict[str, Any] = {}
 
     class GreenResolver:
@@ -829,22 +849,45 @@ def test_main_passes_resolved_plan_into_draft_execution(monkeypatch, capsys, tmp
         actions: list[Any] = field(default_factory=list)
 
     class CapturingRunner:
-        def __init__(self, *, session: Any) -> None:
+        def __init__(self, *, session: Any, checkpoint_store: Any = None) -> None:
             captured["session"] = session
+            captured["runner_checkpoint_store"] = checkpoint_store
 
         def run(self, operation_plan: dict[str, Any], *, target_live_room_id: str | None = None) -> GreenRunResult:
             captured["operation_plan"] = operation_plan
             captured["target_live_room_id"] = target_live_room_id
             return GreenRunResult()
 
+    class CapturingCheckpointStore:
+        @classmethod
+        def start(
+            cls,
+            *,
+            client: Any,
+            operation_plan: dict[str, Any],
+            target_live_room_id: str,
+        ):
+            instance = cls()
+            captured["checkpoint_plan"] = operation_plan
+            captured["checkpoint_target"] = target_live_room_id
+            return instance
+
+        def ensure_lease_active(self) -> bool:
+            captured["lease_guard_installed"] = True
+            return True
+
+        def finalize(self, result: GreenRunResult) -> dict[str, Any]:
+            return {"execution_code": "MT-EXEC-20260712-000001", "execution_status": result.status}
+
     monkeypatch.setattr(worker_main, "AssetGraphClient", FakeAssetGraphClient)
     monkeypatch.setattr(worker_main, "BrowserUseCliSession", FakeBrowserUseCliSession)
+    monkeypatch.setattr(worker_main, "is_trusted_browser_use_cli_session", lambda _session: True)
     monkeypatch.setattr(worker_main, "MaituMaterialResolver", GreenResolver)
     monkeypatch.setattr(worker_main, "ScriptLayoutDraftRunner", CapturingRunner)
+    monkeypatch.setattr(worker_main, "AssetGraphScriptLayoutCheckpointStore", CapturingCheckpointStore)
 
     exit_code = worker_main.main(
         [
-            "--resolve-maitu-materials",
             "--script-layout-draft-execute",
             "--script-layout-build-plan-file",
             str(plan_path),
@@ -854,7 +897,10 @@ def test_main_passes_resolved_plan_into_draft_execution(monkeypatch, capsys, tmp
     )
 
     assert exit_code == 0
-    assert captured["operation_plan"] is resolved_plan
-    assert captured["operation_plan"]["operations"][0]["material_id"] == 41000
+    assert captured["operation_plan"] == resolved_plan
+    assert captured["operation_plan"]["operations"][0]["operation_type"] == "preflight_content_build_plan"
+    assert captured["operation_plan"]["operations"][1]["material_id"] == 41000
     assert captured["target_live_room_id"] == "50002"
+    assert captured["checkpoint_plan"] == resolved_plan
+    assert captured["runner_checkpoint_store"] is not None
     assert '"status": "completed"' in capsys.readouterr().out

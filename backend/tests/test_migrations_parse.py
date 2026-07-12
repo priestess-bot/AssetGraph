@@ -186,3 +186,51 @@ def test_script_driven_build_plan_persistence_migration_stores_plan_metadata() -
     assert "jsonb_typeof(details) = 'object'" in sql
     assert "ALTER COLUMN blueprint_code DROP NOT NULL" in sql
     assert "maitu_live_room_build_plan_executions" in sql
+
+
+def test_script_layout_execution_checkpoint_migration_reuses_build_execution_tables() -> None:
+    migration = MIGRATIONS_DIR / "021_script_layout_execution_checkpoints.sql"
+
+    assert migration.exists()
+    sql = migration.read_text(encoding="utf-8")
+    assert "ALTER TABLE maitu_live_room_build_plan_executions" in sql
+    assert "execution_attempt_id UUID" in sql
+    assert "plan_fingerprint VARCHAR(64)" in sql
+    assert "checkpoint_contract VARCHAR(64)" in sql
+    assert "ALTER TABLE maitu_live_room_build_plan_operation_results" in sql
+    assert "operation_fingerprint VARCHAR(64)" in sql
+    assert "checkpoint_state VARCHAR(32)" in sql
+    assert "attempt_id UUID" in sql
+    assert "completion_id UUID" in sql
+    assert "completion_evidence JSONB" in sql
+    assert "idx_maitu_build_execution_operation_checkpoint_unique" in sql
+    assert "ON maitu_live_room_build_plan_operation_results(execution_code, operation_index)" in sql
+    assert "WHERE operation_fingerprint IS NOT NULL" in sql
+    assert "reconcile_required" in sql
+    assert "retry_authorized" in sql
+    assert "confirmed_completed" in sql
+    assert "confirmed_not_applied" in sql
+    assert "start_request_id UUID" in sql
+    assert "run_attempt_id UUID" in sql
+    assert "lease_token UUID" in sql
+    assert "lease_version BIGINT" in sql
+    assert "lease_expires_at TIMESTAMPTZ" in sql
+    assert "lease_reconcile_not_before TIMESTAMPTZ" in sql
+    assert "manifest_fingerprint VARCHAR(64)" in sql
+    assert "expected_operation_count INTEGER" in sql
+    assert "finalization_id UUID" in sql
+    assert "finalization_fingerprint VARCHAR(64)" in sql
+    assert "effect_class VARCHAR(32)" in sql
+    assert "intent_snapshot JSONB" in sql
+    assert "maitu_binding_inventory_fingerprint VARCHAR(64)" in sql
+    assert "maitu_binding_readback_nonce UUID" in sql
+    assert "maitu_binding_attestation VARCHAR(64)" in sql
+    assert "idx_assets_maitu_binding_readback_nonce" in sql
+    assert "dispatched_at TIMESTAMPTZ" in sql
+    assert "not_started" in sql
+    assert "prepared" in sql
+    assert "dispatched" in sql
+    assert "idx_maitu_build_execution_checkpoint_singleton" in sql
+    assert "maitu_live_room_build_plan_reconciliations" in sql
+    assert "reconciliation_id UUID PRIMARY KEY" in sql
+    assert "claim_token" not in sql

@@ -19,7 +19,13 @@ class FakeAssetGraphClient:
 
     def update_asset_maitu_material_binding(self, asset_code: str, payload: dict[str, Any]) -> dict[str, Any]:
         self.updates.append((asset_code, dict(payload)))
-        self.assets[asset_code] = {**self.assets[asset_code], **payload}
+        self.assets[asset_code] = {
+            **self.assets[asset_code],
+            **payload,
+            "maitu_binding_verification_source": "backend_maitu_inventory_readback",
+            "maitu_binding_scope": "assetgraph_script_layout_material_binding_v2",
+            "maitu_binding_verified_at": "2026-07-12T14:00:00Z",
+        }
         return dict(self.assets[asset_code])
 
 
@@ -95,7 +101,8 @@ def test_resolver_reuses_existing_assetgraph_binding_after_inventory_verificatio
     assert result.manual_required_count == 0
     assert session.list_calls == 1
     assert session.upload_calls == []
-    assert client.updates == []
+    assert len(client.updates) == 1
+    assert client.assets[asset_code]["maitu_binding_verification_source"] == "backend_maitu_inventory_readback"
     for operation in result.operation_plan["operations"]:
         assert operation["maitu_material_id"] == 41000
         assert operation["material_id"] == 41000
@@ -135,7 +142,11 @@ def test_resolver_rejects_type_incompatible_stored_binding_and_repairs_it_from_i
     assert result.status == "resolved"
     assert result.reused_binding_count == 0
     assert result.remote_match_count == 1
-    assert client.updates[0][1] == {
+    update = client.updates[0][1]
+    assert {
+        key: update[key]
+        for key in ("maitu_material_id", "source_material_type", "source_material_url")
+    } == {
         "maitu_material_id": 42601,
         "source_material_type": "decorative_video",
         "source_material_url": "https://static.example/product-pro.mp4",
@@ -202,17 +213,25 @@ def test_resolver_matches_existing_maitu_material_and_writes_binding_back(tmp_pa
     assert result.remote_match_count == 1
     assert result.uploaded_count == 0
     assert result.manual_required_count == 0
-    assert client.updates == [
-        (
-            asset_code,
-            {
-                "maitu_material_id": 41043,
-                "source_material_type": "decorative_video",
-                "source_material_url": "https://static.example/uploads/6month29-9051.mp4",
-                "source_cover_url": "https://static.example/covers/6month29-9051.png",
-            },
+    assert len(client.updates) == 1
+    assert client.updates[0][0] == asset_code
+    update = client.updates[0][1]
+    assert {
+        key: update[key]
+        for key in (
+            "maitu_material_id",
+            "source_material_type",
+            "source_material_url",
+            "source_cover_url",
         )
-    ]
+    } == {
+        "maitu_material_id": 41043,
+        "source_material_type": "decorative_video",
+        "source_material_url": "https://static.example/uploads/6month29-9051.mp4",
+        "source_cover_url": "https://static.example/covers/6month29-9051.png",
+    }
+    assert update["speaker_id"] is None
+    assert update["digital_human_image_id"] is None
     assert result.operation_plan["operations"][0]["material_id"] == 41043
 
 
@@ -247,13 +266,13 @@ def test_resolver_uploads_missing_local_material_then_writes_binding(tmp_path: P
 
     result = MaituMaterialResolver(asset_client=client, session=session, assets_root=tmp_path).resolve_plan(plan_for(asset_code))
 
-    assert result.status == "resolved"
+    assert result.status == "completed_with_manual_review"
     assert result.remote_match_count == 0
-    assert result.uploaded_count == 1
-    assert result.manual_required_count == 0
-    assert session.upload_calls == [{"asset_code": asset_code, "local_path": local_path, "layer_type": "product_image"}]
-    assert client.updates[0][1]["maitu_material_id"] == 50001
-    assert result.operation_plan["operations"][1]["source_material_url"].endswith("new-product.png")
+    assert result.uploaded_count == 0
+    assert result.manual_required_count == 1
+    assert session.upload_calls == []
+    assert client.updates == []
+    assert result.issues[0].reason == "fenced_material_preparation_required"
 
 
 def test_resolver_fails_closed_when_asset_has_no_existing_material_or_local_file(tmp_path: Path) -> None:
@@ -418,7 +437,53 @@ def test_resolver_maps_digital_human_by_image_id_when_name_is_short(tmp_path: Pa
     assert result.remote_match_count == 1
     assert result.uploaded_count == 0
     assert session.upload_calls == []
-    assert result.operation_plan["operations"][0]["maitu_material_id"] == 40222
+    assert result.operation_plan["operations"][0].get("maitu_material_id") is None
+    assert result.operation_plan["operations"][0]["material_id"] is None
+    assert result.operation_plan["operations"][0]["digital_human_image_id"] == 8856
+
+
+def test_resolver_accepts_backend_canonicalized_digital_human_cover(tmp_path: Path) -> None:
+    class CanonicalizingAssetGraphClient(FakeAssetGraphClient):
+        def update_asset_maitu_material_binding(self, asset_code: str, payload: dict[str, Any]) -> dict[str, Any]:
+            persisted = super().update_asset_maitu_material_binding(asset_code, payload)
+            persisted["source_cover_url"] = "https://static.example/digital-human/cover.png"
+            self.assets[asset_code] = dict(persisted)
+            return persisted
+
+    asset_code = "AG-VID-20260709-000028"
+    client = CanonicalizingAssetGraphClient(
+        {
+            asset_code: {
+                "asset_code": asset_code,
+                "subject": "8856_明月_正坐A",
+                "maitu_category": "digital_human_video",
+                "original_filename": "DH-MDL-0002-F015_模特_8856_明月_正坐A_训练素材.mp4",
+                "local_relative_path": "数字分身/明月正坐A.mp4",
+            }
+        }
+    )
+    session = FakeMaituMaterialSession(
+        [
+            {
+                "id": 40222,
+                "name": "明月",
+                "type": "digital_human",
+                "url": "https://static.example/digital-human/cover.png",
+                "speaker_id": 4224,
+                "digital_human_image_id": 8856,
+            }
+        ]
+    )
+
+    result = MaituMaterialResolver(asset_client=client, session=session, assets_root=tmp_path).resolve_plan(
+        plan_for(asset_code, layer_type="digital_human")
+    )
+
+    assert result.status == "resolved"
+    assert result.operation_plan["operations"][0]["source_cover_url"] == (
+        "https://static.example/digital-human/cover.png"
+    )
+    assert result.operation_plan["operations"][0]["speaker_id"] == 4224
     assert result.operation_plan["operations"][0]["digital_human_image_id"] == 8856
 
 
@@ -456,13 +521,25 @@ def test_resolver_maps_digital_human_material_ids_from_nested_image_name(tmp_pat
 
     assert result.status == "resolved"
     assert result.remote_match_count == 1
-    assert client.updates[0][1] == {
-        "maitu_material_id": 37200,
+    update = client.updates[0][1]
+    assert {
+        key: update[key]
+        for key in (
+            "maitu_material_id",
+            "source_material_type",
+            "source_material_url",
+            "speaker_id",
+            "digital_human_image_id",
+        )
+    } == {
+        "maitu_material_id": None,
         "source_material_type": "digital_human",
-        "source_material_url": "https://static.example/digital-human/7717.png",
+        "source_material_url": None,
         "speaker_id": 3760,
         "digital_human_image_id": 7717,
     }
+    assert result.operation_plan["operations"][0]["material_id"] is None
+    assert update["source_cover_url"] is None
     assert result.operation_plan["operations"][0]["digital_human_image_id"] == 7717
     assert result.operation_plan["operations"][0]["speaker_id"] == 3760
 
@@ -653,7 +730,7 @@ def test_resolver_rejects_incompatible_upload_response(tmp_path: Path) -> None:
     )
 
     assert result.status == "completed_with_manual_review"
-    assert result.issues[0].reason == "invalid_maitu_material_binding"
+    assert result.issues[0].reason == "fenced_material_preparation_required"
     assert client.updates == []
 
 

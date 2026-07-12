@@ -33,3 +33,9 @@ logs/
 
 # Local media assets are managed outside Git. Keep metadata/manifest files under docs/ tracked.
 素材/
+
+# Local run evidence and one-off operational scripts
+artifacts/
+/backend/diagnose_freeze.py
+/backend/reconcile_operation_2.py
+/workers/browser-use/run_three_series_fast.py

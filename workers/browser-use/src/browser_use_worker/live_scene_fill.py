@@ -8,7 +8,7 @@ class MaituLiveSceneFillSession(Protocol):
     def read_live_room(self, live_room_id: str) -> dict[str, Any]:
         """Read a Maitu live room through the authenticated browser context."""
 
-    def rename_clip(self, clip_id: int, name: str) -> dict[str, Any]:
+    def rename_clip(self, *, live_room_id: str, clip_id: int, name: str) -> dict[str, Any]:
         """Rename a target clip/scene without clicking go-live."""
 
     def fill_clip_from_template(
@@ -175,7 +175,11 @@ class LiveSceneFillRunner:
         target_clip_id = int(default_clip["id"])
 
         scene_index = operations.index(scene_operation)
-        rename_result = self.session.rename_clip(target_clip_id, scene_name)
+        rename_result = self.session.rename_clip(
+            live_room_id=target_live_room_id,
+            clip_id=target_clip_id,
+            name=scene_name,
+        )
         actions.append(
             LiveSceneFillActionResult(
                 operation_index=scene_index,
