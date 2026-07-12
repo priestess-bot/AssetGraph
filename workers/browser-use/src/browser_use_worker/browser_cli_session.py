@@ -21,6 +21,9 @@ from .maitu_executor import MaituBrowserExecutionError
 
 CommandRunner = Callable[[Sequence[str],], str]
 
+REPO_ROOT = Path(__file__).resolve().parents[4]
+DEFAULT_BROWSER_USE_REPO = REPO_ROOT / ".external" / "browser-use"
+
 _SESSION_LOCK_GUARD = threading.Lock()
 _HELD_SESSION_LOCKS: dict[str, tuple[int, Any]] = {}
 
@@ -107,7 +110,10 @@ if hasattr(os, "register_at_fork"):
 
 @dataclass(slots=True, frozen=True)
 class BrowserUseCliSessionConfig:
-    browser_use_repo: str = "D:/browser-use"
+    browser_use_repo: str = field(
+        default_factory=lambda: os.getenv("BROWSER_USE_REPO", str(DEFAULT_BROWSER_USE_REPO)).strip()
+        or str(DEFAULT_BROWSER_USE_REPO)
+    )
     home_url: str = "https://live2.maituai.com/"
     login_url: str = "https://live2.maituai.com/Login"
     headed: bool = True
@@ -1596,7 +1602,7 @@ class BrowserUseCliSession:
             raise MaituBrowserExecutionError(
                 f"browser-use CLI command failed with exit code {completed.returncode}: {output.strip()}",
                 retryable=True,
-                retry_instruction="Verify D:/browser-use, uv, and the browser-use session before retrying.",
+                retry_instruction="Verify BROWSER_USE_REPO, uv, and the named browser-use session before retrying.",
             )
         return output
 

@@ -28,20 +28,8 @@
 ## 后端导入命令（后端和数据库启动后）
 
 ```bash
-cd D:/AssetGraph
-./backend/.venv/Scripts/python - <<'PY'
-from pathlib import Path
-import json, urllib.request
-base = 'http://127.0.0.1:8000'
-payload = json.loads(Path('docs/maitu-live-room-templates/38336-zhangyu-summer-blueprint-import.json').read_text(encoding='utf-8'))
-req = urllib.request.Request(
-    base + '/api/maitu/live-room-blueprints/import-reference',
-    data=json.dumps(payload, ensure_ascii=False).encode('utf-8'),
-    headers={'Content-Type': 'application/json'},
-    method='POST',
-)
-print(urllib.request.urlopen(req).read().decode('utf-8'))
-PY
+cd /path/to/AssetGraph
+uv run --project backend python scripts/import_reference_blueprint.py --payload docs/maitu-live-room-templates/38336-zhangyu-summer-blueprint-import.json
 ```
 
 ## 通过剧本反查模板

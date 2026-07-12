@@ -1,0 +1,20 @@
+[project]
+name = "assetgraph-qwen3-service"
+version = "0.1.0"
+description = "Pinned local Qwen3 embedding and reranker service for AssetGraph"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "accelerate==1.14.0",
+    "fastapi==0.139.0",
+    "numpy==2.4.6",
+    "pydantic==2.13.4",
+    "safetensors==0.8.0",
+    "sentence-transformers==5.6.0",
+    "tokenizers==0.22.2",
+    "torch==2.5.1",
+    "transformers==5.13.0",
+    "uvicorn[standard]==0.51.0",
+]
+
+[tool.uv]
+package = false

@@ -18,7 +18,7 @@ from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Sequence
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".webm", ".mkv", ".avi", ".m4v"}
@@ -560,7 +560,7 @@ def write_markdown_summary(path: Path, inventory: dict[str, object]) -> None:
             "",
             "## 后续用途",
             "",
-            "本清单用于把 `D:/AssetGraph/素材` 中的本地麦兔素材导入 AssetGraph：",
+            "本清单用于把 `ASSETGRAPH_ASSETS_ROOT` 指向的本地麦兔素材导入 AssetGraph：",
             "",
             "```text",
             "本地素材文件 -> asset_inventory.json/csv -> assets / asset_files -> 候选素材推荐 -> 麦兔替换方案",

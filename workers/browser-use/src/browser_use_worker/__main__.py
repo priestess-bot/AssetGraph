@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import time
 from collections.abc import Sequence
 from dataclasses import asdict
@@ -24,6 +25,10 @@ from .script_layout_draft_executor import (
     InMemoryScriptLayoutDraftSession,
     ScriptLayoutDraftRunner,
 )
+
+
+REPO_ROOT = Path(__file__).resolve().parents[4]
+DEFAULT_ASSETS_ROOT = REPO_ROOT / "素材"
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -53,7 +58,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--max-samples", type=int, default=1, help="Maximum JD dashboard metric samples to capture in this run")
     parser.add_argument("--capture-interval-seconds", type=float, default=0, help="Sleep interval between JD metric samples")
     parser.add_argument("--skip-browser-probe", action="store_true", help="Skip Browser-use/Maitu page probing during --preflight")
-    parser.add_argument("--assets-root", default="D:/AssetGraph/素材", help="Local asset root used by --preflight file checks")
+    parser.add_argument(
+        "--assets-root",
+        default=os.getenv("ASSETGRAPH_ASSETS_ROOT", str(DEFAULT_ASSETS_ROOT)),
+        help="Local asset root used by --preflight file checks",
+    )
     parser.add_argument("--check-config", action="store_true", help="Print resolved configuration and exit without calling AssetGraph")
     parser.add_argument("--log-level", default="INFO", help="Python logging level")
     return parser.parse_args(argv)

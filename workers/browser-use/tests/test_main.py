@@ -62,6 +62,14 @@ def executable_script_layout_gate() -> dict[str, Any]:
     }
 
 
+def test_parse_args_uses_environment_asset_root(monkeypatch) -> None:
+    monkeypatch.setenv("ASSETGRAPH_ASSETS_ROOT", "/srv/assetgraph-assets")
+
+    args = worker_main.parse_args(["--check-config"])
+
+    assert args.assets_root == "/srv/assetgraph-assets"
+
+
 def test_check_config_rejects_conflicting_execution_mode_before_client_start(monkeypatch) -> None:
     client_started = False
 

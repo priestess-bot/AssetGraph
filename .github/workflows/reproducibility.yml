@@ -1,0 +1,59 @@
+name: reproducibility
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  clean-clone:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres@sha256:d845e7f0ac8517b9d9868b6d20379f9688ba3676595e50ca7c0b664964b2a760 # 16-alpine
+        env:
+          POSTGRES_DB: assetgraph
+          POSTGRES_USER: assetgraph
+          POSTGRES_PASSWORD: assetgraph
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U assetgraph -d assetgraph"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      ASSETGRAPH_TEST_DATABASE_URL: postgresql://assetgraph:assetgraph@127.0.0.1:5432/assetgraph
+      ASSETGRAPH_DATABASE_URL: postgresql://assetgraph:assetgraph@127.0.0.1:5432/assetgraph
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          version: "0.11.15"
+      - name: Validate Qwen service lock without downloading models
+        working-directory: services/qwen3
+        run: uv lock --check
+      - name: Exercise default bootstrap and Hermes skill installation
+        env:
+          HERMES_HOME: ${{ runner.temp }}/assetgraph-hermes
+        run: python scripts/bootstrap_reproducible.py
+      - name: Verify repository contract
+        run: python scripts/verify_reproducibility.py
+      - name: Apply all migrations to fresh PostgreSQL
+        working-directory: backend
+        run: uv run python ../scripts/apply_migrations.py
+      - name: Backend tests
+        working-directory: backend
+        run: uv run pytest -q
+      - name: Worker tests
+        working-directory: workers/browser-use
+        run: uv run pytest -q
+      - name: Ruff
+        run: |
+          cd backend
+          uv run ruff check app tests ../scripts ../services/qwen3
+          cd ../workers/browser-use
+          uv run ruff check src tests

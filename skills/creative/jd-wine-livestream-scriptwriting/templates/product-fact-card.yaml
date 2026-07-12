@@ -1,0 +1,194 @@
+batch:
+  platform: 京东/麦兔
+  script_mode: 1分钟/3分钟/5-8分钟/长循环
+  target_duration_minutes: null
+  target_duration_is_operator_only: true
+  always_on_24h_loop: true
+  time_neutral_spoken_script: true
+  seamless_loop_required: true
+  catalog_scope:
+    featured_skus: []
+    catalog_total_verified: false
+    verified_catalog_total: null
+    featured_skus_are_not_total_catalog: true
+    spoken_catalog_count_forbidden_unless_verified: true
+  fresh_draft:
+    required_for_feedback_rewrite: true
+    start_from_blank_file: true
+    previous_draft_usage: negative_reference_and_overlap_audit_only
+    original_sources_only_for_facts: true
+    nonessential_long_phrase_overlap_allowed: false
+  duration_material:
+    target_supported_by_verified_material: null
+    unsupported_marker: insufficient_verified_material_for_target_duration
+    generic_wine_education_as_padding_forbidden: true
+    repetition_as_padding_forbidden: true
+  target_audience: []
+  target_voice: 待确认
+  host_persona:
+    role: 懂酒但不卖弄、替观众缩小选择的主播
+    address_style: 您/朋友
+    judgment_strength: 直接但不压迫
+    vocabulary_level: 日常口语夹少量必要专业词
+    continuity_required: true
+  voice_style:
+    conversational: true
+    sounds_like_live_host: true
+    training_manual_tone_forbidden: true
+    abstract_nouns_plain_language_only_when_needed: true
+    common_terms_no_forced_explanation: true
+    explain_only_if_affects_purchase_or_prevents_misunderstanding: true
+    max_unjustified_term_explanations_per_product: 2
+    explain_each_term_once: true
+    remove_explanation_if_choice_still_clear: true
+    analogy_must_reduce_explanation_length: true
+    preferred_sentence_chinese_chars: mixed_10-36
+    review_sentence_above_chinese_chars: 45
+    short_sentence_streak_review: 5
+    preferred_paragraph_sentences: mixed_2-5
+    single_sentence_paragraphs_use_sparingly: true
+    whole_script_prose_rewrite_required: true
+    continuous_cross_product_read_samples: 2
+    continuous_sample_target_minutes: 3
+    stable_host_persona_required: true
+    repeated_sentence_opening_review_threshold: 4
+    repeated_qa_template_review: [有人会问, 这款适合谁, 为什么, 当然不是]
+    vague_phrase_review: [这款, 可以, 比较, 适合, 就是, 有内容, 比较稳, 接得住, 对路]
+    paragraph_stitching_review_required: true
+    fake_colloquial_tics_forbidden: [家人们, 宝宝们, 说实话, 您知道吗, 真的绝了, 闭眼冲]
+    rewrite_passes: [真人口语遍, 整篇文笔遍, 数字人朗读遍]
+  verified_sources: []
+  promotion_verified_at: null
+  promotion_operator: ""
+  forbidden_words: []
+  main_product_sku: ""
+  conversion_rhythm:
+    opening_retention: ""
+    action_interval_minutes: 3-5
+    main_conversion_peak_at: ""
+    loop_reentry_at: ""
+
+products:
+  - product_name: ""
+    sku: ""
+    specification: ""
+    brand: ""
+    series: ""
+    series_position: ""
+    main_theme: ""
+    content_ownership:
+      primary_claim: ""
+      unique_facts: []
+      unique_objection: ""
+      unique_scene: ""
+      comparison_owned_here: []
+      callback_reasons: []
+      repeated_without_increment: []
+    country_region: ""
+    grape_varieties: []
+    winemaking:
+      selection: ""
+      fermentation: ""
+      barrel: ""
+      bottle_ageing: ""
+    tasting:
+      color: []
+      aroma_first: []
+      aroma_later: []
+      palate: []
+      finish: []
+    differentiators: []
+    suitable_for: []
+    scenarios: []
+    food_pairing: []
+    terminology:
+      explanations: []
+      # each item: {term: "", reason: affects_purchase|prevents_misunderstanding|sku_differentiator|viewer_question, first_use_only: true}
+      common_terms_used_without_explanation: []
+      repeated_definitions: []
+      forced_analogies: []
+    verified_awards: []
+    verified_endorsements: []
+    objections:
+      - concern: 怕涩/不会选/价格/送礼/规格
+        response: ""
+    promotion:
+      verified: false
+      verified_at: null
+      source: ""
+      price: "待确认"
+      member_only: "待确认"
+      gift: "待确认"
+      quota: "待确认"
+      jd_beans: "待确认"
+      lottery: "待确认"
+      deadline: "待确认"
+      stock_scope: "待确认"
+    conversion:
+      audience_hook: ""
+      purchase_reason: ""
+      weak_cta: ""
+      comparison_cta: ""
+      strong_cta: ""
+      benefit_peak: ""
+      interaction_keyword: ""
+      next_product_transition: ""
+    source: []
+    forbidden_claims: []
+    pending_confirmation: []
+
+output_contract:
+  spoken_script_must_not_include:
+    - 参考资料显示
+    - 待确认
+    - 本试读版
+    - 正式直播前核验
+    - 不作为承诺
+    - 今天
+    - 早上好
+    - 中午好
+    - 下午好
+    - 晚上好
+    - 今晚
+    - 今夜
+    - 周末
+    - 今天这半个小时
+    - 接下来半小时
+    - 本场结束
+    - 下次再见
+    - 感谢观看
+    - 马上下播
+    - 直播间这八款酒
+    - 直播间一共八款
+    - 把八款缩到两款
+    - 所有商品里
+    - 直播间就这几款
+  operator_notes_separate_from_spoken_script: true
+  target_duration_excluded_from_spoken_script: true
+  time_of_day_greetings_forbidden: true
+  seamless_loop_reentry_required: true
+  featured_skus_must_not_imply_total_catalog: true
+  spoken_catalog_count_requires_verified_full_catalog: true
+  semantic_dedup_audit_required: true
+  content_ownership_ledger_required: true
+  filler_paragraphs_forbidden: true
+  unsupported_target_duration_must_be_reported: true
+  fresh_draft_from_blank_required_for_feedback_rewrite: true
+  prior_draft_nonessential_phrase_overlap_audit_required: true
+  human_colloquial_rewrite_required: true
+  whole_script_prose_rewrite_required: true
+  continuous_cross_product_read_required: true
+  fragmented_short_sentence_gate_required: true
+  repeated_opening_and_qa_gate_required: true
+  stable_host_persona_required: true
+  paragraph_continuity_gate_required: true
+  explanation_necessity_audit_required: true
+  common_terms_must_not_be_forced_explained: true
+  repeated_term_definitions_forbidden: true
+  unjustified_explanation_budget_per_product: 2
+  analogy_must_shorten_understanding: true
+  digital_human_read_aloud_pass_required: true
+  long_sentence_review_required: true
+  pure_spoken_file_only_contains_spoken_words: true
+  operator_cues_forbidden_in_spoken_file: true
+  missing_promotion_marker: promotion_material_missing

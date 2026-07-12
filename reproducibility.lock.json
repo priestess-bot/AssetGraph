@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "python": {
+    "requires": ">=3.11,<3.15",
+    "tested": "3.11"
+  },
+  "uv": {
+    "tested": "0.11.15"
+  },
+  "browser_use": {
+    "repository": "https://github.com/browser-use/browser-use.git",
+    "commit": "2454d3e2551705232333c906ded8fc31ab0fc9f2",
+    "version": "0.13.2",
+    "default_path": ".external/browser-use"
+  },
+  "qwen3": {
+    "python_requires": ">=3.11,<3.14",
+    "bootstrap_python": "3.12",
+    "embedding": {
+      "repository": "Qwen/Qwen3-Embedding-4B",
+      "revision": "5cf2132abc99cad020ac570b19d031efec650f2b",
+      "default_path": ".external/models/qwen3-4b/Qwen3-Embedding-4B"
+    },
+    "reranker": {
+      "repository": "Qwen/Qwen3-Reranker-4B",
+      "revision": "22e683669bc0f0bd69640a1354a6d0aebcfeede5",
+      "default_path": ".external/models/qwen3-4b/Qwen3-Reranker-4B"
+    }
+  },
+  "script_skill": {
+    "name": "jd-wine-livestream-scriptwriting",
+    "version": "1.6.2",
+    "path": "skills/creative/jd-wine-livestream-scriptwriting",
+    "files": {
+      "SKILL.md": "c2a1d8793840f4bacb6614842eda5d1f897575aa21225811a175d5cb98c3d351",
+      "references/independent-transition-video-scenes.md": "b3092af08a358f85b1807458aecf394e494c4a5c80311139a05379cba2f37001",
+      "references/long-loop-editorial-audit.md": "826e465cc85acd68276c47de458a39b46f91855886b6bbb3158244cdd7925551",
+      "references/quality-baseline.md": "3b4a931c0dd80c7527a1b1fdcf2a3131f4e7f95092ba9ab68f7676e4e3a11ec7",
+      "templates/product-fact-card.yaml": "60edf79371b094177bb30c158e50732232aed386dce9e15080a1876e7fb09b70"
+    }
+  },
+  "asset_inventory": {
+    "manifest": "docs/asset-numbering/asset_inventory_20260709.json",
+    "expected_files": 131,
+    "manifest_tracked_in_git": true,
+    "asset_files_tracked_in_git": false,
+    "required_for_core_reproduction": false,
+    "classification": "private-production-corpus",
+    "root_environment_variable": "ASSETGRAPH_ASSETS_ROOT",
+    "transfer_tool": "scripts/asset_corpus_bundle.py",
+    "recovery_guarantee": "source-machine export and atomic target restore are anchored to the committed inventory and verified by per-file SHA-256"
+  }
+}

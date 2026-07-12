@@ -37,7 +37,7 @@ python -m browser_use_worker --resolve-maitu-materials --script-layout-build-pla
 python -m browser_use_worker --resolve-maitu-materials --script-layout-build-plan-file /tmp/script-layout-build-plan.json --resolved-plan-file /tmp/resolved-build-plan.json --script-layout-draft-execute --target-live-room-id 40173
 ```
 
-`--preflight --plan-code ...` fetches the replacement plan operation plan and performs read-only safety checks before any mutating Browser-use execution. It validates operation support, Maitu project/scene context, AssetGraph asset lookup, Browser-use-friendly asset fields, local file availability under `--assets-root` (default `D:/AssetGraph/素材`), the current Maitu browser/login shell, and whether the target layer/slot name is visible on the current page. It exits with code `0` when there are no failures and code `2` when a blocking check fails. `ready_to_execute` is only `true` when there are no failures, warnings, or skipped checks.
+`--preflight --plan-code ...` fetches the replacement plan operation plan and performs read-only safety checks before any mutating Browser-use execution. It validates operation support, Maitu project/scene context, AssetGraph asset lookup, Browser-use-friendly asset fields, local file availability under `--assets-root` (default: repository `素材/`, override with `ASSETGRAPH_ASSETS_ROOT`), the current Maitu browser/login shell, and whether the target layer/slot name is visible on the current page. It exits with code `0` when there are no failures and code `2` when a blocking check fails. `ready_to_execute` is only `true` when there are no failures, warnings, or skipped checks.
 
 `--skip-browser-probe` is useful in headless CI or API-only smoke tests: all AssetGraph/local-file checks still run, but the result is a warning and `ready_to_execute=false` because the Maitu browser session was not verified.
 
@@ -63,13 +63,15 @@ Phase 6C-B closes the manual reconciliation loop. An authenticated, server-ident
 
 `--resolve-maitu-materials` adds the Stage 5D material gate before draft execution. It validates the complete operation plan and every unique `insert_asset_layer.asset_code` before side effects; unsupported/go-live operations and blocking placeholders fail closed. Regular bindings require a positive Maitu material ID, a type-compatible source type, and an authoritative HTTPS source URL; digital-human bindings require a digital-human source type plus positive speaker and image IDs. Stored material IDs are revalidated against the complete, schema-checked paginated Maitu inventory. A unique verified match is written back through `PATCH /api/assets/{asset_code}/maitu-material-binding`; missing regular images/videos are uploaded only through the unique compatible file input on the active tab at the exact `https://live2.maituai.com/MaterialManage` origin, and the target is reverified immediately before local-file upload. Only a newly created, type-compatible, filename-matching record is accepted. A local digital-human training video is never uploaded as a regular video substitute. Ambiguity, malformed inventory/plan/API responses, missing files, local file/layer type mismatch, unsupported digital-human creation, upload errors, or unverifiable readback/writeback set `manual_required` and make the combined resolver/draft command exit `2` before executing any draft operation.
 
-`--probe-maitu` is read-only. It calls the local `D:/browser-use` CLI, inspects the current page, opens Maitu home when the active page is unrelated, and prints JSON with `url`, `logged_in`, `login_required`, and `opened_home`. It never uploads assets, replaces layers, or saves a Maitu project.
+`--probe-maitu` is read-only. It calls the pinned Browser-use checkout configured by `BROWSER_USE_REPO` (default `.external/browser-use`), inspects the current page, opens Maitu home when the active page is unrelated, and prints JSON with `url`, `logged_in`, `login_required`, and `opened_home`. It never uploads assets, replaces layers, or saves a Maitu project.
 
 Environment variables:
 
 | Variable | Default | Description |
 |---|---|---|
 | `ASSETGRAPH_API_BASE_URL` | `http://127.0.0.1:8000` | AssetGraph backend base URL |
+| `ASSETGRAPH_ASSETS_ROOT` | repository `素材/` | Local asset root; may point to external 27 GB media storage |
+| `BROWSER_USE_REPO` | `.external/browser-use` | Pinned Browser-use checkout created by bootstrap |
 | `BROWSER_USE_WORKER_ID` | hostname/pid based | Claim owner sent to AssetGraph |
 | `BROWSER_USE_LOCK_TTL_SECONDS` | `900` | Retry task lock TTL |
 | `BROWSER_USE_LEASE_HEARTBEAT_INTERVAL_SECONDS` | `30` | Periodic lease renewal interval; runtime also caps it at one third of the TTL |

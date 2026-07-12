@@ -51,7 +51,7 @@ AssetGraph 是一个面向麦兔软件与数字人直播业务的多模态视频
 - 核心业务对象：`LiveSession`、`VideoSegment`、`DigitalHuman`、`VoiceProfile`、`Product`、`Script`、`ScriptBlock`
 - 后端服务：FastAPI API、PostgreSQL repository、编号生成、测试覆盖
 - 基础设施：PostgreSQL、MinIO、Neo4j、Milvus 本地开发配置
-- 本地 Qwen3 embedding/reranker：通过 `D:/AI-Models/qwen3-service` 共享 HTTP 服务接入 `Qwen3-Embedding-4B` 与 `Qwen3-Reranker-4B`，AssetGraph 后端提供 `/api/rag/embeddings`、`/api/rag/rerank`、`/api/rag/qwen3/health`、基于本地 embedding artifact 的 `/api/assets/candidates`、槽位上下文推荐 `/api/maitu/slots/{slot_code}/candidate-assets?semantic=true`，以及 `strategy=semantic_best_match` 的替换方案自动选材
+- 本地 Qwen3 embedding/reranker：仓库内 `services/qwen3/` 提供共享 HTTP 服务源码，模型仓库与 revision 固定在 `reproducibility.lock.json`；AssetGraph 后端提供 `/api/rag/embeddings`、`/api/rag/rerank`、`/api/rag/qwen3/health`、基于本地 embedding artifact 的 `/api/assets/candidates`、槽位上下文推荐 `/api/maitu/slots/{slot_code}/candidate-assets?semantic=true`，以及 `strategy=semantic_best_match` 的替换方案自动选材
 
 ## 目录结构
 
@@ -74,41 +74,36 @@ scripts/                辅助脚本
 素材/                   本地麦兔素材目录；大文件不进 Git
 ```
 
-## 本地开发
+## 跨机器复现与本地开发
 
-复制环境变量示例：
+完整步骤见 [`docs/reproducibility.md`](docs/reproducibility.md)。干净机器的标准入口：
 
 ```bash
-cp .env.example .env
+git clone https://github.com/Simommo888/AssetGraph.git
+cd AssetGraph
+python scripts/bootstrap_reproducible.py
 ```
 
-启动基础设施：
+该入口严格使用 backend/worker 锁文件、生成本地 `.env` 安全密钥、安装仓库内剧本 Skill，并验证仓库自包含契约。
+
+启动基础设施并应用全部 PostgreSQL migration：
 
 ```bash
-docker compose -f infra/docker-compose.yml up -d
-```
-
-启动本地 Qwen3 embedding/reranker 共享服务：
-
-```bash
-cd /d/AI-Models/qwen3-service
-./start_qwen3_service.sh
-curl http://127.0.0.1:8010/health
+python scripts/bootstrap_reproducible.py --skip-dependencies --skip-skill --with-infra
 ```
 
 启动后端开发服务：
 
 ```bash
 cd backend
-pip install -e .
-uvicorn app.main:app --reload
+uv run uvicorn app.main:app --reload
 ```
 
-应用本地 PostgreSQL migration：
+安装固定 revision 的 Browser-use 或下载固定 revision 的 Qwen3 模型：
 
 ```bash
-cd backend
-for f in migrations/*.sql; do docker exec -i assetgraph-postgres psql -U assetgraph -d assetgraph -v ON_ERROR_STOP=1 < "$f"; done
+python scripts/bootstrap_reproducible.py --skip-dependencies --skip-skill --with-browser-use
+python scripts/bootstrap_reproducible.py --skip-dependencies --skip-skill --with-qwen-models
 ```
 
 通过后端 API 导入本地麦兔素材 inventory（API-first，不直接写数据库）：
@@ -161,28 +156,13 @@ python -m browser_use_worker --observe-maitu
 
 # Plan 环最小版：把 Observe JSON 转成 ReferenceRoomProfile + LiveRoomBlueprint artifact。
 cd ../..
-./backend/.venv/Scripts/python scripts/extract_maitu_reference_room.py \
+uv run --project backend python scripts/extract_maitu_reference_room.py \
   --observed-state docs/asset-numbering/current_maitu_state_39826_20260709.json \
   --output-dir docs/asset-numbering \
   --date-stamp 20260709
 
 # API ingestion：把 Profile/Blueprint artifact 持久化为后端对象。
-./backend/.venv/Scripts/python - <<'PY'
-from pathlib import Path
-import json, urllib.request
-base = 'http://127.0.0.1:8000'
-payload = {
-    'reference_profile': json.loads(Path('docs/asset-numbering/reference_room_profile_39826_20260709.json').read_text(encoding='utf-8')),
-    'blueprint': json.loads(Path('docs/asset-numbering/live_room_blueprint_39826_20260709.json').read_text(encoding='utf-8')),
-}
-req = urllib.request.Request(
-    base + '/api/maitu/live-room-blueprints/import-reference',
-    data=json.dumps(payload, ensure_ascii=False).encode('utf-8'),
-    headers={'Content-Type': 'application/json'},
-    method='POST',
-)
-print(urllib.request.urlopen(req).read().decode('utf-8'))
-PY
+uv run --project backend python scripts/import_reference_blueprint.py --profile docs/asset-numbering/reference_room_profile_39826_20260709.json --blueprint docs/asset-numbering/live_room_blueprint_39826_20260709.json
 
 # BuildPlan dry-run：从后端蓝图生成可审阅 Browser-use 操作序列。
 curl -X POST "http://127.0.0.1:8000/api/maitu/live-room-build-plans" \
@@ -233,6 +213,7 @@ python -m browser_use_worker --plan-code MT-PLAN-20260709-000001 --preflight --s
 
 ## 文档
 
+- `docs/reproducibility.md`：跨机器复现契约、锁定依赖、剧本 Skill、Qwen3/Browser-use 固定 revision 和 27 GB 外部素材校验流程。
 - `docs/final-goal.md`：项目最终目标，定义数字人直播视频多模态资产图谱的长期愿景、核心对象和 MVP 闭环。
 - `docs/mvp-architecture.md`：MVP 架构、编号规范、数据库表结构、MinIO 路径、Milvus collection、Neo4j schema 和 API 清单。
 - `docs/maitu-function-map.md`：麦兔功能地图与 AssetGraph 建模参考，记录首页、数字分身、素材管理、商品库、直播记录、直播间编辑器、互动配置和场景类型。
@@ -242,7 +223,7 @@ python -m browser_use_worker --plan-code MT-PLAN-20260709-000001 --preflight --s
 - `docs/asset-numbering/duplicate_asset_analysis_20260709.md`：麦兔素材重复原因分析，说明数字分身封面/预览、默认音色封面、重复 material_id 指向同一 URL 等来源，并给出去重建模建议。
 - `docs/asset-numbering/rename_execution_summary_20260709.md`：V3 Browser-use 友好素材重命名执行结果，记录执行策略、manifest、回滚清单和复查统计。
 - `docs/asset-numbering/asset_inventory_summary_20260709.md`：本地素材扫描结果摘要，统计 131 个素材的类型、麦兔分类、重复组和解析状态。
-- `docs/asset-numbering/asset_inventory_20260709.json` / `.csv`：从 `D:/AssetGraph/素材` 扫描生成的结构化素材清单，每条素材包含 file_code、sha256、maitu_category、tags、browser_use_hint 和后续导入 `POST /api/assets` 的 `asset_create_payload`。
+- `docs/asset-numbering/asset_inventory_20260709.json` / `.csv`：从 `ASSETGRAPH_ASSETS_ROOT` 指向的素材目录扫描生成的结构化素材清单，每条素材包含 file_code、sha256、maitu_category、tags、browser_use_hint 和后续导入 `POST /api/assets` 的 `asset_create_payload`。
 - `docs/asset-numbering/assetgraph_import_quality_report_20260709.md` / `.json`：通过后端 API 对 131 条已入库素材生成的质量检查报告，覆盖字段缺失、local_file_code 唯一性、标签覆盖率、重复组和分类分布。
 - `docs/asset-numbering/asset_retrieval_documents_20260709.jsonl` / `asset_retrieval_embeddings_20260709.jsonl` / `.md`：由 `/api/assets` 生成的 Agent/RAG 检索文本与 Qwen3 embedding artifact，每条素材一条检索文档，embedding 维度 1024。
 - `docs/browser-use-integration.md`：AssetGraph 与 Browser-use 同仓一体化布局，说明 backend、worker、scripts、infra 和素材目录如何一起部署/迁移。

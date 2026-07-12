@@ -76,6 +76,14 @@ def make_session(outputs: list[str]) -> tuple[BrowserUseCliSession, FakeRunner]:
     return session, runner
 
 
+def test_default_config_uses_environment_browser_use_repository(monkeypatch) -> None:
+    monkeypatch.setenv("BROWSER_USE_REPO", "/opt/browser-use-pinned")
+
+    config = BrowserUseCliSessionConfig()
+
+    assert config.browser_use_repo == "/opt/browser-use-pinned"
+
+
 def test_default_config_uses_visible_chrome_cdp_and_named_session(monkeypatch) -> None:
     monkeypatch.delenv("BROWSER_USE_SESSION_NAME", raising=False)
     monkeypatch.delenv("BROWSER_USE_CDP_URL", raising=False)

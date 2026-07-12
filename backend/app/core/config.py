@@ -1,5 +1,12 @@
+import os
+from pathlib import Path
+
 from pydantic import AliasChoices, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+DEFAULT_ENV_FILE = Path(os.environ.get("ASSETGRAPH_ENV_FILE", REPO_ROOT / ".env")).resolve()
 
 
 class Settings(BaseSettings):
@@ -71,7 +78,7 @@ class Settings(BaseSettings):
     minio_bucket: str = "assetgraph"
     minio_secure: bool = False
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
+    model_config = SettingsConfigDict(env_file=DEFAULT_ENV_FILE, extra="ignore", populate_by_name=True)
 
     @property
     def postgres_dsn(self) -> str:
