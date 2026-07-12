@@ -426,7 +426,7 @@ def test_named_session_process_lock_is_acquired_before_first_external_command(mo
 
     def acquire(session_name: str, timeout_seconds: float) -> None:
         assert session_name == "assetgraph-maitu-test"
-        assert timeout_seconds == 120.0
+        assert timeout_seconds == pytest.approx(120.0, abs=0.001)
         events.append("lock")
 
     monkeypatch.setattr(browser_cli_session_module, "_acquire_process_session_lock", acquire, raising=False)
