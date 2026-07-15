@@ -214,7 +214,7 @@ python -m browser_use_worker --plan-code MT-PLAN-20260709-000001 --preflight --s
 ## 文档
 
 - `docs/reproducibility.md`：跨机器复现契约、锁定依赖、剧本 Skill、Qwen3/Browser-use 固定 revision 和 27 GB 外部素材校验流程。
-- `docs/final-goal.md`：项目最终目标，定义数字人直播视频多模态资产图谱的长期愿景、核心对象和 MVP 闭环。
+- `docs/final-goal.md`：项目最终目标，以“要素按剧本拼接成可播内容”和“现场/运营数据回流评估角色”为两大业务重心，定义编剧/导演/影像/剪辑/场控/数据六个 AI 角色的接力分工、核心对象和第一阶段闭环。
 - `docs/mvp-architecture.md`：MVP 架构、编号规范、数据库表结构、MinIO 路径、Milvus collection、Neo4j schema 和 API 清单。
 - `docs/maitu-function-map.md`：麦兔功能地图与 AssetGraph 建模参考，记录首页、数字分身、素材管理、商品库、直播记录、直播间编辑器、互动配置和场景类型。
 - `docs/maitu-live-room-builder.md`：从0搭建麦兔直播间的能力设计，定义 ReferenceRoomProfile、LiveRoomBlueprint、SceneBlueprint、LayerBlueprint、BuildPlan 和 Browser-use 创建/插入/保存类 operation；`scripts/extract_maitu_reference_room.py` 可把 Observe JSON 转成参考直播间 Profile/蓝图 artifact。
