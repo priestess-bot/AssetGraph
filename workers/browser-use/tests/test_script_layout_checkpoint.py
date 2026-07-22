@@ -220,6 +220,100 @@ def test_checkpoint_store_reuses_attempt_and_completion_ids_for_idempotent_retri
     assert complete_payloads[0]["evidence"]["verified"] is True
     assert complete_payloads[0]["evidence"]["clip_id"] == 416426
     assert complete_payloads[0]["evidence"]["go_live_clicked"] is False
+    assert "action_details" not in complete_payloads[0]["evidence"]
+    assert complete_payloads[0]["operation_result"]["details"] == {
+        "summary": "scene created and read back",
+        "go_live_clicked": False,
+    }
+
+
+def test_checkpoint_store_does_not_persist_raw_provider_mutation_response() -> None:
+    client = RecordingCheckpointClient()
+    plan = operation_plan()
+    store = AssetGraphScriptLayoutCheckpointStore.start(
+        client=client,
+        operation_plan=plan,
+        target_live_room_id="47000002",
+    )
+    operation = plan["operations"][1]
+    store.begin_operation(1, operation)
+    public_url = (
+        "https://mytwins-static.oss-cn-hangzhou.aliyuncs.com/images/"
+        "b565b64460bb99e0332e494a68cc3c8ed084ade9.jpeg?x-oss-process=style/max_width_1080"
+    )
+    action = ScriptLayoutDraftActionResult(
+        operation_index=1,
+        operation_type="create_scene",
+        operation_name="新建场景：促单",
+        action_type="create_draft_scene",
+        status="completed",
+        summary="scene created and read back",
+        scene_index=1,
+        scene_name="促单",
+        clip_id=416426,
+        details={
+            "create_result": {
+                "verified": True,
+                "verification_source": "working_room_readback",
+                "source_material_url": public_url,
+                "response": {"url": public_url, "provider_metadata": "not durable"},
+            }
+        },
+    )
+
+    store.complete_operation(1, operation, action)
+
+    payload = next(call[1][3] for call in client.calls if call[0] == "complete")
+    assert payload["evidence"]["source_material_url"] == public_url
+    assert "response" not in str(payload)
+    assert "provider_metadata" not in str(payload)
+
+
+def test_checkpoint_store_uses_speaker_and_image_identity_for_digital_human() -> None:
+    client = RecordingCheckpointClient()
+    plan = operation_plan()
+    store = AssetGraphScriptLayoutCheckpointStore.start(
+        client=client,
+        operation_plan=plan,
+        target_live_room_id="47000002",
+    )
+    operation = plan["operations"][1]
+    store.begin_operation(1, operation)
+    action = ScriptLayoutDraftActionResult(
+        operation_index=1,
+        operation_type="insert_asset_layer",
+        operation_name="插入数字人",
+        action_type="reuse_seeded_digital_human",
+        status="completed",
+        summary="digital human seed reused and read back",
+        scene_index=0,
+        scene_name="开场",
+        clip_id=416425,
+        layer_id="scene-00-digital_human",
+        layer_type="digital_human",
+        details={
+            "insert_result": {
+                "verified": True,
+                "verification_source": "working_room_readback",
+                "material_id": 10121044,
+                "source_material_id": 40222,
+                "source_material_type": "digital_human",
+                "source_material_url": "https://mtc.maituai.com/image/20260618_165812_cover.png",
+                "speaker_id": 4224,
+                "digital_human_image_id": 8856,
+                "sound_enabled": False,
+            }
+        },
+    )
+
+    store.complete_operation(1, operation, action)
+
+    payload = next(call[1][3] for call in client.calls if call[0] == "complete")
+    assert payload["evidence"]["source_material_id"] is None
+    assert payload["evidence"]["source_material_url"] is None
+    assert payload["evidence"]["speaker_id"] == 4224
+    assert payload["evidence"]["digital_human_image_id"] == 8856
+    assert payload["evidence"]["sound_enabled"] is False
 
 
 def test_checkpoint_store_refuses_unverified_mutation_completion() -> None:

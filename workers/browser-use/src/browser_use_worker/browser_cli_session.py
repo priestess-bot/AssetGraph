@@ -1003,6 +1003,7 @@ class BrowserUseCliSession:
     left: op.x || 0,
     top: op.y || 0,
     layer_n: op.z_index || 1,
+    sound_enabled: op.sound_enabled === true,
     style_front: JSON.stringify(style),
   };
   const created = unwrap(xhr('POST', 'clip_materials', payload).data);
@@ -1018,6 +1019,7 @@ class BrowserUseCliSession:
       || String(verifiedMaterial.url || '') !== String(sourceUrl || '')
       || String(verifiedMaterial.digital_human_image_id || '') !== String(digitalHumanImageId || '')
       || String(verifiedMaterial.speaker_id || '') !== String(speakerId || '')
+      || Boolean(verifiedMaterial.sound_enabled) !== Boolean(payload.sound_enabled)
       || Number(verifiedStyle.left) !== Number(style.left)
       || Number(verifiedStyle.top) !== Number(style.top)
       || Number(verifiedStyle.width) !== Number(style.width)
@@ -1040,6 +1042,8 @@ class BrowserUseCliSession:
     source_material_url: sourceUrl,
     speaker_id: speakerId,
     digital_human_image_id: digitalHumanImageId,
+    sound_enabled: Boolean(verifiedMaterial.sound_enabled),
+    audio_role: op.audio_role || 'muted',
     left: style.left,
     top: style.top,
     width: style.width,
@@ -1049,6 +1053,80 @@ class BrowserUseCliSession:
     verified: true,
     verification_source: 'working_room_readback',
     go_live_clicked: false,
+  });
+})()
+""".strip().replace("__ARGS__", json.dumps(args, ensure_ascii=False))
+        return self._eval_json(script)
+
+    def adopt_seeded_digital_human(
+        self,
+        *,
+        live_room_id: str,
+        clip_id: int,
+        material_id: int,
+        operation: dict[str, Any],
+    ) -> dict[str, Any]:
+        args = {
+            "liveRoomId": str(live_room_id),
+            "clipId": int(clip_id),
+            "materialId": int(material_id),
+            "operation": operation,
+        }
+        script = """
+(() => {
+  const args = __ARGS__;
+  const op = args.operation || {};
+  const token = (localStorage.getItem('token') || '').trim();
+  if (location.origin !== 'https://live2.maituai.com') throw new Error('unexpected Maitu origin: ' + location.origin);
+  if (!token) throw new Error('missing authenticated Maitu token');
+  const unwrap = (r) => (r && typeof r === 'object' && r.success === true && 'data' in r) ? r.data : r;
+  const arr = (x) => Array.isArray(x) ? x : [];
+  function xhr(method, path, body) {
+    const x = new XMLHttpRequest();
+    x.open(method, 'https://api.maituai.com/' + path, false);
+    x.setRequestHeader('Content-Type', 'application/json');
+    x.setRequestHeader('Authorization', token);
+    x.send(body === undefined ? null : JSON.stringify(body));
+    let data = null;
+    try { data = x.responseText ? JSON.parse(x.responseText) : null; } catch (e) { data = {raw:x.responseText}; }
+    if (!(x.status >= 200 && x.status < 300)) throw new Error(method + ' ' + path + ' failed ' + x.status);
+    return unwrap(data);
+  }
+  const read = () => xhr('GET', 'live_rooms/' + args.liveRoomId + '?env=working&include_qa_clips=true');
+  const room = read();
+  if (Number(room.status) !== 0 || room.latest_live_time) throw new Error('target is not an offline never-live draft');
+  const clips = arr((arr(room.topics)[0] || {}).clips);
+  const clip = clips.find((item) => String(item.id) === String(args.clipId)) || {};
+  const materials = arr(clip.clip_materials);
+  const material = materials.find((item) => String(item.id) === String(args.materialId));
+  const targetName = op.layer_id || '';
+  const sourceMatches = material && material.type === 'digital_human'
+    && String(material.material_id || '') === String(op.material_id || '')
+    && String(material.speaker_id || '') === String(op.speaker_id || '')
+    && String(material.digital_human_image_id || '') === String(op.digital_human_image_id || '');
+  if (!sourceMatches || !targetName) throw new Error('default digital-human seed identity mismatch');
+  if (materials.some((item) => item.id !== material.id && item.name === targetName)) {
+    throw new Error('planned digital-human layer name is already occupied');
+  }
+  const style = typeof material.style_front === 'string'
+    ? material.style_front : JSON.stringify(material.style_front || {});
+  xhr('PUT', 'clip_materials/' + material.id, {...material, clip_id:args.clipId, name:targetName, style_front:style});
+  const verifyRoom = read();
+  const verifyClip = arr((arr(verifyRoom.topics)[0] || {}).clips).find((item) => String(item.id) === String(args.clipId)) || {};
+  const verified = arr(verifyClip.clip_materials).find((item) => String(item.id) === String(args.materialId));
+  const verifiedSource = verified && verified.type === 'digital_human'
+    && String(verified.material_id || '') === String(op.material_id || '')
+    && String(verified.speaker_id || '') === String(op.speaker_id || '')
+    && String(verified.digital_human_image_id || '') === String(op.digital_human_image_id || '');
+  if (!verifiedSource || verified.name !== targetName) throw new Error('adopted digital-human seed readback mismatch');
+  return JSON.stringify({
+    status:'adopted_seed', live_room_id:args.liveRoomId, clip_id:args.clipId,
+    layer_id:targetName, layer_type:'digital_human', material_id:verified.id,
+    source_material_id:verified.material_id, source_material_type:'digital_human',
+    speaker_id:verified.speaker_id, digital_human_image_id:verified.digital_human_image_id,
+    sound_enabled:Boolean(verified.sound_enabled),
+    verified:true, verification_source:'working_room_readback', environment:'working',
+    not_live:true, reused_seed:true, go_live_clicked:false,
   });
 })()
 """.strip().replace("__ARGS__", json.dumps(args, ensure_ascii=False))
@@ -1091,14 +1169,16 @@ class BrowserUseCliSession:
         && String(material.digital_human_image_id || '') === String(op.digital_human_image_id || '')
       : String(material.material_id || '') === String(op.material_id || op.maitu_material_id || '')
         && String(material.url || '') === String(op.source_material_url || ''));
-  if (!sourceMatches) throw new Error('exact clip-material source identity mismatch before position mutation');
+  const soundMatches = op.sound_enabled === undefined
+    || Boolean(material.sound_enabled) === Boolean(op.sound_enabled);
+  if (!sourceMatches || !soundMatches) throw new Error('exact clip-material source or audio identity mismatch before position mutation');
   const style = {...(typeof material.style_front === 'string' ? JSON.parse(material.style_front || '{}') : (material.style_front || {}))};
   style.left = op.x || 0;
   style.top = op.y || 0;
   style.width = op.width || material.width || null;
   style.height = op.height || material.height || null;
   style.zIndex = op.z_index || material.layer_n || 1;
-  const payload = {...material, left: style.left, top: style.top, width: style.width, height: style.height, layer_n: style.zIndex, style_front: JSON.stringify(style)};
+  const payload = {...material, left: style.left, top: style.top, width: style.width, height: style.height, layer_n: style.zIndex, sound_enabled:op.sound_enabled === true, style_front: JSON.stringify(style)};
   const updated = unwrap(xhr('PUT', 'clip_materials/' + material.id, payload).data);
   const verifyRoom = unwrap(xhr('GET', 'live_rooms/' + args.liveRoomId + '?env=working&include_qa_clips=true').data);
   const verifyClips = arr((arr(verifyRoom.topics)[0] || {}).clips);
@@ -1111,12 +1191,14 @@ class BrowserUseCliSession:
         && String(verifiedMaterial.digital_human_image_id || '') === String(op.digital_human_image_id || '')
       : String(verifiedMaterial.material_id || '') === String(op.material_id || op.maitu_material_id || '')
         && String(verifiedMaterial.url || '') === String(op.source_material_url || ''));
-  if (!verifiedMaterial || !verifiedSourceMatches || Number(verifiedStyle.left) !== Number(style.left) || Number(verifiedStyle.top) !== Number(style.top)
+  const verifiedSoundMatches = verifiedMaterial && (op.sound_enabled === undefined
+    || Boolean(verifiedMaterial.sound_enabled) === Boolean(op.sound_enabled));
+  if (!verifiedMaterial || !verifiedSourceMatches || !verifiedSoundMatches || Number(verifiedStyle.left) !== Number(style.left) || Number(verifiedStyle.top) !== Number(style.top)
       || Number(verifiedStyle.width) !== Number(style.width) || Number(verifiedStyle.height) !== Number(style.height)
       || Number(verifiedStyle.zIndex) !== Number(style.zIndex)) {
     throw new Error('positioned material authoritative readback mismatch');
   }
-  return JSON.stringify({status:'positioned', clip_id:args.clipId, scene_index:op.scene_index, scene_name:op.scene_name || null, material_id:material.id, layer_id:op.layer_id || null, layer_type:op.layer_type || null, asset_code:op.asset_code || null, source_material_id:material.material_id || null, source_material_type:material.type || null, source_material_url:material.url || null, speaker_id:material.speaker_id || null, digital_human_image_id:material.digital_human_image_id || null, left:style.left, top:style.top, width:style.width, height:style.height, z_index:style.zIndex, response:updated, verified:true, verification_source:'working_room_readback', go_live_clicked:false});
+  return JSON.stringify({status:'positioned', clip_id:args.clipId, scene_index:op.scene_index, scene_name:op.scene_name || null, material_id:material.id, layer_id:op.layer_id || null, layer_type:op.layer_type || null, asset_code:op.asset_code || null, source_material_id:material.material_id || null, source_material_type:material.type || null, source_material_url:material.url || null, speaker_id:material.speaker_id || null, digital_human_image_id:material.digital_human_image_id || null, sound_enabled:Boolean(verifiedMaterial.sound_enabled), audio_role:op.audio_role || 'muted', left:style.left, top:style.top, width:style.width, height:style.height, z_index:style.zIndex, response:updated, verified:true, verification_source:'working_room_readback', go_live_clicked:false});
 })()
 """.strip().replace("__ARGS__", json.dumps(args, ensure_ascii=False))
         return self._eval_json(script)
@@ -1220,6 +1302,7 @@ class BrowserUseCliSession:
         : String(material.material_id || '') === String(expected.source_material_id || '')
           && String(material.url || '') === String(expected.source_material_url || ''));
     if (!sourceMatches
+        || (expected.sound_enabled !== undefined && Boolean(material.sound_enabled) !== Boolean(expected.sound_enabled))
         || !exactNumber(style.left, expected.left) || !exactNumber(style.top, expected.top)
         || !exactNumber(style.width, expected.width) || !exactNumber(style.height, expected.height)
         || !exactNumber(style.zIndex, expected.z_index)) {

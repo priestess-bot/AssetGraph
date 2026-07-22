@@ -142,6 +142,58 @@ def test_qwen_model_bootstrap_syncs_locked_service_environment(monkeypatch, tmp_
     assert (["uv", "sync", "--python", "3.12", "--frozen"], tmp_path / "services" / "qwen3") in calls
 
 
+def test_live_research_tool_bootstrap_checks_out_locked_commits(monkeypatch, tmp_path: Path) -> None:
+    bootstrap = load_script("scripts/bootstrap_reproducible.py", "assetgraph_bootstrap_live_research")
+    calls: list[tuple[list[str], Path]] = []
+    monkeypatch.setattr(bootstrap, "_run", lambda command, *, cwd: calls.append((command, cwd)))
+    monkeypatch.setattr(
+        bootstrap,
+        "_load_manifest",
+        lambda _root: {
+            "live_research": {
+                "streamcap": {
+                    "repository": "https://example/StreamCap.git",
+                    "commit": "a" * 40,
+                    "default_path": ".external/StreamCap",
+                },
+                "douyin_live": {
+                    "repository": "https://example/douyinLive.git",
+                    "commit": "b" * 40,
+                    "default_path": ".external/douyinLive",
+                },
+            }
+        },
+    )
+
+    paths = bootstrap.install_live_research_tools(tmp_path)
+
+    assert paths == (tmp_path / ".external" / "StreamCap", tmp_path / ".external" / "douyinLive")
+    assert (["git", "checkout", "--detach", "a" * 40], paths[0]) in calls
+    assert (["git", "checkout", "--detach", "b" * 40], paths[1]) in calls
+
+
+def test_video_demo_bootstrap_installs_locked_runtime_and_frontend(monkeypatch, tmp_path: Path) -> None:
+    bootstrap = load_script("scripts/bootstrap_reproducible.py", "assetgraph_bootstrap_video_demo")
+    worker_root = tmp_path / "workers" / "video-production"
+    frontend_root = tmp_path / "frontend"
+    python = worker_root / ".venv" / "bin" / "python"
+    calls: list[tuple[list[str], Path]] = []
+    monkeypatch.setattr(
+        bootstrap.shutil,
+        "which",
+        lambda name: f"/usr/bin/{name}" if name in {"npm", "ffmpeg", "ffprobe", "fc-match"} else None,
+    )
+    monkeypatch.setattr(bootstrap, "_venv_python", lambda _project: python)
+    monkeypatch.setattr(bootstrap, "_run", lambda command, *, cwd: calls.append((command, cwd)))
+
+    model_root = bootstrap.install_video_demo(tmp_path)
+
+    assert (["uv", "sync", "--python", "3.12", "--frozen"], worker_root) in calls
+    assert (["npm", "ci"], frontend_root) in calls
+    assert (["npm", "run", "build"], frontend_root) in calls
+    assert model_root == tmp_path / ".external" / "models" / "kokoro"
+
+
 def test_migration_discovery_is_contiguous() -> None:
     migrations = load_script("scripts/apply_migrations.py", "assetgraph_apply_migrations")
 
@@ -172,7 +224,12 @@ def test_migration_discovery_is_contiguous() -> None:
                 "maitu_retry_mutation_intent.sql",
                 "script_driven_build_plan_persistence.sql",
                 "script_layout_execution_checkpoints.sql",
-            ],
+                "video_production_jobs.sql",
+                    "maitu_production_workbench.sql",
+                    "live_research_observations.sql",
+                    "maitu_material_analysis.sql",
+                    "maitu_reference_template_handoff.sql",
+                ],
             start=1,
         )
     ]

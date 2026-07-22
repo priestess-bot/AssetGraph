@@ -57,6 +57,30 @@ class FakeScriptLayoutDraftSession:
             "layer_id": operation.get("layer_id"),
         }
 
+    def adopt_seeded_digital_human(
+        self,
+        *,
+        live_room_id: str,
+        clip_id: int,
+        material_id: int,
+        operation: dict,
+    ) -> dict:
+        self.calls.append(("adopt_seeded_digital_human", {"clip_id": clip_id, "material_id": material_id}))
+        clip = next(item for item in self.room["topics"][0]["clips"] if item["id"] == clip_id)
+        material = next(item for item in clip["clip_materials"] if item["id"] == material_id)
+        material["name"] = operation["layer_id"]
+        return {
+            "clip_id": clip_id,
+            "material_id": material_id,
+            "source_material_id": material["material_id"],
+            "source_material_type": "digital_human",
+            "speaker_id": material["speaker_id"],
+            "digital_human_image_id": material["digital_human_image_id"],
+            "sound_enabled": False,
+            "verified": True,
+            "verification_source": "working_room_readback",
+        }
+
     def position_asset_layer(self, *, live_room_id: str, clip_id: int, operation: dict) -> dict:
         self.calls.append(("position_asset_layer", {"clip_id": clip_id, "layer_id": operation.get("layer_id")}))
         return {"clip_id": clip_id, "layer_id": operation.get("layer_id"), "x": operation.get("x"), "y": operation.get("y")}
@@ -233,6 +257,204 @@ def content_build_plan() -> dict:
             },
         ],
     }
+
+
+def fresh_room_preflight_plan(room_id: str = "47000002") -> dict:
+    return {
+        "status": "ready",
+        "target_live_room_id": room_id,
+        "manual_review_required": False,
+        "operations": [
+            {
+                "operation_type": "preflight_content_build_plan",
+                "status": "ready",
+                "target_live_room_id": room_id,
+                "require_fresh_blank_room": True,
+                "protected_reference_room_ids": ["38336", "38995"],
+            }
+        ],
+    }
+
+
+def test_fresh_room_preflight_rejects_protected_reference_room() -> None:
+    session = FakeScriptLayoutDraftSession()
+    session.room["id"] = "38995"
+
+    result = ScriptLayoutDraftRunner(session=session).run(
+        fresh_room_preflight_plan("38995"), target_live_room_id="38995"
+    )
+
+    assert result.status == "failed"
+    assert "protected read-only reference room" in result.summary
+
+
+def test_fresh_room_preflight_rejects_nonblank_room_before_mutation() -> None:
+    session = FakeScriptLayoutDraftSession()
+    session.room["topics"][0]["clips"][0]["clip_materials"] = [{"id": 1, "type": "image"}]
+
+    result = ScriptLayoutDraftRunner(session=session).run(fresh_room_preflight_plan())
+
+    assert result.status == "failed"
+    assert "fresh draft" in result.summary
+    assert [call[0] for call in session.calls] == ["read_live_room"]
+
+
+def test_fresh_room_preflight_accepts_untouched_maitu_digital_human_seed() -> None:
+    session = FakeScriptLayoutDraftSession()
+    session.room.update(
+        {
+            "created_at": "2026-07-21T16:11:39",
+            "updated_at": "2026-07-21T16:11:39",
+        }
+    )
+    session.room["topics"][0]["clips"][0]["clip_materials"] = [
+        {
+            "id": 10121044,
+            "type": "digital_human",
+            "name": "明月",
+            "material_id": 40222,
+            "speaker_id": 4224,
+            "digital_human_image_id": 8856,
+            "content": None,
+            "created_at": 1784621568,
+            "updated_at": 1784621568,
+        }
+    ]
+
+    result = ScriptLayoutDraftRunner(session=session).run(fresh_room_preflight_plan())
+
+    assert result.status == "completed"
+    assert result.actions[0].status == "completed"
+
+
+def test_fresh_room_preflight_rejects_modified_digital_human_seed() -> None:
+    session = FakeScriptLayoutDraftSession()
+    session.room.update(
+        {
+            "created_at": "2026-07-21T16:11:39",
+            "updated_at": "2026-07-21T16:12:00",
+        }
+    )
+    session.room["topics"][0]["clips"][0]["clip_materials"] = [
+        {
+            "id": 10121044,
+            "type": "digital_human",
+            "material_id": 40222,
+            "speaker_id": 4224,
+            "digital_human_image_id": 8856,
+            "content": None,
+            "created_at": 1784621568,
+            "updated_at": 1784621568,
+        }
+    ]
+
+    result = ScriptLayoutDraftRunner(session=session).run(fresh_room_preflight_plan())
+
+    assert result.status == "failed"
+    assert "fresh draft" in result.summary
+
+
+def test_runner_reuses_matching_default_digital_human_seed() -> None:
+    session = FakeScriptLayoutDraftSession()
+    session.room.update(
+        {
+            "created_at": "2026-07-21T16:11:39",
+            "updated_at": "2026-07-21T16:11:39",
+        }
+    )
+    session.room["topics"][0]["clips"][0]["clip_materials"] = [
+        {
+            "id": 10121044,
+            "type": "digital_human",
+            "name": "明月",
+            "material_id": 40222,
+            "speaker_id": 4224,
+            "digital_human_image_id": 8856,
+            "content": None,
+            "created_at": 1784621568,
+            "updated_at": 1784621568,
+        }
+    ]
+    plan = {
+        "status": "ready",
+        "target_live_room_id": "47000002",
+        "operations": [
+            fresh_room_preflight_plan()["operations"][0],
+            {
+                "operation_type": "fill_default_scene",
+                "status": "ready",
+                "scene_index": 0,
+                "scene_name": "开场",
+            },
+            {
+                "operation_type": "insert_asset_layer",
+                "status": "ready",
+                "scene_index": 0,
+                "scene_name": "开场",
+                "layer_id": "scene-00-host",
+                "layer_type": "digital_human",
+                "asset_code": None,
+                "asset_display_code": "40222",
+                "source_material_type": "digital_human",
+                "material_id": 40222,
+                "speaker_id": 4224,
+                "digital_human_image_id": 8856,
+            },
+            {
+                "operation_type": "position_asset_layer",
+                "status": "ready",
+                "scene_index": 0,
+                "scene_name": "开场",
+                "layer_id": "scene-00-host",
+                "layer_type": "digital_human",
+                "asset_code": "maitu:digital_human:40222",
+                "x": 0,
+                "y": 0,
+                "width": 1080,
+                "height": 1920,
+                "z_index": 5,
+            },
+        ],
+    }
+
+    result = ScriptLayoutDraftRunner(session=session).run(plan)
+
+    reuse = result.actions[2]
+    assert result.status == "completed"
+    assert reuse.action_type == "adopt_seeded_digital_human"
+    assert reuse.asset_code is None
+    assert reuse.details and reuse.details["insert_result"]["material_id"] == 10121044
+    assert not any(call[0] == "insert_asset_layer" for call in session.calls)
+    assert any(call[0] == "adopt_seeded_digital_human" for call in session.calls)
+    assert any(call[0] == "position_asset_layer" for call in session.calls)
+
+
+def test_seed_matching_ignores_non_digital_human_layers_loaded_during_recovery() -> None:
+    session = FakeScriptLayoutDraftSession()
+    session.room["topics"][0]["clips"][0]["clip_materials"] = [
+        {
+            "id": 10121044,
+            "type": "digital_human",
+            "material_id": 40222,
+            "speaker_id": 4224,
+            "digital_human_image_id": 8856,
+        },
+        {"id": 10136696, "type": "image", "material_id": 40131},
+    ]
+    runner = ScriptLayoutDraftRunner(session=session)
+    runner._room_cache = session.room
+
+    matched = runner._matching_seeded_digital_human(
+        416425,
+        {
+            "source_material_type": "digital_human",
+            "material_id": 40222,
+            "speaker_id": 4224,
+            "digital_human_image_id": 8856,
+        },
+    )
+
+    assert matched and matched["id"] == 10121044
 
 
 def test_script_layout_draft_runner_executes_ready_ops_and_skips_placeholders() -> None:
@@ -694,7 +916,7 @@ def checkpoint_plan() -> dict:
     }
 
 
-def test_checkpoint_skip_revalidates_preflight_and_hydrates_clip_dependency() -> None:
+def test_checkpoint_skip_reuses_preflight_and_hydrates_clip_dependency() -> None:
     session = FakeScriptLayoutDraftSession()
     session.room["topics"][0]["clips"][0]["name"] = "开场"
     checkpoints = FakeCheckpointStore(

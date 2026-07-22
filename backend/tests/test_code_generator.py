@@ -13,6 +13,7 @@ from app.services.code_generator import (
     format_maitu_slot_code,
     format_jd_live_metric_session_code,
     format_segment_code,
+    format_video_production_job_code,
 )
 
 
@@ -74,6 +75,10 @@ def test_format_maitu_retry_task_code() -> None:
 
 def test_format_jd_live_metric_session_code() -> None:
     assert format_jd_live_metric_session_code(date(2026, 7, 7), 10) == "JD-METRIC-20260707-000010"
+
+
+def test_format_video_production_job_code() -> None:
+    assert format_video_production_job_code(date(2026, 7, 17), 11) == "AG-VJOB-20260717-000011"
 
 
 def test_business_code_rejects_zero_sequence() -> None:

@@ -13,11 +13,12 @@ from .browser_cli_session import BrowserUseCliSession, is_trusted_browser_use_cl
 from .build_plan_dry_run import BuildPlanDryRun
 from .build_plan_non_destructive import BuildPlanNonDestructiveRunner, build_non_destructive_execution_payload
 from .build_plan_preflight import BuildPlanPreflight
-from .client import AssetGraphClient
+from .client import AssetGraphClient, AssetGraphClientError
 from .config import WorkerConfig
 from .jd_metrics import capture_jd_live_metric_sample
 from .live_scene_fill import LiveSceneFillRunner, build_live_scene_fill_execution_payload
 from .maitu_material_resolver import MaituMaterialResolutionResult, MaituMaterialResolver
+from .maitu_inventory_sync import MaituInventoryCollector
 from .preflight import ReplacementPlanPreflight
 from .runner import BrowserUseWorker, DryRunBrowserUseExecutor
 from .script_layout_checkpoint import AssetGraphScriptLayoutCheckpointStore
@@ -25,10 +26,50 @@ from .script_layout_draft_executor import (
     InMemoryScriptLayoutDraftSession,
     ScriptLayoutDraftRunner,
 )
+from .workbench_draft_lease import WorkbenchDraftLeaseHeartbeat
 
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 DEFAULT_ASSETS_ROOT = REPO_ROOT / "素材"
+
+
+def _workbench_draft_heartbeat_interval_seconds(lease_seconds: int) -> float:
+    raw = os.getenv("ASSETGRAPH_WORKBENCH_DRAFT_HEARTBEAT_INTERVAL_SECONDS", "30")
+    try:
+        configured = float(raw)
+    except ValueError as exc:
+        raise ValueError("ASSETGRAPH_WORKBENCH_DRAFT_HEARTBEAT_INTERVAL_SECONDS must be numeric") from exc
+    if configured <= 0:
+        raise ValueError("ASSETGRAPH_WORKBENCH_DRAFT_HEARTBEAT_INTERVAL_SECONDS must be positive")
+    return min(configured, lease_seconds / 3)
+
+
+def _best_effort_fail_workbench_draft_job(
+    api: AssetGraphClient,
+    *,
+    job_code: str,
+    lease_token: str,
+    error: Exception,
+) -> None:
+    try:
+        api.fail_workbench_draft_execution(
+            job_code,
+            {
+                "lease_token": lease_token,
+                "error_code": "WORKBENCH_DRAFT_EXECUTION_FAILED",
+                "error_message": f"{type(error).__name__}: {error}"[:4000],
+            },
+        )
+    except AssetGraphClientError as fail_error:
+        if "HTTP 409" in str(fail_error):
+            logging.getLogger(__name__).warning(
+                "Workbench draft failure write-back was fenced by a lost/already-finalized lease: %s",
+                fail_error,
+            )
+            return
+        logging.getLogger(__name__).exception("Failed to persist workbench draft job failure")
+    except Exception:
+        logging.getLogger(__name__).exception("Failed to persist workbench draft job failure")
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -37,6 +78,34 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true", help="Validate operation plans but do not operate Maitu")
     parser.add_argument("--probe-maitu", action="store_true", help="Run a read-only browser-use probe of the current Maitu page")
     parser.add_argument("--observe-maitu", action="store_true", help="Read structured current Maitu live-room state for the Observe step")
+    parser.add_argument(
+        "--sync-maitu-inventory",
+        action="store_true",
+        help="Claim one workbench inventory job and persist an authenticated Maitu snapshot",
+    )
+    parser.add_argument("--inventory-sync-job-code", help="Claim one specific queued inventory sync job")
+    parser.add_argument(
+        "--run-workbench-draft-job",
+        action="store_true",
+        help="Claim and execute one preflight-passed workbench draft job",
+    )
+    parser.add_argument("--workbench-draft-job-code", help="Claim one specific workbench draft job")
+    parser.add_argument(
+        "--download-missing-maitu-materials",
+        action="store_true",
+        help="Download newly discovered regular Maitu files into the configured mirror",
+    )
+    parser.add_argument(
+        "--maitu-mirror-root",
+        default=os.getenv("ASSETGRAPH_MAITU_MIRROR_ROOT", "/DATA/Downloads/AssetGraph/maitu-mirror"),
+    )
+    parser.add_argument(
+        "--maitu-local-catalog",
+        default=os.getenv(
+            "ASSETGRAPH_LOCAL_ASSET_CATALOG",
+            "/DATA/Downloads/AssetGraph/catalog/current_asset_inventory.json",
+        ),
+    )
     parser.add_argument("--plan-code", help="Fetch a replacement plan operation plan and execute/dry-run it once")
     parser.add_argument("--build-plan-code", help="Fetch a live-room BuildPlan operation plan and run BuildPlan-specific dry-run/preflight")
     parser.add_argument("--preflight", action="store_true", help="Run read-only safety checks for --plan-code before mutating Maitu")
@@ -75,6 +144,8 @@ def _selected_cli_modes(args: argparse.Namespace) -> list[str]:
             ("check_config", args.check_config),
             ("probe_maitu", args.probe_maitu),
             ("observe_maitu", args.observe_maitu),
+            ("sync_maitu_inventory", args.sync_maitu_inventory),
+            ("workbench_draft_job", args.run_workbench_draft_job),
             ("capture_jd_metrics", args.capture_jd_metrics),
             ("script_layout", args.resolve_maitu_materials or args.script_layout_draft_execute),
             ("live_scene_fill", args.live_scene_fill),
@@ -153,6 +224,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise SystemExit("--once cannot run with --dry-run because claiming or releasing a retry task writes queue state")
     if args.dry_run and args.capture_jd_metrics:
         raise SystemExit("--capture-jd-metrics cannot run with --dry-run because metric capture writes production session/sample state")
+    if args.dry_run and args.sync_maitu_inventory:
+        raise SystemExit("--sync-maitu-inventory cannot run with --dry-run because it writes an immutable inventory snapshot")
+    if args.dry_run and args.run_workbench_draft_job:
+        raise SystemExit("--run-workbench-draft-job cannot run with --dry-run")
     if args.dry_run and args.non_destructive_build:
         raise SystemExit("--non-destructive-build cannot run with --dry-run because it opens and operates a real browser session")
     if args.dry_run and not any(
@@ -218,6 +293,151 @@ def main(argv: Sequence[str] | None = None) -> int:
                     str(args.build_plan_code)
                 )
         return source_operation_plan
+
+    if args.sync_maitu_inventory:
+        api = assetgraph_client()
+        claim_payload = {"lease_seconds": 3600}
+        claimed = (
+            api.claim_maitu_inventory_sync(args.inventory_sync_job_code, claim_payload)
+            if args.inventory_sync_job_code
+            else api.claim_next_maitu_inventory_sync(claim_payload)
+        )
+        if claimed is None:
+            print(json.dumps({"status": "idle", "summary": "No queued Maitu inventory sync job."}, ensure_ascii=False))
+            return 0
+        sync_job_code = str(claimed["sync_job_code"])
+        lease_token = str(claimed["lease_token"])
+        try:
+            result = MaituInventoryCollector(
+                session=BrowserUseCliSession(),
+                mirror_root=Path(args.maitu_mirror_root),
+                local_catalog_path=Path(args.maitu_local_catalog),
+            ).collect(download_missing=args.download_missing_maitu_materials)
+            completed = api.complete_maitu_inventory_sync(
+                sync_job_code,
+                {
+                    "lease_token": lease_token,
+                    "source_revision": result.source_revision,
+                    "schema_version": "maitu-inventory-snapshot-v1",
+                    "quality_status": result.quality_status,
+                    "captured_at": result.captured_at,
+                    "summary": result.summary,
+                    "items": list(result.items),
+                },
+            )
+        except Exception as exc:
+            api.fail_maitu_inventory_sync(
+                sync_job_code,
+                {
+                    "lease_token": lease_token,
+                    "error_code": "MAITU_INVENTORY_SYNC_FAILED",
+                    "error_message": f"{type(exc).__name__}: {exc}"[:4000],
+                },
+            )
+            raise
+        print(json.dumps(completed, ensure_ascii=False, indent=2, default=str))
+        return 0
+
+    if args.run_workbench_draft_job:
+        api = assetgraph_client()
+        lease_seconds = 3600
+        claim_payload = {"lease_seconds": lease_seconds}
+        claimed = (
+            api.claim_workbench_draft_execution(args.workbench_draft_job_code, claim_payload)
+            if args.workbench_draft_job_code
+            else api.claim_next_workbench_draft_execution(claim_payload)
+        )
+        if claimed is None:
+            print(json.dumps({"status": "idle", "summary": "No queued workbench draft job."}, ensure_ascii=False))
+            return 0
+        job_code = str(claimed["execution_job_code"])
+        lease_token = str(claimed["lease_token"])
+        heartbeat = WorkbenchDraftLeaseHeartbeat(
+            client=api,
+            execution_job_code=job_code,
+            lease_token=lease_token,
+            lease_seconds=lease_seconds,
+            configured_interval_seconds=_workbench_draft_heartbeat_interval_seconds(lease_seconds),
+        )
+        browser_session: BrowserUseCliSession | None = None
+        try:
+            heartbeat.start()
+            embedded = claimed.get("payload") if isinstance(claimed.get("payload"), dict) else {}
+            embedded_plan = embedded.get("build_plan") if isinstance(embedded.get("build_plan"), dict) else {}
+            build_plan_code = str(embedded_plan.get("build_plan_code") or "").strip()
+            if not build_plan_code:
+                raise RuntimeError("workbench draft job has no persisted build_plan_code")
+            source_plan = api.get_live_room_build_plan_operation_plan(build_plan_code)
+            _require_executable_script_layout_plan(source_plan)
+            browser_session = BrowserUseCliSession()
+            browser_session.set_execution_guard(heartbeat.ensure_active)
+            resolution = MaituMaterialResolver(
+                asset_client=api,
+                session=browser_session,
+                assets_root=args.assets_root,
+            ).resolve_plan(source_plan)
+            if resolution.status != "resolved" or resolution.issues or resolution.manual_required_count:
+                raise RuntimeError(
+                    "workbench material resolution blocked: "
+                    f"issues={len(resolution.issues)}, manual_required={resolution.manual_required_count}"
+                )
+            heartbeat.ensure_active()
+            operation_plan = resolution.operation_plan
+            target_live_room_id = _require_bound_draft_target(operation_plan, None)
+            if not is_trusted_browser_use_cli_session(browser_session):
+                raise RuntimeError("workbench draft execution requires the sealed Browser-use CLI session")
+            checkpoint_store = AssetGraphScriptLayoutCheckpointStore.start(
+                client=api,
+                operation_plan=operation_plan,
+                target_live_room_id=target_live_room_id,
+            )
+
+            def combined_execution_guard() -> bool:
+                heartbeat.ensure_active()
+                return checkpoint_store.ensure_lease_active()
+
+            browser_session.set_execution_guard(combined_execution_guard)
+            result = ScriptLayoutDraftRunner(
+                session=browser_session,
+                checkpoint_store=checkpoint_store,
+            ).run(operation_plan, target_live_room_id=target_live_room_id)
+            heartbeat.ensure_active()
+            checkpoint_result = checkpoint_store.finalize(result)
+            if result.status not in {"completed", "completed_with_manual_review"} or result.failure_count:
+                raise RuntimeError(f"draft execution did not complete cleanly: {result.summary}")
+            browser_session.set_execution_guard(None)
+            heartbeat.stop_for_writeback()
+            completed = api.complete_workbench_draft_execution(
+                job_code,
+                {
+                    "lease_token": lease_token,
+                    "ready_for_go_live": False,
+                    "result": {
+                        "status": result.status,
+                        "target_live_room_id": target_live_room_id,
+                        "worker_result": asdict(result),
+                        "checkpoint_result": checkpoint_result,
+                        "ready_for_go_live": False,
+                    },
+                },
+            )
+        except Exception as exc:
+            if browser_session is not None:
+                browser_session.set_execution_guard(None)
+            heartbeat.stop()
+            _best_effort_fail_workbench_draft_job(
+                api,
+                job_code=job_code,
+                lease_token=lease_token,
+                error=exc,
+            )
+            raise
+        finally:
+            if browser_session is not None:
+                browser_session.set_execution_guard(None)
+            heartbeat.stop()
+        print(json.dumps(completed, ensure_ascii=False, indent=2, default=str))
+        return 0
 
     resolved_operation_plan: dict | None = None
     material_resolution: MaituMaterialResolutionResult | None = None

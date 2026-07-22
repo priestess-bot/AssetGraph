@@ -226,6 +226,36 @@ def test_checkpoint_complete_accepts_backend_bound_public_material_url() -> None
     assert payload.evidence["source_material_url"] == public_url
 
 
+def test_checkpoint_complete_accepts_public_script_content_hashes() -> None:
+    script_hash = "a" * 64
+    payload = MaituScriptLayoutExecutionCheckpointCompleteCreate.model_validate(
+        {
+            "operation_fingerprint": FINGERPRINT,
+            "attempt_id": ATTEMPT_ID,
+            "lease_token": LEASE_TOKEN,
+            "lease_version": 1,
+            "completion_id": COMPLETION_ID,
+            "result_summary": "script written and read back",
+            "evidence": {
+                "verified": True,
+                "operation_applied": True,
+                "operation_index": 6,
+                "operation_type": "write_script",
+                "script_sha256": script_hash,
+                "expected_script_sha256": script_hash,
+            },
+            "operation_result": {
+                "operation_index": 6,
+                "operation_type": "write_script",
+                "status": "completed",
+                "details": {"go_live_clicked": False},
+            },
+        }
+    )
+
+    assert payload.evidence["script_sha256"] == script_hash
+
+
 def test_checkpoint_begin_and_reconcile_contracts_are_fenced_secret_free_and_explicit() -> None:
     begin = MaituScriptLayoutExecutionCheckpointBeginCreate.model_validate(
         {

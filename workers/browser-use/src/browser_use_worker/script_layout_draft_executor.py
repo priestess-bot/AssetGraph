@@ -18,6 +18,16 @@ class MaituScriptLayoutDraftSession(Protocol):
     def insert_asset_layer(self, *, live_room_id: str, clip_id: int, operation: dict[str, Any]) -> dict[str, Any]:
         """Insert a selected asset layer into the target draft clip."""
 
+    def adopt_seeded_digital_human(
+        self,
+        *,
+        live_room_id: str,
+        clip_id: int,
+        material_id: int,
+        operation: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Bind the default digital-human seed to the planned layer identity."""
+
     def position_asset_layer(self, *, live_room_id: str, clip_id: int, operation: dict[str, Any]) -> dict[str, Any]:
         """Apply the planned geometry for a previously inserted layer."""
 
@@ -275,10 +285,7 @@ class ScriptLayoutDraftRunner:
                         )
                     )
                     break
-                if decision == "skip" and operation.get("operation_type") not in {
-                    "preflight_content_build_plan",
-                    "verify_scene",
-                }:
+                if decision == "skip" and operation.get("operation_type") != "verify_scene":
                     if checkpoint.get("effect_class") == "mutating" and not self._checkpoint_evidence_matches_room(
                         live_room_id,
                         operation,
@@ -499,6 +506,10 @@ class ScriptLayoutDraftRunner:
                 )
             if self._optional_string(material.get("type")) != expected_source_type or not source_matches:
                 return False
+            if "sound_enabled" in operation and bool(material.get("sound_enabled")) is not bool(
+                operation.get("sound_enabled")
+            ):
+                return False
             if operation_type == "insert_asset_layer":
                 return True
             style = material.get("style_front")
@@ -634,6 +645,38 @@ class ScriptLayoutDraftRunner:
                 "read_live_room",
                 "target room has no explicit authoritative evidence that it is not live",
             )
+        protected_room_ids = {
+            str(value).strip()
+            for value in (operation.get("protected_reference_room_ids") or [])
+            if str(value).strip()
+        }
+        if live_room_id in protected_room_ids:
+            return self._failed_action(
+                index,
+                operation,
+                "read_live_room",
+                "target room is a protected read-only reference room",
+            )
+        if operation.get("require_fresh_blank_room") is True:
+            topics = room.get("topics") if isinstance(room.get("topics"), list) else []
+            clips = topics[0].get("clips") if topics and isinstance(topics[0], dict) else []
+            clips = clips if isinstance(clips, list) else []
+            materials = (
+                clips[0].get("clip_materials")
+                if len(clips) == 1 and isinstance(clips[0], dict)
+                else None
+            )
+            if (
+                len(clips) != 1
+                or not isinstance(materials, list)
+                or not self._fresh_default_scene_is_safe(room, clips[0], materials)
+            ):
+                return self._failed_action(
+                    index,
+                    operation,
+                    "read_live_room",
+                    "target room is not a fresh draft with one untouched default scene",
+                )
         default_clip = self._default_clip(room)
         if default_clip is None:
             return ScriptLayoutDraftActionResult(
@@ -722,12 +765,65 @@ class ScriptLayoutDraftRunner:
 
     def _insert_asset_layer(self, index: int, operation: dict[str, Any], live_room_id: str) -> ScriptLayoutDraftActionResult:
         scene_index = self._optional_int(operation.get("scene_index"))
-        asset_code = self._optional_string(operation.get("asset_code"))
+        persisted_asset_code = self._optional_string(operation.get("asset_code"))
+        asset_code = persisted_asset_code
+        if not asset_code and self._optional_string(operation.get("source_material_type")):
+            source_material_id = self._optional_int(
+                operation.get("material_id") or operation.get("maitu_material_id")
+            )
+            if source_material_id is not None:
+                asset_code = (
+                    f"maitu:{self._optional_string(operation.get('source_material_type'))}:"
+                    f"{source_material_id}"
+                )
         if not asset_code:
             return self._manual_required_action(index, operation, "insert_asset_layer", "missing asset_code; refusing to insert placeholder as real asset")
         clip_id = self._clip_id_for_scene(scene_index)
         if clip_id is None:
             return self._failed_action(index, operation, "insert_asset_layer", "scene has no mapped clip_id", scene_index=scene_index)
+        seeded_material = self._matching_seeded_digital_human(clip_id, operation)
+        if seeded_material is not None:
+            material_id = self._optional_int(seeded_material.get("id"))
+            layer_key = self._optional_string(operation.get("layer_id"))
+            if material_id is None or not layer_key:
+                return self._failed_action(
+                    index,
+                    operation,
+                    "reuse_seeded_digital_human",
+                    "authoritative digital-human seed has no reusable identity",
+                    scene_index=scene_index,
+                )
+            try:
+                result = self.session.adopt_seeded_digital_human(
+                    live_room_id=live_room_id,
+                    clip_id=clip_id,
+                    material_id=material_id,
+                    operation=operation,
+                )
+            except Exception as exc:  # pragma: no cover - runtime boundary
+                return self._failed_action(
+                    index,
+                    operation,
+                    "adopt_seeded_digital_human",
+                    str(exc),
+                    scene_index=scene_index,
+                )
+            self._material_ids_by_layer[(scene_index, layer_key)] = material_id
+            return ScriptLayoutDraftActionResult(
+                operation_index=index,
+                operation_type="insert_asset_layer",
+                operation_name=self._optional_string(operation.get("operation_name")),
+                action_type="adopt_seeded_digital_human",
+                status="completed",
+                summary="Adopted the untouched Maitu digital-human seed as the planned layer without inserting a duplicate.",
+                scene_index=scene_index,
+                scene_name=self._optional_string(operation.get("scene_name")),
+                clip_id=clip_id,
+                layer_id=layer_key,
+                layer_type=self._optional_string(operation.get("layer_type")),
+                asset_code=persisted_asset_code,
+                details={"insert_result": result, "go_live_clicked": False},
+            )
         try:
             result = self.session.insert_asset_layer(live_room_id=live_room_id, clip_id=clip_id, operation=operation)
         except Exception as exc:  # pragma: no cover - runtime boundary
@@ -745,7 +841,7 @@ class ScriptLayoutDraftRunner:
                 clip_id=clip_id,
                 layer_id=self._optional_string(operation.get("layer_id")),
                 layer_type=self._optional_string(operation.get("layer_type")),
-                asset_code=asset_code,
+                asset_code=persisted_asset_code,
                 details={"insert_result": result, "manual_required": True, "go_live_clicked": False},
             )
         material_id = self._optional_int(result.get("material_id"))
@@ -771,7 +867,7 @@ class ScriptLayoutDraftRunner:
             clip_id=clip_id,
             layer_id=self._optional_string(operation.get("layer_id")),
             layer_type=self._optional_string(operation.get("layer_type")),
-            asset_code=asset_code,
+            asset_code=persisted_asset_code,
             details={"insert_result": result, "go_live_clicked": False},
         )
 
@@ -1006,6 +1102,81 @@ class ScriptLayoutDraftRunner:
             return None
         return sorted(clips, key=lambda clip: int(clip.get("order_num") or 0))[0]
 
+    @classmethod
+    def _fresh_default_scene_is_safe(
+        cls,
+        room: dict[str, Any],
+        clip: dict[str, Any],
+        materials: list[Any],
+    ) -> bool:
+        if not materials:
+            return True
+        if len(materials) != 1 or not isinstance(materials[0], dict):
+            return False
+        material = materials[0]
+        room_created_at = cls._optional_string(room.get("created_at"))
+        material_created_at = cls._optional_string(material.get("created_at"))
+        return (
+            room_created_at is not None
+            and room_created_at == cls._optional_string(room.get("updated_at"))
+            and cls._optional_string(clip.get("name")) == "未命名"
+            and cls._optional_int(clip.get("order_num")) == 0
+            and cls._optional_string(material.get("type")) == "digital_human"
+            and material.get("content") in {None, ""}
+            and material_created_at is not None
+            and material_created_at == cls._optional_string(material.get("updated_at"))
+            and all(
+                cls._optional_int(material.get(key)) is not None
+                for key in (
+                    "id",
+                    "material_id",
+                    "speaker_id",
+                    "digital_human_image_id",
+                )
+            )
+        )
+
+    def _matching_seeded_digital_human(
+        self,
+        clip_id: int,
+        operation: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        if self._optional_string(operation.get("source_material_type")) != "digital_human":
+            return None
+        room = self._room_cache
+        if not isinstance(room, dict):
+            return None
+        topics = room.get("topics") if isinstance(room.get("topics"), list) else []
+        clips = [
+            clip
+            for topic in topics
+            if isinstance(topic, dict) and isinstance(topic.get("clips"), list)
+            for clip in topic["clips"]
+            if isinstance(clip, dict)
+        ]
+        clip = next(
+            (item for item in clips if self._optional_int(item.get("id")) == clip_id),
+            None,
+        )
+        materials = clip.get("clip_materials") if isinstance(clip, dict) else None
+        if not isinstance(materials, list):
+            return None
+        expected = {
+            "material_id": self._optional_int(operation.get("material_id") or operation.get("maitu_material_id")),
+            "speaker_id": self._optional_int(operation.get("speaker_id")),
+            "digital_human_image_id": self._optional_int(operation.get("digital_human_image_id")),
+        }
+        if any(value is None for value in expected.values()):
+            return None
+        matches = [
+            material
+            for material in materials
+            if isinstance(material, dict)
+            and material.get("type") == "digital_human"
+            and all(self._optional_int(material.get(key)) == value for key, value in expected.items())
+        ]
+        return matches[0] if len(matches) == 1 else None
+
     @staticmethod
     def _room_is_active_live(room: dict[str, Any]) -> bool:
         active_values = {"1", "true", "yes", "live", "living", "on_air", "started", "running", "broadcasting"}
@@ -1103,6 +1274,34 @@ class InMemoryScriptLayoutDraftSession:
             "material_id": material["id"],
             "material": material,
             "verified": True,
+            "dry_run": True,
+        }
+
+    def adopt_seeded_digital_human(
+        self,
+        *,
+        live_room_id: str,
+        clip_id: int,
+        material_id: int,
+        operation: dict[str, Any],
+    ) -> dict[str, Any]:
+        clip = self._required_clip(clip_id)
+        material = next(
+            (item for item in clip["clip_materials"] if str(item.get("id")) == str(material_id)),
+            None,
+        )
+        if material is None:
+            raise RuntimeError(f"seeded digital-human material not found: {material_id}")
+        material["name"] = operation.get("layer_id")
+        return {
+            "clip_id": clip_id,
+            "material_id": material_id,
+            "source_material_id": material.get("material_id"),
+            "source_material_type": "digital_human",
+            "speaker_id": material.get("speaker_id"),
+            "digital_human_image_id": material.get("digital_human_image_id"),
+            "verified": True,
+            "verification_source": "working_room_readback",
             "dry_run": True,
         }
 

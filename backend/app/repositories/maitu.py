@@ -1045,6 +1045,8 @@ class MaituMaterialSlotRepository:
                     )
             for field_name in ("scene_index", "scene_name", "asset_code", "layer_id", "layer_type"):
                 require_equal(field_name, intent.get(field_name))
+            if "sound_enabled" in intent:
+                require_equal("sound_enabled", intent.get("sound_enabled") is True)
             expected_source_type = (
                 "video" if intent.get("source_material_type") == "decorative_video" else intent.get("source_material_type")
             )
@@ -1317,7 +1319,108 @@ class MaituMaterialSlotRepository:
             if operation_type in {"insert_asset_layer", "position_asset_layer"}:
                 asset_code = str(source_operation.get("asset_code") or "").strip()
                 if not asset_code:
-                    raise BuildPlanCheckpointConflictError("insert operation is missing persisted asset_code")
+                    if str(source_operation.get("layer_type") or "") != "digital_human":
+                        raise BuildPlanCheckpointConflictError(
+                            "material operation is missing persisted asset_code"
+                        )
+                    if operation_type == "insert_asset_layer":
+                        native_source = source_operation
+                    else:
+                        native_source = next(
+                            (
+                                item["intent"]
+                                for item in reversed(manifest)
+                                if item["intent"].get("operation_type")
+                                == "insert_asset_layer"
+                                and item["intent"].get("scene_index")
+                                == source_operation.get("scene_index")
+                                and item["intent"].get("layer_id")
+                                == source_operation.get("layer_id")
+                                and not item["intent"].get("asset_code")
+                            ),
+                            None,
+                        )
+                    if not isinstance(native_source, dict):
+                        raise BuildPlanCheckpointConflictError(
+                            "native digital-human position has no matching insert intent"
+                        )
+                    raw_material_id = native_source.get(
+                        "material_id"
+                    ) or native_source.get("maitu_material_id")
+                    raw_speaker_id = native_source.get("speaker_id")
+                    raw_digital_human_image_id = native_source.get(
+                        "digital_human_image_id"
+                    )
+                    try:
+                        if any(
+                            isinstance(value, bool)
+                            for value in (
+                                raw_material_id,
+                                raw_speaker_id,
+                                raw_digital_human_image_id,
+                            )
+                        ):
+                            raise ValueError("boolean identity")
+                        material_id = int(raw_material_id)
+                        speaker_id = int(raw_speaker_id)
+                        digital_human_image_id = int(
+                            raw_digital_human_image_id
+                        )
+                    except (TypeError, ValueError) as exc:
+                        raise BuildPlanCheckpointConflictError(
+                            "native digital-human operation has incomplete persisted identity"
+                        ) from exc
+                    if (
+                        native_source.get("source_material_type") != "digital_human"
+                        or material_id < 1
+                        or speaker_id < 1
+                        or digital_human_image_id < 1
+                    ):
+                        raise BuildPlanCheckpointConflictError(
+                            "native digital-human operation has incomplete persisted identity"
+                        )
+                    authoritative_binding = {
+                        "maitu_material_id": None,
+                        "material_id": material_id,
+                        "source_material_type": "digital_human",
+                        "source_material_url": native_source.get(
+                            "source_material_url"
+                        ),
+                        "source_cover_url": native_source.get("source_cover_url"),
+                        "speaker_id": speaker_id,
+                        "digital_human_image_id": digital_human_image_id,
+                        "material_resolution_status": "native_maitu_digital_human_binding",
+                    }
+                    for field_name, expected_value in authoritative_binding.items():
+                        if intent.get(field_name) != expected_value:
+                            raise BuildPlanCheckpointConflictError(
+                                f"native digital-human {field_name} differs from persisted binding"
+                            )
+                    canonical_intent.update(authoritative_binding)
+                    canonical_intent = self._canonical_script_layout_value(
+                        canonical_intent
+                    )
+                    effect_class = self._script_layout_effect_class(operation_type)
+                    operation_fingerprint = self._script_layout_fingerprint(
+                        {
+                            "checkpoint_contract": checkpoint_contract,
+                            "source_plan_fingerprint": source_plan_fingerprint,
+                            "target_live_room_id": target_live_room_id,
+                            "operation_index": operation_index,
+                            "effect_class": effect_class,
+                            "intent": canonical_intent,
+                        }
+                    )
+                    manifest.append(
+                        {
+                            "operation_index": operation_index,
+                            "operation_type": operation_type,
+                            "effect_class": effect_class,
+                            "intent": canonical_intent,
+                            "operation_fingerprint": operation_fingerprint,
+                        }
+                    )
+                    continue
                 cursor.execute(
                     """
                     SELECT asset_code, maitu_material_id, source_material_type,
@@ -1458,6 +1561,7 @@ class MaituMaterialSlotRepository:
                             "width": matching_position.get("width"),
                             "height": matching_position.get("height"),
                             "z_index": matching_position.get("z_index"),
+                            "sound_enabled": prior_intent.get("sound_enabled") is True,
                         }
                     )
                 script_intent = next(
@@ -2172,7 +2276,8 @@ class MaituMaterialSlotRepository:
             if checkpoint.get("operation_fingerprint") != payload["operation_fingerprint"]:
                 self.connection.rollback()
                 raise BuildPlanCheckpointConflictError("reconciliation fingerprint differs from frozen manifest")
-            if checkpoint.get("checkpoint_state") != "reconcile_required":
+            prior_checkpoint_state = checkpoint.get("checkpoint_state")
+            if prior_checkpoint_state not in {"dispatched", "reconcile_required"}:
                 self.connection.rollback()
                 raise BuildPlanCheckpointConflictError("operation checkpoint is not awaiting reconciliation")
             if str(checkpoint.get("attempt_id")) != str(payload["reconciled_attempt_id"]):
@@ -2258,7 +2363,7 @@ class MaituMaterialSlotRepository:
                     completed_at = CASE WHEN %s = 'completed' THEN %s ELSE NULL END,
                     reconciled_attempt_id = %s, reconciliation_resolution = %s,
                     reconciliation_evidence = %s, reconciled_at = %s, updated_at = now()
-                WHERE id = %s AND checkpoint_state = 'reconcile_required'
+                WHERE id = %s AND checkpoint_state IN ('dispatched', 'reconcile_required')
                 RETURNING *
                 """,
                 (
@@ -2435,6 +2540,21 @@ class MaituMaterialSlotRepository:
                         Jsonb(execution_details), execution["id"],
                     ),
                 )
+                has_uncertain_side_effect = any(
+                    item.get("checkpoint_state") in {"dispatched", "reconcile_required"}
+                    for item in checkpoints
+                )
+                if not has_uncertain_side_effect:
+                    cursor.execute(
+                        """
+                        UPDATE maitu_live_room_build_plan_executions
+                        SET run_attempt_id = NULL, lease_owner = NULL, lease_token = NULL,
+                            lease_acquired_at = NULL, lease_expires_at = NULL,
+                            lease_reconcile_not_before = NULL, updated_at = now()
+                        WHERE id = %s
+                        """,
+                        (execution["id"],),
+                    )
         self.connection.commit()
         return self.get_live_room_build_plan_execution_result_by_code(build_plan_code, execution_code)
 

@@ -40,6 +40,9 @@ AssetGraph 是一个面向麦兔软件与数字人直播业务的多模态视频
 - 麦兔 BuildPlan 剧本上下文自动选材：`strategy=script_context_best_match` / `auto_select_assets=true` 会按 `script_blocks`、图层角色、`required_category`、`accepted_asset_types` 从素材库选 Top-1，写入 `selected_asset_code`、Browser-use 友好编号、本地文件码、匹配分和原因；模板预览 `MT-TPL-*` 只作为风格/结构索引，不能作为背景/装饰等直接图层素材；仍只进入 dry-run/预检，不真实上传替换
 - 直播剧本生成 Stage 0：`POST /api/maitu/livestream-script-drafts` 从结构化、已核验的商品事实生成24小时循环纯口播、结构化段落与质量报告；不推断直播间商品总数，不使用未核验促销，不为目标时长重复内容
 - 剧本驱动完整自动化：`POST /api/maitu/script-driven-build-pipelines` 一次运行剧本生成/质量门禁 → 场景计划 → 素材需求 → 真实素材选择 → 缺口报告 → 布局 → BuildPlan；质量未过时保留审阅产物但强制 `can_execute=false`，始终不授权正式开播
+- 麦兔主题生产工作台：`/maitu/` 固定已批准事实版本和不可变麦兔资源快照，由 DeepSeek 生成剧本、场景和素材意图，持久化素材需求、人工决策、Replan、preflight 与草稿执行证据；参考房间只读，永不排播或开播
+- 素材多模型分析：视频分析结果绑定 `asset_code` 与内容指纹，支持 OpenAI 视觉结果、Gemini 人工 JSON、冲突检测和人工裁决；当前计划选用素材的未裁决关键冲突会阻断 preflight
+- 抖音直播研究工作台：`/live-research/` 以固定版本 StreamCap/douyinLive 单路采集 720p、600 秒 TS 分片和原始互动事件，支持统一时间轴、IN/OUT 切片、ASR/视觉分析及人工模板发布
 - 麦兔模板场景组件索引：导入 LiveRoomBlueprint 时同步物化 `TemplateScene / TemplateComponent` 索引，提供 `/api/maitu/live-room-template-scenes`、`/api/maitu/live-room-template-scenes/{scene_template_code}/components`，并让 `scene-components/by-script` 走正式组件索引返回单场景组件详情，不再依赖临时解析大 JSON
 - 麦兔单场景 BuildPlan dry-run：提供 `POST /api/maitu/live-room-scene-build-plans`，输入剧本查询和目标脚本后先匹配一个 `TemplateScene`，再基于该场景的 `TemplateComponent` 生成 `preflight_scene_build_plan -> create_scene_from_template -> insert_template_component* -> add_script_block -> save_live_room` 的可审阅单场景计划；默认只生成计划，不真实上传/插入/开播
 - 麦兔 BuildPlan 只读 preflight：worker 支持 `--build-plan-code MT-BUILD-* --preflight-build`，拉取 BuildPlan operations 并只读校验登录态、liveRoomId、场景、激活场景图层、直播脚本面板、`save_live_room=manual_review` 与禁开播规则；已支持单场景计划中的 `preflight_scene_build_plan`、`create_scene_from_template`、`insert_template_component`
@@ -105,6 +108,45 @@ uv run uvicorn app.main:app --reload
 python scripts/bootstrap_reproducible.py --skip-dependencies --skip-skill --with-browser-use
 python scripts/bootstrap_reproducible.py --skip-dependencies --skip-skill --with-qwen-models
 ```
+
+安装主题驱动商业短视频链路、固定 revision 的 Kokoro 中文 TTS，并构建工作台前端：
+
+```bash
+python scripts/bootstrap_reproducible.py --skip-dependencies --skip-skill --with-video-demo
+python scripts/verify_reproducibility.py --video-demo
+
+# 分别启动本地 TTS、视频任务 Worker 和后端。
+uv run --project workers/video-production assetgraph-kokoro-tts
+uv run --project backend python scripts/run_video_production_worker.py
+
+# 麦兔工作台队列：资源同步/安全草稿执行与素材视频分析分别独立运行。
+uv run --project backend python scripts/run_maitu_workbench_worker.py
+uv run --project backend python scripts/run_material_analysis_worker.py \
+  --lease-seconds 900 --heartbeat-seconds 60
+uv run --project backend uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+该链路接收一个主题，持久化运行 StoryBrief、商业剧本、六镜头 ShotList、真实素材选择、配音、字幕、FFmpeg 渲染和质量检查，产物通过 `/api/video-productions` 审阅和下载。旧 `/demo/` 页面已移除；链路本身继续保留，且不上传麦兔、不排播、不触发开播。
+
+麦兔工作台与直播研究入口：
+
+```bash
+# 真实麦兔同步及草稿任务队列
+python scripts/run_maitu_workbench_worker.py
+
+# 固定第三方采集组件与私有配置
+python scripts/bootstrap_reproducible.py --skip-dependencies --skip-skill --with-live-research-tools
+uv run --project workers/live-research assetgraph-live-research init-config
+uv run --project workers/live-research assetgraph-live-research verify-sidecars
+
+# 无观察目标时 scheduler 保持空闲；四个进程可提前常驻。
+uv run --project workers/live-research assetgraph-live-research scheduler
+uv run --project workers/live-research assetgraph-live-research retention
+uv run --project workers/live-research assetgraph-live-research clip-worker
+uv run --project workers/live-research assetgraph-live-research analysis-worker
+```
+
+页面分别位于 `/maitu/` 和 `/live-research/`。麦兔运行需要已登录的可见 Chrome、一个人工新建的空白草稿直播间和 `DEEPSEEK_API_KEY`；素材/直播多模态分析另需 `OPENAI_API_KEY`。没有抖音观察目标时采集调度器保持空闲，不会自行录制。
 
 通过后端 API 导入本地麦兔素材 inventory（API-first，不直接写数据库）：
 

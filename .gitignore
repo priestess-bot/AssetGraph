@@ -4,7 +4,7 @@ __pycache__/
 *.pyo
 *.pyd
 .Python
-.venv/
+.venv
 venv/
 .env
 .env.*
@@ -30,6 +30,7 @@ Thumbs.db
 .milvus/
 data/
 logs/
+outputs/
 
 # Local media assets are managed outside Git. Keep metadata/manifest files under docs/ tracked.
 素材/

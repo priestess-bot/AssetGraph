@@ -113,6 +113,7 @@ class MaituMaterialResolver:
         validation_issues = self._validate_operation_plan(operations)
         if validation_issues:
             return self._result(resolved_plan, issues=validation_issues)
+        self._propagate_native_digital_human_bindings(operations)
 
         targets = self._resolution_targets(operations)
         resolutions: dict[str, tuple[dict[str, Any], str]] = {}
@@ -354,6 +355,16 @@ class MaituMaterialResolver:
         issues: list[MaituMaterialResolutionIssue] = []
         operation_kinds: dict[str, set[str]] = {}
         insert_codes: set[str] = set()
+        direct_digital_human_layers = {
+            str(operation.get("layer_id") or "").strip()
+            for operation in operations
+            if isinstance(operation, dict)
+            and operation.get("operation_type") == "insert_asset_layer"
+            and not str(operation.get("asset_code") or "").strip()
+            and operation.get("layer_type") == "digital_human"
+            and cls.operation_has_executable_binding(operation)
+            and re.fullmatch(r"[A-Za-z0-9_-]+", str(operation.get("layer_id") or "").strip())
+        }
         for operation in operations:
             if not isinstance(operation, dict):
                 issues.append(cls._issue("", "invalid_material_operation_plan", "BuildPlan operation entries must be objects."))
@@ -392,6 +403,28 @@ class MaituMaterialResolver:
             asset_code = raw_asset_code.strip() if isinstance(raw_asset_code, str) else ""
             layer_type = raw_layer_type.strip() if isinstance(raw_layer_type, str) else ""
             kind = cls._layer_kind(layer_type)
+            layer_id = str(operation.get("layer_id") or "").strip()
+            if not asset_code:
+                direct_binding_valid = (
+                    kind == "digital_human"
+                    and bool(re.fullmatch(r"[A-Za-z0-9_-]+", layer_id))
+                    and (
+                        operation_type == "insert_asset_layer"
+                        and layer_id in direct_digital_human_layers
+                        or operation_type == "position_asset_layer"
+                        and layer_id in direct_digital_human_layers
+                    )
+                )
+                if direct_binding_valid:
+                    continue
+                issues.append(
+                    cls._issue(
+                        asset_code,
+                        "invalid_material_operation_plan",
+                        f"{operation_type} requires an AssetGraph asset_code or a complete native digital-human binding.",
+                    )
+                )
+                continue
             if (
                 raw_asset_code != asset_code
                 or raw_layer_type != layer_type
@@ -456,6 +489,36 @@ class MaituMaterialResolver:
             if current_kind == "visual" and new_kind in {"image", "video"}:
                 target_by_asset[asset_code] = layer_type
         return [(asset_code, target_by_asset[asset_code]) for asset_code in order]
+
+    @classmethod
+    def _propagate_native_digital_human_bindings(cls, operations: list[Any]) -> None:
+        bindings_by_layer: dict[str, dict[str, Any]] = {}
+        for operation in operations:
+            if (
+                not isinstance(operation, dict)
+                or operation.get("operation_type") != "insert_asset_layer"
+                or str(operation.get("asset_code") or "").strip()
+                or operation.get("layer_type") != "digital_human"
+            ):
+                continue
+            layer_id = str(operation.get("layer_id") or "").strip()
+            bindings_by_layer[layer_id] = {
+                field: operation.get(field)
+                for field in cls.BINDING_FIELDS
+            }
+            bindings_by_layer[layer_id]["material_id"] = operation.get(
+                "material_id"
+            ) or operation.get("maitu_material_id")
+            bindings_by_layer[layer_id][
+                "material_resolution_status"
+            ] = "native_maitu_digital_human_binding"
+        for operation in operations:
+            if not isinstance(operation, dict):
+                continue
+            layer_id = str(operation.get("layer_id") or "").strip()
+            binding = bindings_by_layer.get(layer_id)
+            if binding is not None and not str(operation.get("asset_code") or "").strip():
+                operation.update(binding)
 
     @classmethod
     def _binding_from_asset(cls, asset: dict[str, Any]) -> dict[str, Any]:

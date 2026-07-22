@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.services.audio_plan import AudioPlanError, AudioPlanValidator
+
 SOURCE = "script_content_layout_build_plan_rule_v1"
+PROTECTED_REFERENCE_ROOM_IDS = ("38336", "38995")
 
 
 class ScriptLayoutBuildPlanBuilder:
@@ -28,7 +31,23 @@ class ScriptLayoutBuildPlanBuilder:
                 "operations": [],
             }
 
-        operations = self._operations_for_layout(layout_plan, target_live_room_id=target_live_room_id)
+        try:
+            normalized_layout = dict(layout_plan)
+            normalized_layout["scenes"] = AudioPlanValidator().normalize_scenes(list(layout_plan.get("scenes") or []))
+        except AudioPlanError as exc:
+            return {
+                "source": SOURCE,
+                "status": "blocked_audio_policy",
+                "target_live_room_id": target_live_room_id,
+                "build_mode": build_mode,
+                "can_execute": False,
+                "manual_review_required": True,
+                "blocked_reasons": ["audio_policy_violation", str(exc)],
+                "operation_count": 0,
+                "operations": [],
+            }
+
+        operations = self._operations_for_layout(normalized_layout, target_live_room_id=target_live_room_id)
         has_manual_operation = any(operation.get("status") in {"manual_required", "manual_review"} for operation in operations)
         can_execute = bool(layout_plan.get("can_generate_executable_build_plan")) and not has_manual_operation
         result_status = "ready" if can_execute else str(layout_plan.get("status") or "manual_review_required")
@@ -54,6 +73,8 @@ class ScriptLayoutBuildPlanBuilder:
                 "sort_order": sort_order,
                 "status": "ready",
                 "target_live_room_id": target_live_room_id,
+                "require_fresh_blank_room": True,
+                "protected_reference_room_ids": list(PROTECTED_REFERENCE_ROOM_IDS),
                 "instruction": "确认当前麦兔页面、直播间草稿、默认第1场景和禁开播安全边界；不点击正式开播。",
             }
         )
@@ -161,6 +182,12 @@ class ScriptLayoutBuildPlanBuilder:
             "source_cover_url": layer.get("source_cover_url"),
             "speaker_id": layer.get("speaker_id"),
             "digital_human_image_id": layer.get("digital_human_image_id"),
+            "sound_enabled": layer.get("sound_enabled") is True,
+            "audio_role": layer.get("audio_role") or "muted",
+            "audio_classification_status": layer.get("audio_classification_status") or "unknown",
+            "audio_class": layer.get("audio_class") or "unknown",
+            "audio_start_seconds": layer.get("audio_start_seconds"),
+            "audio_end_seconds": layer.get("audio_end_seconds"),
             "x": layer.get("x"),
             "y": layer.get("y"),
             "width": layer.get("width"),

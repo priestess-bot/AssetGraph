@@ -83,6 +83,7 @@ class ScriptLayoutPlanner:
         canvas_height: int,
     ) -> dict[str, Any]:
         scene_index = int(scene.get("scene_index") or 0)
+        duration_seconds = max(1, int(scene.get("duration_seconds") or 1))
         review_reasons = list(scene.get("review_reasons") or [])
         missing_needs = [dict(need) for need in (scene.get("missing_asset_needs") or [])]
         has_missing = bool(missing_needs) or any(
@@ -102,15 +103,30 @@ class ScriptLayoutPlanner:
             if need_type == "script_text" or selection.get("required_category") == "script_text":
                 continue
             if selection.get("status") == "selected":
-                layers.append(self._layer_from_selection(selection, scene_index=scene_index, status="ready"))
+                layers.append(
+                    self._layer_from_selection(
+                        selection,
+                        scene_index=scene_index,
+                        duration_seconds=duration_seconds,
+                        status="ready",
+                    )
+                )
             elif selection.get("status") == "missing_asset":
-                placeholder = self._placeholder_from_need(selection, scene_index=scene_index)
+                placeholder = self._placeholder_from_need(
+                    selection,
+                    scene_index=scene_index,
+                    duration_seconds=duration_seconds,
+                )
                 missing_placeholders.append(placeholder)
                 if build_mode == "draft_with_placeholders":
                     layers.append(placeholder)
         if missing_needs and not missing_placeholders:
             for need in missing_needs:
-                placeholder = self._placeholder_from_need(need, scene_index=scene_index)
+                placeholder = self._placeholder_from_need(
+                    need,
+                    scene_index=scene_index,
+                    duration_seconds=duration_seconds,
+                )
                 missing_placeholders.append(placeholder)
                 if build_mode == "draft_with_placeholders":
                     layers.append(placeholder)
@@ -120,6 +136,7 @@ class ScriptLayoutPlanner:
             "scene_index": scene_index,
             "scene_name": str(scene.get("scene_name") or f"场景{scene_index + 1:02d}"),
             "scene_goal": str(scene.get("scene_goal") or "explanation"),
+            "duration_seconds": duration_seconds,
             "status": scene_status,
             "canvas": {"width": canvas_width, "height": canvas_height},
             "layers": layers,
@@ -132,7 +149,14 @@ class ScriptLayoutPlanner:
             "review_reasons": self._dedupe(review_reasons),
         }
 
-    def _layer_from_selection(self, selection: dict[str, Any], *, scene_index: int, status: str) -> dict[str, Any]:
+    def _layer_from_selection(
+        self,
+        selection: dict[str, Any],
+        *,
+        scene_index: int,
+        duration_seconds: int,
+        status: str,
+    ) -> dict[str, Any]:
         need_type = str(selection.get("need_type") or "asset_layer")
         rule = self._rule_for_need(need_type)
         return {
@@ -153,6 +177,12 @@ class ScriptLayoutPlanner:
             "source_cover_url": selection.get("selected_asset_source_cover_url"),
             "speaker_id": selection.get("selected_asset_speaker_id"),
             "digital_human_image_id": selection.get("selected_asset_digital_human_image_id"),
+            "sound_enabled": selection.get("selected_asset_sound_enabled") is True,
+            "audio_role": selection.get("selected_asset_audio_role") or "muted",
+            "audio_classification_status": selection.get("selected_asset_audio_classification_status") or "unknown",
+            "audio_class": selection.get("selected_asset_audio_class") or "unknown",
+            "audio_start_seconds": 0.0,
+            "audio_end_seconds": float(duration_seconds),
             "asset_title": selection.get("selected_asset_title"),
             "x": rule["x"],
             "y": rule["y"],
@@ -163,7 +193,13 @@ class ScriptLayoutPlanner:
             "source_selection_status": selection.get("status"),
         }
 
-    def _placeholder_from_need(self, need: dict[str, Any], *, scene_index: int) -> dict[str, Any]:
+    def _placeholder_from_need(
+        self,
+        need: dict[str, Any],
+        *,
+        scene_index: int,
+        duration_seconds: int,
+    ) -> dict[str, Any]:
         layer = self._layer_from_selection(
             {
                 **need,
@@ -174,6 +210,7 @@ class ScriptLayoutPlanner:
                 "status": "missing_asset",
             },
             scene_index=scene_index,
+            duration_seconds=duration_seconds,
             status="placeholder_required",
         )
         return layer

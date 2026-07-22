@@ -906,7 +906,9 @@ def test_script_layout_draft_api_methods_use_browser_use_eval() -> None:
     assert "find((clip) => clip.name === args.sceneName" not in runner.commands[0][4]
     assert "missing_maitu_material_binding" in runner.commands[1][4]
     assert "'PUT', 'clip_materials/'" in runner.commands[2][4]
-    assert "exact clip-material source identity mismatch before position mutation" in runner.commands[2][4]
+    assert "exact clip-material source or audio identity mismatch before position mutation" in runner.commands[2][4]
+    assert "sound_enabled: op.sound_enabled === true" in runner.commands[1][4]
+    assert "Boolean(verifiedMaterial.sound_enabled)" in runner.commands[1][4]
     assert "'POST', 'clip_materials'" in runner.commands[3][4]
     assert "script target clip identity mismatch before write" in runner.commands[3][4]
     assert "script target clip identity mismatch after write" in runner.commands[3][4]
@@ -1002,6 +1004,7 @@ def test_insert_asset_layer_uses_resolved_source_type_for_polymorphic_and_strict
     assert len(runner.commands) == 2
     assert all('"materialType": "video"' in command[4] for command in runner.commands)
     assert all("type: materialType" in command[4] for command in runner.commands)
+    assert all("sound_enabled: op.sound_enabled === true" in command[4] for command in runner.commands)
 
 
 @pytest.mark.parametrize("layer_type", ["background_image", "product_image", "product_video"])

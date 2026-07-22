@@ -132,6 +132,48 @@ class MaituAuthorityVerifier:
         return [item for item in materials if isinstance(item, dict)] if isinstance(materials, list) else []
 
     @classmethod
+    def _fresh_default_seed(
+        cls,
+        room: dict[str, Any],
+        clip: dict[str, Any],
+        materials: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        """Accept only Maitu's untouched one-digital-human room seed."""
+        if not materials:
+            return None
+        if len(materials) != 1:
+            raise MaituAuthorityError(
+                "preflight target default scene may contain only one untouched digital-human seed"
+            )
+        room_created_at = room.get("created_at")
+        room_updated_at = room.get("updated_at")
+        material = materials[0]
+        if (
+            not room_created_at
+            or str(room_created_at) != str(room_updated_at)
+            or clip.get("name") != "未命名"
+            or cls._number(clip.get("order_num")) != 0
+            or material.get("type") != "digital_human"
+            or material.get("content") not in {None, ""}
+            or material.get("created_at") is None
+            or str(material.get("created_at")) != str(material.get("updated_at"))
+        ):
+            raise MaituAuthorityError(
+                "preflight target contains a modified or non-default seed material"
+            )
+        identity = {
+            "clip_material_id": material.get("id"),
+            "material_id": material.get("material_id"),
+            "speaker_id": material.get("speaker_id"),
+            "digital_human_image_id": material.get("digital_human_image_id"),
+        }
+        if any(value is None or str(value).strip() == "" for value in identity.values()):
+            raise MaituAuthorityError(
+                "preflight target digital-human seed has incomplete authoritative identity"
+            )
+        return {"type": "digital_human", **identity}
+
+    @classmethod
     def _material_style(cls, material: dict[str, Any]) -> dict[str, Any]:
         raw = material.get("style_front")
         if isinstance(raw, str):
@@ -150,6 +192,8 @@ class MaituAuthorityVerifier:
         if expected_type == "decorative_video":
             expected_type = "video"
         if material.get("type") != expected_type:
+            return False
+        if "sound_enabled" in intent and bool(material.get("sound_enabled")) is not bool(intent.get("sound_enabled")):
             return False
         if expected_type == "digital_human":
             return cls._same_id(material.get("speaker_id"), intent.get("speaker_id")) and cls._same_id(
@@ -207,6 +251,82 @@ class MaituAuthorityVerifier:
             raise MaituAuthorityError("authoritative Maitu target is not positively confirmed non-live")
         return room
 
+    def attest_fresh_blank_room(
+        self,
+        live_room_id: str,
+        protected_room_ids: set[str] | frozenset[str],
+    ) -> dict[str, Any]:
+        """Return stable signed evidence that a working room is safe to populate."""
+        normalized_room_id = str(live_room_id).strip()
+        if not normalized_room_id:
+            raise MaituAuthorityError("fresh-room preflight has no target live room")
+        if not normalized_room_id.isascii() or not all(
+            character.isalnum() or character in {"-", "_"}
+            for character in normalized_room_id
+        ):
+            raise MaituAuthorityError("fresh-room preflight target identity is invalid")
+        protected = sorted(
+            {
+                str(value).strip()
+                for value in protected_room_ids
+                if str(value).strip()
+            }
+        )
+        if normalized_room_id in protected:
+            raise MaituAuthorityError("preflight target is a protected read-only reference room")
+
+        room = self._read_working_room(normalized_room_id)
+        topics = room.get("topics")
+        if not isinstance(topics, list) or any(not isinstance(topic, dict) for topic in topics):
+            raise MaituAuthorityError("authoritative Maitu room topics are malformed")
+        topic_clips = [topic.get("clips") for topic in topics]
+        if any(not isinstance(clips, list) for clips in topic_clips):
+            raise MaituAuthorityError("authoritative Maitu room scenes are malformed")
+        clips = [clip for rows in topic_clips for clip in rows]
+        if any(not isinstance(clip, dict) for clip in clips):
+            raise MaituAuthorityError("authoritative Maitu room scenes are malformed")
+        if len(clips) != 1:
+            raise MaituAuthorityError("preflight target must contain exactly one default scene")
+        materials = clips[0].get("clip_materials")
+        if not isinstance(materials, list):
+            raise MaituAuthorityError("authoritative Maitu default-scene materials are malformed")
+        seed_material = self._fresh_default_seed(room, clips[0], materials)
+        default_scene_id = clips[0].get("id")
+        if default_scene_id is None or str(default_scene_id).strip() == "":
+            raise MaituAuthorityError("preflight target default scene has no authoritative identity")
+
+        explicit_environment = room.get("environment") or room.get("env")
+        observation = {
+            "contract": "maitu-fresh-draft-room-attestation.v2",
+            "target_live_room_id": normalized_room_id,
+            "environment": (
+                explicit_environment
+                if explicit_environment in {"working", "draft"}
+                else "working"
+            ),
+            "environment_evidence": (
+                "response_field"
+                if explicit_environment in {"working", "draft"}
+                else "working_endpoint"
+            ),
+            "is_live": False,
+            "scene_count": 1,
+            "material_count": len(materials),
+            "seed_material": seed_material,
+            "room_created_at": room.get("created_at"),
+            "room_updated_at": room.get("updated_at"),
+            "default_scene_id": default_scene_id,
+            "protected_reference_room_ids": protected,
+        }
+        observation["observation_sha256"] = hashlib.sha256(
+            self._canonical(observation)
+        ).hexdigest()
+        return {
+            **observation,
+            "readback_attestation_algorithm": "hmac-sha256-v1",
+            "readback_attestation": self._sign(observation),
+        }
+
     def verify_checkpoint(
         self,
         checkpoint: dict[str, Any],
@@ -227,6 +347,17 @@ class MaituAuthorityVerifier:
             if default_clip_id is None:
                 raise MaituAuthorityError("preflight evidence has no default clip identity")
             applied = bool(clips and self._same_id(clips[0].get("id"), default_clip_id))
+            if intent.get("require_fresh_blank_room") is True:
+                protected = {
+                    str(value).strip()
+                    for value in (intent.get("protected_reference_room_ids") or [])
+                    if str(value).strip()
+                }
+                if live_room_id in protected:
+                    raise MaituAuthorityError("preflight target is a protected read-only reference room")
+                if len(clips) != 1:
+                    raise MaituAuthorityError("preflight target is not a fresh blank draft room")
+                self._fresh_default_seed(room, clips[0], self._materials(clips[0]))
         elif operation_type in {"fill_default_scene", "create_scene"}:
             expected_name = intent.get("scene_name")
             if not isinstance(expected_name, str) or not expected_name:
@@ -336,6 +467,14 @@ class MaituAuthorityVerifier:
                 and text.get("content") == intent.get("expected_script_text")
                 and evidence.get("verified_script_text") == intent.get("expected_script_text")
             )
+        elif operation_type in {"placeholder_required", "save_draft"}:
+            if (
+                evidence.get("operation_applied") is not False
+                or evidence.get("no_side_effect") is not True
+                or evidence.get("go_live_clicked") is not False
+            ):
+                raise MaituAuthorityError("manual review gate lacks explicit no-side-effect evidence")
+            applied = False
         else:
             raise MaituAuthorityError(f"operation {operation_type!r} has no backend authority policy")
         if applied is not expect_applied:
@@ -359,7 +498,8 @@ class MaituAuthorityVerifier:
         payload: dict[str, Any],
     ) -> dict[str, Any]:
         evidence = dict(payload.get("evidence") or {})
-        observation = self.verify_checkpoint(checkpoint, evidence)
+        expect_applied = checkpoint.get("effect_class") != "manual_noop"
+        observation = self.verify_checkpoint(checkpoint, evidence, expect_applied=expect_applied)
         evidence["backend_authority_observation"] = observation
         unsigned_evidence = dict(evidence)
         attested = {

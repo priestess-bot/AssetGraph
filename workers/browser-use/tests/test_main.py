@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -13,6 +15,8 @@ from browser_use_worker.maitu_material_resolver import (
     MaituMaterialResolutionIssue,
     MaituMaterialResolver as RealMaituMaterialResolver,
 )
+from browser_use_worker.client import AssetGraphClientError
+from browser_use_worker.workbench_draft_lease import WorkbenchDraftLeaseError
 
 
 class FakeAssetGraphClient:
@@ -912,3 +916,200 @@ def test_main_passes_resolved_plan_into_draft_execution(monkeypatch, capsys, tmp
     assert captured["checkpoint_plan"] == resolved_plan
     assert captured["runner_checkpoint_store"] is not None
     assert '"status": "completed"' in capsys.readouterr().out
+
+
+def test_workbench_draft_job_heartbeats_through_resolution_and_execution(monkeypatch, capsys) -> None:
+    heartbeat_seen = threading.Event()
+    captured: dict[str, Any] = {"heartbeats": [], "completed": [], "failed": []}
+    lease_token = "11111111-1111-4111-8111-111111111111"
+    plan = {
+        **executable_script_layout_gate(),
+        "build_plan_code": "MT-BUILD-20260720-000001",
+        "checkpoint_source_fingerprint": "a" * 64,
+        "target_live_room_id": "50003",
+        "operations": [{"operation_type": "preflight_content_build_plan", "status": "ready"}],
+    }
+
+    class DraftClient:
+        timeout_seconds = 0.1
+
+        def __init__(self, _base_url: str) -> None:
+            self.script_layout_worker_token = None
+            self.worker_id = None
+
+        @staticmethod
+        def claim_next_workbench_draft_execution(payload: dict[str, Any]) -> dict[str, Any]:
+            assert payload == {"lease_seconds": 3600}
+            return {
+                "execution_job_code": "MT-WB-EXEC-20260720-000001",
+                "lease_token": lease_token,
+                "payload": {"build_plan": {"build_plan_code": plan["build_plan_code"]}},
+            }
+
+        def heartbeat_workbench_draft_execution(
+            self,
+            job_code: str,
+            payload: dict[str, Any],
+        ) -> dict[str, Any]:
+            captured["heartbeats"].append((job_code, payload, threading.current_thread().name))
+            if threading.current_thread().name.startswith("workbench-draft-heartbeat-"):
+                heartbeat_seen.set()
+            return {"status": "running"}
+
+        @staticmethod
+        def get_live_room_build_plan_operation_plan(_build_plan_code: str) -> dict[str, Any]:
+            return plan
+
+        @staticmethod
+        def complete_workbench_draft_execution(job_code: str, payload: dict[str, Any]) -> dict[str, Any]:
+            captured["completed"].append((job_code, payload))
+            return {"execution_job_code": job_code, "status": "succeeded"}
+
+        @staticmethod
+        def fail_workbench_draft_execution(job_code: str, payload: dict[str, Any]) -> dict[str, Any]:
+            captured["failed"].append((job_code, payload))
+            return {"execution_job_code": job_code, "status": "failed"}
+
+    class Session(FakeBrowserUseCliSession):
+        pass
+
+    class Resolver:
+        def __init__(self, *, session: Session, **_kwargs: Any) -> None:
+            self.session = session
+
+        def resolve_plan(self, source_plan: dict[str, Any]) -> Any:
+            assert heartbeat_seen.wait(timeout=0.2), "periodic heartbeat did not cover material resolution"
+            assert self.session.execution_guard() is True
+            return worker_main.MaituMaterialResolutionResult(
+                status="resolved",
+                reused_binding_count=1,
+                remote_match_count=0,
+                uploaded_count=0,
+                manual_required_count=0,
+                operation_plan=source_plan,
+                issues=[],
+            )
+
+    class Checkpoint:
+        @classmethod
+        def start(cls, **_kwargs: Any) -> "Checkpoint":
+            return cls()
+
+        @staticmethod
+        def ensure_lease_active() -> bool:
+            return True
+
+        @staticmethod
+        def finalize(result: Any) -> dict[str, Any]:
+            return {"status": result.status}
+
+    @dataclass
+    class Result:
+        status: str = "completed_with_manual_review"
+        summary: str = "draft built and held for manual review"
+        failure_count: int = 0
+        manual_review_required: bool = True
+        actions: list[Any] = field(default_factory=list)
+
+    class Runner:
+        def __init__(self, *, session: Session, **_kwargs: Any) -> None:
+            self.session = session
+
+        def run(self, _plan: dict[str, Any], *, target_live_room_id: str) -> Result:
+            assert target_live_room_id == "50003"
+            assert self.session.execution_guard() is True
+            return Result()
+
+    monkeypatch.setenv("ASSETGRAPH_WORKBENCH_DRAFT_HEARTBEAT_INTERVAL_SECONDS", "0.001")
+    monkeypatch.setattr(worker_main, "AssetGraphClient", DraftClient)
+    monkeypatch.setattr(worker_main, "BrowserUseCliSession", Session)
+    monkeypatch.setattr(worker_main, "is_trusted_browser_use_cli_session", lambda _session: True)
+    monkeypatch.setattr(worker_main, "MaituMaterialResolver", Resolver)
+    monkeypatch.setattr(worker_main, "AssetGraphScriptLayoutCheckpointStore", Checkpoint)
+    monkeypatch.setattr(worker_main, "ScriptLayoutDraftRunner", Runner)
+
+    assert worker_main.main(["--run-workbench-draft-job"]) == 0
+
+    assert len(captured["heartbeats"]) >= 3  # initial, periodic, final validation
+    assert captured["completed"]
+    assert captured["completed"][0][1]["result"]["status"] == "completed_with_manual_review"
+    assert captured["failed"] == []
+    assert json.loads(capsys.readouterr().out)["status"] == "succeeded"
+
+
+def test_workbench_draft_heartbeat_failure_fences_complete_and_fail_409_preserves_error(monkeypatch) -> None:
+    heartbeat_failed = threading.Event()
+    captured: dict[str, Any] = {"completed": 0, "failed": 0}
+    lease_token = "22222222-2222-4222-8222-222222222222"
+    plan = {
+        **executable_script_layout_gate(),
+        "build_plan_code": "MT-BUILD-20260720-000002",
+        "target_live_room_id": "50004",
+        "operations": [{"operation_type": "preflight_content_build_plan", "status": "ready"}],
+    }
+
+    class DraftClient:
+        timeout_seconds = 0.1
+
+        def __init__(self, _base_url: str) -> None:
+            self.script_layout_worker_token = None
+            self.worker_id = None
+
+        @staticmethod
+        def claim_next_workbench_draft_execution(_payload: dict[str, Any]) -> dict[str, Any]:
+            return {
+                "execution_job_code": "MT-WB-EXEC-20260720-000002",
+                "lease_token": lease_token,
+                "payload": {"build_plan": {"build_plan_code": plan["build_plan_code"]}},
+            }
+
+        @staticmethod
+        def get_live_room_build_plan_operation_plan(_build_plan_code: str) -> dict[str, Any]:
+            return plan
+
+        @staticmethod
+        def heartbeat_workbench_draft_execution(_job_code: str, _payload: dict[str, Any]) -> dict[str, Any]:
+            if threading.current_thread().name.startswith("workbench-draft-heartbeat-"):
+                heartbeat_failed.set()
+                raise AssetGraphClientError("HTTP 409 heartbeat: lease lost")
+            return {"status": "running"}
+
+        @staticmethod
+        def complete_workbench_draft_execution(_job_code: str, _payload: dict[str, Any]) -> dict[str, Any]:
+            captured["completed"] += 1
+            return {}
+
+        @staticmethod
+        def fail_workbench_draft_execution(_job_code: str, _payload: dict[str, Any]) -> dict[str, Any]:
+            captured["failed"] += 1
+            raise AssetGraphClientError("HTTP 409 fail: lease no longer active")
+
+    class Resolver:
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+        @staticmethod
+        def resolve_plan(source_plan: dict[str, Any]) -> Any:
+            assert heartbeat_failed.wait(timeout=0.2)
+            time.sleep(0.01)
+            return worker_main.MaituMaterialResolutionResult(
+                status="resolved",
+                reused_binding_count=1,
+                remote_match_count=0,
+                uploaded_count=0,
+                manual_required_count=0,
+                operation_plan=source_plan,
+                issues=[],
+            )
+
+    monkeypatch.setenv("ASSETGRAPH_WORKBENCH_DRAFT_HEARTBEAT_INTERVAL_SECONDS", "0.001")
+    monkeypatch.setattr(worker_main, "AssetGraphClient", DraftClient)
+    monkeypatch.setattr(worker_main, "BrowserUseCliSession", FakeBrowserUseCliSession)
+    monkeypatch.setattr(worker_main, "is_trusted_browser_use_cli_session", lambda _session: True)
+    monkeypatch.setattr(worker_main, "MaituMaterialResolver", Resolver)
+
+    with pytest.raises(WorkbenchDraftLeaseError, match="heartbeat failed") as error:
+        worker_main.main(["--run-workbench-draft-job"])
+
+    assert "fail: lease no longer active" not in str(error.value)
+    assert captured == {"completed": 0, "failed": 1}

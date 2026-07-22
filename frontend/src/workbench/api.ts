@@ -1,0 +1,93 @@
+export type JsonRecord = Record<string, unknown>;
+
+export class WorkbenchApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly detail?: unknown,
+  ) {
+    super(message);
+    this.name = "WorkbenchApiError";
+  }
+}
+
+export function isRecord(value: unknown): value is JsonRecord {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function asString(value: unknown, fallback = ""): string {
+  return typeof value === "string" && value.trim() ? value : fallback;
+}
+
+export function asOptionalString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+export function asNumber(value: unknown, fallback = 0): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+export function asBoolean(value: unknown, fallback = false): boolean {
+  return typeof value === "boolean" ? value : fallback;
+}
+
+export function asArray(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  if (!isRecord(value)) return [];
+  for (const key of ["items", "results", "data", "rows"]) {
+    if (Array.isArray(value[key])) return value[key] as unknown[];
+  }
+  return [];
+}
+
+function errorMessage(body: unknown, status: number): string {
+  if (isRecord(body)) {
+    const direct = asOptionalString(body.message) ?? asOptionalString(body.error_message);
+    if (direct) return direct;
+    if (typeof body.detail === "string" && body.detail.trim()) return body.detail;
+  }
+  if (status === 409) return "当前数据已经变化，请刷新后重试";
+  if (status === 404) return "请求的对象不存在或尚未创建";
+  if (status >= 500) return "服务暂时不可用，请稍后重试";
+  return "请求未能完成，请检查输入后重试";
+}
+
+export async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(path, {
+    ...init,
+    headers: {
+      Accept: "application/json",
+      ...(init?.body ? { "Content-Type": "application/json" } : {}),
+      ...init?.headers,
+    },
+  });
+
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    body = undefined;
+  }
+  if (!response.ok) throw new WorkbenchApiError(errorMessage(body, response.status), response.status, body);
+  return body as T;
+}
+
+export function postJson<T>(path: string, payload?: unknown): Promise<T> {
+  return requestJson<T>(path, {
+    method: "POST",
+    ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
+  });
+}
+
+export function patchJson<T>(path: string, payload: unknown): Promise<T> {
+  return requestJson<T>(path, { method: "PATCH", body: JSON.stringify(payload) });
+}
+
+export function queryString(params: Record<string, string | number | boolean | null | undefined>): string {
+  const query = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") query.set(key, String(value));
+  });
+  const value = query.toString();
+  return value ? `?${value}` : "";
+}

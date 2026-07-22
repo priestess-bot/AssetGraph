@@ -95,6 +95,25 @@ def test_get_live_room_build_plan_operation_plan_uses_browser_use_endpoint() -> 
     ]
 
 
+def test_workbench_draft_heartbeat_uses_owned_job_endpoint() -> None:
+    client = RecordingClient()
+    payload = {"lease_token": "11111111-1111-4111-8111-111111111111", "lease_seconds": 3600}
+
+    result = client.heartbeat_workbench_draft_execution("MT-WB-EXEC-20260720-000001", payload)
+
+    assert result == {"asset_code": "AG-VID-20260709-000001"}
+    assert client.calls == [
+        (
+            "POST",
+            (
+                "/api/maitu/workbench/draft-execution-jobs/"
+                "MT-WB-EXEC-20260720-000001/heartbeat"
+            ),
+            payload,
+        )
+    ]
+
+
 def test_write_live_room_build_plan_execution_result_uses_execution_results_endpoint() -> None:
     client = RecordingClient()
     payload = {"execution_status": "blocked", "mode": "non_destructive", "operation_results": []}

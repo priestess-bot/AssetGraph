@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import FastAPI
+import pytest
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from app.api.routes.maitu import (
@@ -11,6 +12,7 @@ from app.api.routes.maitu import (
     get_maitu_slot_repository,
     require_maitu_reconciliation_operator,
     require_maitu_script_layout_worker,
+    reject_script_layout_worker_secret,
     router,
 )
 
@@ -164,6 +166,20 @@ def checkpoint_client() -> tuple[TestClient, CheckpointRouteRepository]:
     app.dependency_overrides[require_maitu_script_layout_worker] = lambda: "checkpoint-route-worker"
     app.dependency_overrides[get_maitu_authority_verifier] = CheckpointAuthorityVerifier
     return TestClient(app), repository
+
+
+def test_script_layout_route_secret_filter_accepts_public_script_hashes_only() -> None:
+    reject_script_layout_worker_secret(
+        {
+            "evidence": {
+                "script_sha256": "a" * 64,
+                "expected_script_sha256": "a" * 64,
+            }
+        }
+    )
+
+    with pytest.raises(HTTPException, match="credentials"):
+        reject_script_layout_worker_secret({"evidence": {"access_token": "not-durable"}})
 
 
 def test_public_execution_result_preserves_legacy_details_contract() -> None:

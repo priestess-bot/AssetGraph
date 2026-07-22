@@ -139,6 +139,52 @@ def test_completion_attestation_validates_at_repository_boundary(monkeypatch) ->
     )
 
 
+def test_completion_attestation_accepts_offline_manual_review_gate(monkeypatch) -> None:
+    verifier = verifier_for(
+        monkeypatch,
+        {
+            "/live_rooms/47000002?env=working&include_qa_clips=true": {
+                "id": 47000002,
+                "environment": "working",
+                "is_live": False,
+                "status": 0,
+                "topics": [{"clips": [{"id": 1, "name": "合规收尾", "clip_materials": []}]}],
+            }
+        },
+    )
+    checkpoint = {
+        "operation_fingerprint": "b" * 64,
+        "operation_type": "save_draft",
+        "effect_class": "manual_noop",
+        "intent_snapshot": {"operation_type": "save_draft"},
+    }
+    payload = {
+        "operation_fingerprint": "b" * 64,
+        "attempt_id": "44444444-4444-4444-8444-444444444444",
+        "lease_token": "55555555-5555-4555-8555-555555555555",
+        "lease_version": 1,
+        "completion_id": "66666666-6666-4666-8666-666666666666",
+        "evidence": {
+            "verified": True,
+            "operation_applied": False,
+            "no_side_effect": True,
+            "go_live_clicked": False,
+            "operation_type": "save_draft",
+            "target_live_room_id": "47000002",
+        },
+    }
+
+    result = verifier.attest_completion(
+        build_plan_code="MT-BUILD-20260712-000001",
+        execution_code="MT-EXEC-20260712-000001",
+        operation_index=32,
+        checkpoint=checkpoint,
+        payload=payload,
+    )
+
+    assert result["evidence"]["backend_authority_observation"]["operation_applied"] is False
+
+
 @pytest.mark.parametrize(
     "room",
     [
@@ -184,6 +230,170 @@ def test_working_room_accepts_real_maitu_status_zero_as_non_live_evidence(monkey
     )
 
     assert observation["operation_applied"] is True
+
+
+def test_fresh_blank_room_attestation_is_stable_and_signed(monkeypatch) -> None:
+    verifier = verifier_for(
+        monkeypatch,
+        {
+            "/live_rooms/47000002?env=working&include_qa_clips=true": {
+                "id": 47000002,
+                "environment": "working",
+                "is_live": False,
+                "topics": [{"clips": [{"id": 10, "name": "默认场景", "clip_materials": []}]}],
+            }
+        },
+    )
+
+    first = verifier.attest_fresh_blank_room("47000002", {"38336", "38995"})
+    second = verifier.attest_fresh_blank_room("47000002", {"38995", "38336"})
+
+    assert first == second
+    assert first["contract"] == "maitu-fresh-draft-room-attestation.v2"
+    assert first["environment"] == "working"
+    assert first["is_live"] is False
+    assert first["scene_count"] == 1
+    assert first["material_count"] == 0
+    assert first["seed_material"] is None
+    assert first["default_scene_id"] == 10
+    assert first["protected_reference_room_ids"] == ["38336", "38995"]
+    assert len(first["observation_sha256"]) == 64
+    assert len(first["readback_attestation"]) == 64
+
+
+def test_fresh_blank_room_attestation_rejects_protected_room_without_readback(monkeypatch) -> None:
+    verifier = verifier_for(monkeypatch, {})
+
+    with pytest.raises(MaituAuthorityError, match="protected"):
+        verifier.attest_fresh_blank_room("38995", {"38336", "38995"})
+
+
+@pytest.mark.parametrize(
+    ("clips", "message"),
+    [
+        ([], "exactly one"),
+        (
+            [
+                {"id": 10, "name": "默认场景", "clip_materials": []},
+                {"id": 11, "name": "其他场景", "clip_materials": []},
+            ],
+            "exactly one",
+        ),
+        (
+            [{"id": 10, "name": "默认场景", "clip_materials": [{"id": 20}]}],
+            "modified or non-default seed",
+        ),
+        ([{"id": 10, "name": "默认场景"}], "materials are malformed"),
+    ],
+)
+def test_fresh_blank_room_attestation_rejects_nonblank_room(
+    monkeypatch,
+    clips: list[dict[str, Any]],
+    message: str,
+) -> None:
+    verifier = verifier_for(
+        monkeypatch,
+        {
+            "/live_rooms/47000002?env=working&include_qa_clips=true": {
+                "id": 47000002,
+                "environment": "draft",
+                "is_live": False,
+                "topics": [{"clips": clips}],
+            }
+        },
+    )
+
+    with pytest.raises(MaituAuthorityError, match=message):
+        verifier.attest_fresh_blank_room("47000002", {"38336", "38995"})
+
+
+def test_fresh_room_attestation_accepts_untouched_maitu_digital_human_seed(monkeypatch) -> None:
+    verifier = verifier_for(
+        monkeypatch,
+        {
+            "/live_rooms/41172?env=working&include_qa_clips=true": {
+                "id": 41172,
+                "status": 0,
+                "created_at": "2026-07-21T16:11:39",
+                "updated_at": "2026-07-21T16:11:39",
+                "topics": [
+                    {
+                        "clips": [
+                            {
+                                "id": 437569,
+                                "name": "未命名",
+                                "order_num": 0,
+                                "clip_materials": [
+                                    {
+                                        "id": 10121044,
+                                        "type": "digital_human",
+                                        "name": "明月",
+                                        "material_id": 40222,
+                                        "speaker_id": 4224,
+                                        "digital_human_image_id": 8856,
+                                        "content": None,
+                                        "created_at": 1784621568,
+                                        "updated_at": 1784621568,
+                                    }
+                                ],
+                            }
+                        ]
+                    }
+                ],
+            }
+        },
+    )
+
+    evidence = verifier.attest_fresh_blank_room("41172", {"38336", "38995"})
+
+    assert evidence["material_count"] == 1
+    assert evidence["seed_material"] == {
+        "type": "digital_human",
+        "clip_material_id": 10121044,
+        "material_id": 40222,
+        "speaker_id": 4224,
+        "digital_human_image_id": 8856,
+    }
+
+
+def test_fresh_room_attestation_rejects_modified_digital_human_seed(monkeypatch) -> None:
+    verifier = verifier_for(
+        monkeypatch,
+        {
+            "/live_rooms/41172?env=working&include_qa_clips=true": {
+                "id": 41172,
+                "status": 0,
+                "created_at": "2026-07-21T16:11:39",
+                "updated_at": "2026-07-21T16:12:00",
+                "topics": [
+                    {
+                        "clips": [
+                            {
+                                "id": 437569,
+                                "name": "未命名",
+                                "order_num": 0,
+                                "clip_materials": [
+                                    {
+                                        "id": 10121044,
+                                        "type": "digital_human",
+                                        "material_id": 40222,
+                                        "speaker_id": 4224,
+                                        "digital_human_image_id": 8856,
+                                        "content": None,
+                                        "created_at": 1784621568,
+                                        "updated_at": 1784621568,
+                                    }
+                                ],
+                            }
+                        ]
+                    }
+                ],
+            }
+        },
+    )
+
+    with pytest.raises(MaituAuthorityError, match="modified or non-default"):
+        verifier.attest_fresh_blank_room("41172", {"38336", "38995"})
 
 
 @pytest.mark.parametrize("status_value", [1, 2, True])
@@ -290,6 +500,42 @@ def test_negative_reconciliation_searches_frozen_material_identity_not_evidence_
             },
             {"target_live_room_id": "47000002", "clip_id": 999, "material_id": 998},
             expect_applied=False,
+        )
+
+
+def test_preflight_authority_rejects_nonblank_room_when_fresh_room_is_required(monkeypatch) -> None:
+    verifier = verifier_for(
+        monkeypatch,
+        {
+            "/live_rooms/47000002?env=working&include_qa_clips=true": {
+                "id": 47000002,
+                "environment": "working",
+                "is_live": False,
+                "topics": [
+                    {
+                        "clips": [
+                            {
+                                "id": 10,
+                                "name": "默认场景",
+                                "clip_materials": [{"id": 20, "type": "image"}],
+                            }
+                        ]
+                    }
+                ],
+            }
+        },
+    )
+
+    with pytest.raises(MaituAuthorityError, match="modified or non-default"):
+        verifier.verify_checkpoint(
+            {
+                "operation_type": "preflight_content_build_plan",
+                "intent_snapshot": {
+                    "require_fresh_blank_room": True,
+                    "protected_reference_room_ids": ["38336", "38995"],
+                },
+            },
+            {"target_live_room_id": "47000002", "default_clip_id": 10},
         )
 
 

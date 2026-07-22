@@ -1,0 +1,14 @@
+port: "1088"
+unknown: false
+log:
+  level: "info"
+sign:
+  provider: "local"
+tikhub:
+  key: ""
+monitor:
+  poll_interval: "180s"
+  notify_interval: "180s"
+cookie:
+  douyin: ""
+  rooms: {}

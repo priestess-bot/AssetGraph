@@ -23,6 +23,7 @@ class BusinessObjectType(StrEnum):
     MAITU_EXECUTION = "MT-EXEC"
     MAITU_RETRY_TASK = "MT-RETRY"
     JD_LIVE_METRIC_SESSION = "JD-METRIC"
+    VIDEO_PRODUCTION_JOB = "VJOB"
 
 ASSET_CODE_PREFIX = "AG"
 LIVE_CODE_PREFIX = "AG-LIVE"
@@ -97,6 +98,10 @@ def format_jd_live_metric_session_code(sequence_date: date, sequence: int) -> st
     return f"{JD_LIVE_METRIC_SESSION_CODE_PREFIX}-{sequence_date:%Y%m%d}-{sequence:06d}"
 
 
+def format_video_production_job_code(sequence_date: date, sequence: int) -> str:
+    return format_business_code(BusinessObjectType.VIDEO_PRODUCTION_JOB, sequence_date, sequence)
+
+
 class CodeGenerator:
     def next_asset_code(self, asset_type: AssetType | str, sequence_date: date, sequence: int) -> str:
         return format_asset_code(asset_type, sequence_date, sequence)
@@ -135,3 +140,6 @@ class CodeGenerator:
 
     def next_jd_live_metric_session_code(self, sequence_date: date, sequence: int) -> str:
         return format_jd_live_metric_session_code(sequence_date, sequence)
+
+    def next_video_production_job_code(self, sequence_date: date, sequence: int) -> str:
+        return format_video_production_job_code(sequence_date, sequence)

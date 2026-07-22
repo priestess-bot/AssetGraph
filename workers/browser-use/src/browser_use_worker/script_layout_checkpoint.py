@@ -344,6 +344,13 @@ class AssetGraphScriptLayoutCheckpointStore:
         checkpoint = self.operation_checkpoints[operation_index]
         completion_id = self._completion_ids.setdefault(operation_index, uuid4())
         operation_result = script_layout_action_to_operation_result(action)
+        # Completion evidence already carries the authoritative readback fields.
+        # Persisting the provider's raw mutation response duplicates that data and
+        # can retain unrelated provider metadata in the durable checkpoint.
+        operation_result["details"] = {
+            "summary": action.summary,
+            "go_live_clicked": False,
+        }
         effect_class = checkpoint["effect_class"]
         if effect_class == "mutating" and action.status != "completed":
             raise RuntimeError("mutating operation did not complete and must remain dispatched for reconciliation")
@@ -363,6 +370,7 @@ class AssetGraphScriptLayoutCheckpointStore:
             if isinstance(candidate, dict):
                 nested_result = candidate
                 break
+        source_material_type = nested_result.get("source_material_type")
         evidence = {
             "verified": _action_completion_verified(action),
             "operation_applied": operation_applied,
@@ -383,11 +391,16 @@ class AssetGraphScriptLayoutCheckpointStore:
             "environment": nested_result.get("environment"),
             "not_live": nested_result.get("not_live"),
             "default_clip_id": nested_result.get("default_clip_id"),
-            "source_material_id": nested_result.get("source_material_id"),
-            "source_material_type": nested_result.get("source_material_type"),
-            "source_material_url": nested_result.get("source_material_url"),
+            "source_material_id": (
+                None if source_material_type == "digital_human" else nested_result.get("source_material_id")
+            ),
+            "source_material_type": source_material_type,
+            "source_material_url": (
+                None if source_material_type == "digital_human" else nested_result.get("source_material_url")
+            ),
             "speaker_id": nested_result.get("speaker_id"),
             "digital_human_image_id": nested_result.get("digital_human_image_id"),
+            "sound_enabled": nested_result.get("sound_enabled"),
             "expected_visual_count": nested_result.get("expected_visual_count"),
             "expected_text_count": nested_result.get("expected_text_count"),
             "expected_script_sha256": nested_result.get("expected_script_sha256"),
@@ -406,7 +419,6 @@ class AssetGraphScriptLayoutCheckpointStore:
             "action_type": action.action_type,
             "status": action.status,
             "go_live_clicked": False,
-            "action_details": action.details or {},
         }
         if evidence["verified"] is not True:
             raise RuntimeError("operation completion lacks authoritative verification evidence")

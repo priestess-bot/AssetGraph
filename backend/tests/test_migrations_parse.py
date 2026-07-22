@@ -234,3 +234,18 @@ def test_script_layout_execution_checkpoint_migration_reuses_build_execution_tab
     assert "maitu_live_room_build_plan_reconciliations" in sql
     assert "reconciliation_id UUID PRIMARY KEY" in sql
     assert "claim_token" not in sql
+
+
+def test_video_production_migration_stores_jobs_stages_and_artifacts() -> None:
+    migration = MIGRATIONS_DIR / "022_video_production_jobs.sql"
+
+    assert migration.exists()
+    sql = migration.read_text(encoding="utf-8")
+    assert "CREATE TABLE IF NOT EXISTS video_production_jobs" in sql
+    assert "CREATE TABLE IF NOT EXISTS video_production_stages" in sql
+    assert "CREATE TABLE IF NOT EXISTS video_production_artifacts" in sql
+    assert "job_code VARCHAR(40) NOT NULL UNIQUE" in sql
+    assert "artifact_key VARCHAR(64) NOT NULL" in sql
+    assert "lease_token UUID" in sql
+    assert "brief_generation" in sql
+    assert "quality_check" in sql

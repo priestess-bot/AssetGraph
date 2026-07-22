@@ -16,7 +16,13 @@ def _without_public_material_url_fields(value: Any) -> Any:
         return {
             key: _without_public_material_url_fields(item)
             for key, item in value.items()
-            if key not in {"source_material_url", "source_cover_url"}
+            if key
+            not in {
+                "source_material_url",
+                "source_cover_url",
+                "script_sha256",
+                "expected_script_sha256",
+            }
         }
     if isinstance(value, list):
         return [_without_public_material_url_fields(item) for item in value]
@@ -224,6 +230,10 @@ class MaituScriptAssetSelectionRead(BaseModel):
     selected_asset_source_cover_url: str | None = None
     selected_asset_speaker_id: int | None = None
     selected_asset_digital_human_image_id: int | None = None
+    selected_asset_sound_enabled: bool | None = None
+    selected_asset_audio_role: str | None = None
+    selected_asset_audio_classification_status: str | None = None
+    selected_asset_audio_class: str | None = None
     match_score: float | None = None
     match_reasons: list[str] = Field(default_factory=list)
     selection_source: str | None = None
@@ -309,6 +319,12 @@ class MaituScriptLayoutLayerRead(BaseModel):
     source_cover_url: str | None = None
     speaker_id: int | None = None
     digital_human_image_id: int | None = None
+    sound_enabled: bool = False
+    audio_role: str = "muted"
+    audio_classification_status: str = "unknown"
+    audio_class: str = "unknown"
+    audio_start_seconds: float = Field(default=0, ge=0)
+    audio_end_seconds: float = Field(default=1, gt=0)
     asset_title: str | None = None
     x: int
     y: int
@@ -323,6 +339,7 @@ class MaituScriptLayoutSceneRead(BaseModel):
     scene_index: int
     scene_name: str
     scene_goal: str
+    duration_seconds: int = Field(default=1, ge=1)
     status: str
     canvas: dict[str, int]
     layers: list[MaituScriptLayoutLayerRead] = Field(default_factory=list)

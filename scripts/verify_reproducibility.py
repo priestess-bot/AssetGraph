@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -45,6 +46,17 @@ def validate_repository(root: Path) -> list[str]:
         "services/qwen3/pyproject.toml",
         "services/qwen3/uv.lock",
         "services/qwen3/README.md",
+        "workers/video-production/src/assetgraph_tts/server.py",
+        "workers/video-production/pyproject.toml",
+        "workers/video-production/uv.lock",
+        "workers/video-production/README.md",
+        "workers/live-research/src/assetgraph_live_research/main.py",
+        "workers/live-research/pyproject.toml",
+        "workers/live-research/uv.lock",
+        "workers/live-research/README.md",
+        "workers/live-research/streamcap-requirements.lock.txt",
+        "frontend/package.json",
+        "frontend/package-lock.json",
     ]
     for relative in required:
         if not (root / relative).is_file():
@@ -111,6 +123,8 @@ def validate_repository(root: Path) -> list[str]:
         root / "workers" / "browser-use" / "src",
         root / "scripts",
         root / "services" / "qwen3",
+        root / "workers" / "video-production" / "src",
+        root / "workers" / "live-research" / "src",
     ]
     for source_root in source_roots:
         if not source_root.exists():
@@ -143,12 +157,44 @@ def validate_external(root: Path, *, verify_asset_hashes: bool = False) -> list[
         if completed.returncode != 0 or actual != manifest["browser_use"]["commit"]:
             errors.append(f"browser-use revision mismatch: expected {manifest['browser_use']['commit']}, got {actual or 'unreadable'}")
 
+    for key, label in (("streamcap", "StreamCap"), ("douyin_live", "douyinLive")):
+        item = manifest["live_research"][key]
+        checkout = root / item["default_path"]
+        if not checkout.is_dir():
+            errors.append(f"{label} checkout missing: {checkout}")
+            continue
+        completed = subprocess.run(
+            ["git", "-C", str(checkout), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        actual = completed.stdout.strip()
+        if completed.returncode != 0 or actual != item["commit"]:
+            errors.append(f"{label} revision mismatch: expected {item['commit']}, got {actual or 'unreadable'}")
+    douyin = manifest["live_research"]["douyin_live"]
+    binary = root / douyin["default_binary_path"]
+    if not binary.is_file():
+        errors.append(f"douyinLive binary missing: {binary}")
+    else:
+        completed = subprocess.run(
+            [str(binary), "--version"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        version_text = completed.stdout + completed.stderr
+        if completed.returncode != 0 or douyin["tag"] not in version_text or douyin["commit"][:12] not in version_text:
+            errors.append("douyinLive binary version does not match the reproducibility lock")
+
     model_root = root / ".external" / "models" / "qwen3-4b"
     embedding = Path(os.getenv("QWEN3_EMBEDDING_PATH", model_root / "Qwen3-Embedding-4B"))
     reranker = Path(os.getenv("QWEN3_RERANKER_PATH", model_root / "Qwen3-Reranker-4B"))
     for label, path in (("embedding", embedding), ("reranker", reranker)):
         if not (path / "config.json").is_file():
             errors.append(f"Qwen3 {label} model missing: {path}")
+
+    errors.extend(validate_video_demo(root, verify_asset_hashes=verify_asset_hashes))
 
     assets_root = Path(os.getenv("ASSETGRAPH_ASSETS_ROOT", root / "素材"))
     inventory_path = root / manifest["asset_inventory"]["manifest"]
@@ -170,19 +216,92 @@ def validate_external(root: Path, *, verify_asset_hashes: bool = False) -> list[
     return errors
 
 
+def validate_video_demo(root: Path, *, verify_asset_hashes: bool = True) -> list[str]:
+    root = root.resolve()
+    manifest = _load_manifest(root)
+    errors: list[str] = []
+    contract = manifest["video_demo"]
+    for command in contract["required_commands"]:
+        if shutil.which(command) is None:
+            errors.append(f"video demo command missing: {command}")
+
+    if shutil.which("fc-match") is not None:
+        completed = subprocess.run(
+            ["fc-match", "-f", "%{family}", contract["required_font"]],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if completed.returncode != 0 or contract["required_font"] not in completed.stdout:
+            errors.append(f"video demo font missing: {contract['required_font']}")
+
+    video_tts = manifest["video_tts"]
+    kokoro_root = Path(
+        os.getenv("ASSETGRAPH_KOKORO_MODEL_ROOT", root / video_tts["default_path"])
+    )
+    snapshot = (
+        kokoro_root
+        / "models--hexgrad--Kokoro-82M"
+        / "snapshots"
+        / video_tts["revision"]
+    )
+    pinned_files = (
+        (video_tts["model_file"], video_tts["model_sha256"]),
+        (video_tts["config_file"], video_tts["config_sha256"]),
+        (video_tts["voice_file"], video_tts["voice_sha256"]),
+    )
+    for relative_path, expected_sha256 in pinned_files:
+        path = snapshot / relative_path
+        if not path.is_file():
+            errors.append(f"Kokoro file missing: {path}")
+        elif _sha256(path) != expected_sha256:
+            errors.append(f"Kokoro file hash mismatch: {path}")
+
+    assets_root = Path(os.getenv("ASSETGRAPH_ASSETS_ROOT", root / "素材"))
+    for item in contract["assets"]:
+        path = assets_root / item["relative_path"]
+        if not path.is_file():
+            errors.append(f"video demo asset missing: {path}")
+        elif path.stat().st_size != item["file_size"]:
+            errors.append(f"video demo asset size mismatch: {path}")
+        elif verify_asset_hashes and _sha256(path) != item["sha256"]:
+            errors.append(f"video demo asset hash mismatch: {path}")
+
+    return errors
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Verify AssetGraph reproducibility contract")
     parser.add_argument("--external", action="store_true", help="also verify browser-use, Qwen3 models, and asset inventory")
+    parser.add_argument("--video-demo", action="store_true", help="verify only the video Demo runtime, model, and five fixed assets")
     parser.add_argument("--verify-asset-hashes", action="store_true", help="hash every inventory asset; implies --external and may be slow")
     args = parser.parse_args(argv)
 
     errors = validate_repository(REPO_ROOT)
     if args.external or args.verify_asset_hashes:
-        errors.extend(validate_external(REPO_ROOT, verify_asset_hashes=args.verify_asset_hashes))
+        errors.extend(
+            validate_external(
+                REPO_ROOT,
+                verify_asset_hashes=args.verify_asset_hashes or args.video_demo,
+            )
+        )
+    elif args.video_demo:
+        errors.extend(validate_video_demo(REPO_ROOT, verify_asset_hashes=True))
     if errors:
         print(json.dumps({"status": "failed", "errors": errors}, ensure_ascii=False, indent=2))
         return 1
-    print(json.dumps({"status": "ok", "repository": str(REPO_ROOT), "external_checked": bool(args.external or args.verify_asset_hashes)}, ensure_ascii=False, indent=2))
+    print(
+        json.dumps(
+            {
+                "status": "ok",
+                "repository": str(REPO_ROOT),
+                "external_checked": bool(args.external or args.verify_asset_hashes),
+                "video_demo_checked": bool(args.video_demo),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
     return 0
 
 

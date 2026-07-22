@@ -648,6 +648,53 @@ def test_resolver_rejects_malformed_insert_before_any_side_effect(tmp_path: Path
     assert client.updates == []
 
 
+def test_resolver_accepts_native_digital_human_binding_without_asset_code(
+    tmp_path: Path,
+) -> None:
+    client = FakeAssetGraphClient({})
+    session = FakeMaituMaterialSession([])
+    plan = {
+        "operations": [
+            {
+                "operation_type": "insert_asset_layer",
+                "scene_index": 0,
+                "layer_id": "scene-00-digital_human",
+                "layer_type": "digital_human",
+                "asset_code": None,
+                "source_material_type": "digital_human",
+                "material_id": 40222,
+                "speaker_id": 4224,
+                "digital_human_image_id": 8856,
+            },
+            {
+                "operation_type": "position_asset_layer",
+                "scene_index": 0,
+                "layer_id": "scene-00-digital_human",
+                "layer_type": "digital_human",
+                "asset_code": None,
+            },
+        ]
+    }
+
+    result = MaituMaterialResolver(
+        asset_client=client,
+        session=session,
+        assets_root=tmp_path,
+    ).resolve_plan(plan)
+
+    assert result.status == "resolved"
+    assert result.issues == []
+    assert result.manual_required_count == 0
+    assert session.list_calls == 0
+    assert client.updates == []
+    position = result.operation_plan["operations"][1]
+    assert position["source_material_type"] == "digital_human"
+    assert position["material_id"] == 40222
+    assert position["speaker_id"] == 4224
+    assert position["digital_human_image_id"] == 8856
+    assert position["material_resolution_status"] == "native_maitu_digital_human_binding"
+
+
 def test_resolver_rejects_conflicting_layer_types_for_one_asset_before_side_effect(tmp_path: Path) -> None:
     asset_code = "AG-MIXED-1"
     client = FakeAssetGraphClient({asset_code: {"asset_code": asset_code}})

@@ -1,0 +1,28 @@
+[project]
+name = "assetgraph-live-research-worker"
+version = "0.1.0"
+description = "Pinned Douyin capture and observation sidecar adapter for AssetGraph"
+requires-python = ">=3.11,<3.15"
+dependencies = [
+    "httpx==0.28.1",
+    "websockets==15.0.1",
+]
+
+[project.scripts]
+assetgraph-live-research = "assetgraph_live_research.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/assetgraph_live_research"]
+
+[dependency-groups]
+dev = [
+    "pytest==8.4.1",
+    "ruff==0.12.7",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

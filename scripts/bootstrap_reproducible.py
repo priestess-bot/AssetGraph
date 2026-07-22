@@ -9,7 +9,9 @@ import secrets
 import shutil
 import subprocess
 import sys
+import tarfile
 import time
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -169,6 +171,63 @@ def install_browser_use(root: Path) -> Path:
     return target
 
 
+def install_live_research_tools(root: Path) -> tuple[Path, Path]:
+    manifest = _load_manifest(root)["live_research"]
+    installed: list[Path] = []
+    for key in ("streamcap", "douyin_live"):
+        item = manifest[key]
+        target = root / item["default_path"]
+        if not target.exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            _run(["git", "clone", "--filter=blob:none", "--no-checkout", item["repository"], str(target)], cwd=root)
+        _run(["git", "fetch", "--depth", "1", "origin", item["commit"]], cwd=target)
+        _run(["git", "checkout", "--detach", item["commit"]], cwd=target)
+        installed.append(target)
+    streamcap_venv = root / ".external" / "streamcap-venv"
+    _run(["uv", "venv", "--python", "3.12", str(streamcap_venv)], cwd=root)
+    streamcap_python = (
+        streamcap_venv / "Scripts" / "python.exe"
+        if os.name == "nt"
+        else streamcap_venv / "bin" / "python"
+    )
+    _run(
+        [
+            "uv",
+            "pip",
+            "install",
+            "--python",
+            str(streamcap_python),
+            "-r",
+            str(root / "workers" / "live-research" / "streamcap-requirements.lock.txt"),
+        ],
+        cwd=root,
+    )
+    _run(["uv", "sync", "--frozen"], cwd=root / "workers" / "live-research")
+
+    douyin = manifest["douyin_live"]
+    if "linux_amd64_url" in douyin:
+        binary = root / douyin["default_binary_path"]
+        if not binary.is_file():
+            download_root = root / ".external" / "downloads"
+            download_root.mkdir(parents=True, exist_ok=True)
+            archive = download_root / douyin["linux_amd64_asset"]
+            urllib.request.urlretrieve(douyin["linux_amd64_url"], archive)
+            actual = hashlib.sha256(archive.read_bytes()).hexdigest()
+            if actual != douyin["linux_amd64_sha256"]:
+                archive.unlink(missing_ok=True)
+                raise RuntimeError("douyinLive release archive checksum mismatch")
+            binary.parent.mkdir(parents=True, exist_ok=True)
+            with tarfile.open(archive, "r:gz") as source:
+                member = source.getmember("douyinLive")
+                extracted = source.extractfile(member)
+                if extracted is None or not member.isfile():
+                    raise RuntimeError("douyinLive release archive has no executable")
+                with binary.open("wb") as target:
+                    shutil.copyfileobj(extracted, target)
+            os.chmod(binary, 0o755)
+    return installed[0], installed[1]
+
+
 def download_qwen_models(root: Path) -> tuple[Path, Path]:
     manifest = _load_manifest(root)["qwen3"]
     if shutil.which("hf") is None:
@@ -183,6 +242,37 @@ def download_qwen_models(root: Path) -> tuple[Path, Path]:
         paths.append(target)
     _run(["uv", "sync", "--python", "3.12", "--frozen"], cwd=root / "services" / "qwen3")
     return paths[0], paths[1]
+
+
+def install_video_demo(root: Path) -> Path:
+    worker_root = root / "workers" / "video-production"
+    frontend_root = root / "frontend"
+    missing_commands = [
+        command
+        for command in ("npm", "ffmpeg", "ffprobe", "fc-match")
+        if shutil.which(command) is None
+    ]
+    if missing_commands:
+        raise RuntimeError(
+            f"missing commands required for --with-video-demo: {', '.join(missing_commands)}"
+        )
+    _run(["uv", "sync", "--python", "3.12", "--frozen"], cwd=worker_root)
+    _run(
+        [
+            str(_venv_python(worker_root)),
+            "-c",
+            "from assetgraph_tts.server import engine; engine.load()",
+        ],
+        cwd=worker_root,
+    )
+    _run(["npm", "ci"], cwd=frontend_root)
+    _run(["npm", "run", "build"], cwd=frontend_root)
+    return Path(
+        os.environ.get(
+            "ASSETGRAPH_KOKORO_MODEL_ROOT",
+            root / ".external" / "models" / "kokoro",
+        )
+    )
 
 
 def wait_for_postgres(root: Path, timeout_seconds: int = 90) -> None:
@@ -201,7 +291,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--skip-skill", action="store_true")
     parser.add_argument("--force-skill", action="store_true")
     parser.add_argument("--with-browser-use", action="store_true")
+    parser.add_argument("--with-live-research-tools", action="store_true")
     parser.add_argument("--with-qwen-models", action="store_true")
+    parser.add_argument("--with-video-demo", action="store_true")
     parser.add_argument("--with-infra", action="store_true")
     args = parser.parse_args(argv)
 
@@ -219,8 +311,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"skill={install_skill(REPO_ROOT, force=args.force_skill)}")
     if args.with_browser_use:
         print(f"browser_use={install_browser_use(REPO_ROOT)}")
+    if args.with_live_research_tools:
+        streamcap, douyin_live = install_live_research_tools(REPO_ROOT)
+        print(f"streamcap={streamcap}")
+        print(f"douyin_live={douyin_live}")
     if args.with_qwen_models:
         print(f"qwen_models={download_qwen_models(REPO_ROOT)}")
+    if args.with_video_demo:
+        print(f"video_demo_model={install_video_demo(REPO_ROOT)}")
     if args.with_infra:
         _run(["docker", "compose", "-f", "infra/docker-compose.yml", "up", "-d"], cwd=REPO_ROOT)
         wait_for_postgres(REPO_ROOT)

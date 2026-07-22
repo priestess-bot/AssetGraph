@@ -13,6 +13,28 @@
     "version": "0.13.2",
     "default_path": ".external/browser-use"
   },
+  "live_research": {
+    "streamcap": {
+      "repository": "https://github.com/ihmily/StreamCap.git",
+      "tag": "v1.0.3",
+      "tag_object": "707a2bf",
+      "commit": "ba9f1e6e6a861ad489e738cf5f5bee491774e972",
+      "license": "Apache-2.0",
+      "default_path": ".external/StreamCap"
+    },
+    "douyin_live": {
+      "repository": "https://github.com/jwwsjlm/douyinLive.git",
+      "tag": "v2.0.24",
+      "tag_object": "8c62f960",
+      "commit": "79453ece4a440f4439e72d9624e69b0ddbe9c239",
+      "license": "MIT",
+      "default_path": ".external/douyinLive",
+      "linux_amd64_asset": "douyinLive-v2.0.24-79453ece4a44-linux-amd64.tar.gz",
+      "linux_amd64_sha256": "90352cd98e00db1ae6f6e0172f3039ba6e44b842d06b80c96b3434110e96cdf1",
+      "linux_amd64_url": "https://github.com/jwwsjlm/douyinLive/releases/download/v2.0.24/douyinLive-v2.0.24-79453ece4a44-linux-amd64.tar.gz",
+      "default_binary_path": ".external/bin/douyinLive"
+    }
+  },
   "qwen3": {
     "python_requires": ">=3.11,<3.14",
     "bootstrap_python": "3.12",
@@ -26,6 +48,52 @@
       "revision": "22e683669bc0f0bd69640a1354a6d0aebcfeede5",
       "default_path": ".external/models/qwen3-4b/Qwen3-Reranker-4B"
     }
+  },
+  "video_tts": {
+    "python_requires": ">=3.12,<3.13",
+    "bootstrap_python": "3.12",
+    "service_path": "workers/video-production",
+    "repository": "hexgrad/Kokoro-82M",
+    "revision": "10319fe511be37815a2116fca92006000d38151e",
+    "config_file": "config.json",
+    "config_sha256": "5abb01e2403b072bf03d04fde160443e209d7a0dad49a423be15196b9b43c17f",
+    "model_file": "kokoro-v1_0.pth",
+    "model_sha256": "496dba118d1a58f5f3db2efc88dbdc216e0483fc89fe6e47ee1f2c53f18ad1e4",
+    "voice": "zm_yunyang",
+    "voice_file": "voices/zm_yunyang.pt",
+    "voice_sha256": "5238ac22e0c7f8b6cdd2eddd6e444b8a700b73c4674d9a047d59a94ff96379a2",
+    "default_path": ".external/models/kokoro"
+  },
+  "video_demo": {
+    "required_commands": ["ffmpeg", "ffprobe", "fc-match", "npm"],
+    "required_font": "Noto Sans CJK SC",
+    "assets": [
+      {
+        "relative_path": "装饰/MT-DEC-0003_装饰_品牌Logo_logo.png",
+        "file_size": 7411,
+        "sha256": "1514f083707bbfe874070cf464f88bd591d189c6e88c3fa13853ae8705f1b1ef"
+      },
+      {
+        "relative_path": "装饰/MT-DEC-0024_装饰_商品贴片_品酒大师PRO.png",
+        "file_size": 162727,
+        "sha256": "b93c79a6f127165cf24dad4552bb2d86e3b5d33cc898bf1f5d9e3117fbaf0306"
+      },
+      {
+        "relative_path": "视频/MT-VID-0016_视频_酒体视频_品酒大师PRO_酒体.mov",
+        "file_size": 585074454,
+        "sha256": "138d20431679a59163a2d3b8cb6ffc63341a6c2f6c0e5e9b8cf8ab593ec1cf2c"
+      },
+      {
+        "relative_path": "视频/MT-VID-0024_视频_商品讲解视频_品酒大师PRO.mp4",
+        "file_size": 13847586,
+        "sha256": "a803a7d13afe5695b42f1e4f74809cc99b54e6276c0ff5ce02b07fb34895a6cc"
+      },
+      {
+        "relative_path": "视频/MT-VID-0027_视频_品牌TVC_品酒大师_TVC.mp4",
+        "file_size": 548998185,
+        "sha256": "29945837004e11cf6a6e2e72d7bf7edb21b96d1758c9447330b234d1e22d8155"
+      }
+    ]
   },
   "script_skill": {
     "name": "jd-wine-livestream-scriptwriting",

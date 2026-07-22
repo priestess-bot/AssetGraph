@@ -156,6 +156,18 @@ python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --non-de
 python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --non-destructive-build --write-result
 ```
 
+真实麦兔探测使用 VNC 桌面里的可见 Chrome。先在该桌面终端启动仅监听本机的 CDP 会话并完成人工登录：
+
+```bash
+export BROWSER_USE_CDP_URL=http://127.0.0.1:9223
+export BROWSER_USE_SESSION_NAME=assetgraph-maitu-vnc
+google-chrome \
+  --remote-debugging-address=127.0.0.1 \
+  --remote-debugging-port=9223 \
+  --user-data-dir="$HOME/.local/share/assetgraph-maitu-chrome" \
+  https://live2.maituai.com/LiveManage
+```
+
 `--build-plan-code ... --dry-run` fetches `/api/maitu/live-room-build-plans/{build_plan_code}/browser-use-operations` and prints a structured safe-action summary for each operation. It never opens Browser-use, clicks Maitu, uploads assets, writes scripts, saves drafts, or starts live streaming. Mutating operations such as `replace_layer_asset` / `insert_template_component` and `add_script_block` are rendered as `planned_*_not_executed`; `create_scene_from_template` is rendered as planned scene creation only; `save_live_room` must stay `manual_review`. When the backend created the plan with `strategy=script_context_best_match` / `auto_select_assets=true`, dry-run also displays `selected_asset_code`, Browser-use display/local file codes, `match_score`, and `match_reasons`; these are evidence for review, not permission to mutate. `MT-TPL-*` template preview assets are style/structure indexes only and must not appear as direct `replace_layer_asset` selected assets for background/sticker/video layers.
 
 `--build-plan-code ... --non-destructive-build` first runs a real Browser-use current-state preflight and refuses to continue unless it is fully green. When allowed, it only performs low-risk navigation: selecting existing scenes, opening inferred material tabs for layer/component planning, opening the `直播脚本` workbench tab, and re-observing after each action. New scene creation, template component insertion, upload/replace, typing script text, saving drafts, and clicking `正式开播` remain blocked.
@@ -184,6 +196,8 @@ BROWSER_USE_LOCK_TTL_SECONDS=900
 BROWSER_USE_LEASE_HEARTBEAT_INTERVAL_SECONDS=30
 BROWSER_USE_POLL_INTERVAL_SECONDS=5
 BROWSER_USE_MAX_ATTEMPTS=3
+BROWSER_USE_CDP_URL=http://127.0.0.1:9223
+BROWSER_USE_SESSION_NAME=assetgraph-maitu-vnc
 ```
 
 ---

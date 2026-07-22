@@ -41,6 +41,88 @@ class AssetGraphClient:
         asset_segment = self._asset_code_segment(asset_code)
         return self._request_json("PATCH", f"/api/assets/{asset_segment}/maitu-material-binding", payload)
 
+    def claim_next_maitu_inventory_sync(self, payload: dict[str, Any]) -> dict[str, Any] | None:
+        result = self._request_json("POST", "/api/maitu/workbench/inventory-sync-jobs/claim-next", payload)
+        return result or None
+
+    def claim_maitu_inventory_sync(self, sync_job_code: str, payload: dict[str, Any]) -> dict[str, Any]:
+        segment = self._canonical_path_segment(sync_job_code, field_name="sync_job_code")
+        return self._request_json(
+            "POST",
+            f"/api/maitu/workbench/inventory-sync-jobs/{segment}/claim",
+            payload,
+        )
+
+    def heartbeat_maitu_inventory_sync(self, sync_job_code: str, payload: dict[str, Any]) -> dict[str, Any]:
+        segment = self._canonical_path_segment(sync_job_code, field_name="sync_job_code")
+        return self._request_json(
+            "POST",
+            f"/api/maitu/workbench/inventory-sync-jobs/{segment}/heartbeat",
+            payload,
+        )
+
+    def complete_maitu_inventory_sync(self, sync_job_code: str, payload: dict[str, Any]) -> dict[str, Any]:
+        segment = self._canonical_path_segment(sync_job_code, field_name="sync_job_code")
+        return self._request_json(
+            "POST",
+            f"/api/maitu/workbench/inventory-sync-jobs/{segment}/complete",
+            payload,
+            timeout_seconds=max(self.timeout_seconds, 120.0),
+        )
+
+    def fail_maitu_inventory_sync(self, sync_job_code: str, payload: dict[str, Any]) -> dict[str, Any]:
+        segment = self._canonical_path_segment(sync_job_code, field_name="sync_job_code")
+        return self._request_json(
+            "POST",
+            f"/api/maitu/workbench/inventory-sync-jobs/{segment}/fail",
+            payload,
+        )
+
+    def claim_next_workbench_draft_execution(self, payload: dict[str, Any]) -> dict[str, Any] | None:
+        result = self._request_json(
+            "POST",
+            "/api/maitu/workbench/draft-execution-jobs/claim-next",
+            payload,
+        )
+        return result or None
+
+    def claim_workbench_draft_execution(self, execution_job_code: str, payload: dict[str, Any]) -> dict[str, Any]:
+        segment = self._canonical_path_segment(execution_job_code, field_name="execution_job_code")
+        return self._request_json(
+            "POST",
+            f"/api/maitu/workbench/draft-execution-jobs/{segment}/claim",
+            payload,
+        )
+
+    def heartbeat_workbench_draft_execution(
+        self,
+        execution_job_code: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        segment = self._canonical_path_segment(execution_job_code, field_name="execution_job_code")
+        return self._request_json(
+            "POST",
+            f"/api/maitu/workbench/draft-execution-jobs/{segment}/heartbeat",
+            payload,
+        )
+
+    def complete_workbench_draft_execution(self, execution_job_code: str, payload: dict[str, Any]) -> dict[str, Any]:
+        segment = self._canonical_path_segment(execution_job_code, field_name="execution_job_code")
+        return self._request_json(
+            "POST",
+            f"/api/maitu/workbench/draft-execution-jobs/{segment}/complete",
+            payload,
+            timeout_seconds=max(self.timeout_seconds, 120.0),
+        )
+
+    def fail_workbench_draft_execution(self, execution_job_code: str, payload: dict[str, Any]) -> dict[str, Any]:
+        segment = self._canonical_path_segment(execution_job_code, field_name="execution_job_code")
+        return self._request_json(
+            "POST",
+            f"/api/maitu/workbench/draft-execution-jobs/{segment}/fail",
+            payload,
+        )
+
     def get_replacement_plan_operation_plan(self, plan_code: str) -> dict[str, Any]:
         return self._request_json("GET", f"/api/maitu/replacement-plans/{plan_code}/browser-use-operations")
 

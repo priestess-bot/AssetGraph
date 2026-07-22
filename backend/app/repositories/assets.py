@@ -71,7 +71,7 @@ class AssetRepository:
     def __init__(self, connection: Connection):
         self.connection = connection
 
-    def create(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def create(self, payload: dict[str, Any], *, commit: bool = True) -> dict[str, Any]:
         tags = self._normalize_tags(payload.get("tags") or [])
         data = self._filter_writable(payload)
         data["asset_type"] = AssetType(data["asset_type"]).value
@@ -91,7 +91,8 @@ class AssetRepository:
             row = cursor.fetchone()
             if tags and row is not None:
                 self._attach_tags(cursor, row["id"], tags)
-        self.connection.commit()
+        if commit:
+            self.connection.commit()
         result = self._stringify_ids(row)
         result["tags"] = tags
         return result
@@ -264,7 +265,13 @@ class AssetRepository:
             row = cursor.fetchone()
         return self._stringify_ids(row) if row else None
 
-    def create_file_record(self, asset_code: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+    def create_file_record(
+        self,
+        asset_code: str,
+        payload: dict[str, Any],
+        *,
+        commit: bool = True,
+    ) -> dict[str, Any] | None:
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
                 """
@@ -287,6 +294,9 @@ class AssetRepository:
                 "mime_type": payload.get("mime_type"),
                 "file_size": payload.get("file_size"),
                 "checksum_sha256": payload.get("checksum_sha256"),
+                "width": payload.get("width"),
+                "height": payload.get("height"),
+                "duration_seconds": payload.get("duration_seconds"),
                 "source_relative_path": payload.get("source_relative_path"),
                 "local_file_code": payload.get("local_file_code"),
                 "storage_status": payload.get("storage_status", "stored"),
@@ -298,12 +308,26 @@ class AssetRepository:
                 f"""
                 INSERT INTO asset_files ({columns})
                 VALUES ({placeholders})
+                ON CONFLICT (asset_id, file_role)
+                DO UPDATE SET
+                    bucket_name = EXCLUDED.bucket_name,
+                    object_key = EXCLUDED.object_key,
+                    mime_type = EXCLUDED.mime_type,
+                    file_size = EXCLUDED.file_size,
+                    checksum_sha256 = EXCLUDED.checksum_sha256,
+                    width = EXCLUDED.width,
+                    height = EXCLUDED.height,
+                    duration_seconds = EXCLUDED.duration_seconds,
+                    source_relative_path = EXCLUDED.source_relative_path,
+                    local_file_code = EXCLUDED.local_file_code,
+                    storage_status = EXCLUDED.storage_status
                 RETURNING *
                 """,
                 tuple(data[field] for field in fields),
             )
             row = cursor.fetchone()
-        self.connection.commit()
+        if commit:
+            self.connection.commit()
         return self._stringify_ids(row) if row else None
 
     def list_file_records(self, asset_code: str) -> list[dict[str, Any]]:

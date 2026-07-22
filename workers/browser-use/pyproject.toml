@@ -3,7 +3,9 @@ name = "assetgraph-browser-use-worker"
 version = "0.1.0"
 description = "Browser-use worker for AssetGraph Maitu automation tasks"
 requires-python = ">=3.11,<3.15"
-dependencies = []
+dependencies = [
+    "python-dotenv==1.2.2",
+]
 
 [project.optional-dependencies]
 dev = [
