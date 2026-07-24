@@ -237,6 +237,12 @@
 .knowledge-version-detail dd { margin: 5px 0 0; overflow-wrap: anywhere; font-size: 9px; line-height: 1.45; white-space: pre-line; }
 .knowledge-review { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
 .knowledge-review .wb-form-actions, .knowledge-review .wb-notice { grid-column: 1 / -1; }
+.knowledge-usage-list { display: grid; }
+.knowledge-usage-list article { display: grid; min-height: 58px; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 9px 12px; border-top: 1px solid var(--wb-line); }
+.knowledge-usage-list article > span { display: flex; min-width: 0; flex-direction: column; }
+.knowledge-usage-list strong { font-size: 10px; overflow-wrap: anywhere; }
+.knowledge-usage-list small, .knowledge-usage-list code { margin-top: 3px; color: var(--wb-muted); font-size: 8px; overflow-wrap: anywhere; }
+.knowledge-usage-list code { color: var(--console-cyan); }
 .content-project-rail { position: sticky; top: 84px; align-self: start; max-height: calc(100vh - 105px); overflow-y: auto; }
 .content-project-rail > .content-project-form { padding: 12px; border-bottom: 1px solid var(--wb-line); }
 .content-project-list { display: grid; }

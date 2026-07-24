@@ -38,6 +38,7 @@ from app.schemas.maitu_workbench import (
     MaterialRequirementRead,
     ProductFactCardCreate,
     ProductFactCardRead,
+    ProductFactCardUsageRead,
     ProductFactCardVersionApprove,
     ProductFactCardVersionCreate,
     ProductFactCardVersionRead,
@@ -183,6 +184,19 @@ def get_product_fact_card(
     repository: Annotated[MaituWorkbenchRepository, Depends(get_maitu_workbench_repository)],
 ) -> dict[str, Any]:
     return _found(repository.get_product_fact_card(fact_card_code), "Product fact card not found")
+
+
+@router.get(
+    "/product-fact-cards/{fact_card_code}/versions/{version_number}/usage",
+    response_model=list[ProductFactCardUsageRead],
+)
+def list_product_fact_card_usage(
+    fact_card_code: str,
+    version_number: int,
+    repository: Annotated[MaituWorkbenchRepository, Depends(get_maitu_workbench_repository)],
+) -> list[dict[str, Any]]:
+    usage = repository.list_product_fact_card_usage(fact_card_code, version_number)
+    return _found(usage, "Product fact card version not found")
 
 
 @router.post(

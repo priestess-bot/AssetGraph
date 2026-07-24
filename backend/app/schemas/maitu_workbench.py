@@ -146,6 +146,15 @@ class ProductFactCardVersionRead(BaseModel):
     updated_at: datetime
 
 
+class ProductFactCardUsageRead(BaseModel):
+    relation_type: str
+    object_type: str
+    object_code: str
+    revision_number: int | None = None
+    status: str
+    created_at: datetime
+
+
 class ProductFactCardRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

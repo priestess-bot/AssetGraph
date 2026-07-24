@@ -27,6 +27,15 @@ export interface ProductFactCard {
   versions: ProductFactCardVersion[];
 }
 
+export interface ProductFactCardUsage {
+  relationType: string;
+  objectType: string;
+  objectCode: string;
+  revisionNumber?: number;
+  status: string;
+  createdAt?: string;
+}
+
 export interface ProductFactCardContentInput {
   product_name: string;
   product_code?: string;
@@ -94,10 +103,25 @@ function card(value: unknown): ProductFactCard {
   };
 }
 
+function usage(value: unknown): ProductFactCardUsage {
+  if (!isRecord(value)) throw new Error("事实使用记录响应无效");
+  const objectCode = asString(value.object_code);
+  if (!objectCode) throw new Error("事实使用记录缺少对象编码");
+  return {
+    relationType: asString(value.relation_type, "uses_fact_card"),
+    objectType: asString(value.object_type, "unknown"),
+    objectCode,
+    revisionNumber: typeof value.revision_number === "number" ? value.revision_number : undefined,
+    status: asString(value.status, "unknown"),
+    createdAt: asOptionalString(value.created_at),
+  };
+}
+
 export const knowledgeApi = {
   listProductFactCards: () => requestJson<unknown[]>(ROOT).then((items) => items.map(card)),
   createProductFactCard: (payload: ProductFactCardCreateInput) => postJson<unknown>(ROOT, payload).then(card),
   createProductFactCardVersion: (factCardCode: string, payload: ProductFactCardVersionCreateInput) => postJson<unknown>(`${ROOT}/${encodeURIComponent(factCardCode)}/versions`, payload),
   approveProductFactCardVersion: (factCardCode: string, versionNumber: number, approvedBy: string) => postJson<unknown>(`${ROOT}/${encodeURIComponent(factCardCode)}/versions/${versionNumber}/approve`, { approved_by: approvedBy }),
   rejectProductFactCardVersion: (factCardCode: string, versionNumber: number, rejectedBy: string, reason: string) => postJson<unknown>(`${ROOT}/${encodeURIComponent(factCardCode)}/versions/${versionNumber}/reject`, { rejected_by: rejectedBy, reason }),
+  listProductFactCardUsage: (factCardCode: string, versionNumber: number) => requestJson<unknown[]>(`${ROOT}/${encodeURIComponent(factCardCode)}/versions/${versionNumber}/usage`).then((items) => items.map(usage)),
 };

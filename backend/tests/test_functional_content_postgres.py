@@ -358,6 +358,65 @@ def test_generated_fact_sentence_has_pinned_fact_citation() -> None:
         assert citation["end_offset"] == len(fact_block["content"])
 
 
+def test_fact_card_usage_follows_the_exact_pinned_content_chain() -> None:
+    with psycopg.connect(DATABASE_URL) as connection:
+        facts = MaituWorkbenchRepository(connection)
+        fact_content = {
+            "product_name": "Lineage product",
+            "positioning": "For a traceable demonstration",
+            "verified_facts": ["The original verified fact."],
+            "applicable_platforms": ["douyin"],
+        }
+        fact = facts.create_product_fact_card(
+            {
+                "title": f"Lineage fact {uuid4().hex}",
+                "content": fact_content,
+                "approve": True,
+                "approved_by": "test-reviewer",
+            },
+            content_sha256=sha256(json.dumps(fact_content, sort_keys=True).encode()).hexdigest(),
+        )
+        service = FunctionalContentService(connection)
+        project = service.create_project(
+            {
+                "title": f"Lineage project {uuid4().hex}",
+                "generation_goal": "Build a traceable fact-backed content chain",
+                "platform": "douyin",
+                "fact_card_refs": [{"fact_card_code": fact["fact_card_code"], "version_number": 1}],
+            },
+            actor_id="test-operator",
+        )
+        service.confirm_project(project["project_code"], expected_revision=1, actor_id="test-operator")
+        service.parse_design_brief(project["project_code"], expected_revision=1, raw_input="Use the approved fact.", actor_id="test-operator")
+        service.confirm_design_brief(project["project_code"], expected_revision=1, actor_id="test-operator")
+        service.generate_chain(project["project_code"], actor_id="test-operator")
+
+        usage = facts.list_product_fact_card_usage(fact["fact_card_code"], 1)
+
+        assert usage is not None
+        assert {row["object_type"] for row in usage} >= {
+            "content_project",
+            "story_brief",
+            "content_script",
+            "content_program",
+            "shot_list",
+        }
+        assert any(
+            row["object_type"] == "content_project"
+            and row["object_code"] == project["project_code"]
+            and row["revision_number"] == 1
+            for row in usage
+        )
+
+        replacement = {**fact_content, "verified_facts": ["The replacement fact."]}
+        facts.create_product_fact_card_version(
+            fact["fact_card_code"],
+            {"content": replacement, "approve": True, "approved_by": "test-reviewer"},
+            content_sha256=sha256(json.dumps(replacement, sort_keys=True).encode()).hexdigest(),
+        )
+        assert facts.list_product_fact_card_usage(fact["fact_card_code"], 2) == []
+
+
 def test_content_project_pins_published_template_revision() -> None:
     with psycopg.connect(DATABASE_URL) as connection:
         live = LiveObservationRepository(connection)

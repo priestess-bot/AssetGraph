@@ -7,7 +7,12 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pglast import parse_sql
 
-from app.api.routes.maitu_workbench import _reject_secret, get_maitu_workbench_service, router
+from app.api.routes.maitu_workbench import (
+    _reject_secret,
+    get_maitu_workbench_repository,
+    get_maitu_workbench_service,
+    router,
+)
 from app.schemas.maitu_workbench import (
     DraftExecutionJobClaimedRead,
     DraftExecutionJobRead,
@@ -163,6 +168,7 @@ def test_router_exposes_complete_workbench_contract_without_go_live_endpoint() -
     paths = {route.path for route in router.routes}
     expected = {
         "/maitu/workbench/product-fact-cards",
+        "/maitu/workbench/product-fact-cards/{fact_card_code}/versions/{version_number}/usage",
         "/maitu/workbench/inventory-sync-jobs/claim-next",
         "/maitu/workbench/inventory-snapshots/{snapshot_code}",
         "/maitu/workbench/runs/{run_code}/target-live-room",
@@ -176,6 +182,34 @@ def test_router_exposes_complete_workbench_contract_without_go_live_endpoint() -
     }
     assert expected <= paths
     assert not any("go-live" in path or "go_live" in path for path in paths)
+
+
+class FactUsageRepository:
+    @staticmethod
+    def list_product_fact_card_usage(fact_card_code: str, version_number: int) -> list[dict[str, object]] | None:
+        assert (fact_card_code, version_number) == ("MT-FACT-001", 2)
+        return [
+            {
+                "relation_type": "uses_fact_card",
+                "object_type": "content_project",
+                "object_code": "CONTENT-001",
+                "revision_number": 3,
+                "status": "confirmed",
+                "created_at": "2026-07-25T00:00:00Z",
+            }
+        ]
+
+
+def test_fact_usage_route_exposes_an_exact_fact_card_revision_lineage() -> None:
+    app = FastAPI()
+    app.include_router(router, prefix="/api")
+    app.dependency_overrides[get_maitu_workbench_repository] = lambda: FactUsageRepository()
+
+    with TestClient(app) as client:
+        response = client.get("/api/maitu/workbench/product-fact-cards/MT-FACT-001/versions/2/usage")
+
+    assert response.status_code == 200
+    assert response.json()[0]["object_code"] == "CONTENT-001"
 
 
 class FailingPlanningService:

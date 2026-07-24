@@ -341,6 +341,263 @@ class MaituWorkbenchRepository:
             row = cursor.fetchone()
         return self._serialize(row) if row else None
 
+    def list_product_fact_card_usage(
+        self, fact_card_code: str, version_number: int
+    ) -> list[dict[str, Any]] | None:
+        """Return only relationships that pin this exact FactCard revision.
+
+        Project codes alone are not sufficient evidence because a project can
+        later move to another FactCard version. The content-chain traversal
+        therefore starts from immutable project revisions and follows their
+        explicit source revision IDs.
+        """
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT id FROM maitu_workbench_product_fact_card_versions
+                WHERE fact_card_code = %s AND version_number = %s
+                """,
+                (fact_card_code, version_number),
+            )
+            if cursor.fetchone() is None:
+                return None
+
+            fact_ref = Jsonb(
+                [{"fact_card_code": fact_card_code, "version_number": version_number}]
+            )
+            cursor.execute(
+                """
+                SELECT id, project_code, revision_number, status, created_at
+                FROM content_project_revisions
+                WHERE content -> 'fact_card_refs' @> %s
+                ORDER BY created_at DESC, project_code, revision_number
+                """,
+                (fact_ref,),
+            )
+            projects = cursor.fetchall()
+
+            usage: list[dict[str, Any]] = []
+            story_ids: list[Any] = []
+            for project in projects:
+                usage.append(
+                    self._fact_usage(
+                        "uses_fact_card",
+                        "content_project",
+                        project["project_code"],
+                        project["revision_number"],
+                        project["status"],
+                        project["created_at"],
+                    )
+                )
+                cursor.execute(
+                    """
+                    SELECT id, story_brief_code, revision_number, status, created_at
+                    FROM story_brief_revisions
+                    WHERE source_project_revision_id = %s
+                    ORDER BY created_at, revision_number
+                    """,
+                    (project["id"],),
+                )
+                stories = cursor.fetchall()
+                for story in stories:
+                    story_ids.append(story["id"])
+                    usage.append(
+                        self._fact_usage(
+                            "derived_from",
+                            "story_brief",
+                            story["story_brief_code"],
+                            story["revision_number"],
+                            story["status"],
+                            story["created_at"],
+                        )
+                    )
+                    cursor.execute(
+                        """
+                        SELECT id, script_revision_code, revision_number, status, created_at
+                        FROM content_script_revisions
+                        WHERE source_story_brief_revision_id = %s
+                        ORDER BY created_at, revision_number
+                        """,
+                        (story["id"],),
+                    )
+                    scripts = cursor.fetchall()
+                    for script in scripts:
+                        usage.append(
+                            self._fact_usage(
+                                "derived_from",
+                                "content_script",
+                                script["script_revision_code"],
+                                script["revision_number"],
+                                script["status"],
+                                script["created_at"],
+                            )
+                        )
+                        cursor.execute(
+                            """
+                            SELECT id, program_revision_code, revision_number, status, created_at
+                            FROM content_program_revisions
+                            WHERE source_script_revision_id = %s
+                            ORDER BY created_at, revision_number
+                            """,
+                            (script["id"],),
+                        )
+                        programs = cursor.fetchall()
+                        for program in programs:
+                            usage.append(
+                                self._fact_usage(
+                                    "derived_from",
+                                    "content_program",
+                                    program["program_revision_code"],
+                                    program["revision_number"],
+                                    program["status"],
+                                    program["created_at"],
+                                )
+                            )
+                            cursor.execute(
+                                """
+                                SELECT shot_list_revision_code, revision_number, status, created_at
+                                FROM shot_list_revisions
+                                WHERE source_program_revision_id = %s
+                                ORDER BY created_at, revision_number
+                                """,
+                                (program["id"],),
+                            )
+                            for shot_list in cursor.fetchall():
+                                usage.append(
+                                    self._fact_usage(
+                                        "derived_from",
+                                        "shot_list",
+                                        shot_list["shot_list_revision_code"],
+                                        shot_list["revision_number"],
+                                        shot_list["status"],
+                                        shot_list["created_at"],
+                                    )
+                                )
+
+            if story_ids:
+                cursor.execute(
+                    """
+                    SELECT variant_code, revision_number, carrier_kind, status, created_at
+                    FROM production_variant_revisions
+                    WHERE source_story_brief_revision_id = ANY(%s)
+                    ORDER BY created_at, variant_code, revision_number
+                    """,
+                    (story_ids,),
+                )
+                variants = cursor.fetchall()
+                variant_codes = [row["variant_code"] for row in variants]
+                for variant in variants:
+                    usage.append(
+                        self._fact_usage(
+                            "derived_from",
+                            f"{variant['carrier_kind']}_variant",
+                            variant["variant_code"],
+                            variant["revision_number"],
+                            variant["status"],
+                            variant["created_at"],
+                        )
+                    )
+                if variant_codes:
+                    cursor.execute(
+                        """
+                        SELECT plan_code, created_at
+                        FROM functional_video_plans
+                        WHERE variant_code = ANY(%s)
+                        ORDER BY created_at, plan_code
+                        """,
+                        (variant_codes,),
+                    )
+                    for plan in cursor.fetchall():
+                        usage.append(
+                            self._fact_usage(
+                                "planned_as",
+                                "rendered_video_plan",
+                                plan["plan_code"],
+                                None,
+                                "active",
+                                plan["created_at"],
+                            )
+                        )
+                    cursor.execute(
+                        """
+                        SELECT plan_code, status, created_at
+                        FROM functional_live_room_plans
+                        WHERE variant_code = ANY(%s)
+                        ORDER BY created_at, plan_code
+                        """,
+                        (variant_codes,),
+                    )
+                    for plan in cursor.fetchall():
+                        usage.append(
+                            self._fact_usage(
+                                "planned_as",
+                                "live_room_plan",
+                                plan["plan_code"],
+                                None,
+                                plan["status"],
+                                plan["created_at"],
+                            )
+                        )
+
+            cursor.execute(
+                """
+                SELECT effect_code, revision_number, status, created_at
+                FROM functional_effect_estimates
+                WHERE effect_payload @> %s
+                ORDER BY created_at, effect_code, revision_number
+                """,
+                (
+                    Jsonb(
+                        {
+                            "subject_snapshot": {
+                                "content": {
+                                    "fact_card_refs": [
+                                        {
+                                            "fact_card_code": fact_card_code,
+                                            "version_number": version_number,
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    ),
+                ),
+            )
+            for effect in cursor.fetchall():
+                usage.append(
+                    self._fact_usage(
+                        "estimated_effect_on",
+                        "effect_estimate",
+                        effect["effect_code"],
+                        effect["revision_number"],
+                        effect["status"],
+                        effect["created_at"],
+                    )
+                )
+        return sorted(
+            usage,
+            key=lambda row: (row["created_at"], row["object_type"], row["object_code"]),
+            reverse=True,
+        )
+
+    @staticmethod
+    def _fact_usage(
+        relation_type: str,
+        object_type: str,
+        object_code: str,
+        revision_number: int | None,
+        status: str,
+        created_at: datetime,
+    ) -> dict[str, Any]:
+        return {
+            "relation_type": relation_type,
+            "object_type": object_type,
+            "object_code": object_code,
+            "revision_number": revision_number,
+            "status": status,
+            "created_at": created_at,
+        }
+
     # Inventory synchronization ----------------------------------------
 
     def create_inventory_sync_job(

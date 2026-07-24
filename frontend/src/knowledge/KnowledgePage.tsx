@@ -156,6 +156,11 @@ export function KnowledgePage() {
   }, [cards.data, query]);
   const selected = (cards.data ?? []).find((card) => card.factCardCode === selectedCode) ?? filtered[0];
   const activeVersion = selected?.versions.find((version) => version.versionNumber === selectedVersion) ?? selected?.versions[0];
+  const usage = useQuery({
+    queryKey: ["product-fact-card-usage", selected?.factCardCode, activeVersion?.versionNumber],
+    queryFn: () => knowledgeApi.listProductFactCardUsage(selected!.factCardCode, activeVersion!.versionNumber),
+    enabled: Boolean(selected && activeVersion),
+  });
 
   useEffect(() => {
     if (selected && selected.factCardCode !== selectedCode) setSelectedCode(selected.factCardCode);
@@ -195,6 +200,9 @@ export function KnowledgePage() {
       <section className="wb-section"><SectionHeader kicker="VERSIONS" title="版本与批准" />
         <VersionList card={selected} activeVersion={activeVersion?.versionNumber} onSelect={setSelectedVersion} />
         {activeVersion ? <div className="knowledge-version-detail"><div className="knowledge-version-heading"><div><span>{activeVersion.versionCode}</span><h3>v{activeVersion.versionNumber} 内容</h3></div><StatusBadge label={activeVersion.status} tone={versionTone(activeVersion.status)} /></div><dl><div><dt>已核验事实</dt><dd>{joined(activeVersion.content.verified_facts) || "未填写"}</dd></div><div><dt>适用场景</dt><dd>{joined(activeVersion.content.scenarios) || "未填写"}</dd></div><div><dt>适用平台</dt><dd>{joined(activeVersion.content.applicable_platforms) || "不限制"}</dd></div><div><dt>有效期</dt><dd>{stringValue(activeVersion.content, "valid_from") || "未限制"} 至 {stringValue(activeVersion.content, "valid_until") || "未限制"}</dd></div><div><dt>合规备注</dt><dd>{joined(activeVersion.content.compliance_notes) || "未填写"}</dd></div><div><dt>来源</dt><dd>{Array.isArray(activeVersion.content.source_references) && activeVersion.content.source_references.length ? JSON.stringify(activeVersion.content.source_references) : "未填写"}</dd></div></dl>{activeVersion.status === "draft" ? <div className="knowledge-review"><label className="wb-field"><span>审批人</span><input className="wb-input" value={reviewer} onChange={(event) => setReviewer(event.target.value)} required /></label><label className="wb-field"><span>驳回原因</span><input className="wb-input" value={rejectionReason} onChange={(event) => setRejectionReason(event.target.value)} /></label><div className="wb-form-actions"><button type="button" className="wb-button wb-button-primary" disabled={approve.isPending || !reviewer.trim()} onClick={() => approve.mutate()}><CheckCircle2 size={15} aria-hidden="true" />批准版本</button><button type="button" className="wb-button" disabled={reject.isPending || !reviewer.trim() || !rejectionReason.trim()} onClick={() => reject.mutate()}><XCircle size={15} aria-hidden="true" />驳回版本</button></div>{approve.error || reject.error ? <InlineNotice tone="danger" title="版本状态更新失败">{errorMessage(approve.error ?? reject.error)}</InlineNotice> : null}</div> : null}</div> : null}
+      </section>
+      <section className="wb-section"><SectionHeader kicker="LINEAGE" title="使用记录" />
+        {usage.isLoading ? <LoadingBlock label="正在读取使用记录" /> : usage.error ? <InlineNotice tone="danger" title="使用记录读取失败">{errorMessage(usage.error)}</InlineNotice> : usage.data?.length ? <div className="knowledge-usage-list">{usage.data.map((item) => <article key={`${item.objectType}:${item.objectCode}:${item.revisionNumber ?? "current"}`}><span><strong>{item.objectType}</strong><small>{item.relationType}</small><code>{item.objectCode}{item.revisionNumber ? ` · r${item.revisionNumber}` : ""} · {formatDate(item.createdAt)}</code></span><StatusBadge label={item.status} tone={versionTone(item.status)} /></article>)}</div> : <EmptyBlock icon={BookOpen} title="该版本尚未被使用" />}
       </section>
     </> : <EmptyBlock icon={BookOpen} title="选择事实卡" />}</main>
   </div>;
