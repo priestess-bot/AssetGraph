@@ -727,6 +727,11 @@ class FunctionalVideoService:
                     "transition": str(clip.get("transition") or "cut"),
                     **source_update,
                     **({"fit": str(clip["fit"])} if clip.get("fit") is not None else {}),
+                    **(
+                        {"crop_x": float(clip["crop_x"]), "crop_y": float(clip["crop_y"])}
+                        if clip.get("crop_x") is not None and clip.get("crop_y") is not None
+                        else {}
+                    ),
                 }
             )
         return updates
@@ -806,6 +811,35 @@ class FunctionalVideoService:
                         details={"clip_code": clip["clip_code"]},
                     )
                 clip["fit"] = fit
+            crop_x = update.get("crop_x")
+            crop_y = update.get("crop_y")
+            if (crop_x is None) != (crop_y is None):
+                raise DomainValidationError(
+                    "VIDEO_TIMELINE_CROP_POSITION_INCOMPLETE",
+                    "Timeline crop position requires both x and y",
+                    details={"clip_code": clip["clip_code"]},
+                )
+            if crop_x is not None and crop_y is not None:
+                crop_x = float(crop_x)
+                crop_y = float(crop_y)
+                if not 0 <= crop_x <= 1 or not 0 <= crop_y <= 1:
+                    raise DomainValidationError(
+                        "VIDEO_TIMELINE_CROP_POSITION_INVALID",
+                        "Timeline crop position must be normalized between zero and one",
+                        details={"clip_code": clip["clip_code"]},
+                    )
+                if (clip.get("fit") or "cover") != "cover":
+                    raise DomainValidationError(
+                        "VIDEO_TIMELINE_CROP_POSITION_UNSUPPORTED",
+                        "Timeline crop position is available only for cover fit",
+                        details={"clip_code": clip["clip_code"]},
+                    )
+                clip["crop_x"] = crop_x
+                clip["crop_y"] = crop_y
+            elif (clip.get("fit") or "cover") == "contain":
+                # Contain preserves the full foreground; stale crop focus has no valid meaning.
+                clip.pop("crop_x", None)
+                clip.pop("crop_y", None)
             source_start = update.get("source_start_seconds")
             source_end = update.get("source_end_seconds")
             if (source_start is None) != (source_end is None):
@@ -1030,6 +1064,9 @@ class FunctionalVideoService:
             shot["transition"] = clip.get("transition") or "cut"
             if clip.get("fit") in {"cover", "contain"}:
                 shot["fit"] = clip["fit"]
+            if clip.get("crop_x") is not None and clip.get("crop_y") is not None:
+                shot["crop_x"] = float(clip["crop_x"])
+                shot["crop_y"] = float(clip["crop_y"])
             source_range = clip.get("source_range") or {}
             if "start_seconds" in source_range and "end_seconds" in source_range:
                 shot["source_start_seconds"] = float(source_range["start_seconds"])
@@ -1066,7 +1103,7 @@ class FunctionalVideoService:
         story = {"source": "content_project_revision", "project_code": detail["project_code"], "objective": detail["generation_goal"], "content": detail["story_brief"]["content"], "format": {"orientation": "vertical", "width": 1080, "height": 1920, "target_duration_seconds": duration, "shot_count": 6}}
         script = {"source": "content_project_revision", "title": detail["title"], "spoken_script": "".join(chunks), "sections": [{"section_index": index, "section_type": "content_project", "narration": chunk, "tts_text": chunk.replace("PRO", "P R O"), "screen_text": chunk[:28]} for index, chunk in enumerate(chunks)], "section_count": len(chunks)}
         shots = {"source": "content_project_revision", "canvas": {"width": 1080, "height": 1920, "fps": 30}, "duration_seconds": duration, "shot_count": len(compiled), "shots": compiled}
-        timeline = {"schema_version": "otio-compatible-production-timeline.v1", "global_start_ms": 0, "global_end_ms": duration * 1000, "tracks": [{"track_kind": "video", "clips": [{"clip_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "source_range": {"asset_code": shot["asset_code"], "start_seconds": shot["source_start_seconds"], "end_seconds": shot["source_end_seconds"], "available_start_seconds": shot["source_start_seconds"], "available_end_seconds": shot["source_end_seconds"]}, "fit": shot["fit"], "transition": shot["transition"]} for shot in compiled]}, {"track_kind": "audio", "clips": [{"clip_code": f"VOICE-{shot['shot_code']}", "linked_shot_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "gain_db": 0.0} for shot in compiled]}, {"track_kind": "subtitle", "clips": [{"clip_code": f"SUBTITLE-{shot['shot_code']}", "linked_shot_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "subtitle_text": shot["narration"], "headline_text": shot["screen_text"]} for shot in compiled]}]}
+        timeline = {"schema_version": "otio-compatible-production-timeline.v1", "global_start_ms": 0, "global_end_ms": duration * 1000, "tracks": [{"track_kind": "video", "clips": [{"clip_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "source_range": {"asset_code": shot["asset_code"], "start_seconds": shot["source_start_seconds"], "end_seconds": shot["source_end_seconds"], "available_start_seconds": shot["source_start_seconds"], "available_end_seconds": shot["source_end_seconds"]}, "fit": shot["fit"], "crop_x": 0.5, "crop_y": 0.5, "transition": shot["transition"]} for shot in compiled]}, {"track_kind": "audio", "clips": [{"clip_code": f"VOICE-{shot['shot_code']}", "linked_shot_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "gain_db": 0.0} for shot in compiled]}, {"track_kind": "subtitle", "clips": [{"clip_code": f"SUBTITLE-{shot['shot_code']}", "linked_shot_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "subtitle_text": shot["narration"], "headline_text": shot["screen_text"]} for shot in compiled]}]}
         return story, script, shots, timeline
 
     @staticmethod

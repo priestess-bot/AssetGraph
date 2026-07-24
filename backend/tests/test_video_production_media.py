@@ -127,6 +127,8 @@ def test_shot_render_command_honors_source_end_instead_of_looping_the_full_file(
             "source_end_seconds": 5,
             "source_available_seconds": 3,
             "fit": "cover",
+            "crop_x": 0.25,
+            "crop_y": 0.75,
             "overlay_roles": [],
             "transition": "cut",
         },
@@ -139,6 +141,7 @@ def test_shot_render_command_honors_source_end_instead_of_looping_the_full_file(
     filters = command[command.index("-filter_complex") + 1]
     assert "trim=duration=3.000" in filters
     assert "loop=loop=-1:size=90:start=0" in filters
+    assert "crop=1080:1920:x=(in_w-out_w)*0.250:y=(in_h-out_h)*0.750" in filters
     assert destination.read_bytes() == b"video"
 
 

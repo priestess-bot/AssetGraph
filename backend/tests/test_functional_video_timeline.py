@@ -38,7 +38,7 @@ def test_timeline_update_preserves_requested_clip_order_across_tracks_and_shots(
     updated = FunctionalVideoService._apply_timeline_update(
         _timeline(),
         [
-            {"clip_code": "SHOT-02", "duration_ms": 35_000, "transition": "fade", "source_start_seconds": 12, "source_end_seconds": 45, "fit": "contain"},
+            {"clip_code": "SHOT-02", "duration_ms": 35_000, "transition": "fade", "source_start_seconds": 12, "source_end_seconds": 45, "fit": "cover", "crop_x": 0.2, "crop_y": 0.8},
             {"clip_code": "SHOT-01", "duration_ms": 25_000, "transition": "fade_out"},
         ],
     )
@@ -55,7 +55,9 @@ def test_timeline_update_preserves_requested_clip_order_across_tracks_and_shots(
     ]
     assert video_track["clips"][0]["source_range"]["start_seconds"] == 12
     assert video_track["clips"][0]["source_range"]["end_seconds"] == 45
-    assert video_track["clips"][0]["fit"] == "contain"
+    assert video_track["clips"][0]["fit"] == "cover"
+    assert video_track["clips"][0]["crop_x"] == 0.2
+    assert video_track["clips"][0]["crop_y"] == 0.8
     assert [clip["clip_code"] for clip in subtitle_track["clips"]] == ["SUBTITLE-SHOT-02", "SUBTITLE-SHOT-01"]
     assert [clip["timeline_range"] for clip in subtitle_track["clips"]] == [
         {"start_ms": 0, "duration_ms": 35_000},
@@ -72,7 +74,9 @@ def test_timeline_update_preserves_requested_clip_order_across_tracks_and_shots(
     assert [shot["shot_code"] for shot in rendered_input["shots"]] == ["SHOT-02", "SHOT-01"]
     assert [shot["start_seconds"] for shot in rendered_input["shots"]] == [0.0, 35.0]
     assert rendered_input["shots"][0]["source_start_seconds"] == 12.0
-    assert rendered_input["shots"][0]["fit"] == "contain"
+    assert rendered_input["shots"][0]["fit"] == "cover"
+    assert rendered_input["shots"][0]["crop_x"] == 0.2
+    assert rendered_input["shots"][0]["crop_y"] == 0.8
     assert rendered_input["shots"][0]["subtitle_text"] == "第二段字幕"
     assert rendered_input["shots"][0]["screen_text"] == "第二段标题"
     assert rendered_input["shots"][0]["voice_gain_db"] == 0.0
@@ -203,6 +207,39 @@ def test_timeline_source_range_cannot_escape_its_fixed_available_range() -> None
         assert exc.code == "VIDEO_TIMELINE_SOURCE_RANGE_INVALID"
     else:
         raise AssertionError("source ranges outside the fixed evidence range must be rejected")
+
+
+def test_timeline_crop_position_requires_a_complete_normalized_cover_pair() -> None:
+    from app.domain.errors import DomainValidationError
+
+    updates = [
+        {"clip_code": "SHOT-01", "duration_ms": 30_000, "transition": "cut", "crop_x": 0.25},
+        {"clip_code": "SHOT-02", "duration_ms": 30_000, "transition": "cut"},
+    ]
+    try:
+        FunctionalVideoService._apply_timeline_update(_timeline(), updates)
+    except DomainValidationError as exc:
+        assert exc.code == "VIDEO_TIMELINE_CROP_POSITION_INCOMPLETE"
+    else:
+        raise AssertionError("crop position must include both coordinates")
+
+    updates[0] = {"clip_code": "SHOT-01", "duration_ms": 30_000, "transition": "cut", "crop_x": 1.1, "crop_y": 0.5}
+    try:
+        FunctionalVideoService._apply_timeline_update(_timeline(), updates)
+    except DomainValidationError as exc:
+        assert exc.code == "VIDEO_TIMELINE_CROP_POSITION_INVALID"
+    else:
+        raise AssertionError("crop position must remain normalized")
+
+    contain_timeline = _timeline()
+    contain_timeline["tracks"][0]["clips"][0]["fit"] = "contain"
+    updates[0] = {"clip_code": "SHOT-01", "duration_ms": 30_000, "transition": "cut", "crop_x": 0.5, "crop_y": 0.5}
+    try:
+        FunctionalVideoService._apply_timeline_update(contain_timeline, updates)
+    except DomainValidationError as exc:
+        assert exc.code == "VIDEO_TIMELINE_CROP_POSITION_UNSUPPORTED"
+    else:
+        raise AssertionError("contain must not accept crop focus")
 
 
 def test_release_subject_refs_pin_every_required_content_revision() -> None:

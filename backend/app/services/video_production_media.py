@@ -379,6 +379,13 @@ class FFmpegRenderer:
                 "SOURCE_RANGE_INVALID",
                 "rendered shot source range must have a non-negative start and positive duration",
             )
+        crop_x = float(shot.get("crop_x", 0.5))
+        crop_y = float(shot.get("crop_y", 0.5))
+        if not 0 <= crop_x <= 1 or not 0 <= crop_y <= 1:
+            raise VideoProductionError(
+                "CROP_POSITION_INVALID",
+                "rendered shot crop position must be normalized between zero and one",
+            )
         temporary = _temporary_media_path(destination)
         temporary.unlink(missing_ok=True)
         args: list[str | Path] = [
@@ -404,7 +411,7 @@ class FFmpegRenderer:
 
         source_filter = _source_range_filter(source_window, duration)
         filter_parts: list[str] = []
-        if shot["fit"] == "contain":
+        if (shot.get("fit") or "cover") == "contain":
             filter_parts.extend(
                 [
                     f"[0:v]{source_filter},split=2[bgsrc][fgsrc]",
@@ -418,7 +425,7 @@ class FFmpegRenderer:
         else:
             filter_parts.append(
                 f"[0:v]{source_filter},scale=1080:1920:force_original_aspect_ratio=increase,"
-                "crop=1080:1920[base]"
+                f"crop=1080:1920:x=(in_w-out_w)*{crop_x:.3f}:y=(in_h-out_h)*{crop_y:.3f}[base]"
             )
 
         presentation_filters = ["format=yuv420p"]

@@ -30,6 +30,8 @@ class FunctionalVideoTimelineClipUpdate(BaseModel):
     source_start_seconds: float | None = Field(default=None, ge=0)
     source_end_seconds: float | None = Field(default=None, gt=0)
     fit: str | None = Field(default=None, pattern="^(cover|contain)$")
+    crop_x: float | None = Field(default=None, ge=0, le=1)
+    crop_y: float | None = Field(default=None, ge=0, le=1)
 
     @model_validator(mode="after")
     def source_range_is_complete_and_ordered(self) -> "FunctionalVideoTimelineClipUpdate":
@@ -41,6 +43,8 @@ class FunctionalVideoTimelineClipUpdate(BaseModel):
             and self.source_end_seconds <= self.source_start_seconds
         ):
             raise ValueError("source end must be after source start")
+        if (self.crop_x is None) != (self.crop_y is None):
+            raise ValueError("crop x and y must be supplied together")
         return self
 
 
