@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { contentProjectsApi } from "./api";
-import { recommendContentTemplates } from "./ContentProjectsPage";
+import { findFactCardConflicts, recommendContentTemplates } from "./ContentProjectsPage";
 import type { RoomTemplate } from "../live-research/types";
+import type { ProductFactCard } from "../knowledge/api";
 
 function response(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -87,6 +88,18 @@ describe("content projects api", () => {
 
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/api/content-projects/CONTENT-001/content-chain-revisions");
     expect(revisions).toEqual([expect.objectContaining({ objectType: "script", objectCode: "SCRIPT-001", revisionNumber: 2, sources: ["STORY STORY-001 r2"] })]);
+  });
+
+  it("explains mismatched fact-card scope and product metadata before confirmation", () => {
+    const fact = (code: string, positioning: string, platforms: string[]): ProductFactCard => ({
+      factCardCode: code, title: code, productCode: "WINE-001", status: "active", currentApprovedVersion: 1,
+      versions: [{ versionCode: `${code}-V001`, versionNumber: 1, status: "approved", content: { product_name: "演示酒", positioning, applicable_platforms: platforms, source_references: [{ kind: "url", url: "https://example.test/fact" }] } }],
+    });
+
+    expect(findFactCardConflicts([fact("FACT-A", "聚餐场景", ["douyin"]), fact("FACT-B", "礼赠场景", ["kuaishou"])], ["FACT-A", "FACT-B"], "douyin")).toEqual([
+      "FACT-B 不适用于 douyin",
+      "WINE-001 的 positioning 在 FACT-A/FACT-B 中不一致",
+    ]);
   });
 
   it("ranks content strategies only from explicit category, module, and compatibility matches", () => {
