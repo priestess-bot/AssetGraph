@@ -42,6 +42,13 @@ export interface MaterialPack {
   resolvedAssetCodes: string[];
 }
 
+export interface MaterialPackRevision {
+  revisionNumber: number;
+  entries: MaterialPack["entries"];
+  fingerprintSha256: string;
+  createdAt?: string;
+}
+
 export interface AssetGap {
   gapCode: string;
   title: string;
@@ -106,6 +113,21 @@ function pack(value: unknown): MaterialPack | undefined {
   return { packCode, title: asString(value.title, packCode), role: asString(value.role), description: asOptionalString(value.description), revisionNumber: asNumber(value.revision_number), status: asString(value.status, "draft") as MaterialPack["status"], fingerprintSha256: asString(value.fingerprint_sha256), entries, resolvedAssetCodes: strings(value.resolved_asset_codes) };
 }
 
+function packRevision(value: unknown): MaterialPackRevision | undefined {
+  if (!isRecord(value)) return undefined;
+  const revisionNumber = asNumber(value.revision_number);
+  const fingerprintSha256 = asString(value.fingerprint_sha256);
+  if (!revisionNumber || !fingerprintSha256) return undefined;
+  const entries = asArray(value.entries).flatMap((item) => isRecord(item) && (item.selection_kind === "asset" || item.selection_kind === "group") ? [{
+    selection_kind: item.selection_kind as "asset" | "group",
+    selection_code: asString(item.selection_code),
+    mode: asString(item.mode, "optional") as "required" | "optional" | "alternative",
+    min_occurrences: asNumber(item.min_occurrences),
+    max_occurrences: typeof item.max_occurrences === "number" ? item.max_occurrences : undefined,
+  }] : []);
+  return { revisionNumber, entries, fingerprintSha256, createdAt: asOptionalString(value.created_at) };
+}
+
 function gap(value: unknown): AssetGap | undefined {
   if (!isRecord(value)) return undefined;
   const gapCode = asString(value.gap_code);
@@ -164,6 +186,12 @@ export const assetLibraryApi = {
   publishPack: (packCode: string) => postJson<unknown>(`${ROOT}/material-packs/${packCode}/publish`, {}).then((value) => {
     const result = pack(value);
     if (!result) throw new Error("素材包发布响应无效");
+    return result;
+  }),
+  listPackRevisions: (packCode: string) => requestJson<unknown[]>(`${ROOT}/material-packs/${packCode}/revisions`).then((rows) => rows.flatMap((row) => packRevision(row) ?? [])),
+  createPackRevision: (packCode: string, payload: { expected_revision: number; entries: MaterialPack["entries"] }) => postJson<unknown>(`${ROOT}/material-packs/${packCode}/revisions`, payload).then((value) => {
+    const result = pack(value);
+    if (!result) throw new Error("素材包修订响应无效");
     return result;
   }),
   listGaps: () => requestJson<unknown[]>(`${ROOT}/gaps`).then((rows) => rows.flatMap((row) => gap(row) ?? [])),

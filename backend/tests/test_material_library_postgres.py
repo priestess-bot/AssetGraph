@@ -89,6 +89,39 @@ def test_material_library_groups_constraints_packs_and_gaps() -> None:
             "entries": published["entries"], "resolved_asset_codes": published["resolved_asset_codes"],
         }]
 
+        revised = library.create_pack_revision(
+            pack["pack_code"],
+            expected_revision=1,
+            entries=[
+                {
+                    "selection_kind": "asset",
+                    "selection_code": product["asset_code"],
+                    "mode": "required",
+                    "min_occurrences": 1,
+                }
+            ],
+        )
+        assert revised is not None
+        assert revised["revision_number"] == 2
+        assert revised["status"] == "draft"
+        revisions = library.list_pack_revisions(pack["pack_code"])
+        assert [revision["revision_number"] for revision in revisions] == [2, 1]
+        assert revisions[-1]["entries"] == published["entries"]
+        with pytest.raises(Exception, match="MATERIAL_PACK_REVISION_CONFLICT"):
+            library.create_pack_revision(
+                pack["pack_code"],
+                expected_revision=1,
+                entries=[
+                    {
+                        "selection_kind": "asset",
+                        "selection_code": background["asset_code"],
+                        "mode": "optional",
+                        "min_occurrences": 0,
+                    }
+                ],
+            )
+        connection.rollback()
+
         gap = library.create_gap(
             {
                 "title": f"Need foreground {suffix}",

@@ -88,4 +88,27 @@ describe("AssetLibraryPage", () => {
     const request = requests.find((item) => item.url === "/api/assets/AG-IMG-001/constraint-profile" && item.init?.method === "POST");
     expect(request?.init?.body).toBe(JSON.stringify({ constraints: [{ kind: "table_surface", hard: true, parameters: { name: "table_surface", x: 0.1, y: 0.58, width: 0.8, height: 0.28, product_role: "product_display", product_anchor: "bottom_center" } }] }));
   });
+
+  it("creates a new draft revision from an immutable material-pack revision", async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    const pack = { pack_code: "AG-PACK-001", title: "背景素材包", role: "background", revision_number: 1, status: "published", fingerprint_sha256: "a".repeat(64), entries: [{ selection_kind: "group", selection_code: "AG-GRP-001", mode: "required", min_occurrences: 1, max_occurrences: null }], resolved_asset_codes: ["AG-IMG-001"], created_at: "2026-07-25T00:00:00Z", updated_at: "2026-07-25T00:00:00Z" };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); requests.push({ url, init });
+      if (url === "/api/assets" || url === "/api/assets/groups" || url === "/api/assets/gaps") return response([]);
+      if (url === "/api/assets/material-packs" && !init?.method) return response([pack]);
+      if (url === "/api/assets/material-packs/AG-PACK-001/revisions" && !init?.method) return response([{ revision_number: 1, entries: pack.entries, fingerprint_sha256: pack.fingerprint_sha256, created_at: "2026-07-25T00:00:00Z" }]);
+      if (url === "/api/assets/material-packs/AG-PACK-001/revisions" && init?.method === "POST") return response({ ...pack, revision_number: 2, status: "draft", fingerprint_sha256: "b".repeat(64) });
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("tab", { name: "素材包" }));
+    await screen.findByText("创建素材包新修订");
+    expect(screen.getByText("修订历史")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "创建 r2" }));
+
+    const request = requests.find((item) => item.url === "/api/assets/material-packs/AG-PACK-001/revisions" && item.init?.method === "POST");
+    expect(request?.init?.body).toBe(JSON.stringify({ expected_revision: 1, entries: [{ selection_kind: "group", selection_code: "AG-GRP-001", mode: "required", min_occurrences: 1 }] }));
+  });
 });

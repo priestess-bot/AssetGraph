@@ -222,6 +222,67 @@ class MaterialLibraryRepository:
         self.connection.commit()
         return self.get_pack(pack_code)
 
+    def create_pack_revision(
+        self,
+        pack_code: str,
+        *,
+        expected_revision: int,
+        entries: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        self._validate_pack_entries(entries)
+        canonical = self._canonical(entries)
+        fingerprint = self._fingerprint(canonical)
+        try:
+            with self.connection.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    "SELECT id, current_revision, status FROM material_packs WHERE pack_code = %s FOR UPDATE",
+                    (pack_code,),
+                )
+                pack = cursor.fetchone()
+                if pack is None:
+                    self.connection.rollback()
+                    return None
+                if pack["status"] == "archived":
+                    raise MaterialLibraryValidationError("Archived material packs cannot be revised")
+                current_revision = int(pack["current_revision"])
+                if current_revision != expected_revision:
+                    raise MaterialLibraryValidationError(
+                        "MATERIAL_PACK_REVISION_CONFLICT: current revision changed"
+                    )
+                self._require_entry_targets(cursor, entries)
+                next_revision = current_revision + 1
+                cursor.execute(
+                    """INSERT INTO material_pack_revisions
+                       (pack_id, revision_number, entries, fingerprint_sha256)
+                       VALUES (%s, %s, %s::jsonb, %s)""",
+                    (pack["id"], next_revision, canonical, fingerprint),
+                )
+                cursor.execute(
+                    """UPDATE material_packs
+                       SET current_revision = %s, status = 'draft', updated_at = now()
+                       WHERE id = %s""",
+                    (next_revision, pack["id"]),
+                )
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+        return self.get_pack(pack_code)
+
+    def list_pack_revisions(self, pack_code: str) -> list[dict[str, Any]]:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT revision_number, entries, fingerprint_sha256, created_at
+                FROM material_pack_revisions
+                WHERE pack_id = (SELECT id FROM material_packs WHERE pack_code = %s)
+                ORDER BY revision_number DESC
+                """,
+                (pack_code,),
+            )
+            rows = cursor.fetchall()
+        return [self._stringify(row) for row in rows]
+
     def resolve_published_packs(self, pack_codes: list[str]) -> tuple[list[dict[str, Any]], list[str]]:
         """Expand pack/group membership once so a downstream snapshot has no dynamic references."""
         refs: list[dict[str, Any]] = []

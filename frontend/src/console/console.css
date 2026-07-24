@@ -151,6 +151,9 @@
 .asset-group-member-list strong { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .asset-group-member-list small { margin-top: 3px; overflow-wrap: anywhere; color: var(--wb-muted); font-size: 8px; }
 .asset-pack-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.asset-revision-note { margin: 0 0 10px; color: var(--wb-muted); font-size: 11px; line-height: 1.5; }
+.asset-revision-history { display: grid; gap: 3px; margin-top: 14px; color: var(--wb-muted); font-size: 10px; }
+.asset-revision-history strong { color: var(--wb-text); font-size: 11px; }
 .asset-entry-list { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }
 .asset-entry-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 7px; border: 1px solid var(--wb-line); border-radius: 4px; background: var(--wb-subtle); }
 .asset-entry-list small { margin-left: auto; color: var(--wb-muted); font-size: 8px; }

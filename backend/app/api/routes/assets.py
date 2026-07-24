@@ -36,6 +36,8 @@ from app.schemas.material_library import (
     ExecutionCapability,
     MaterialPackCreate,
     MaterialPackRead,
+    MaterialPackRevisionCreate,
+    MaterialPackRevisionRead,
     MaterialRole,
     MediaKind,
 )
@@ -261,6 +263,41 @@ def publish_material_pack(
         row = repository.publish_pack(pack_code)
     except MaterialLibraryValidationError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Material pack not found")
+    return row
+
+
+@router.get("/material-packs/{pack_code}/revisions", response_model=list[MaterialPackRevisionRead])
+def list_material_pack_revisions(
+    pack_code: str,
+    repository: Annotated[MaterialLibraryRepository, Depends(get_material_library_repository)],
+) -> list[dict]:
+    rows = repository.list_pack_revisions(pack_code)
+    if not rows:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Material pack not found")
+    return rows
+
+
+@router.post("/material-packs/{pack_code}/revisions", response_model=MaterialPackRead, status_code=status.HTTP_201_CREATED)
+def create_material_pack_revision(
+    pack_code: str,
+    payload: MaterialPackRevisionCreate,
+    repository: Annotated[MaterialLibraryRepository, Depends(get_material_library_repository)],
+) -> dict:
+    try:
+        row = repository.create_pack_revision(
+            pack_code,
+            expected_revision=payload.expected_revision,
+            entries=[entry.model_dump(mode="json") for entry in payload.entries],
+        )
+    except MaterialLibraryValidationError as exc:
+        status_code = (
+            status.HTTP_409_CONFLICT
+            if str(exc).startswith("MATERIAL_PACK_REVISION_CONFLICT")
+            else status.HTTP_422_UNPROCESSABLE_CONTENT
+        )
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Material pack not found")
     return row

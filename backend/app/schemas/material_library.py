@@ -140,6 +140,11 @@ class MaterialPackCreate(BaseModel):
     entries: list[MaterialPackEntry] = Field(default_factory=list)
 
 
+class MaterialPackRevisionCreate(BaseModel):
+    expected_revision: int = Field(ge=1)
+    entries: list[MaterialPackEntry] = Field(min_length=1)
+
+
 class MaterialPackRead(BaseModel):
     pack_code: str
     title: str
@@ -152,6 +157,13 @@ class MaterialPackRead(BaseModel):
     resolved_asset_codes: list[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
+
+
+class MaterialPackRevisionRead(BaseModel):
+    revision_number: int
+    entries: list[MaterialPackEntry]
+    fingerprint_sha256: str
+    created_at: datetime
 
 
 class AssetGapCreate(BaseModel):
