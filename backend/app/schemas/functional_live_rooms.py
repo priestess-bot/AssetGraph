@@ -41,6 +41,8 @@ class FunctionalLiveRoomPlanRead(BaseModel):
     selected_group_codes: list[str]
     blueprint: dict[str, Any]
     build_plan: dict[str, Any]
+    gate_results: list[dict[str, Any]] = Field(default_factory=list)
+    quality_report: dict[str, Any] = Field(default_factory=dict)
     status: str
     blocked_reasons: list[str]
     execution_status: str

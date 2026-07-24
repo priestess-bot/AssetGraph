@@ -15,6 +15,8 @@ export interface FunctionalLiveRoomPlan {
   selectedGroupCodes: string[];
   blueprint: { schema_version: string; scenes: Array<{ scene_code: string; shot_code: string; title: string; layers: Array<{ role: string; asset_code: string; execution_capability: string; z_order: number }>; script: string }> };
   buildPlan: { schema_version: string; build_plan_code?: string; target_live_room_id: string; go_live: boolean; operations: Array<{ kind: string; scene_code?: string; asset_code?: string; role?: string; script_block_code?: string }> };
+  gateResults: Array<{ gate: string; status: string; ruleCode: string; remediation?: string }>;
+  qualityReport: Record<string, unknown>;
   status: string;
   blockedReasons: string[];
   executionStatus: string;
@@ -54,6 +56,8 @@ function plan(value: unknown): FunctionalLiveRoomPlan {
       schema_version: asString(buildPlan.schema_version), build_plan_code: asOptionalString(buildPlan.build_plan_code), target_live_room_id: asString(buildPlan.target_live_room_id), go_live: buildPlan.go_live === true,
       operations: asArray(buildPlan.operations).flatMap((operation) => isRecord(operation) ? [{ kind: asString(operation.operation_type, asString(operation.kind)), scene_code: asOptionalString(operation.scene_code) ?? asOptionalString(operation.scene_name), asset_code: asOptionalString(operation.asset_code), role: asOptionalString(operation.role) ?? asOptionalString(operation.layer_type), script_block_code: asOptionalString(operation.script_block_code) }] : []),
     },
+    gateResults: asArray(value.gate_results).flatMap((gate) => isRecord(gate) && asString(gate.gate) ? [{ gate: asString(gate.gate), status: asString(gate.status), ruleCode: asString(gate.rule_code), remediation: asOptionalString(gate.remediation) }] : []),
+    qualityReport: isRecord(value.quality_report) ? value.quality_report : {},
     status: asString(value.status),
     blockedReasons: strings(value.blocked_reasons),
     executionStatus: asString(value.execution_status),

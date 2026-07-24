@@ -20,6 +20,13 @@ function label(status: string): string {
   return ({ ready: "可生成草稿", blocked: "素材或约束阻断", not_requested: "尚未请求", requested: "等待麦兔 Worker", maitu_complete: "已由麦兔完成" } as Record<string, string>)[status] ?? status;
 }
 
+function gateTone(status: string): "success" | "warning" | "danger" | "info" | "neutral" {
+  if (status === "pass") return "success";
+  if (status === "blocked") return "danger";
+  if (status === "warning") return "warning";
+  return "neutral";
+}
+
 function PlanDetail({ plan }: { plan: FunctionalLiveRoomPlan }) {
   const queryClient = useQueryClient();
   const [confirmed, setConfirmed] = useState(false);
@@ -29,6 +36,7 @@ function PlanDetail({ plan }: { plan: FunctionalLiveRoomPlan }) {
       <div className="live-plan-summary"><div><span>目标直播间</span><strong>{plan.targetLiveRoomId}</strong></div><div><span>生产变体</span><code>{plan.variantCode}</code></div><div><span>直播间配置</span><code>{plan.configurationCode}</code></div><div><span>开播动作</span><strong>已关闭</strong></div></div>
       {plan.blockedReasons.length ? <InlineNotice tone="danger" title="BuildPlan 已阻断">{plan.blockedReasons.join("；")}</InlineNotice> : <InlineNotice tone="info" title="当前计划仅生成草稿">计划中不包含开播操作。请求后仍须由已配置的麦兔 Worker 校验空白草稿并写入。</InlineNotice>}
     </section>
+    <section className="wb-section"><SectionHeader kicker="STATIC GATES" title="输入与分支质量" /><div className="live-plan-summary">{plan.gateResults.map((gate) => <div key={gate.gate}><span>{gate.gate}</span><strong>{gate.ruleCode}</strong><StatusBadge label={gate.status} tone={gateTone(gate.status)} /></div>)}<div><span>预计时长</span><strong>{typeof plan.qualityReport.estimated_total_duration_ms === "number" ? `${Math.round(plan.qualityReport.estimated_total_duration_ms / 1000)} 秒` : "未计算"}</strong></div></div></section>
     <section className="wb-section"><SectionHeader kicker="MAITU SCENE BLUEPRINT" title="场景与图层" />
       <div className="live-scene-list">{plan.blueprint.scenes.map((scene) => <article key={scene.scene_code}><header><span>{scene.scene_code}</span><strong>{scene.title}</strong><code>{scene.shot_code}</code></header><p>{scene.script}</p><div>{scene.layers.map((layer) => <span key={`${scene.scene_code}:${layer.role}:${layer.asset_code}`}><b>{layer.z_order}</b>{layer.role}<code>{layer.asset_code}</code></span>)}</div></article>)}</div>
     </section>

@@ -29,7 +29,12 @@ def _asset(repository: AssetRepository, suffix: str, role: str, capability: str 
     )
 
 
-def _generated_project(connection: psycopg.Connection, suffix: str) -> dict:
+def _generated_project(
+    connection: psycopg.Connection,
+    suffix: str,
+    *,
+    target_duration_seconds: int | None = None,
+) -> dict:
     content = FunctionalContentService(connection)
     project = content.create_project(
         {
@@ -41,6 +46,7 @@ def _generated_project(connection: psycopg.Connection, suffix: str) -> dict:
             "must_avoid": [],
             "fact_card_codes": [],
             "secondary_template_codes": [],
+            "target_duration_seconds": target_duration_seconds,
         },
         actor_id="test-operator",
     )
@@ -93,6 +99,16 @@ def test_functional_live_room_plan_compiles_and_only_requests_maitu_execution() 
             "verify_scene",
             "save_draft",
         }
+        assert {gate["gate"]: gate["status"] for gate in plan["gate_results"]} == {
+            "identity_version": "pass",
+            "authorization_facts": "pass",
+            "input_boundary": "pass",
+            "structural_references": "pass",
+            "execution_constraints": "pass",
+            "branch_quality": "pass",
+            "evidence_completeness": "warning",
+        }
+        assert plan["quality_report"]["missing_material_roles"] == []
         assert all(scene["scene_blueprint_code"].startswith("MSB-VARIANT-") for scene in plan["blueprint"]["scenes"])
         assert all(layer["layer_blueprint_code"].startswith("LYR-MSB-VARIANT-") for scene in plan["blueprint"]["scenes"] for layer in scene["layers"])
 
@@ -173,6 +189,32 @@ def test_functional_live_room_plan_blocks_unbound_required_material() -> None:
         blocked = service.confirm_execution(plan["plan_code"], confirmed=True)
         assert blocked is not None
         assert blocked["execution_status"] == "blocked"
+
+
+def test_live_room_duration_deviation_warns_without_blocking_plan() -> None:
+    suffix = uuid4().hex
+    with psycopg.connect(DATABASE_URL) as connection:
+        assets = AssetRepository(connection)
+        project = _generated_project(connection, suffix, target_duration_seconds=30)
+        selected = [
+            _asset(assets, suffix, "digital_human"),
+            _asset(assets, suffix, "background"),
+            _asset(assets, suffix, "promotion_text"),
+        ]
+        plan = FunctionalLiveRoomService(connection).create_plan(
+            {
+                "project_code": project["project_code"],
+                "target_live_room_id": f"empty-draft-{suffix}",
+                "expected_title": "Duration warning draft",
+                "asset_codes": [item["asset_code"] for item in selected],
+                "group_codes": [],
+            },
+            actor_id="test-operator",
+        )
+        quality_gate = next(gate for gate in plan["gate_results"] if gate["gate"] == "branch_quality")
+        assert plan["status"] == "ready"
+        assert quality_gate["status"] == "warning"
+        assert plan["quality_report"]["warnings"] == ["duration_deviation_over_50_percent"]
 
 
 def test_live_room_plan_rejects_template_not_pinned_by_content_project() -> None:

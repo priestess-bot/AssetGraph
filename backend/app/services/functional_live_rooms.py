@@ -108,7 +108,15 @@ class FunctionalLiveRoomService:
             blueprint=blueprint,
             blocked_reasons=blocked_reasons,
         )
-        plan_blocked_reasons = list(dict.fromkeys([*blocked_reasons, *(build_plan.get("blocked_reasons") or [])]))
+        gate_results, quality_report = self._evaluate_plan(
+            detail=detail,
+            snapshot=snapshot,
+            blueprint=blueprint,
+            build_plan=build_plan,
+            compiler_blocked_reasons=blocked_reasons,
+        )
+        gate_blocked_reasons = [str(gate["rule_code"]) for gate in gate_results if gate["status"] == "blocked"]
+        plan_blocked_reasons = list(dict.fromkeys([*blocked_reasons, *(build_plan.get("blocked_reasons") or []), *gate_blocked_reasons]))
         status = "blocked" if plan_blocked_reasons or not build_plan.get("can_execute") else "ready"
         with self.connection.cursor(row_factory=dict_row) as cursor:
             code = self._next_code(cursor, "LIVEPLAN", "functional_live_room_plan")
@@ -118,15 +126,16 @@ class FunctionalLiveRoomService:
                     plan_code, project_code, variant_code, configuration_code,
                     target_live_room_id, expected_title, primary_template_code,
                     secondary_template_codes, selected_asset_codes, selected_group_codes,
-                    blueprint, build_plan, status, blocked_reasons
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    blueprint, build_plan, gate_results, quality_report, status, blocked_reasons
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING *
                 """,
                 (
                     code, detail["project_code"], variant["variant_code"], configuration["configuration_code"],
                     payload["target_live_room_id"], payload["expected_title"], templates["primary_template_code"],
                     Jsonb(templates["secondary_template_codes"]), Jsonb(snapshot["asset_codes"]),
-                    Jsonb(payload.get("group_codes") or []), Jsonb(blueprint), Jsonb(build_plan), status, Jsonb(plan_blocked_reasons),
+                    Jsonb(payload.get("group_codes") or []), Jsonb(blueprint), Jsonb(build_plan),
+                    Jsonb(gate_results), Jsonb(quality_report), status, Jsonb(plan_blocked_reasons),
                 ),
             )
             row = cursor.fetchone()
@@ -312,6 +321,104 @@ class FunctionalLiveRoomService:
             plan_name=f"{detail['title']} {configuration['expected_title']} BuildPlan",
         )
         return persisted
+
+    @staticmethod
+    def _evaluate_plan(
+        *,
+        detail: dict[str, Any],
+        snapshot: dict[str, Any],
+        blueprint: dict[str, Any],
+        build_plan: dict[str, Any],
+        compiler_blocked_reasons: list[str],
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        scenes = blueprint.get("scenes") or []
+        shots = detail.get("shot_list", {}).get("shots") or []
+        target_duration_seconds = (detail.get("content") or {}).get("target_duration_seconds")
+        total_duration_ms = sum(int(scene.get("estimated_active_end_ms") or 0) - int(scene.get("estimated_active_start_ms") or 0) for scene in scenes)
+        deviation_ratio = None
+        duration_warning = False
+        if isinstance(target_duration_seconds, int) and target_duration_seconds > 0:
+            deviation_ratio = abs(total_duration_ms - target_duration_seconds * 1000) / (target_duration_seconds * 1000)
+            duration_warning = deviation_ratio > 0.5
+        operations = build_plan.get("operations") or []
+        allowed_operations = {
+            "preflight_content_build_plan", "fill_default_scene", "create_scene",
+            "insert_asset_layer", "position_asset_layer", "write_script", "verify_scene", "save_draft",
+        }
+        operation_types = {str(operation.get("operation_type") or "") for operation in operations if isinstance(operation, dict)}
+        role_needs = sorted({str(role) for shot in shots for role in shot.get("material_role_requirements") or []})
+        selected_roles = sorted({str(role) for asset in snapshot.get("assets") or [] for role in asset.get("material_roles") or []})
+        missing_roles = sorted(set(role_needs) - set(selected_roles))
+        gates = [
+            {
+                "gate": "identity_version",
+                "status": "pass",
+                "rule_code": "GATE_IDENTITY_VERSION_FIXED",
+                "rule_version": "functional-live-room-gates.v1",
+                "evidence": {"project_revision": detail["revision_number"], "shot_count": len(shots)},
+                "remediation": None,
+            },
+            {
+                "gate": "authorization_facts",
+                "status": "pass",
+                "rule_code": "GATE_CONTENT_INPUT_CONFIRMED",
+                "rule_version": "functional-live-room-gates.v1",
+                "evidence": {"content_project_status": detail["status"], "fact_card_count": len(detail.get("fact_cards") or [])},
+                "remediation": None,
+            },
+            {
+                "gate": "input_boundary",
+                "status": "blocked" if compiler_blocked_reasons or missing_roles else "pass",
+                "rule_code": "GATE_MATERIAL_WHITELIST_COMPLETE" if not (compiler_blocked_reasons or missing_roles) else "GATE_MATERIAL_WHITELIST_BLOCKED",
+                "rule_version": "functional-live-room-gates.v1",
+                "evidence": {"selected_asset_codes": snapshot.get("asset_codes") or [], "missing_roles": missing_roles, "compiler_blocked_reasons": compiler_blocked_reasons},
+                "remediation": "补齐对应角色的 maitu_bound 白名单素材" if compiler_blocked_reasons or missing_roles else None,
+            },
+            {
+                "gate": "structural_references",
+                "status": "pass" if len(scenes) == len(shots) and all(scene.get("source_script_block_codes") for scene in scenes) else "blocked",
+                "rule_code": "GATE_SHOT_PROJECTION_COMPLETE" if len(scenes) == len(shots) and all(scene.get("source_script_block_codes") for scene in scenes) else "GATE_SHOT_PROJECTION_INCOMPLETE",
+                "rule_version": "functional-live-room-gates.v1",
+                "evidence": {"shot_count": len(shots), "scene_count": len(scenes), "scene_codes": [scene.get("scene_code") for scene in scenes]},
+                "remediation": "重新生成 Shot 到场景/图层投影" if len(scenes) != len(shots) or not all(scene.get("source_script_block_codes") for scene in scenes) else None,
+            },
+            {
+                "gate": "execution_constraints",
+                "status": "pass" if not build_plan.get("go_live") and operation_types.issubset(allowed_operations) else "blocked",
+                "rule_code": "GATE_BUILD_PLAN_ALLOWLIST" if not build_plan.get("go_live") and operation_types.issubset(allowed_operations) else "GATE_BUILD_PLAN_OPERATION_BLOCKED",
+                "rule_version": "functional-live-room-gates.v1",
+                "evidence": {"operation_types": sorted(operation_types), "go_live": bool(build_plan.get("go_live")), "build_plan_code": build_plan.get("build_plan_code")},
+                "remediation": "移除非白名单操作或正式开播动作" if build_plan.get("go_live") or not operation_types.issubset(allowed_operations) else None,
+            },
+            {
+                "gate": "branch_quality",
+                "status": "warning" if duration_warning else "pass",
+                "rule_code": "GATE_DURATION_DEVIATION_WARNING" if duration_warning else "GATE_BRANCH_QUALITY_PASS",
+                "rule_version": "functional-live-room-gates.v1",
+                "evidence": {"total_duration_ms": total_duration_ms, "target_duration_seconds": target_duration_seconds, "deviation_ratio": deviation_ratio},
+                "remediation": "调整 ProgramSegment 或 Shot 时长" if duration_warning else None,
+            },
+            {
+                "gate": "evidence_completeness",
+                "status": "warning",
+                "rule_code": "GATE_EXECUTION_EVIDENCE_PENDING",
+                "rule_version": "functional-live-room-gates.v1",
+                "evidence": {"projection_persisted": True, "execution_readback": False},
+                "remediation": "在麦兔只读 preflight 和写入回读后补充现场证据",
+            },
+        ]
+        quality_report = {
+            "schema_version": "live-room-branch-quality.functional.v1",
+            "estimated_total_duration_ms": total_duration_ms,
+            "target_duration_seconds": target_duration_seconds,
+            "duration_deviation_ratio": deviation_ratio,
+            "warnings": ["duration_deviation_over_50_percent"] if duration_warning else [],
+            "required_material_roles": role_needs,
+            "selected_material_roles": selected_roles,
+            "missing_material_roles": missing_roles,
+            "compiler_blocked_reasons": compiler_blocked_reasons,
+        }
+        return gates, quality_report
 
     @staticmethod
     def _compile(
