@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from math import isfinite
 from typing import Any
 
 from psycopg import Connection
@@ -62,7 +63,14 @@ class FunctionalLiveRoomService:
         material_role_overrides = self._validate_material_role_overrides(
             payload.get("material_role_overrides") or {}, selected_assets
         )
-        payload = {**payload, "material_role_overrides": material_role_overrides}
+        room_constraint_overrides = self._validate_room_constraint_overrides(
+            payload.get("room_constraint_overrides") or {}, selected_assets, actor_id=actor_id
+        )
+        payload = {
+            **payload,
+            "material_role_overrides": material_role_overrides,
+            "room_constraint_overrides": room_constraint_overrides,
+        }
         selection_sources = self._material_selection_sources(
             asset_codes=payload.get("asset_codes") or [],
             group_codes=payload.get("group_codes") or [],
@@ -87,6 +95,7 @@ class FunctionalLiveRoomService:
             "material_pack_refs": material_pack_refs,
             "asset_gap_refs": asset_gap_refs,
             "material_role_overrides": material_role_overrides,
+            "room_constraint_overrides": room_constraint_overrides,
         }
         templates = self._project_template_selection(detail, payload)
         variant = self.production.create_production_variant(
@@ -104,6 +113,7 @@ class FunctionalLiveRoomService:
                 "selected_material_pack_codes": payload.get("material_pack_codes") or [],
                 "selected_asset_gap_codes": payload.get("asset_gap_codes") or [],
                 "material_role_overrides": material_role_overrides,
+                "room_constraint_overrides": room_constraint_overrides,
             },
             material_snapshot_ref=snapshot,
             constraint_snapshot_ref={
@@ -115,6 +125,7 @@ class FunctionalLiveRoomService:
                     }
                     for asset in selected_assets
                 ],
+                "room_constraint_overrides": room_constraint_overrides,
             },
             actor_id=actor_id,
             producer_strategy_revision="functional-live-room.v1",
@@ -141,6 +152,7 @@ class FunctionalLiveRoomService:
                 "selected_material_pack_codes": payload.get("material_pack_codes") or [],
                 "selected_asset_gap_codes": payload.get("asset_gap_codes") or [],
                 "material_role_overrides": material_role_overrides,
+                "room_constraint_overrides": room_constraint_overrides,
             },
             actor_id=actor_id,
         )
@@ -425,6 +437,9 @@ class FunctionalLiveRoomService:
                     if isinstance(gap, dict) and gap.get("gap_code")
                 ],
                 "material_role_overrides": dict((source["quality_report"] or {}).get("material_role_overrides") or {}),
+                "room_constraint_overrides": dict(
+                    (source["build_plan"] or {}).get("inventory_snapshot", {}).get("room_constraint_overrides") or {}
+                ),
             },
             actor_id=actor_id,
         )
@@ -440,6 +455,7 @@ class FunctionalLiveRoomService:
                 "selected_material_pack_codes",
                 "selected_asset_gap_codes",
                 "material_role_overrides",
+                "room_constraint_overrides",
             ],
             "cleared_target_state": [
                 "target_live_room_fingerprint",
@@ -1285,6 +1301,102 @@ class FunctionalLiveRoomService:
         return normalized
 
     @staticmethod
+    def _validate_room_constraint_overrides(
+        overrides: dict[str, Any], assets: list[dict[str, Any]], *, actor_id: str
+    ) -> dict[str, dict[str, Any]]:
+        if not isinstance(overrides, dict):
+            raise DomainValidationError(
+                "LIVE_ROOM_CONSTRAINT_OVERRIDE_INVALID",
+                "Room constraint overrides must be an object keyed by selected asset code",
+            )
+        selected_by_code = {str(asset["asset_code"]): asset for asset in assets}
+        normalized: dict[str, dict[str, Any]] = {}
+        for raw_asset_code, raw_override in overrides.items():
+            asset_code = str(raw_asset_code).strip()
+            if asset_code not in selected_by_code:
+                raise DomainValidationError(
+                    "LIVE_ROOM_CONSTRAINT_OVERRIDE_NOT_SELECTED",
+                    "A room constraint override must reference an asset selected for this plan",
+                    details={"asset_code": asset_code},
+                )
+            if not isinstance(raw_override, dict):
+                raise DomainValidationError(
+                    "LIVE_ROOM_CONSTRAINT_OVERRIDE_INVALID",
+                    "Each room constraint override must be an object",
+                    details={"asset_code": asset_code},
+                )
+            reason = str(raw_override.get("reason") or "").strip()
+            if not reason:
+                raise DomainValidationError(
+                    "LIVE_ROOM_CONSTRAINT_OVERRIDE_REASON_REQUIRED",
+                    "A room constraint override requires an operator reason",
+                    details={"asset_code": asset_code},
+                )
+            geometry = raw_override.get("geometry")
+            z_order = raw_override.get("z_order")
+            if geometry is None and z_order is None:
+                raise DomainValidationError(
+                    "LIVE_ROOM_CONSTRAINT_OVERRIDE_EMPTY",
+                    "A room constraint override must adjust geometry or z order",
+                    details={"asset_code": asset_code},
+                )
+            normalized_geometry: dict[str, float] | None = None
+            if geometry is not None:
+                if not isinstance(geometry, dict) or set(geometry) != {"x", "y", "width", "height"}:
+                    raise DomainValidationError(
+                        "LIVE_ROOM_CONSTRAINT_OVERRIDE_GEOMETRY_INVALID",
+                        "Room override geometry must contain x, y, width and height",
+                        details={"asset_code": asset_code},
+                    )
+                try:
+                    normalized_geometry = {key: float(geometry[key]) for key in ("x", "y", "width", "height")}
+                except (TypeError, ValueError) as exc:
+                    raise DomainValidationError(
+                        "LIVE_ROOM_CONSTRAINT_OVERRIDE_GEOMETRY_INVALID",
+                        "Room override geometry values must be numeric",
+                        details={"asset_code": asset_code},
+                    ) from exc
+                x, y, width, height = (normalized_geometry[key] for key in ("x", "y", "width", "height"))
+                if not all(isfinite(value) for value in (x, y, width, height)) or x < 0 or y < 0 or width <= 0 or height <= 0 or x + width > 1 or y + height > 1:
+                    raise DomainValidationError(
+                        "LIVE_ROOM_CONSTRAINT_OVERRIDE_GEOMETRY_INVALID",
+                        "Room override geometry must stay within the normalized canvas",
+                        details={"asset_code": asset_code},
+                    )
+            normalized_z_order: int | None = None
+            if z_order is not None:
+                if isinstance(z_order, bool):
+                    raise DomainValidationError(
+                        "LIVE_ROOM_CONSTRAINT_OVERRIDE_Z_ORDER_INVALID",
+                        "Room override z order must be an integer",
+                        details={"asset_code": asset_code},
+                    )
+                try:
+                    normalized_z_order = int(z_order)
+                except (TypeError, ValueError) as exc:
+                    raise DomainValidationError(
+                        "LIVE_ROOM_CONSTRAINT_OVERRIDE_Z_ORDER_INVALID",
+                        "Room override z order must be an integer",
+                        details={"asset_code": asset_code},
+                    ) from exc
+                if normalized_z_order < -999 or normalized_z_order > 999:
+                    raise DomainValidationError(
+                        "LIVE_ROOM_CONSTRAINT_OVERRIDE_Z_ORDER_INVALID",
+                        "Room override z order must be between -999 and 999",
+                        details={"asset_code": asset_code},
+                    )
+            normalized[asset_code] = {
+                "schema_version": "functional-live-room-room-constraint-override.v1",
+                "asset_code": asset_code,
+                "reason": reason,
+                "geometry": normalized_geometry,
+                "z_order": normalized_z_order,
+                "actor_id": actor_id,
+                "base_constraint_profile_ref": selected_by_code[asset_code].get("constraint_profile_ref"),
+            }
+        return normalized
+
+    @staticmethod
     def _choose_material_for_role(
         *,
         role: str,
@@ -1336,6 +1448,14 @@ class FunctionalLiveRoomService:
         *,
         variant_code: str,
     ) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
+        room_constraint_overrides = dict(payload.get("room_constraint_overrides") or {})
+        assets = [
+            {
+                **asset,
+                "room_constraint_override": room_constraint_overrides.get(str(asset["asset_code"])),
+            }
+            for asset in assets
+        ]
         shots = detail["shot_list"]["shots"]
         blocks = detail["script"]["blocks"]
         layers_by_role: dict[str, list[dict[str, Any]]] = {}
@@ -1408,6 +1528,7 @@ class FunctionalLiveRoomService:
                 "schema_version": "maitu-scene-blueprint.functional.v2",
                 "scenes": scenes,
                 "material_role_overrides": material_role_overrides,
+                "room_constraint_overrides": room_constraint_overrides,
                 "material_selection_decisions": material_selection_decisions,
             },
             {"schema_version": "maitu-build-plan.functional.v1", "target_live_room_id": payload["target_live_room_id"], "operations": operations, "go_live": False},
@@ -1483,12 +1604,33 @@ class FunctionalLiveRoomService:
         named_regions: dict[str, dict[str, float]],
         table_surfaces: dict[str, dict[str, Any]],
     ) -> tuple[dict[str, float], int, dict[str, Any], dict[str, Any], dict[str, Any], list[str]]:
-        geometry = FunctionalLiveRoomService._default_geometry(role)
-        z_order = 100 if role == "digital_human" else 10
+        room_override = asset.get("room_constraint_override")
+        geometry = (
+            dict(room_override["geometry"])
+            if isinstance(room_override, dict) and isinstance(room_override.get("geometry"), dict)
+            else FunctionalLiveRoomService._default_geometry(role)
+        )
+        z_order = (
+            int(room_override["z_order"])
+            if isinstance(room_override, dict) and isinstance(room_override.get("z_order"), int)
+            else (100 if role == "digital_human" else 10)
+        )
         visual_properties: dict[str, Any] = {}
         audio_properties: dict[str, Any] = {}
         failures: list[str] = []
         applied: list[dict[str, Any]] = []
+        if isinstance(room_override, dict):
+            applied.append(
+                {
+                    "kind": "room_private_override",
+                    "hard": False,
+                    "parameters": {
+                        "reason": room_override.get("reason"),
+                        "geometry": room_override.get("geometry"),
+                        "z_order": room_override.get("z_order"),
+                    },
+                }
+            )
         for rule in FunctionalLiveRoomService._constraint_rules(asset):
             kind = str(rule.get("kind") or "")
             hard = bool(rule.get("hard", True))
@@ -1566,6 +1708,7 @@ class FunctionalLiveRoomService:
                 "schema_version": "functional-live-room-constraints.v1",
                 "asset_code": asset["asset_code"],
                 "constraint_profile_ref": asset.get("constraint_profile_ref"),
+                "room_constraint_override": room_override,
                 "applied_rules": applied,
                 "named_regions_available": sorted(named_regions),
                 "table_surfaces_available": table_surfaces,

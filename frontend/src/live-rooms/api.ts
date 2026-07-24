@@ -29,6 +29,7 @@ export interface FunctionalLiveRoomPlan {
     }>;
     materialPackRefs: Array<{ packCode: string; revisionNumber: number; fingerprint: string; role: string }>;
     assetGapRefs: Array<{ gapCode: string; title: string; role: string; severity: string; status: string; gapType: string; fingerprint: string }>;
+    roomConstraintOverrides: Record<string, RoomConstraintOverride>;
   };
   blueprint: { schema_version: string; scenes: Array<{ scene_code: string; shot_code: string; title: string; layers: Array<{ role: string; asset_code: string; execution_capability: string; z_order: number }>; script: string }> };
   buildPlan: { schema_version: string; build_plan_code?: string; target_live_room_id: string; go_live: boolean; operations: Array<{ kind: string; scene_code?: string; asset_code?: string; role?: string; script_block_code?: string }> };
@@ -45,6 +46,13 @@ export interface FunctionalLiveRoomPlan {
   releaseManifestFingerprint?: string;
   release?: { releaseCode: string; status: string; manifestCode: string; manifestFingerprint: string; snapshotArtifactCode: string };
   updatedAt: string;
+}
+
+export interface RoomConstraintOverride {
+  reason: string;
+  geometry?: { x: number; y: number; width: number; height: number };
+  zOrder?: number;
+  actorId?: string;
 }
 
 export interface FunctionalLiveRoomTrace {
@@ -68,6 +76,19 @@ export interface FunctionalLiveRoomTrace {
 
 function strings(value: unknown): string[] {
   return asArray(value).flatMap((item) => typeof item === "string" ? [item] : []);
+}
+
+function roomConstraintOverrides(value: unknown): Record<string, RoomConstraintOverride> {
+  if (!isRecord(value)) return {};
+  return Object.fromEntries(Object.entries(value).flatMap(([assetCode, override]) => {
+    if (!isRecord(override) || !asString(override.reason)) return [];
+    const rawGeometry = isRecord(override.geometry) ? override.geometry : undefined;
+    const geometry = rawGeometry
+      && ["x", "y", "width", "height"].every((key) => typeof rawGeometry[key] === "number")
+      ? { x: asNumber(rawGeometry.x), y: asNumber(rawGeometry.y), width: asNumber(rawGeometry.width), height: asNumber(rawGeometry.height) }
+      : undefined;
+    return [[assetCode, { reason: asString(override.reason), geometry, zOrder: typeof override.z_order === "number" ? override.z_order : undefined, actorId: asOptionalString(override.actor_id) }]];
+  }));
 }
 
 function plan(value: unknown): FunctionalLiveRoomPlan {
@@ -106,6 +127,7 @@ function plan(value: unknown): FunctionalLiveRoomPlan {
       }] : []),
       materialPackRefs: asArray(inventorySnapshot.material_pack_refs).flatMap((pack) => isRecord(pack) && asString(pack.pack_code) ? [{ packCode: asString(pack.pack_code), revisionNumber: asNumber(pack.revision_number), fingerprint: asString(pack.fingerprint_sha256), role: asString(pack.role) }] : []),
       assetGapRefs: asArray(inventorySnapshot.asset_gap_refs).flatMap((gap) => isRecord(gap) && asString(gap.gap_code) ? [{ gapCode: asString(gap.gap_code), title: asString(gap.title, asString(gap.gap_code)), role: asString(gap.role), severity: asString(gap.severity), status: asString(gap.status), gapType: asString(gap.gap_type), fingerprint: asString(gap.fingerprint_sha256) }] : []),
+      roomConstraintOverrides: roomConstraintOverrides(inventorySnapshot.room_constraint_overrides),
     },
     blueprint: {
       schema_version: asString(blueprint.schema_version),
@@ -160,7 +182,14 @@ export const functionalLiveRoomsApi = {
   list: () => requestJson<unknown[]>(ROOT).then((rows) => rows.map(plan)),
   get: (planCode: string) => requestJson<unknown>(`${ROOT}/${planCode}`).then(plan),
   getTrace: (planCode: string) => requestJson<unknown>(`${ROOT}/${planCode}/trace`).then(trace),
-  create: (payload: { project_code: string; target_live_room_id: string; expected_title: string; primary_template_code?: string; secondary_template_codes: string[]; asset_codes: string[]; group_codes: string[]; material_pack_codes: string[]; asset_gap_codes: string[]; material_role_overrides: Record<string, string> }) => postJson<unknown>(ROOT, payload).then(plan),
+  create: (payload: { project_code: string; target_live_room_id: string; expected_title: string; primary_template_code?: string; secondary_template_codes: string[]; asset_codes: string[]; group_codes: string[]; material_pack_codes: string[]; asset_gap_codes: string[]; material_role_overrides: Record<string, string>; room_constraint_overrides: Record<string, RoomConstraintOverride> }) => postJson<unknown>(ROOT, {
+    ...payload,
+    room_constraint_overrides: Object.fromEntries(Object.entries(payload.room_constraint_overrides).map(([assetCode, override]) => [assetCode, {
+      reason: override.reason,
+      geometry: override.geometry,
+      z_order: override.zOrder,
+    }])),
+  }).then(plan),
   confirmExecution: (planCode: string) => postJson<unknown>(`${ROOT}/${planCode}/confirm-execution`, { confirmed: true }).then(plan),
   createReleaseCandidate: (planCode: string) => postJson<unknown>(`${ROOT}/${planCode}/release-candidate`, {}).then(plan),
   clone: (planCode: string, payload: { target_live_room_id: string; expected_title: string }) => postJson<unknown>(`${ROOT}/${planCode}/clone`, payload).then(plan),

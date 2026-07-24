@@ -27,3 +27,37 @@ def test_live_room_plan_input_rejects_duplicate_asset_gap_codes() -> None:
             asset_codes=["AG-IMG-001"],
             asset_gap_codes=["AG-GAP-001", "AG-GAP-001"],
         )
+
+
+def test_live_room_plan_input_accepts_a_bounded_room_constraint_override() -> None:
+    payload = FunctionalLiveRoomPlanCreate(
+        project_code="CONTENT-001",
+        target_live_room_id="room-001",
+        expected_title="房间私有位置覆盖",
+        asset_codes=["AG-IMG-001"],
+        room_constraint_overrides={
+            "AG-IMG-001": {
+                "reason": "适配当前房间的商品陈列区域",
+                "geometry": {"x": 0.1, "y": 0.2, "width": 0.4, "height": 0.3},
+                "z_order": 12,
+            }
+        },
+    )
+
+    assert payload.room_constraint_overrides["AG-IMG-001"].z_order == 12
+
+
+def test_live_room_plan_input_rejects_out_of_canvas_room_override() -> None:
+    with pytest.raises(ValidationError, match="normalized canvas"):
+        FunctionalLiveRoomPlanCreate(
+            project_code="CONTENT-001",
+            target_live_room_id="room-001",
+            expected_title="非法位置覆盖",
+            asset_codes=["AG-IMG-001"],
+            room_constraint_overrides={
+                "AG-IMG-001": {
+                    "reason": "超出画布",
+                    "geometry": {"x": 0.8, "y": 0.2, "width": 0.4, "height": 0.3},
+                }
+            },
+        )

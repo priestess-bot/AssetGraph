@@ -319,6 +319,20 @@
 .live-template-selection strong { font-size: 8px; }
 .live-template-selection code { overflow-wrap: anywhere; color: var(--console-cyan); font-size: 8px; text-align: right; }
 .live-template-selection small { color: var(--wb-muted); font-size: 7px; line-height: 1.4; overflow-wrap: anywhere; }
+.live-room-constraint-overrides { display: grid; gap: 6px; padding: 8px; border: 1px solid #c4b084; border-radius: 4px; background: #fff8e6; }
+.live-room-constraint-overrides > span { color: #74530c; font-size: 8px; font-weight: 900; }
+.live-room-constraint-overrides > small { color: var(--wb-muted); font-size: 7px; line-height: 1.4; }
+.live-room-constraint-overrides article { display: grid; gap: 6px; padding-top: 6px; border-top: 1px solid rgb(196 176 132 / 55%); }
+.live-room-constraint-toggle { display: grid; grid-template-columns: 14px minmax(0, 1fr); gap: 6px; align-items: start; cursor: pointer; }
+.live-room-constraint-toggle input { margin: 2px 0 0; }
+.live-room-constraint-toggle span { display: flex; min-width: 0; flex-direction: column; }
+.live-room-constraint-toggle strong { overflow: hidden; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.live-room-constraint-toggle code { overflow-wrap: anywhere; color: var(--console-cyan); font-size: 7px; }
+.live-room-constraint-fields { display: grid; gap: 6px; padding-left: 20px; }
+.live-room-constraint-fields .wb-field span { font-size: 7px; }
+.live-room-constraint-fields .wb-input { min-width: 0; font-size: 8px; }
+.live-room-geometry-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
+.live-room-constraint-warning { color: var(--wb-red); font-size: 7px; }
 .live-selection { display: grid; gap: 4px; padding: 8px; border: 1px solid var(--wb-line); border-radius: 4px; background: var(--wb-subtle); }
 .live-selection > span { color: var(--wb-muted); font-size: 8px; font-weight: 900; }
 .live-selection > label { display: grid; grid-template-columns: 14px minmax(0, 1fr); align-items: start; gap: 6px; padding: 4px 0; border-bottom: 1px solid rgb(196 205 198 / 60%); cursor: pointer; }
@@ -355,6 +369,10 @@
 .live-material-gap-refs code { color: var(--console-cyan); font-size: 8px; }
 .live-material-gap-refs strong { overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .live-material-gap-refs small { color: var(--wb-muted); font-size: 8px; }
+.live-room-override-summary { display: grid; gap: 1px; border-top: 1px solid var(--wb-line); }
+.live-room-override-summary article { display: grid; grid-template-columns: minmax(100px, .8fr) minmax(130px, 1fr) 82px minmax(0, 1.3fr); align-items: center; gap: 8px; padding: 9px 12px; background: #fff8e6; }
+.live-room-override-summary code { overflow-wrap: anywhere; color: var(--console-cyan); font-size: 8px; }
+.live-room-override-summary span, .live-room-override-summary small { overflow-wrap: anywhere; color: var(--wb-muted); font-size: 8px; }
 .live-material-selection-list { display: grid; }
 .live-material-selection-list article { display: grid; grid-template-columns: minmax(100px, .8fr) minmax(110px, 1fr) 34px minmax(0, 1.5fr); align-items: center; gap: 8px; padding: 9px 12px; border-top: 1px solid var(--wb-line); }
 .live-material-selection-list article > span { display: flex; min-width: 0; flex-direction: column; }
@@ -694,6 +712,7 @@
   .operations-attribution-session-picker { grid-template-columns: 1fr; }
   .content-project-rail, .knowledge-rail, .live-plan-rail, .video-plan-rail, .governance-catalog { position: static; max-height: none; }
   .live-plan-summary, .video-plan-summary, .live-material-snapshot { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .live-room-override-summary article { grid-template-columns: minmax(110px, .8fr) minmax(0, 1fr); }
 }
 
 @media (max-width: 640px) {
@@ -720,6 +739,7 @@
   .live-material-selection-list article > small { grid-column: 1 / -1; }
   .live-material-gap-refs > span { grid-template-columns: auto minmax(0, 1fr) auto; }
   .live-material-gap-refs small { grid-column: 1 / -1; }
+  .live-room-geometry-fields, .live-room-override-summary article { grid-template-columns: 1fr; }
   .asset-pack-entry { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .asset-pack-entry .wb-button { grid-column: 1 / -1; }
   .content-program-timeline-shots header { grid-template-columns: auto minmax(0, 1fr); }

@@ -1,9 +1,32 @@
 from __future__ import annotations
 
 from datetime import datetime
+from math import isfinite
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+
+class FunctionalLiveRoomConstraintOverride(BaseModel):
+    """A plan-local placement adjustment that cannot erase an asset Profile."""
+
+    reason: str = Field(min_length=1, max_length=500)
+    geometry: dict[str, float] | None = None
+    z_order: int | None = Field(default=None, ge=-999, le=999)
+
+    @model_validator(mode="after")
+    def validate_override(self) -> "FunctionalLiveRoomConstraintOverride":
+        if self.geometry is None and self.z_order is None:
+            raise ValueError("a room constraint override must set geometry or z_order")
+        if self.geometry is None:
+            return self
+        expected = {"x", "y", "width", "height"}
+        if set(self.geometry) != expected:
+            raise ValueError("room override geometry must contain x, y, width and height")
+        x, y, width, height = (float(self.geometry[key]) for key in ("x", "y", "width", "height"))
+        if not all(isfinite(value) for value in (x, y, width, height)) or x < 0 or y < 0 or width <= 0 or height <= 0 or x + width > 1 or y + height > 1:
+            raise ValueError("room override geometry must stay within the normalized canvas")
+        return self
 
 
 class FunctionalLiveRoomPlanCreate(BaseModel):
@@ -17,6 +40,7 @@ class FunctionalLiveRoomPlanCreate(BaseModel):
     material_pack_codes: list[str] = Field(default_factory=list)
     asset_gap_codes: list[str] = Field(default_factory=list)
     material_role_overrides: dict[str, str] = Field(default_factory=dict)
+    room_constraint_overrides: dict[str, FunctionalLiveRoomConstraintOverride] = Field(default_factory=dict)
 
     @field_validator("secondary_template_codes")
     @classmethod
@@ -46,6 +70,19 @@ class FunctionalLiveRoomPlanCreate(BaseModel):
             if len(normalized_role) > 64 or len(normalized_asset_code) > 64:
                 raise ValueError("material role override keys and asset codes must be at most 64 characters")
             normalized[normalized_role] = normalized_asset_code
+        return normalized
+
+    @field_validator("room_constraint_overrides")
+    @classmethod
+    def normalize_room_constraint_overrides(
+        cls, value: dict[str, FunctionalLiveRoomConstraintOverride]
+    ) -> dict[str, FunctionalLiveRoomConstraintOverride]:
+        normalized: dict[str, FunctionalLiveRoomConstraintOverride] = {}
+        for asset_code, override in value.items():
+            code = str(asset_code).strip()
+            if not code or len(code) > 64:
+                raise ValueError("room constraint override asset codes must be non-empty and at most 64 characters")
+            normalized[code] = override
         return normalized
 
 
