@@ -376,6 +376,7 @@ class FunctionalContentService:
             )
         content = current["content"]
         design_ref = f"{design_brief['design_brief_code']}:r{design_brief['revision_number']}"
+        generation_context = self._generation_context(current, design_brief, content)
         story = self.production.create_story_brief_revision(
             project_code=project_code,
             project_revision=int(current["revision_number"]),
@@ -391,12 +392,19 @@ class FunctionalContentService:
             story["story_brief_code"], revision_number=int(story["revision_number"]), actor_id=actor_id
         )
         blocks = self._script_blocks(current["generation_goal"], content)
+        self._validate_fact_citations(blocks, generation_context["approved_facts"])
         script_draft = self.production.create_script_revision(
             story_brief_code=story["story_brief_code"],
             story_brief_revision=int(story["revision_number"]),
             expected_revision=self._current_project_revision("content_script_revisions", current["project_id"]),
             title=f"{current['title']} 直播脚本",
-            content={"generation_mode": "deterministic_demo", "theme": content.get("theme"), "story": content.get("story")},
+            content={
+                "generation_mode": "deterministic_demo",
+                "theme": content.get("theme"),
+                "story": content.get("story"),
+                "generation_context_fingerprint": canonical_fingerprint(generation_context),
+                "generation_context_sections": list(generation_context),
+            },
             blocks=blocks,
             model_strategy_ref="functional-deterministic.v1",
             prompt_revision="functional-prompt.v1",
@@ -630,6 +638,75 @@ class FunctionalContentService:
             )
             row = cursor.fetchone()
         return row
+
+    def _generation_context(
+        self,
+        project: dict[str, Any],
+        design_brief: dict[str, Any],
+        content: dict[str, Any],
+    ) -> dict[str, Any]:
+        approved_facts: list[dict[str, Any]] = []
+        for ref in content.get("fact_card_refs") or []:
+            if not isinstance(ref, dict):
+                continue
+            resolved = self.facts.resolve_product_fact_card_version(
+                str(ref.get("fact_card_code") or ""),
+                ref.get("version_number"),
+                require_approved=True,
+            )
+            if resolved is None:
+                raise DomainValidationError(
+                    "FACT_CARD_NOT_APPROVED",
+                    "A pinned fact card changed before generation",
+                    details={"fact_card_code": ref.get("fact_card_code"), "version_number": ref.get("version_number")},
+                )
+            approved_facts.append(
+                {
+                    "fact_card_code": resolved["fact_card_code"],
+                    "version_number": resolved["version_number"],
+                    "content_sha256": resolved["content_sha256"],
+                    "content": resolved["content"],
+                }
+            )
+        return {
+            "system_baseline": {
+                "strategy_revision": "content-generation-baseline.v1",
+                "rules": ["approved facts are authoritative", "external references are non-authoritative"],
+            },
+            "approved_facts": approved_facts,
+            "user_goal": {
+                "title": project["title"],
+                "generation_goal": project["generation_goal"],
+                "design_brief_code": design_brief["design_brief_code"],
+                "design_brief_revision": design_brief["revision_number"],
+                "parsed_design_brief": design_brief["parsed_brief"],
+            },
+            "external_references": self._template_refs(content),
+        }
+
+    @staticmethod
+    def _validate_fact_citations(blocks: list[dict[str, Any]], approved_facts: list[dict[str, Any]]) -> None:
+        fact_codes = {str(fact["fact_card_code"]) for fact in approved_facts}
+        restricted_markers = (
+            "价格", "优惠", "促销", "库存", "赠品", "功效", "¥", "￥",
+            "price", "discount", "inventory", "free gift", "benefit",
+        )
+        for block in blocks:
+            text = str(block.get("content") or "").lower()
+            if not any(marker.lower() in text for marker in restricted_markers):
+                continue
+            citations = block.get("fact_citations") or []
+            cited_codes = {
+                str(citation.get("fact_card_code"))
+                for citation in citations
+                if isinstance(citation, dict) and citation.get("fact_card_code")
+            }
+            if not cited_codes or not cited_codes.issubset(fact_codes):
+                raise DomainValidationError(
+                    "FACT_CITATION_REQUIRED",
+                    "Price, promotion, inventory, gift, and efficacy claims require approved fact citations",
+                    details={"module_type": block.get("module_type")},
+                )
 
     def _current_project_revision(self, table: str, project_id: str) -> int:
         allowed = {"content_script_revisions", "content_program_revisions", "shot_list_revisions"}

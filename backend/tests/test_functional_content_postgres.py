@@ -76,6 +76,20 @@ def test_generation_requires_confirmed_project_and_design_brief() -> None:
         assert brief_error.value.code == "DESIGN_BRIEF_CONFIRM_REQUIRED"
 
 
+def test_fact_citation_guard_blocks_restricted_claim_without_approved_source() -> None:
+    with pytest.raises(DomainValidationError) as invalid:
+        FunctionalContentService._validate_fact_citations(
+            [{"module_type": "conversion", "content": "当前价格和赠品以直播间为准。"}],
+            [],
+        )
+    assert invalid.value.code == "FACT_CITATION_REQUIRED"
+
+    FunctionalContentService._validate_fact_citations(
+        [{"module_type": "conversion", "content": "当前价格以批准事实为准。", "fact_citations": [{"fact_card_code": "MT-FACT-001"}]}],
+        [{"fact_card_code": "MT-FACT-001"}],
+    )
+
+
 def test_content_project_update_requires_current_revision() -> None:
     with psycopg.connect(DATABASE_URL) as connection:
         service = FunctionalContentService(connection)
