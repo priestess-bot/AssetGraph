@@ -102,6 +102,90 @@ class DataGovernanceRepository:
             row = cursor.fetchone()
         return self._serialize(row) if row else None
 
+    def list_metrics(self) -> list[dict[str, Any]]:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT
+                    revisions.*, definitions.owner_principal,
+                    definitions.status AS metric_status
+                FROM metric_definitions AS definitions
+                JOIN metric_definition_revisions AS revisions
+                  ON revisions.metric_id = definitions.id
+                 AND revisions.revision_number = definitions.current_revision_number
+                ORDER BY definitions.updated_at DESC, definitions.metric_code
+                """
+            )
+            rows = cursor.fetchall()
+        return [self._serialize(row) for row in rows]
+
+    def list_metric_revisions(self, metric_code: str) -> list[dict[str, Any]]:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT
+                    revisions.*, definitions.owner_principal,
+                    definitions.status AS metric_status
+                FROM metric_definition_revisions AS revisions
+                JOIN metric_definitions AS definitions ON definitions.id = revisions.metric_id
+                WHERE revisions.metric_code = %s
+                ORDER BY revisions.revision_number DESC
+                """,
+                (metric_code,),
+            )
+            rows = cursor.fetchall()
+        return [self._serialize(row) for row in rows]
+
+    def list_contracts(self) -> list[dict[str, Any]]:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT * FROM data_contracts
+                WHERE status = 'active'
+                ORDER BY source_system, contract_code, revision_number DESC
+                """
+            )
+            rows = cursor.fetchall()
+        return [self._serialize(row) for row in rows]
+
+    def list_contract_revisions(self, contract_code: str) -> list[dict[str, Any]]:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT * FROM data_contracts
+                WHERE contract_code = %s
+                ORDER BY revision_number DESC
+                """,
+                (contract_code,),
+            )
+            rows = cursor.fetchall()
+        return [self._serialize(row) for row in rows]
+
+    def list_contract_consumers(self, contract_code: str) -> list[dict[str, Any]]:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT
+                    revisions.metric_code,
+                    revisions.revision_number,
+                    revisions.status,
+                    definitions.owner_principal,
+                    revisions.name,
+                    revisions.event_contract_refs
+                FROM metric_definition_revisions AS revisions
+                JOIN metric_definitions AS definitions ON definitions.id = revisions.metric_id
+                WHERE EXISTS (
+                    SELECT 1
+                    FROM jsonb_array_elements(revisions.event_contract_refs) AS reference
+                    WHERE reference->>'code' = %s
+                )
+                ORDER BY revisions.metric_code, revisions.revision_number DESC
+                """,
+                (contract_code,),
+            )
+            rows = cursor.fetchall()
+        return [self._serialize(row) for row in rows]
+
     def put_metric_revision(
         self,
         *,

@@ -74,3 +74,79 @@ class EvidenceAssignment(StrictModel):
     method: str = Field(..., min_length=1, max_length=64)
     allocation_evidence: dict[str, Any] = Field(default_factory=dict)
     human_override: bool = False
+
+
+class MetricRevisionWrite(StrictModel):
+    owner_principal: str = Field(..., min_length=1, max_length=128)
+    expected_revision: int = Field(..., ge=0)
+    definition: MetricRevisionDefinition
+    activate: bool = True
+
+
+class DataContractRevisionWrite(StrictModel):
+    owner_principal: str = Field(..., min_length=1, max_length=128)
+    definition: DataContractDefinition
+    activate: bool = True
+
+
+class MetricRevisionRead(StrictModel):
+    metric_code: str
+    revision_number: int
+    status: str
+    owner_principal: str
+    metric_status: str
+    name: str
+    description: str
+    grain: str | None = None
+    unit: str
+    currency: str | None = None
+    value_type: str
+    aggregation: str
+    numerator_expression: str | None = None
+    denominator_expression: str | None = None
+    dimensions: list[str] = Field(default_factory=list)
+    event_contract_refs: list[dict[str, Any]] = Field(default_factory=list)
+    event_time_field: str | None = None
+    timezone: str | None = None
+    business_day_boundary: str | None = None
+    deduplication_keys: list[str] = Field(default_factory=list)
+    refund_window_days: int | None = None
+    null_rule: dict[str, Any] = Field(default_factory=dict)
+    outlier_rule: dict[str, Any] = Field(default_factory=dict)
+    schema_compatibility: dict[str, Any] = Field(default_factory=dict)
+    quality_slo: dict[str, Any] = Field(default_factory=dict)
+    fingerprint_sha256: str
+    effective_at: datetime | None = None
+    created_at: datetime | None = None
+
+
+class DataContractRead(StrictModel):
+    contract_code: str
+    revision_number: int
+    status: str
+    owner_principal: str
+    source_system: str
+    schema_version: str
+    json_schema: dict[str, Any]
+    event_id_path: str
+    event_time_path: str | None = None
+    operation_path: str | None = None
+    primary_key_paths: list[str] = Field(default_factory=list)
+    upsert_delete_semantics: dict[str, Any] = Field(default_factory=dict)
+    lateness_policy: dict[str, Any] = Field(default_factory=dict)
+    compatibility_window: dict[str, Any] = Field(default_factory=dict)
+    enum_mappings: dict[str, Any] = Field(default_factory=dict)
+    field_classifications: dict[str, DataClassification] = Field(default_factory=dict)
+    expected_volume: dict[str, Any] = Field(default_factory=dict)
+    quality_slo: dict[str, Any] = Field(default_factory=dict)
+    fingerprint_sha256: str
+    created_at: datetime | None = None
+
+
+class DataContractConsumerRead(StrictModel):
+    metric_code: str
+    revision_number: int
+    status: str
+    owner_principal: str
+    name: str
+    event_contract_refs: list[dict[str, Any]] = Field(default_factory=list)

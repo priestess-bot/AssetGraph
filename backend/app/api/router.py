@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.api.routes import (
     compatibility,
     content_projects,
+    data_governance,
     functional_live_rooms,
     functional_videos,
     functional_operations,
@@ -33,6 +34,7 @@ api_router.include_router(control_plane.router)
 api_router.include_router(policy.router)
 api_router.include_router(assets.router)
 api_router.include_router(content_projects.router)
+api_router.include_router(data_governance.router)
 api_router.include_router(functional_live_rooms.router)
 api_router.include_router(functional_videos.router)
 api_router.include_router(functional_operations.router)

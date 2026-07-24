@@ -67,6 +67,21 @@ class DataGovernanceService:
             activate=activate,
         )
 
+    def list_metrics(self) -> list[dict[str, Any]]:
+        return self.repository.list_metrics()
+
+    def list_metric_revisions(self, metric_code: str) -> list[dict[str, Any]]:
+        return self.repository.list_metric_revisions(metric_code)
+
+    def list_contracts(self) -> list[dict[str, Any]]:
+        return self.repository.list_contracts()
+
+    def list_contract_revisions(self, contract_code: str) -> list[dict[str, Any]]:
+        return self.repository.list_contract_revisions(contract_code)
+
+    def list_contract_consumers(self, contract_code: str) -> list[dict[str, Any]]:
+        return self.repository.list_contract_consumers(contract_code)
+
     def ingest_event(self, request: StandardEventIngest) -> dict[str, Any]:
         contract = self.repository.get_active_contract(request.contract_code, request.contract_revision)
         if contract is None:

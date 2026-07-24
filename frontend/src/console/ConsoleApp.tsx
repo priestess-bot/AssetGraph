@@ -9,6 +9,7 @@ import {
   ChevronRight,
   CircleUserRound,
   ClipboardList,
+  Database,
   Film,
   FolderKanban,
   Images,
@@ -33,6 +34,7 @@ import { ReleaseWorkspacePage } from "../releases/ReleaseWorkspacePage";
 import { OperationsPage } from "../operations/OperationsPage";
 import { LearningPage } from "../learning/LearningPage";
 import { KnowledgePage } from "../knowledge/KnowledgePage";
+import { DataGovernancePage } from "../governance/DataGovernancePage";
 import { SessionsPage } from "../live-research/SessionsPage";
 import { ContentStrategiesPage } from "../live-research/ContentStrategiesPage";
 import { TemplatesPage } from "../live-research/TemplatesPage";
@@ -80,7 +82,7 @@ const NAVIGATION: NavSection[] = [
     { href: "/operations/attribution", label: "归因", icon: ChartNoAxesCombined },
     { href: "/learning/effects", label: "效果学习", icon: BrainCircuit },
   ] },
-  { label: "控制", items: [{ href: "/governance/runs", label: "治理与运行", icon: ShieldCheck }] },
+  { label: "控制", items: [{ href: "/governance/data", label: "数据治理", icon: Database }, { href: "/governance/runs", label: "治理与运行", icon: ShieldCheck }] },
 ];
 
 
@@ -267,6 +269,7 @@ export function Workspace({ pathname, search, tasks, notifications, loading, dem
     return <LiveRoomPlannerPage search={search} />;
   }
   if (pathname.startsWith("/governance/runs")) return <div className="console-band console-governance"><header><div><span>CONTROL PLANE</span><h2>任务与运行</h2></div></header><TaskRows tasks={tasks} /><NotificationRows notifications={notifications} /></div>;
+  if (pathname.startsWith("/governance/data")) return <DataGovernancePage />;
   if (pathname.startsWith("/knowledge")) return <KnowledgePage />;
   if (pathname.startsWith("/content/projects")) return <ContentProjectsPage />;
   if (pathname.startsWith("/production/videos")) return <VideoProductionPage />;
