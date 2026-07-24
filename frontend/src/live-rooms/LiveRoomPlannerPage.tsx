@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CircleAlert, MonitorUp, Send, WandSparkles } from "lucide-react";
+import { CircleAlert, FileCheck2, MonitorUp, Send, WandSparkles } from "lucide-react";
 import { assetLibraryApi } from "../assets/api";
 import { contentProjectsApi } from "../content/api";
 import { EmptyBlock, InlineNotice, LoadingBlock, SectionHeader, StatusBadge } from "../workbench/components";
@@ -31,6 +31,7 @@ function PlanDetail({ plan }: { plan: FunctionalLiveRoomPlan }) {
   const queryClient = useQueryClient();
   const [confirmed, setConfirmed] = useState(false);
   const request = useMutation({ mutationFn: () => functionalLiveRoomsApi.confirmExecution(plan.planCode), onSuccess: (next) => { queryClient.setQueryData(["functional-live-room-plan", plan.planCode], next); void queryClient.invalidateQueries({ queryKey: ["functional-live-room-plans"] }); } });
+  const release = useMutation({ mutationFn: () => functionalLiveRoomsApi.createReleaseCandidate(plan.planCode), onSuccess: (next) => { queryClient.setQueryData(["functional-live-room-plan", plan.planCode], next); void queryClient.invalidateQueries({ queryKey: ["functional-live-room-plans"] }); } });
   return <div className="live-plan-detail">
     <section className="wb-section"><SectionHeader kicker={plan.planCode} title={plan.expectedTitle} actions={<div className="live-plan-badges"><StatusBadge label={label(plan.status)} tone={tone(plan.status)} /><StatusBadge label={label(plan.executionStatus)} tone={tone(plan.executionStatus)} /></div>} />
       <div className="live-plan-summary"><div><span>目标直播间</span><strong>{plan.targetLiveRoomId}</strong></div><div><span>生产变体</span><code>{plan.variantCode}</code></div><div><span>直播间配置</span><code>{plan.configurationCode}</code></div><div><span>开播动作</span><strong>已关闭</strong></div></div>
@@ -43,6 +44,8 @@ function PlanDetail({ plan }: { plan: FunctionalLiveRoomPlan }) {
     <section className="wb-section"><SectionHeader kicker={plan.buildPlan.build_plan_code ?? "BUILD PLAN"} title="麦兔草稿操作" actions={<StatusBadge label={plan.buildPlan.go_live ? "包含开播" : "不含开播"} tone={plan.buildPlan.go_live ? "danger" : "success"} />} />
       <ol className="live-operation-list">{plan.buildPlan.operations.map((operation, index) => <li key={`${operation.kind}:${index}`}><b>{index + 1}</b><span>{operation.kind}</span><code>{operation.scene_code ?? operation.asset_code ?? operation.script_block_code ?? ""}</code></li>)}</ol>
     </section>
+    <section className="live-request-panel"><div><span>发布候选</span><strong>{plan.release ? `${plan.release.releaseCode} · ${plan.release.status}` : "尚未创建"}</strong><small>{plan.release ? `Manifest ${plan.release.manifestCode}；仍待权利、执行授权和现场回读。` : "创建后固定内容链、素材快照、Blueprint、BuildPlan 和当前质量结果。"}</small></div>{plan.release ? <div className="live-plan-badges"><StatusBadge label={plan.release.status} tone="warning" /><code>{plan.release.snapshotArtifactCode}</code></div> : <button type="button" className="wb-button wb-button-secondary" disabled={plan.status !== "ready" || release.isPending} onClick={() => release.mutate()}><FileCheck2 size={15} aria-hidden="true" />创建发布候选</button>}</section>
+    {release.error ? <InlineNotice tone="danger" title="发布候选未创建">{message(release.error)}</InlineNotice> : null}
     <section className="live-request-panel"><div><span>人工确认后的 Worker 请求</span><strong>{plan.executionStatus === "requested" ? "已提交，等待麦兔 Worker 回读" : "尚未请求"}</strong><small>{typeof plan.executionEvidence.message === "string" ? plan.executionEvidence.message : "仅在指定空白、未开播草稿中执行。"}</small></div>{plan.executionStatus === "not_requested" ? <div className="live-request-action"><label><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />我已确认该目标是指定的空白未开播草稿</label><button type="button" className="wb-button wb-button-primary" disabled={!confirmed || request.isPending || plan.status !== "ready"} onClick={() => request.mutate()}><Send size={15} aria-hidden="true" />请求写入草稿</button></div> : null}</section>
     {request.error ? <InlineNotice tone="danger" title="草稿请求未提交">{message(request.error)}</InlineNotice> : null}
   </div>;

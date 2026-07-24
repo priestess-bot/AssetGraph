@@ -7,22 +7,33 @@ from psycopg import Connection
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
-from app.domain.contracts import canonical_fingerprint
+from app.core.config import settings
+from app.domain.contracts import canonical_fingerprint, canonical_json_bytes
 from app.domain.errors import DomainValidationError
 from app.repositories.content_production import ContentProductionRepository
 from app.repositories.maitu import MaituMaterialSlotRepository
+from app.repositories.releases import ReleaseRepository
 from app.services.functional_content import FunctionalContentService
+from app.services.releases import ReleaseService
 from app.services.script_layout_build_plan_builder import ScriptLayoutBuildPlanBuilder
 
 
 class FunctionalLiveRoomService:
     """Builds a reviewable Maitu draft plan without exposing a go-live action."""
 
-    def __init__(self, connection: Connection):
+    def __init__(
+        self,
+        connection: Connection,
+        *,
+        release_signing_key: bytes | None = None,
+        release_signing_key_id: str | None = None,
+    ):
         self.connection = connection
         self.content = FunctionalContentService(connection)
         self.production = ContentProductionRepository(connection)
         self.maitu = MaituMaterialSlotRepository(connection)
+        self._release_signing_key = release_signing_key
+        self._release_signing_key_id = release_signing_key_id
 
     def create_plan(self, payload: dict[str, Any], *, actor_id: str) -> dict[str, Any]:
         detail = self.content.get_detail(payload["project_code"])
@@ -140,19 +151,19 @@ class FunctionalLiveRoomService:
             )
             row = cursor.fetchone()
         self.connection.commit()
-        return self._serialize(row)
+        return self._with_release(self._serialize(row))
 
     def list_plans(self) -> list[dict[str, Any]]:
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute("SELECT * FROM functional_live_room_plans ORDER BY updated_at DESC, plan_code")
             rows = cursor.fetchall()
-        return [self._serialize(row) for row in rows]
+        return [self._with_release(self._serialize(row)) for row in rows]
 
     def get_plan(self, plan_code: str) -> dict[str, Any] | None:
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute("SELECT * FROM functional_live_room_plans WHERE plan_code = %s", (plan_code,))
             row = cursor.fetchone()
-        return self._serialize(row) if row else None
+        return self._with_release(self._serialize(row)) if row else None
 
     def confirm_execution(self, plan_code: str, *, confirmed: bool) -> dict[str, Any] | None:
         if not confirmed:
@@ -187,7 +198,356 @@ class FunctionalLiveRoomService:
                 )
             row = cursor.fetchone()
         self.connection.commit()
-        return self._serialize(row)
+        return self._with_release(self._serialize(row))
+
+    def create_release_candidate(self, plan_code: str, *, actor_id: str) -> dict[str, Any]:
+        """Freeze a reviewable live-room draft candidate without delivery.
+
+        The candidate intentionally records pending rights, authorization and
+        authoritative readback as blocking release gates.  It is therefore a
+        durable review object only, never an implicit approval or write action.
+        """
+        plan = self._releaseable_plan(plan_code)
+        if plan is None:
+            raise KeyError(plan_code)
+        if plan["status"] != "ready":
+            raise DomainValidationError(
+                "LIVE_ROOM_RELEASE_PLAN_BLOCKED",
+                "Only a ready live-room plan can create a release candidate",
+                details={"plan_code": plan_code, "blocked_reasons": plan["blocked_reasons"]},
+            )
+        if plan["release_code"]:
+            existing = self.get_plan(plan_code)
+            if existing is None:
+                raise KeyError(plan_code)
+            return existing
+
+        subject_refs = self._release_subject_refs(plan)
+        snapshot_artifact = self._get_or_create_release_snapshot(plan, subject_refs)
+        release = self._release_service().create_candidate(
+            subject_type="production_variant",
+            subject_code=str(plan["variant_code"]),
+            subject_revision=int(plan["variant_revision"]),
+            carrier_kind="live_room_draft",
+            subject_refs=subject_refs,
+            artifact_refs=[
+                {
+                    "artifact_code": snapshot_artifact["artifact_code"],
+                    "checksum_sha256": snapshot_artifact["checksum_sha256"],
+                    "role": "live_room_build_plan_snapshot",
+                }
+            ],
+            rights_snapshot={
+                "status": "pending_evidence",
+                "asset_codes": list(plan["selected_asset_codes"] or []),
+                "template_refs": self._template_refs(plan),
+                "reason": "Asset rights and platform authorization evidence have not been collected.",
+            },
+            quality_snapshot={
+                "schema_version": "functional-live-room-release-quality.v1",
+                "gates": self._release_quality_gates(plan),
+                "static_gate_results": plan["gate_results"],
+                "quality_report": plan["quality_report"],
+            },
+            lineage_snapshot={
+                "complete": True,
+                "schema_version": "functional-live-room-lineage.v1",
+                "edge_count": self._release_lineage_edge_count(plan),
+                "coverage": {
+                    "content_chain": "fixed",
+                    "scene_and_layer_projection": "fixed",
+                    "build_plan": "fixed",
+                    "execution_readback": "pending",
+                },
+            },
+            carrier_facet={
+                "build_plan_ref": {
+                    "code": plan["build_plan"].get("build_plan_code"),
+                    "revision": 1,
+                    "fingerprint": canonical_fingerprint(plan["build_plan"]),
+                    "snapshot_artifact_code": snapshot_artifact["artifact_code"],
+                },
+                "live_room_configuration_ref": {
+                    "code": plan["configuration_code"],
+                    "revision": int(plan["configuration_revision"]),
+                    "target_live_room_id": plan["target_live_room_id"],
+                },
+                "maitu_scene_blueprint_refs": [
+                    {"code": scene.get("scene_blueprint_code") or scene.get("scene_code"), "revision": 1}
+                    for scene in plan["blueprint"].get("scenes") or []
+                ],
+                "execution": {
+                    "status": "not_authorized",
+                    "ready_for_go_live": False,
+                    "readback_evidence": "pending",
+                },
+            },
+            created_by=actor_id,
+        )
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                UPDATE functional_live_room_plans
+                SET release_code = %s,
+                    release_snapshot_artifact_code = %s,
+                    release_manifest_fingerprint = %s,
+                    updated_at = now()
+                WHERE id = %s AND release_code IS NULL
+                RETURNING *
+                """,
+                (
+                    release["release_code"],
+                    snapshot_artifact["artifact_code"],
+                    release["manifest"]["manifest_fingerprint"],
+                    plan["id"],
+                ),
+            )
+            updated = cursor.fetchone()
+            if updated is None:
+                cursor.execute(
+                    "SELECT * FROM functional_live_room_plans WHERE id = %s", (plan["id"],))
+                updated = cursor.fetchone()
+        self.connection.commit()
+        return self._with_release(self._serialize(updated))
+
+    def _releaseable_plan(self, plan_code: str) -> dict[str, Any] | None:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT plan.*, variant.revision_number AS variant_revision,
+                       configuration.revision_number AS configuration_revision,
+                       project.project_code AS source_project_code,
+                       project_revision.revision_number AS project_revision,
+                       story.story_brief_code AS story_brief_code,
+                       story.revision_number AS story_brief_revision,
+                       script.script_revision_code AS script_revision_code,
+                       script.revision_number AS script_revision,
+                       program.program_revision_code AS program_revision_code,
+                       program.revision_number AS program_revision,
+                       shot_list.shot_list_revision_code AS shot_list_revision_code,
+                       shot_list.revision_number AS shot_list_revision
+                FROM functional_live_room_plans AS plan
+                JOIN production_variant_revisions AS variant
+                  ON variant.variant_code = plan.variant_code
+                 AND variant.revision_number = (plan.build_plan->'production_variant'->>'revision')::integer
+                JOIN content_project_revisions AS project_revision
+                  ON project_revision.id = variant.source_project_revision_id
+                JOIN content_projects AS project ON project.id = project_revision.project_id
+                JOIN story_brief_revisions AS story ON story.id = variant.source_story_brief_revision_id
+                JOIN content_script_revisions AS script ON script.id = variant.source_script_revision_id
+                JOIN shot_list_revisions AS shot_list ON shot_list.id = variant.source_shot_list_revision_id
+                JOIN content_program_revisions AS program ON program.id = shot_list.source_program_revision_id
+                JOIN live_room_configuration_revisions AS configuration
+                  ON configuration.configuration_code = plan.configuration_code
+                 AND configuration.revision_number = (plan.build_plan->'live_room_configuration'->>'revision')::integer
+                WHERE plan.plan_code = %s
+                """,
+                (plan_code,),
+            )
+            return cursor.fetchone()
+
+    @staticmethod
+    def _release_subject_refs(plan: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "content_project_revision": {
+                "code": plan["source_project_code"],
+                "revision": int(plan["project_revision"]),
+            },
+            "production_variant_revision": {
+                "code": plan["variant_code"],
+                "revision": int(plan["variant_revision"]),
+            },
+            "story_brief_revision": {
+                "code": plan["story_brief_code"],
+                "revision": int(plan["story_brief_revision"]),
+            },
+            "script_revision": {
+                "code": plan["script_revision_code"],
+                "revision": int(plan["script_revision"]),
+            },
+            "program_revision": {
+                "code": plan["program_revision_code"],
+                "revision": int(plan["program_revision"]),
+            },
+            "shot_list_revision": {
+                "code": plan["shot_list_revision_code"],
+                "revision": int(plan["shot_list_revision"]),
+            },
+        }
+
+    def _get_or_create_release_snapshot(
+        self,
+        plan: dict[str, Any],
+        subject_refs: dict[str, Any],
+    ) -> dict[str, Any]:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT artifact.artifact_code, artifact.checksum_sha256, artifact.byte_size
+                FROM functional_live_room_plan_release_snapshots AS snapshot
+                JOIN artifact_refs AS artifact ON artifact.id = snapshot.artifact_id
+                WHERE snapshot.plan_id = %s
+                """,
+                (plan["id"],),
+            )
+            existing = cursor.fetchone()
+            if existing is not None:
+                return existing
+
+            snapshot = {
+                "schema_version": "functional-live-room-release-snapshot.v1",
+                "plan": {
+                    "plan_code": plan["plan_code"],
+                    "status": plan["status"],
+                    "target_live_room_id": plan["target_live_room_id"],
+                    "expected_title": plan["expected_title"],
+                },
+                "subject_refs": subject_refs,
+                "selected_assets": list(plan["selected_asset_codes"] or []),
+                "selected_groups": list(plan["selected_group_codes"] or []),
+                "blueprint": plan["blueprint"],
+                "build_plan": plan["build_plan"],
+                "static_gate_results": plan["gate_results"],
+                "quality_report": plan["quality_report"],
+                "execution": {
+                    "status": plan["execution_status"],
+                    "evidence": plan["execution_evidence"],
+                },
+            }
+            snapshot_bytes = canonical_json_bytes(snapshot)
+            fingerprint = canonical_fingerprint(snapshot)
+            cursor.execute(
+                """
+                SELECT * FROM artifact_refs
+                WHERE checksum_sha256 = %s AND byte_size = %s AND media_type = 'application/json'
+                  AND content_addressed = true
+                """,
+                (fingerprint, len(snapshot_bytes)),
+            )
+            artifact = cursor.fetchone()
+            if artifact is None:
+                artifact_code = self._next_code(cursor, "ART", "artifact_ref")
+                cursor.execute(
+                    """
+                    INSERT INTO artifact_refs (
+                        artifact_code, artifact_kind, media_type, schema_version,
+                        storage_uri, checksum_sha256, byte_size, producer_type,
+                        producer_code, producer_revision, sensitivity,
+                        retention_policy_code, metadata
+                    ) VALUES (%s, 'live_room_build_plan_snapshot', 'application/json',
+                              'functional-live-room-release-snapshot.v1', %s, %s, %s,
+                              'functional_live_room_plan', %s, 1, 'internal',
+                              'release-candidate', %s)
+                    RETURNING *
+                    """,
+                    (
+                        artifact_code,
+                        f"assetgraph://functional-live-room-release-snapshots/{fingerprint}",
+                        fingerprint,
+                        len(snapshot_bytes),
+                        plan["plan_code"],
+                        Jsonb(
+                            {
+                                "plan_code": plan["plan_code"],
+                                "snapshot_fingerprint": fingerprint,
+                                "storage_backend": "postgresql",
+                            }
+                        ),
+                    ),
+                )
+                artifact = cursor.fetchone()
+            cursor.execute(
+                """
+                INSERT INTO functional_live_room_plan_release_snapshots (
+                    plan_id, artifact_id, artifact_code, snapshot_fingerprint_sha256, snapshot
+                ) VALUES (%s, %s, %s, %s, %s)
+                RETURNING artifact_code, snapshot_fingerprint_sha256
+                """,
+                (plan["id"], artifact["id"], artifact["artifact_code"], fingerprint, Jsonb(snapshot)),
+            )
+            cursor.fetchone()
+        self.connection.commit()
+        return {
+            "artifact_code": artifact["artifact_code"],
+            "checksum_sha256": artifact["checksum_sha256"],
+            "byte_size": artifact["byte_size"],
+        }
+
+    @staticmethod
+    def _template_refs(plan: dict[str, Any]) -> list[dict[str, Any]]:
+        configuration = plan["build_plan"].get("live_room_configuration") or {}
+        return [
+            {
+                "primary_template_code": plan["primary_template_code"],
+                "secondary_template_codes": list(plan["secondary_template_codes"] or []),
+                "configuration_revision": configuration.get("revision"),
+            }
+        ]
+
+    @staticmethod
+    def _release_quality_gates(plan: dict[str, Any]) -> list[dict[str, Any]]:
+        gates: list[dict[str, Any]] = []
+        for static_gate in plan["gate_results"] or []:
+            status = str(static_gate.get("status") or "blocked")
+            gate_name = str(static_gate.get("gate") or "unknown")
+            gates.append(
+                {
+                    "code": str(static_gate.get("rule_code") or gate_name),
+                    "status": status,
+                    "blocking": status == "blocked" or gate_name == "evidence_completeness",
+                }
+            )
+        gates.extend(
+            [
+                {"code": "GATE_RELEASE_RIGHTS_EVIDENCE_PENDING", "status": "pending", "blocking": True},
+                {"code": "GATE_RELEASE_AUTHORIZATION_PENDING", "status": "pending", "blocking": True},
+            ]
+        )
+        return gates
+
+    @staticmethod
+    def _release_lineage_edge_count(plan: dict[str, Any]) -> int:
+        scenes = plan["blueprint"].get("scenes") or []
+        layers = sum(len(scene.get("layers") or []) for scene in scenes if isinstance(scene, dict))
+        return 6 + len(scenes) + layers
+
+    def _release_service(self) -> ReleaseService:
+        if self._release_signing_key is not None:
+            key = self._release_signing_key
+            key_id = self._release_signing_key_id or "functional-live-room-test-key"
+        elif settings.manifest_signing_key is not None and settings.manifest_signing_key.get_secret_value().strip():
+            key = settings.manifest_signing_key.get_secret_value().encode("utf-8")
+            key_id = settings.manifest_signing_key_id
+        elif settings.app_env == "local":
+            # Local fast-track candidates remain signed and reproducible. A
+            # deployed environment must configure its own signing key instead.
+            key = b"assetgraph-local-functional-release-key-v1"
+            key_id = "local-functional-release-key-v1"
+        else:
+            raise DomainValidationError(
+                "RELEASE_SIGNING_KEY_MISSING",
+                "A release signing key is required outside the local environment",
+            )
+        return ReleaseService(ReleaseRepository(self.connection), signing_key=key, signing_key_id=key_id)
+
+    def _with_release(self, plan: dict[str, Any]) -> dict[str, Any]:
+        release_code = plan.get("release_code")
+        if not release_code:
+            plan["release"] = None
+            return plan
+        release = ReleaseRepository(self.connection).get_release(str(release_code))
+        if release is None:
+            plan["release"] = None
+            return plan
+        manifest = release["manifest"]
+        plan["release"] = {
+            "release_code": release["release_code"],
+            "status": release["status"],
+            "manifest_code": manifest["manifest_code"],
+            "manifest_fingerprint": manifest["manifest_fingerprint"],
+            "snapshot_artifact_code": plan.get("release_snapshot_artifact_code") or "",
+        }
+        return plan
 
     def _selected_assets(self, asset_codes: list[str], group_codes: list[str]) -> list[dict[str, Any]]:
         codes = list(dict.fromkeys([*asset_codes]))

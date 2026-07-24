@@ -21,6 +21,10 @@ export interface FunctionalLiveRoomPlan {
   blockedReasons: string[];
   executionStatus: string;
   executionEvidence: Record<string, unknown>;
+  releaseCode?: string;
+  releaseSnapshotArtifactCode?: string;
+  releaseManifestFingerprint?: string;
+  release?: { releaseCode: string; status: string; manifestCode: string; manifestFingerprint: string; snapshotArtifactCode: string };
   updatedAt: string;
 }
 
@@ -62,6 +66,14 @@ function plan(value: unknown): FunctionalLiveRoomPlan {
     blockedReasons: strings(value.blocked_reasons),
     executionStatus: asString(value.execution_status),
     executionEvidence: isRecord(value.execution_evidence) ? value.execution_evidence : {},
+    releaseCode: asOptionalString(value.release_code),
+    releaseSnapshotArtifactCode: asOptionalString(value.release_snapshot_artifact_code),
+    releaseManifestFingerprint: asOptionalString(value.release_manifest_fingerprint),
+    release: isRecord(value.release) && asString(value.release.release_code) ? {
+      releaseCode: asString(value.release.release_code), status: asString(value.release.status),
+      manifestCode: asString(value.release.manifest_code), manifestFingerprint: asString(value.release.manifest_fingerprint),
+      snapshotArtifactCode: asString(value.release.snapshot_artifact_code),
+    } : undefined,
     updatedAt: asString(value.updated_at),
   };
 }
@@ -71,4 +83,5 @@ export const functionalLiveRoomsApi = {
   get: (planCode: string) => requestJson<unknown>(`${ROOT}/${planCode}`).then(plan),
   create: (payload: { project_code: string; target_live_room_id: string; expected_title: string; primary_template_code?: string; secondary_template_codes: string[]; asset_codes: string[]; group_codes: string[] }) => postJson<unknown>(ROOT, payload).then(plan),
   confirmExecution: (planCode: string) => postJson<unknown>(`${ROOT}/${planCode}/confirm-execution`, { confirmed: true }).then(plan),
+  createReleaseCandidate: (planCode: string) => postJson<unknown>(`${ROOT}/${planCode}/release-candidate`, {}).then(plan),
 };

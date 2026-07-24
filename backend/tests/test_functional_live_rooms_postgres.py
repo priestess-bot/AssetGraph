@@ -8,8 +8,10 @@ import pytest
 
 from app.domain.errors import DomainValidationError
 from app.repositories.assets import AssetRepository
+from app.repositories.releases import ReleaseRepository
 from app.services.functional_content import FunctionalContentService
 from app.services.functional_live_rooms import FunctionalLiveRoomService
+from app.services.releases import ReleaseService
 
 
 DATABASE_URL = os.getenv("ASSETGRAPH_TEST_DATABASE_URL")
@@ -215,6 +217,93 @@ def test_live_room_duration_deviation_warns_without_blocking_plan() -> None:
         assert plan["status"] == "ready"
         assert quality_gate["status"] == "warning"
         assert plan["quality_report"]["warnings"] == ["duration_deviation_over_50_percent"]
+
+
+def test_live_room_release_candidate_freezes_plan_and_stays_pending_external_evidence() -> None:
+    suffix = uuid4().hex
+    with psycopg.connect(DATABASE_URL) as connection:
+        assets = AssetRepository(connection)
+        project = _generated_project(connection, suffix)
+        selected = [
+            _asset(assets, suffix, "digital_human"),
+            _asset(assets, suffix, "background"),
+            _asset(assets, suffix, "promotion_text"),
+        ]
+        service = FunctionalLiveRoomService(
+            connection,
+            release_signing_key=b"functional-live-room-release-test-key",
+            release_signing_key_id="functional-live-room-release-test-key-id",
+        )
+        plan = service.create_plan(
+            {
+                "project_code": project["project_code"],
+                "target_live_room_id": f"empty-draft-{suffix}",
+                "expected_title": "Release candidate draft",
+                "asset_codes": [item["asset_code"] for item in selected],
+                "group_codes": [],
+            },
+            actor_id="test-operator",
+        )
+
+        candidate = service.create_release_candidate(plan["plan_code"], actor_id="test-operator")
+        replay = service.create_release_candidate(plan["plan_code"], actor_id="test-operator")
+        assert candidate["release"] is not None
+        assert candidate["release"]["release_code"] == replay["release"]["release_code"]
+        assert candidate["release"]["status"] == "candidate"
+        assert candidate["release_snapshot_artifact_code"] == candidate["release"]["snapshot_artifact_code"]
+
+        repository = ReleaseRepository(connection)
+        release = repository.get_release(candidate["release"]["release_code"])
+        assert release is not None
+        assert release["status"] == "candidate"
+        manifest = release["manifest"]
+        assert manifest["carrier_kind"] == "live_room_draft"
+        assert manifest["subject_refs"]["content_project_revision"] == {
+            "code": project["project_code"],
+            "revision": 1,
+        }
+        assert manifest["subject_refs"]["production_variant_revision"]["code"] == plan["variant_code"]
+        assert manifest["carrier_facet"]["build_plan_ref"]["code"] == plan["build_plan"]["build_plan_code"]
+        assert manifest["artifact_refs"] == [
+            {
+                "artifact_code": candidate["release_snapshot_artifact_code"],
+                "checksum_sha256": manifest["artifact_refs"][0]["checksum_sha256"],
+                "role": "live_room_build_plan_snapshot",
+            }
+        ]
+        assert manifest["rights_snapshot"]["status"] == "pending_evidence"
+        assert any(
+            gate["code"] == "GATE_RELEASE_AUTHORIZATION_PENDING" and gate["blocking"]
+            for gate in manifest["quality_snapshot"]["gates"]
+        )
+        assert ReleaseService(
+            repository,
+            signing_key=b"functional-live-room-release-test-key",
+            signing_key_id="functional-live-room-release-test-key-id",
+        ).verify_manifest_signature(release["release_code"])
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT snapshot, snapshot_fingerprint_sha256
+                FROM functional_live_room_plan_release_snapshots
+                WHERE artifact_code = %s
+                """,
+                (candidate["release_snapshot_artifact_code"],),
+            )
+            snapshot = cursor.fetchone()
+        assert snapshot is not None
+        assert snapshot[0]["build_plan"]["build_plan_code"] == plan["build_plan"]["build_plan_code"]
+        assert snapshot[0]["subject_refs"] == manifest["subject_refs"]
+
+        with pytest.raises(DomainValidationError) as invalid:
+            ReleaseService(
+                repository,
+                signing_key=b"functional-live-room-release-test-key",
+                signing_key_id="functional-live-room-release-test-key-id",
+            ).validate_candidate(release["release_code"], actor_id="validator")
+        assert invalid.value.code == "RELEASE_GATE_FAILED"
+        assert repository.get_release(release["release_code"])["status"] == "candidate"
 
 
 def test_live_room_plan_rejects_template_not_pinned_by_content_project() -> None:

@@ -61,3 +61,17 @@ def confirm_live_room_execution(
     if plan is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Live-room plan not found")
     return plan
+
+
+@router.post("/{plan_code}/release-candidate", response_model=FunctionalLiveRoomPlanRead)
+def create_live_room_release_candidate(
+    plan_code: str,
+    service: Annotated[FunctionalLiveRoomService, Depends(get_service)],
+) -> dict:
+    try:
+        plan = service.create_release_candidate(plan_code, actor_id="functional-operator")
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Live-room plan not found") from exc
+    except DomainValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=exc.message) from exc
+    return plan

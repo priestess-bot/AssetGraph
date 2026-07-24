@@ -28,6 +28,14 @@ class FunctionalLiveRoomExecutionConfirm(BaseModel):
     confirmed: bool
 
 
+class FunctionalLiveRoomReleaseRead(BaseModel):
+    release_code: str
+    status: str
+    manifest_code: str
+    manifest_fingerprint: str
+    snapshot_artifact_code: str
+
+
 class FunctionalLiveRoomPlanRead(BaseModel):
     plan_code: str
     project_code: str
@@ -47,5 +55,9 @@ class FunctionalLiveRoomPlanRead(BaseModel):
     blocked_reasons: list[str]
     execution_status: str
     execution_evidence: dict[str, Any]
+    release_code: str | None = None
+    release_snapshot_artifact_code: str | None = None
+    release_manifest_fingerprint: str | None = None
+    release: FunctionalLiveRoomReleaseRead | None = None
     created_at: datetime
     updated_at: datetime
