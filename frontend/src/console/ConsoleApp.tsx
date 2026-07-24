@@ -260,7 +260,7 @@ export function Workspace({ pathname, search, tasks, notifications, loading }: {
   if (pathname.startsWith("/assets/library")) return <AssetsWorkspace search={search} />;
   if (pathname.startsWith("/research/live-sources")) return <ResearchWorkspace search={search} />;
   if (pathname.startsWith("/production/live-rooms")) {
-    return <LiveRoomPlannerPage />;
+    return <LiveRoomPlannerPage search={search} />;
   }
   if (pathname.startsWith("/governance/runs")) return <div className="console-band console-governance"><header><div><span>CONTROL PLANE</span><h2>任务与运行</h2></div></header><TaskRows tasks={tasks} /><NotificationRows notifications={notifications} /></div>;
   if (pathname.startsWith("/knowledge")) return <KnowledgePage />;

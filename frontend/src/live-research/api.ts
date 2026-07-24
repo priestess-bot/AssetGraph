@@ -5,6 +5,8 @@ import type {
   Buildability,
   CaptureSession,
   CaptureTimeline,
+  ContentReadiness,
+  ContentStrategy,
   ClipJob,
   InferredComponent,
   InteractionBucket,
@@ -16,11 +18,16 @@ import type {
   TemplateProjection,
   TemplateRevision,
   TemplateScene,
+  TemplateKind,
   VisualSegment,
   WatchTarget,
 } from "./types";
 
 const ROOT = "/api/live-research";
+
+function strings(value: unknown): string[] {
+  return asArray(value).flatMap((item) => typeof item === "string" ? [item] : []);
+}
 
 function normalizeHealth(value: unknown, fallback: "healthy" | "degraded" | "offline" | "unknown" = "unknown") {
   const text = asString(value, fallback);
@@ -356,6 +363,23 @@ function normalizeScene(value: unknown): TemplateScene | undefined {
   };
 }
 
+function normalizeContentStrategy(value: unknown): ContentStrategy {
+  const record = isRecord(value) ? value : {};
+  return {
+    targetCategory: asString(record.target_category),
+    compatibilityTags: strings(record.compatibility_tags),
+    programOutline: asArray(record.program_outline).flatMap((item) => isRecord(item) ? [{
+      moduleKey: asString(item.module_key), title: asString(item.title), purpose: asString(item.purpose),
+      startMs: asNumber(item.start_ms), endMs: asNumber(item.end_ms),
+    }] : []),
+    materialCues: strings(record.material_cues),
+    reviewedExamples: asArray(record.reviewed_examples).flatMap((item) => isRecord(item) ? [{
+      moduleKey: asString(item.module_key), exampleText: asString(item.example_text), sourceSessionCode: asString(item.source_session_code),
+      startMs: asNumber(item.start_ms), endMs: asNumber(item.end_ms),
+    }] : []),
+  };
+}
+
 function normalizeRevision(value: unknown): TemplateRevision | undefined {
   if (!isRecord(value)) return undefined;
   const components = asArray(value.components);
@@ -371,6 +395,9 @@ function normalizeRevision(value: unknown): TemplateRevision | undefined {
     status: asString(value.status, "draft") as TemplateRevision["status"],
     layout_fidelity: asString(value.layout_fidelity, "approximate") as LayoutFidelity,
     buildability: asString(value.buildability, "reference_only") as Buildability,
+    contentReadiness: asString(value.content_readiness, "review_required") as ContentReadiness,
+    sourceSessionCodes: strings(value.source_session_codes),
+    contentStrategy: normalizeContentStrategy(value.content_strategy),
     scenes,
     reviewer_note: asOptionalString(value.reviewer_note ?? value.review_notes),
     created_at: asOptionalString(value.created_at),
@@ -390,11 +417,15 @@ export function normalizeTemplate(value: unknown): RoomTemplate {
     title: asString(value.title ?? value.name, "未命名直播模板"),
     source_session_code: asString(value.source_session_code ?? value.session_code ?? latestRaw?.source_session_code),
     source_type: asString(value.source_type, "external_flat_video") as RoomTemplate["source_type"],
+    templateKind: asString(value.template_kind, "layout_hypothesis") as TemplateKind,
+    sourceTargetCode: asOptionalString(value.source_target_code),
     latest_revision: asNumber(value.latest_revision ?? value.latest_revision_number ?? latest?.revision ?? value.published_revision_number, 1),
     published_revision: publishedRevision || undefined,
     status: (latest && latest.revision > publishedRevision ? latest.status : asString(value.status, latest?.status ?? "draft")) as RoomTemplate["status"],
     layout_fidelity: asString(value.layout_fidelity, latest?.layout_fidelity ?? "approximate") as LayoutFidelity,
     buildability: asString(value.buildability, latest?.buildability ?? "reference_only") as Buildability,
+    contentReadiness: asString(value.content_readiness, latest?.contentReadiness ?? "review_required") as ContentReadiness,
+    contentStrategy: latest?.contentStrategy ?? normalizeContentStrategy(value.content_strategy),
     scenes: asArray(value.scenes ?? latest?.scenes).flatMap((item) => { const result = normalizeScene(item); return result ? [result] : []; }),
     source_playback_url: asOptionalString(value.source_playback_url ?? value.playback_url),
     published_version_code: asOptionalString(value.published_version_code ?? value.template_version_code) ?? (publishedRevision ? `${asString(value.template_code)}@r${publishedRevision}` : undefined),
@@ -472,6 +503,31 @@ export const liveResearchApi = {
   listTemplates: async () => asArray(await requestJson<unknown>(`${ROOT}/room-templates`)).map(normalizeTemplate),
   getTemplate: async (templateCode: string) => normalizeTemplate(await requestJson(`${ROOT}/room-templates/${encodeURIComponent(templateCode)}`)),
   createTemplate: async (payload: { title: string; source_session_code: string }) => normalizeTemplate(await postJson(`${ROOT}/room-templates`, { name: payload.title, description: `由采集场次 ${payload.source_session_code} 生成的外部平面视频参考模板` })),
+  createContentStrategyTemplate: async (payload: {
+    title: string; sourceTargetCode: string; sourceSessionCodes: string[]; targetCategory: string;
+    moduleTitle: string; modulePurpose: string; moduleDurationSeconds: number; materialCues: string[];
+  }) => {
+    const created = normalizeTemplate(await postJson(`${ROOT}/room-templates`, {
+      name: payload.title, source_target_code: payload.sourceTargetCode, template_kind: "content_strategy",
+      description: "由同一来源直播间已完成录屏清洗出的内容策略模板",
+    }));
+    await postJson(`${ROOT}/room-templates/${encodeURIComponent(created.template_code)}/revisions`, {
+      source_session_codes: payload.sourceSessionCodes, contract_version: "content-strategy.v2",
+      canvas: { width: 1080, height: 1920, rotation_degrees: 0, pixel_aspect_ratio: "1:1" }, scenes: [], components: [],
+      audio_policy: { max_active_speech: 1, max_active_bgm: 1, unknown_audio_default_muted: true, allow_overlapping_bgm_crossfade: false, speech_ducking_db: -9 },
+      provenance: { review_mode: "manual_content_strategy", source_facts_removed: true }, content_readiness: "ready",
+      layout_fidelity: "approximate", buildability: "reference_only", layout_reference: {}, confidence: 0.8,
+      created_by: "assetgraph_content_strategy_reviewer",
+      content_strategy: {
+        target_category: payload.targetCategory, compatibility_tags: [],
+        program_outline: [{ module_key: "opening", title: payload.moduleTitle, purpose: payload.modulePurpose, start_ms: 0, end_ms: Math.max(1, Math.round(payload.moduleDurationSeconds * 1000)) }],
+        duration_policy: {}, module_recipes: [], product_rotation_policy: {}, interaction_policy: {}, conversion_policy: {}, host_style: {},
+        material_cues: payload.materialCues, reviewed_examples: [],
+        removed_source_fact_categories: ["price", "promotion", "inventory", "product_identity", "source_brand", "host_identity"],
+      },
+    });
+    return normalizeTemplate(await requestJson(`${ROOT}/room-templates/${encodeURIComponent(created.template_code)}`));
+  },
   createTemplateRevision: async (templateCode: string, payload: RevisionRequest) => postJson<unknown>(`${ROOT}/room-templates/${encodeURIComponent(templateCode)}/revisions`, backendRevisionPayload(payload)),
   materializeAnalysisTemplate: async (run: AnalysisRun) => {
     const rawRuns = asArray(await requestJson<unknown>(`${ROOT}/analysis-runs?session_code=${encodeURIComponent(run.session_code)}`)).filter(isRecord);

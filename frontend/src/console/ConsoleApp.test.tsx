@@ -64,6 +64,16 @@ describe("AssetGraph Console", () => {
   });
 
   it("remounts the live-room workspace when an internal deep link changes run", async () => {
+    const plans = {
+      "RUN-A": { plan_code: "RUN-A", expected_title: "深链计划 A", status: "ready", execution_status: "not_requested", blueprint: { scenes: [] }, build_plan: { operations: [] }, gate_results: [], quality_report: {}, execution_evidence: {} },
+      "RUN-B": { plan_code: "RUN-B", expected_title: "深链计划 B", status: "ready", execution_status: "not_requested", blueprint: { scenes: [] }, build_plan: { operations: [] }, gate_results: [], quality_report: {}, execution_evidence: {} },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const planCode = url.match(/functional-live-room-plans\/(RUN-[AB])/)?.[1];
+      const body = planCode ? plans[planCode as keyof typeof plans] : url.endsWith("/functional-live-room-plans") ? Object.values(plans) : [];
+      return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
+    }));
     window.history.replaceState(null, "", "/production/live-rooms?demo=1&run=UNKNOWN-RUN");
     const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
     const { rerender } = render(
@@ -72,15 +82,15 @@ describe("AssetGraph Console", () => {
       </QueryClientProvider>,
     );
 
-    expect(await screen.findByText("选择或创建一个主题运行")).toBeInTheDocument();
-    window.history.replaceState(null, "", "/production/live-rooms?demo=1&run=MT-RUN-DEMO-001");
+    expect(await screen.findByRole("heading", { name: "深链计划 A" })).toBeInTheDocument();
+    window.history.replaceState(null, "", "/production/live-rooms?demo=1&run=RUN-B");
     rerender(
       <QueryClientProvider client={client}>
-        <Workspace pathname="/production/live-rooms" search="?demo=1&run=MT-RUN-DEMO-001" tasks={[]} notifications={[]} loading={false} />
+        <Workspace pathname="/production/live-rooms" search="?demo=1&run=RUN-B" tasks={[]} notifications={[]} loading={false} />
       </QueryClientProvider>,
     );
 
-    expect(await screen.findByRole("heading", { name: "夏日朋友聚餐选酒" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "深链计划 B" })).toBeInTheDocument();
   });
 
   it("autosaves a content-project draft before opening the explicit confirm command", async () => {

@@ -79,6 +79,7 @@ def test_postgres_analysis_dag_work_heartbeat_retention_reclaim_and_stale_captur
             "024_live_research_observations.sql",
             "025_maitu_material_analysis.sql",
             "043_provider_neutral_producer_contracts.sql",
+            "058_content_strategy_template_contract.sql",
         )
     ]
     try:

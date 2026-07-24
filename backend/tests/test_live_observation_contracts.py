@@ -14,6 +14,7 @@ from app.schemas.live_observations import (
 )
 from app.services.live_observations import (
     LiveObservationConflictError,
+    build_content_strategy_projection,
     build_template_projection,
     validate_timeline_append,
 )
@@ -165,6 +166,40 @@ def test_external_flat_template_projection_stays_reference_only_when_claimed_saf
     assert blocked["projection_ready"] is False
     assert "external_flat_video_reference_only" in blocked["blocking_reasons"]
     assert "fewer_than_three_independent_source_sessions" in blocked["blocking_reasons"]
+
+
+def test_content_strategy_contract_requires_clean_single_room_reference_semantics() -> None:
+    common = {
+        "contract_version": "content-strategy.v2",
+        "source_session_codes": ["LR-CAP-1"],
+        "canvas": {"width": 1080, "height": 1920},
+        "content_readiness": "ready",
+        "layout_fidelity": "approximate",
+        "buildability": "reference_only",
+        "confidence": 0.9,
+        "content_strategy": {
+            "target_category": "beverage",
+            "program_outline": [
+                {"module_key": "opening", "title": "开场", "purpose": "建立主题", "start_ms": 0, "end_ms": 30_000}
+            ],
+            "removed_source_fact_categories": ["price", "promotion", "inventory", "product_identity", "source_brand", "host_identity"],
+        },
+    }
+    revision = RoomTemplateRevisionCreate(**common).model_dump(mode="json")
+    revision.update({"revision_number": 1})
+    projection = build_content_strategy_projection(
+        {"template_code": "LR-TPL-1", "name": "strategy", "template_kind": "content_strategy", "source_target_code": "LR-WATCH-1"},
+        revision,
+    )
+    assert projection["projection_contract"] == "content-strategy.v2"
+    assert projection["content_readiness"] == "ready"
+    assert projection["buildability"] == "reference_only"
+    assert projection["projection_ready"] is True
+
+    with pytest.raises(ValidationError, match="require source session"):
+        RoomTemplateRevisionCreate(**{key: value for key, value in common.items() if key != "source_session_codes"})
+    with pytest.raises(ValidationError, match="reference_only"):
+        RoomTemplateRevisionCreate(**{**common, "buildability": "executable"})
 
 
 def test_unknown_template_audio_cannot_be_unmuted() -> None:

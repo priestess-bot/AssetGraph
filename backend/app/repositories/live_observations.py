@@ -1396,12 +1396,15 @@ class LiveObservationRepository:
             cursor.execute(
                 """
                 INSERT INTO live_room_templates (
-                    template_code, name, description, source_target_id, source_target_code
+                    template_code, name, description, source_target_id, source_target_code, template_kind
                 )
-                VALUES (%s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 RETURNING *
                 """,
-                (template_code, payload["name"], payload.get("description"), target_id, target_code),
+                (
+                    template_code, payload["name"], payload.get("description"), target_id,
+                    target_code, payload.get("template_kind", "layout_hypothesis"),
+                ),
             )
             row = cursor.fetchone()
         self.connection.commit()
@@ -1414,6 +1417,9 @@ class LiveObservationRepository:
             cursor.execute(
                 """
                 SELECT template.*, revision.revision_number AS published_revision_number,
+                       revision.content_readiness AS published_content_readiness,
+                       revision.layout_fidelity AS published_layout_fidelity,
+                       revision.buildability AS published_buildability,
                        (
                            SELECT max(latest_revision.revision_number)
                            FROM live_room_template_revisions AS latest_revision
@@ -1441,6 +1447,9 @@ class LiveObservationRepository:
             cursor.execute(
                 """
                 SELECT template.*, revision.revision_number AS published_revision_number,
+                       revision.content_readiness AS published_content_readiness,
+                       revision.layout_fidelity AS published_layout_fidelity,
+                       revision.buildability AS published_buildability,
                        (
                            SELECT max(latest_revision.revision_number)
                            FROM live_room_template_revisions AS latest_revision
@@ -1469,7 +1478,7 @@ class LiveObservationRepository:
                     """,
                     (row["id"],),
                 )
-                result["revisions"] = [self._row(item) for item in cursor.fetchall()]
+                result["revisions"] = [self._revision(cursor, item) for item in cursor.fetchall()]
             return result
 
     def create_room_template_revision(
@@ -1483,16 +1492,8 @@ class LiveObservationRepository:
             template = cursor.fetchone()
             if template is None:
                 raise LiveObservationConflictError("room template does not exist")
-            session_id = None
-            if payload.get("source_session_code"):
-                cursor.execute(
-                    "SELECT id FROM live_capture_sessions WHERE session_code = %s",
-                    (payload["source_session_code"],),
-                )
-                session = cursor.fetchone()
-                if session is None:
-                    raise LiveObservationConflictError("source capture session does not exist")
-                session_id = session["id"]
+            source_sessions = self._resolve_template_source_sessions(cursor, template, payload)
+            first_session = source_sessions[0] if source_sessions else None
             cursor.execute(
                 "SELECT coalesce(max(revision_number), 0) + 1 AS next_revision FROM live_room_template_revisions WHERE template_id = %s",
                 (template["id"],),
@@ -1503,29 +1504,37 @@ class LiveObservationRepository:
                 INSERT INTO live_room_template_revisions (
                     template_id, template_code, revision_number, source_session_id,
                     source_session_code, contract_version, canvas, scenes, components,
-                    audio_policy, provenance, confidence, content_fingerprint, created_by
+                    audio_policy, provenance, content_readiness, layout_fidelity,
+                    buildability, content_strategy, layout_reference, confidence,
+                    content_fingerprint, created_by
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING *
                 """,
                 (
                     template["id"],
                     template_code,
                     revision_number,
-                    session_id,
-                    payload.get("source_session_code"),
+                    first_session["id"] if first_session else None,
+                    first_session["session_code"] if first_session else None,
                     payload.get("contract_version", "layout-hypothesis.v1"),
                     Jsonb(payload["canvas"]),
                     Jsonb(payload.get("scenes") or []),
                     Jsonb(payload.get("components") or []),
                     Jsonb(payload.get("audio_policy") or {}),
                     Jsonb(payload.get("provenance") or {}),
+                    payload.get("content_readiness", "review_required"),
+                    payload.get("layout_fidelity", "approximate"),
+                    payload.get("buildability", "reference_only"),
+                    Jsonb(payload.get("content_strategy") or {}),
+                    Jsonb(payload.get("layout_reference") or {}),
                     payload["confidence"],
                     payload["content_fingerprint"],
                     payload.get("created_by"),
                 ),
             )
             row = cursor.fetchone()
+            self._insert_template_revision_source_sessions(cursor, row["id"], source_sessions)
             cursor.execute(
                 """
                 UPDATE live_room_templates
@@ -1534,8 +1543,9 @@ class LiveObservationRepository:
                 """,
                 (template["id"],),
             )
+            result = self._revision(cursor, row)
         self.connection.commit()
-        return self._row(row)
+        return result
 
     def publish_room_template_revision(
         self,
@@ -1885,6 +1895,100 @@ class LiveObservationRepository:
             )
             sequence = cursor.fetchone()[0]
         return f"{prefix}-{sequence_date:%Y%m%d}-{sequence:06d}"
+
+    def _resolve_template_source_sessions(
+        self, cursor: Any, template: dict[str, Any], payload: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        codes = list(
+            dict.fromkeys(
+                str(code).strip()
+                for code in [payload.get("source_session_code"), *(payload.get("source_session_codes") or [])]
+                if str(code or "").strip()
+            )
+        )
+        contract_version = str(payload.get("contract_version") or "layout-hypothesis.v1")
+        if contract_version == "content-strategy.v2" and not codes:
+            raise LiveObservationConflictError("content-strategy templates require source capture sessions")
+        if not codes:
+            return []
+        cursor.execute(
+            """
+            SELECT session.id, session.session_code, session.target_id, session.target_code, session.status
+            FROM live_capture_sessions AS session
+            WHERE session.session_code = ANY(%s)
+            """,
+            (codes,),
+        )
+        by_code = {row["session_code"]: row for row in cursor.fetchall()}
+        missing = [code for code in codes if code not in by_code]
+        if missing:
+            raise LiveObservationConflictError(
+                f"source capture sessions do not exist: {', '.join(missing)}"
+            )
+        sessions = [by_code[code] for code in codes]
+        if contract_version != "content-strategy.v2":
+            return sessions
+        incomplete = [row["session_code"] for row in sessions if row["status"] != "completed"]
+        if incomplete:
+            raise LiveObservationConflictError(
+                f"content-strategy source sessions must be completed: {', '.join(incomplete)}"
+            )
+        target_codes = {str(row["target_code"]) for row in sessions}
+        if len(target_codes) != 1:
+            raise LiveObservationConflictError(
+                "CONTENT_STRATEGY_CROSS_ROOM_SOURCE: split source sessions into separate templates"
+            )
+        target = sessions[0]
+        configured_target = template.get("source_target_code")
+        if configured_target and configured_target != target["target_code"]:
+            raise LiveObservationConflictError(
+                "CONTENT_STRATEGY_SOURCE_TARGET_MISMATCH: template and source sessions must belong to one room"
+            )
+        if not configured_target:
+            cursor.execute(
+                """
+                UPDATE live_room_templates
+                SET source_target_id = %s, source_target_code = %s, updated_at = now()
+                WHERE id = %s
+                """,
+                (target["target_id"], target["target_code"], template["id"]),
+            )
+            template["source_target_id"] = target["target_id"]
+            template["source_target_code"] = target["target_code"]
+        return sessions
+
+    @staticmethod
+    def _insert_template_revision_source_sessions(
+        cursor: Any, revision_id: Any, sessions: list[dict[str, Any]]
+    ) -> None:
+        if not sessions:
+            return
+        cursor.executemany(
+            """
+            INSERT INTO live_room_template_revision_source_sessions (
+                revision_id, session_id, session_code, target_id, target_code
+            ) VALUES (%s, %s, %s, %s, %s)
+            """,
+            [
+                (revision_id, row["id"], row["session_code"], row["target_id"], row["target_code"])
+                for row in sessions
+            ],
+        )
+
+    def _revision(self, cursor: Any, row: dict[str, Any]) -> dict[str, Any]:
+        result = self._row(row)
+        cursor.execute(
+            """
+            SELECT session_code FROM live_room_template_revision_source_sessions
+            WHERE revision_id = %s ORDER BY session_code
+            """,
+            (row["id"],),
+        )
+        source_session_codes = [str(item["session_code"]) for item in cursor.fetchall()]
+        result["source_session_codes"] = source_session_codes
+        if result.get("source_session_code") is None and source_session_codes:
+            result["source_session_code"] = source_session_codes[0]
+        return result
 
     @staticmethod
     def _session_by_code(

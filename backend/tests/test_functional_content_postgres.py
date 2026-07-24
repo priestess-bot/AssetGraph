@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from datetime import UTC, datetime
 from hashlib import sha256
 import json
 from uuid import uuid4
@@ -11,8 +12,9 @@ import pytest
 from app.services.functional_content import FunctionalContentService
 from app.domain.errors import DomainConflictError, DomainValidationError
 from app.repositories.live_observations import LiveObservationRepository
+from app.services.live_observations import LiveObservationConflictError
 from app.repositories.maitu_workbench import MaituWorkbenchRepository
-from app.services.live_observations import build_template_projection
+from app.services.live_observations import build_content_strategy_projection
 
 
 DATABASE_URL = os.getenv("ASSETGRAPH_TEST_DATABASE_URL")
@@ -224,15 +226,56 @@ def test_generated_fact_sentence_has_pinned_fact_citation() -> None:
 def test_content_project_pins_published_template_revision() -> None:
     with psycopg.connect(DATABASE_URL) as connection:
         live = LiveObservationRepository(connection)
-        template = live.create_room_template({"name": f"Content reference {uuid4().hex}", "description": None})
+        live.create_watch_target(
+            {
+                "display_name": f"Content source {uuid4().hex}",
+                "room_url": f"https://live.douyin.com/{uuid4().int % 10**12}",
+            }
+        )
+        claim = live.claim_watch_target("test-capture-worker", 120)
+        assert claim is not None
+        source_target = live.get_watch_target(claim["target_code"])
+        source_session = live.create_capture_session(
+            {
+                "target_code": source_target["target_code"], "worker_id": "test-capture-worker",
+                "claim_token": claim["claim_token"], "lease_version": claim["lease_version"],
+                "recorder_engine": "streamcap", "recorder_version": "test-v1",
+                "recorder_build_fingerprint": "a" * 40,
+                "observed_started_at": datetime.now(UTC), "metadata": {},
+            }
+        )
+        completed = live.finish_capture_session(
+            source_session["session_code"],
+            {"status": "completed", "observed_ended_at": datetime.now(UTC), "metadata": {}},
+        )
+        assert completed is not None and completed["status"] == "completed"
+        template = live.create_room_template(
+            {
+                "name": f"Content reference {uuid4().hex}", "description": None,
+                "source_target_code": source_target["target_code"], "template_kind": "content_strategy",
+            }
+        )
         revision_payload = {
-            "source_session_code": None,
+            "source_session_codes": [source_session["session_code"]],
             "contract_version": "content-strategy.v2",
             "canvas": {"width": 1080, "height": 1920},
-            "scenes": [{"scene_key": "opening"}],
+            "scenes": [],
             "components": [],
             "audio_policy": {},
-            "provenance": {"source_session_codes": ["TEST-SESSION-1"]},
+            "provenance": {"analysis_run_codes": ["ANL-TEST-001"], "reviewer": "test-reviewer"},
+            "content_readiness": "ready",
+            "layout_fidelity": "approximate",
+            "buildability": "reference_only",
+            "content_strategy": {
+                "target_category": "beverage", "compatibility_tags": ["education"],
+                "program_outline": [{"module_key": "opening", "title": "开场", "purpose": "建立选择目标", "start_ms": 0, "end_ms": 30_000}],
+                "duration_policy": {"opening": {"ratio": 0.2}}, "module_recipes": [],
+                "product_rotation_policy": {}, "interaction_policy": {"ask_every_minutes": 3},
+                "conversion_policy": {"cta": "comment"}, "host_style": {"tone": "clear"},
+                "material_cues": ["background", "promotion_text"],
+                "reviewed_examples": [{"module_key": "opening", "example_text": "先用【已核验事实】说明选择依据。", "source_session_code": source_session["session_code"], "start_ms": 0, "end_ms": 5_000}],
+                "removed_source_fact_categories": ["price", "promotion", "inventory", "product_identity", "source_brand", "host_identity"],
+            },
             "confidence": 0.8,
             "created_by": "test-operator",
             "content_fingerprint": sha256(uuid4().hex.encode()).hexdigest(),
@@ -242,7 +285,7 @@ def test_content_project_pins_published_template_revision() -> None:
             template["template_code"],
             first["revision_number"],
             {"reviewed_by": "test-reviewer", "review_notes": "reviewed", "published_by": "test-reviewer"},
-            build_template_projection(template, first),
+            build_content_strategy_projection(template, first),
         )
         assert published["revision_number"] == 1
 
@@ -268,7 +311,7 @@ def test_content_project_pins_published_template_revision() -> None:
             template["template_code"],
             second["revision_number"],
             {"reviewed_by": "test-reviewer", "review_notes": "updated", "published_by": "test-reviewer"},
-            build_template_projection(template, second),
+            build_content_strategy_projection(template, second),
         )
         confirmed = service.confirm_project(project["project_code"], expected_revision=1, actor_id="test-operator")
         assert confirmed["content"]["primary_template_ref"]["revision"] == 1
@@ -283,6 +326,76 @@ def test_content_project_pins_published_template_revision() -> None:
                 "selection_role": "primary",
             }
         ]
+
+
+def test_content_strategy_template_rejects_cross_room_sources_and_stays_reference_only() -> None:
+    suffix = uuid4().hex
+    with psycopg.connect(DATABASE_URL) as connection:
+        live = LiveObservationRepository(connection)
+        first_target = live.create_watch_target(
+            {"display_name": f"First {suffix}", "room_url": f"https://live.douyin.com/{uuid4().int % 10**12}"}
+        )
+        second_target = live.create_watch_target(
+            {"display_name": f"Second {suffix}", "room_url": f"https://live.douyin.com/{uuid4().int % 10**12}"}
+        )
+
+        def completed_session(target_code: str, token: str) -> str:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO live_capture_sessions (
+                        session_code, target_id, target_code, recorder_engine, recorder_version,
+                        recorder_build_fingerprint, event_adapter, event_adapter_version, status,
+                        observed_started_at, observed_ended_at, timeline_origin_at, ended_at, metadata
+                    )
+                    SELECT %s, id, target_code, 'streamcap', 'test-v1', %s, 'douyinlive', 'test-v1',
+                           'completed', now(), now(), now(), now(), '{}'::jsonb
+                    FROM live_watch_targets WHERE target_code = %s
+                    """,
+                    (f"TEST-CAP-{token}", "c" * 40, target_code),
+                )
+            connection.commit()
+            return f"TEST-CAP-{token}"
+
+        first = completed_session(first_target["target_code"], f"first-{suffix[:12]}")
+        same_room = completed_session(first_target["target_code"], f"same-{suffix[:12]}")
+        other_room = completed_session(second_target["target_code"], f"other-{suffix[:12]}")
+        template = live.create_room_template(
+            {
+                "name": f"Single room strategy {suffix}", "template_kind": "content_strategy",
+                "source_target_code": first_target["target_code"],
+            }
+        )
+        strategy = {
+            "target_category": "beverage",
+            "program_outline": [{"module_key": "opening", "title": "开场", "purpose": "建立主题", "start_ms": 0, "end_ms": 30_000}],
+            "duration_policy": {}, "module_recipes": [], "product_rotation_policy": {},
+            "interaction_policy": {}, "conversion_policy": {}, "host_style": {},
+            "material_cues": ["background"], "reviewed_examples": [],
+            "removed_source_fact_categories": ["price", "promotion", "inventory", "product_identity", "source_brand", "host_identity"],
+        }
+        payload = {
+            "contract_version": "content-strategy.v2", "canvas": {"width": 1080, "height": 1920},
+            "scenes": [], "components": [], "audio_policy": {}, "provenance": {"reviewer": "test"},
+            "content_readiness": "ready", "layout_fidelity": "approximate", "buildability": "reference_only",
+            "content_strategy": strategy, "layout_reference": {}, "confidence": 0.9,
+            "created_by": "test", "content_fingerprint": sha256(uuid4().hex.encode()).hexdigest(),
+        }
+        with pytest.raises(LiveObservationConflictError, match="CONTENT_STRATEGY_CROSS_ROOM_SOURCE"):
+            live.create_room_template_revision(
+                template["template_code"], {**payload, "source_session_codes": [first, other_room]}
+            )
+        connection.rollback()
+
+        revision = live.create_room_template_revision(
+            template["template_code"], {**payload, "source_session_codes": [first, same_room]}
+        )
+        projection = build_content_strategy_projection(template, revision)
+        assert projection["projection_contract"] == "content-strategy.v2"
+        assert projection["content_readiness"] == "ready"
+        assert projection["buildability"] == "reference_only"
+        assert projection["blocked_operations"] == ["insert_template_component", "set_exact_geometry", "bind_external_material"]
+        assert projection["source_session_codes"] == [first, same_room]
 
 
 def test_design_brief_parse_is_bounded_and_requires_explicit_confirmation() -> None:

@@ -4,8 +4,10 @@ export type WatchTargetStatus = "enabled" | "paused" | "blocked" | "deleted";
 export type CaptureSessionStatus = "starting" | "recording" | "finalizing" | "completed" | "failed" | "abandoned";
 export type JobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
 export type TemplateRevisionStatus = "draft" | "published" | "superseded" | "rejected";
-export type LayoutFidelity = "approximate" | "verified_layout";
+export type LayoutFidelity = "none" | "approximate" | "verified_layout";
 export type Buildability = "reference_only" | "executable";
+export type ContentReadiness = "blocked" | "review_required" | "ready";
+export type TemplateKind = "layout_hypothesis" | "content_strategy";
 
 export interface ResearchOverview {
   enabled_target_count: number;
@@ -155,10 +157,21 @@ export interface TemplateRevision {
   status: TemplateRevisionStatus;
   layout_fidelity: LayoutFidelity;
   buildability: Buildability;
+  contentReadiness: ContentReadiness;
+  sourceSessionCodes: string[];
+  contentStrategy: ContentStrategy;
   scenes: TemplateScene[];
   reviewer_note?: string;
   created_at?: string;
   published_at?: string;
+}
+
+export interface ContentStrategy {
+  targetCategory: string;
+  compatibilityTags: string[];
+  programOutline: Array<{ moduleKey: string; title: string; purpose: string; startMs: number; endMs: number }>;
+  materialCues: string[];
+  reviewedExamples: Array<{ moduleKey: string; exampleText: string; sourceSessionCode: string; startMs: number; endMs: number }>;
 }
 
 export interface RoomTemplate {
@@ -166,11 +179,15 @@ export interface RoomTemplate {
   title: string;
   source_session_code: string;
   source_type: "external_flat_video" | "maitu_verified";
+  templateKind: TemplateKind;
+  sourceTargetCode?: string;
   latest_revision: number;
   published_revision?: number;
   status: TemplateRevisionStatus;
   layout_fidelity: LayoutFidelity;
   buildability: Buildability;
+  contentReadiness: ContentReadiness;
+  contentStrategy: ContentStrategy;
   scenes: TemplateScene[];
   source_playback_url?: string;
   published_version_code?: string;

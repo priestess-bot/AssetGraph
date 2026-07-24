@@ -642,18 +642,91 @@ class RoomTemplateCreate(StrictModel):
     name: str = Field(..., min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=4000)
     source_target_code: str | None = Field(default=None, max_length=64)
+    template_kind: Literal["layout_hypothesis", "content_strategy"] = "layout_hypothesis"
+
+
+class ContentStrategyStage(StrictModel):
+    module_key: str = Field(..., min_length=1, max_length=64)
+    title: str = Field(..., min_length=1, max_length=255)
+    purpose: str = Field(..., min_length=1, max_length=2000)
+    start_ms: int = Field(..., ge=0)
+    end_ms: int = Field(..., gt=0)
+
+    @model_validator(mode="after")
+    def validate_interval(self) -> "ContentStrategyStage":
+        if self.end_ms <= self.start_ms:
+            raise ValueError("content-strategy stage end_ms must exceed start_ms")
+        return self
+
+
+class ReviewedTemplateExample(StrictModel):
+    module_key: str = Field(..., min_length=1, max_length=64)
+    example_text: str = Field(..., min_length=1, max_length=500)
+    source_session_code: str = Field(..., min_length=1, max_length=64)
+    start_ms: int = Field(..., ge=0)
+    end_ms: int = Field(..., gt=0)
+
+    @model_validator(mode="after")
+    def validate_interval(self) -> "ReviewedTemplateExample":
+        if self.end_ms <= self.start_ms:
+            raise ValueError("reviewed example end_ms must exceed start_ms")
+        return self
+
+
+class ContentStrategySpec(StrictModel):
+    target_category: str = Field(..., min_length=1, max_length=128)
+    compatibility_tags: list[str] = Field(default_factory=list, max_length=32)
+    program_outline: list[ContentStrategyStage] = Field(..., min_length=1, max_length=32)
+    duration_policy: dict[str, Any] = Field(default_factory=dict)
+    module_recipes: list[dict[str, Any]] = Field(default_factory=list)
+    product_rotation_policy: dict[str, Any] = Field(default_factory=dict)
+    interaction_policy: dict[str, Any] = Field(default_factory=dict)
+    conversion_policy: dict[str, Any] = Field(default_factory=dict)
+    host_style: dict[str, Any] = Field(default_factory=dict)
+    material_cues: list[str] = Field(default_factory=list, max_length=64)
+    reviewed_examples: list[ReviewedTemplateExample] = Field(default_factory=list, max_length=20)
+    removed_source_fact_categories: list[Literal["price", "promotion", "inventory", "product_identity", "source_brand", "host_identity"]] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_modules(self) -> "ContentStrategySpec":
+        keys = [stage.module_key for stage in self.program_outline]
+        if len(keys) != len(set(keys)):
+            raise ValueError("content-strategy module keys must be unique")
+        if any(example.module_key not in set(keys) for example in self.reviewed_examples):
+            raise ValueError("reviewed examples must reference a program-outline module")
+        return self
 
 
 class RoomTemplateRevisionCreate(StrictModel):
     source_session_code: str | None = Field(default=None, max_length=64)
-    contract_version: Literal["layout-hypothesis.v1"] = "layout-hypothesis.v1"
+    source_session_codes: list[str] = Field(default_factory=list, max_length=50)
+    contract_version: Literal["layout-hypothesis.v1", "content-strategy.v2"] = "layout-hypothesis.v1"
     canvas: CanvasSpec
     scenes: list[dict[str, Any]] = Field(default_factory=list)
     components: list[TemplateComponent] = Field(default_factory=list)
     audio_policy: AudioBusPolicy = Field(default_factory=AudioBusPolicy)
     provenance: dict[str, Any] = Field(default_factory=dict)
+    content_readiness: Literal["blocked", "review_required", "ready"] = "review_required"
+    layout_fidelity: Literal["none", "approximate", "verified_layout"] = "approximate"
+    buildability: Literal["reference_only", "executable"] = "reference_only"
+    content_strategy: ContentStrategySpec | None = None
+    layout_reference: dict[str, Any] = Field(default_factory=dict)
     confidence: float = Field(..., ge=0, le=1)
     created_by: str | None = Field(default=None, max_length=128)
+
+    @model_validator(mode="after")
+    def validate_contract(self) -> "RoomTemplateRevisionCreate":
+        codes = [code for code in [self.source_session_code, *self.source_session_codes] if code]
+        if len(codes) != len(set(codes)):
+            raise ValueError("source session codes must be unique")
+        if self.contract_version == "content-strategy.v2":
+            if not codes:
+                raise ValueError("content-strategy templates require source session codes")
+            if self.content_strategy is None:
+                raise ValueError("content-strategy templates require content_strategy")
+            if self.buildability != "reference_only":
+                raise ValueError("external content-strategy templates must remain reference_only")
+        return self
 
 
 class RoomTemplateRevisionRead(BaseModel):
@@ -664,12 +737,18 @@ class RoomTemplateRevisionRead(BaseModel):
     revision_number: int
     status: TemplateRevisionStatus
     source_session_code: str | None = None
+    source_session_codes: list[str] = Field(default_factory=list)
     contract_version: str
     canvas: dict[str, Any]
     scenes: list[dict[str, Any]]
     components: list[dict[str, Any]]
     audio_policy: dict[str, Any]
     provenance: dict[str, Any]
+    content_readiness: Literal["blocked", "review_required", "ready"] = "review_required"
+    layout_fidelity: Literal["none", "approximate", "verified_layout"] = "approximate"
+    buildability: Literal["reference_only", "executable"] = "reference_only"
+    content_strategy: dict[str, Any] = Field(default_factory=dict)
+    layout_reference: dict[str, Any] = Field(default_factory=dict)
     confidence: float
     review_status: Literal["pending", "accepted", "rejected"]
     review_notes: str | None = None
@@ -690,6 +769,7 @@ class RoomTemplateSummary(BaseModel):
     name: str
     description: str | None = None
     source_target_code: str | None = None
+    template_kind: Literal["layout_hypothesis", "content_strategy"] = "layout_hypothesis"
     status: TemplateStatus
     published_revision_number: int | None = None
     latest_revision_number: int | None = None
@@ -717,10 +797,11 @@ class RoomTemplateProjectionRead(BaseModel):
     template_name: str
     revision_number: int
     publication_code: str | None = None
-    projection_contract: Literal["maitu-layout-projection.v1"] = "maitu-layout-projection.v1"
+    projection_contract: Literal["maitu-layout-projection.v1", "content-strategy.v2"] = "maitu-layout-projection.v1"
     projection_fingerprint: str
-    layout_fidelity: Literal["approximate"] = "approximate"
-    buildability: Literal["reference_only"] = "reference_only"
+    content_readiness: Literal["blocked", "review_required", "ready"] = "review_required"
+    layout_fidelity: Literal["none", "approximate", "verified_layout"] = "approximate"
+    buildability: Literal["reference_only", "executable"] = "reference_only"
     projection_ready: bool
     manual_review_required: bool
     blocking_reasons: list[str] = Field(default_factory=list)
@@ -729,6 +810,9 @@ class RoomTemplateProjectionRead(BaseModel):
     components: list[dict[str, Any]]
     audio_policy: dict[str, Any]
     provenance: dict[str, Any]
+    source_session_codes: list[str] = Field(default_factory=list)
+    content_strategy: dict[str, Any] = Field(default_factory=dict)
+    layout_reference: dict[str, Any] = Field(default_factory=dict)
     published_at: datetime | None = None
 
 

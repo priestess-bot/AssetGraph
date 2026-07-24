@@ -553,12 +553,17 @@ class FunctionalContentService:
                 if not isinstance(revision_number, int) or revision_number < 1:
                     raise DomainValidationError("TEMPLATE_REFERENCE_INVALID", "Pinned template revision is invalid", details={"template_code": code})
                 template = self.templates.get_room_template(code, include_revisions=True)
-                if template is None or not any(int(row["revision_number"]) == revision_number for row in template.get("revisions") or []):
+                revision = next(
+                    (row for row in (template or {}).get("revisions") or [] if int(row["revision_number"]) == revision_number),
+                    None,
+                )
+                if template is None or revision is None:
                     raise DomainValidationError("TEMPLATE_REVISION_NOT_FOUND", "Pinned template revision is unavailable", details={"template_code": code, "revision": revision_number})
+                self._validate_content_strategy_template(template, revision, code)
                 pinned.append(dict(previous))
                 continue
 
-            template = self.templates.get_room_template(code, include_revisions=False)
+            template = self.templates.get_room_template(code, include_revisions=True)
             published_revision = template.get("published_revision_number") if template else None
             if template is None or template.get("status") != "published" or not isinstance(published_revision, int):
                 raise DomainValidationError(
@@ -566,13 +571,24 @@ class FunctionalContentService:
                     "Selected content templates must have a published revision",
                     details={"template_code": code},
                 )
+            revision = next(
+                (row for row in template.get("revisions") or [] if int(row["revision_number"]) == published_revision),
+                None,
+            )
+            if revision is None:
+                raise DomainValidationError(
+                    "TEMPLATE_REVISION_NOT_FOUND",
+                    "Selected published template revision is unavailable",
+                    details={"template_code": code, "revision": published_revision},
+                )
+            self._validate_content_strategy_template(template, revision, code)
             pinned.append(
                 {
                     "template_code": code,
                     "revision": int(published_revision),
                     "contribution": "primary_structure" if index == 0 and primary_code else "secondary_supplement",
                     "selection_role": "primary" if index == 0 and primary_code else "secondary",
-                    "contract_version": "content-strategy-reference.v1",
+                    "contract_version": "content-strategy.v2",
                 }
             )
 
@@ -590,6 +606,29 @@ class FunctionalContentService:
             }
             for item in pinned
         ]
+
+    @staticmethod
+    def _validate_content_strategy_template(
+        template: dict[str, Any], revision: dict[str, Any], template_code: str
+    ) -> None:
+        if template.get("template_kind") != "content_strategy" or revision.get("contract_version") != "content-strategy.v2":
+            raise DomainValidationError(
+                "TEMPLATE_CONTENT_STRATEGY_REQUIRED",
+                "Content projects can only select published content-strategy.v2 templates",
+                details={"template_code": template_code},
+            )
+        if revision.get("content_readiness") != "ready":
+            raise DomainValidationError(
+                "TEMPLATE_CONTENT_NOT_READY",
+                "Selected content template revision is not ready for production use",
+                details={"template_code": template_code, "revision": revision.get("revision_number")},
+            )
+        if revision.get("buildability") != "reference_only":
+            raise DomainValidationError(
+                "TEMPLATE_BUILDABILITY_INVALID",
+                "External content templates must remain reference_only",
+                details={"template_code": template_code, "revision": revision.get("revision_number")},
+            )
 
     @staticmethod
     def _validate_fact_scope(

@@ -65,9 +65,10 @@ function PlanDetail({ plan }: { plan: FunctionalLiveRoomPlan }) {
   </div>;
 }
 
-export function LiveRoomPlannerPage() {
+export function LiveRoomPlannerPage({ search = window.location.search }: { search?: string }) {
   const queryClient = useQueryClient();
-  const [selectedPlan, setSelectedPlan] = useState(""); const [projectCode, setProjectCode] = useState(""); const [roomId, setRoomId] = useState(""); const [title, setTitle] = useState(""); const [assetCodes, setAssetCodes] = useState<string[]>([]); const [groupCodes, setGroupCodes] = useState<string[]>([]); const [materialPackCodes, setMaterialPackCodes] = useState<string[]>([]);
+  const requestedPlanCode = new URLSearchParams(search).get("run") ?? "";
+  const [selectedPlan, setSelectedPlan] = useState(requestedPlanCode); const [projectCode, setProjectCode] = useState(""); const [roomId, setRoomId] = useState(""); const [title, setTitle] = useState(""); const [assetCodes, setAssetCodes] = useState<string[]>([]); const [groupCodes, setGroupCodes] = useState<string[]>([]); const [materialPackCodes, setMaterialPackCodes] = useState<string[]>([]);
   const projects = useQuery({ queryKey: ["content-projects"], queryFn: contentProjectsApi.list });
   const assets = useQuery({ queryKey: ["assets", "library"], queryFn: assetLibraryApi.listAssets });
   const groups = useQuery({ queryKey: ["assets", "groups"], queryFn: assetLibraryApi.listGroups });
@@ -75,6 +76,7 @@ export function LiveRoomPlannerPage() {
   const plans = useQuery({ queryKey: ["functional-live-room-plans"], queryFn: functionalLiveRoomsApi.list });
   const usableProjects = useMemo(() => projects.data ?? [], [projects.data]);
   useEffect(() => { if (!projectCode && usableProjects[0]) setProjectCode(usableProjects[0].projectCode); }, [projectCode, usableProjects]);
+  useEffect(() => { if (requestedPlanCode) setSelectedPlan(requestedPlanCode); }, [requestedPlanCode]);
   const activePlanCode = plans.data?.some((item) => item.planCode === selectedPlan) ? selectedPlan : plans.data?.[0]?.planCode ?? "";
   useEffect(() => { if (selectedPlan !== activePlanCode) setSelectedPlan(activePlanCode); }, [activePlanCode, selectedPlan]);
   const detail = useQuery({ queryKey: ["functional-live-room-plan", activePlanCode], queryFn: () => functionalLiveRoomsApi.get(activePlanCode), enabled: Boolean(activePlanCode) });

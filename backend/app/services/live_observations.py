@@ -200,6 +200,100 @@ def build_template_projection(
     return projection
 
 
+_SOURCE_FACT_MARKERS = (
+    "价格", "到手", "库存", "限时", "优惠", "满减", "赠品", "sku", "原价", "折",
+)
+
+
+def build_content_strategy_projection(
+    template: dict[str, Any], revision: dict[str, Any]
+) -> dict[str, Any]:
+    """Publish only abstract, reviewed strategy from a flattened external recording.
+
+    The resulting projection is deliberately useful to content planning while
+    remaining unusable as a Maitu layout or a source-product fact store.
+    """
+    strategy = dict(revision.get("content_strategy") or {})
+    provenance = dict(revision.get("provenance") or {})
+    source_session_codes = [str(code) for code in revision.get("source_session_codes") or [] if str(code)]
+    program_outline = [item for item in strategy.get("program_outline") or [] if isinstance(item, dict)]
+    reviewed_examples = [item for item in strategy.get("reviewed_examples") or [] if isinstance(item, dict)]
+    removed_categories = {str(item) for item in strategy.get("removed_source_fact_categories") or []}
+    blocking: list[str] = []
+
+    if template.get("template_kind") != "content_strategy":
+        blocking.append("CONTENT_STRATEGY_TEMPLATE_KIND_MISMATCH")
+    if revision.get("contract_version") != "content-strategy.v2":
+        blocking.append("CONTENT_STRATEGY_CONTRACT_MISMATCH")
+    if not source_session_codes:
+        blocking.append("CONTENT_STRATEGY_SOURCE_SESSION_REQUIRED")
+    if not str(template.get("source_target_code") or "").strip():
+        blocking.append("CONTENT_STRATEGY_SOURCE_TARGET_REQUIRED")
+    if not str(strategy.get("target_category") or "").strip():
+        blocking.append("CONTENT_STRATEGY_TARGET_CATEGORY_REQUIRED")
+    if not program_outline:
+        blocking.append("CONTENT_STRATEGY_PROGRAM_OUTLINE_REQUIRED")
+    missing_categories = {
+        "price", "promotion", "inventory", "product_identity", "source_brand", "host_identity"
+    } - removed_categories
+    if missing_categories:
+        blocking.append("CONTENT_STRATEGY_SOURCE_FACT_REMOVAL_INCOMPLETE")
+
+    module_keys = {str(item.get("module_key") or "") for item in program_outline}
+    if "" in module_keys or len(module_keys) != len(program_outline):
+        blocking.append("CONTENT_STRATEGY_MODULE_KEYS_INVALID")
+    example_sources = {str(item.get("source_session_code") or "") for item in reviewed_examples}
+    if not example_sources.issubset(set(source_session_codes)):
+        blocking.append("CONTENT_STRATEGY_EXAMPLE_SOURCE_OUT_OF_SCOPE")
+    if any(str(item.get("module_key") or "") not in module_keys for item in reviewed_examples):
+        blocking.append("CONTENT_STRATEGY_EXAMPLE_MODULE_INVALID")
+    for example in reviewed_examples:
+        text = str(example.get("example_text") or "").lower()
+        if any(marker in text for marker in _SOURCE_FACT_MARKERS) or "￥" in text or "¥" in text:
+            blocking.append("CONTENT_STRATEGY_SOURCE_FACT_REMAINS")
+            break
+
+    requested_readiness = str(revision.get("content_readiness") or "review_required")
+    if requested_readiness != "ready":
+        blocking.append("CONTENT_STRATEGY_CONTENT_NOT_READY")
+    blocking = sorted(set(blocking))
+    content_readiness = "ready" if not blocking else "blocked"
+    projection = {
+        "template_code": template["template_code"],
+        "template_name": template["name"],
+        "revision_number": int(revision["revision_number"]),
+        "projection_contract": "content-strategy.v2",
+        "content_readiness": content_readiness,
+        "layout_fidelity": revision.get("layout_fidelity", "none"),
+        "buildability": "reference_only",
+        "projection_ready": content_readiness == "ready",
+        "manual_review_required": False,
+        "blocking_reasons": blocking,
+        "reference_capabilities": [
+            "program_outline", "module_recipes", "interaction_policy", "material_cues", "reviewed_examples",
+        ],
+        "executable_capabilities": [],
+        "blocked_operations": ["insert_template_component", "set_exact_geometry", "bind_external_material"],
+        "content_strategy": strategy,
+        "layout_reference": dict(revision.get("layout_reference") or {}),
+        "source_session_codes": source_session_codes,
+        "provenance": {
+            **provenance,
+            "source_target_code": template.get("source_target_code"),
+            "source_session_codes": source_session_codes,
+            "content_fact_boundary": "source facts are excluded from content-strategy.v2",
+        },
+        # Compatibility placeholders: legacy presentation clients still expect
+        # the layout payload shape, but content consumers must use strategy.
+        "canvas": {},
+        "scenes": [],
+        "components": [],
+        "audio_policy": {},
+    }
+    projection["projection_fingerprint"] = canonical_fingerprint(projection)
+    return projection
+
+
 def _audio_overlap_reasons(components: list[dict[str, Any]]) -> list[str]:
     reasons: list[str] = []
     for bus in ("speech", "bgm"):
@@ -562,7 +656,16 @@ class LiveObservationService:
             raise LiveObservationNotFoundError("Room template revision not found")
         if revision.get("status") not in {"draft", "rejected"}:
             raise LiveObservationConflictError("Room template revision cannot be published again")
-        projection = build_template_projection(template, revision)
+        projection = (
+            build_content_strategy_projection(template, revision)
+            if revision.get("contract_version") == "content-strategy.v2"
+            else build_template_projection(template, revision)
+        )
+        if revision.get("contract_version") == "content-strategy.v2" and not projection["projection_ready"]:
+            raise LiveObservationConflictError(
+                "CONTENT_STRATEGY_PUBLICATION_BLOCKED: "
+                + ", ".join(projection["blocking_reasons"])
+            )
         return self.repository.publish_room_template_revision(
             template_code,
             revision_number,

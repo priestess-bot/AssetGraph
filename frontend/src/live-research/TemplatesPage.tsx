@@ -112,7 +112,7 @@ export function TemplatesPage({ published }: { published: boolean }) {
   const demoMode = analysisQuery.isError && templatesQuery.isError;
   const analyses = analysisQuery.data ?? (demoMode ? DEMO_ANALYSIS_RUNS : []);
   const templates = templatesQuery.data ?? (demoMode ? DEMO_TEMPLATES : []);
-  const filtered = useMemo(() => templates.filter((template) => published ? Boolean(template.published_revision) : template.status !== "published"), [published, templates]);
+  const filtered = useMemo(() => templates.filter((template) => template.templateKind === "layout_hypothesis" && (published ? Boolean(template.published_revision) : template.status !== "published")), [published, templates]);
   const selectedTemplateCode = filtered.some((item) => item.template_code === templateCode) ? templateCode : filtered[0]?.template_code ?? "";
   useEffect(() => {
     if (templateCode !== selectedTemplateCode) setTemplateCode(selectedTemplateCode);
