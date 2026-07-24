@@ -138,6 +138,25 @@ class ReleaseRepository:
         result["deliveries"] = [self._serialize(row) for row in deliveries]
         return result
 
+    def list_releases(self) -> list[dict[str, Any]]:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """SELECT release.release_code, release.subject_type, release.subject_code,
+                          release.subject_revision, release.carrier_kind, release.status,
+                          release.current_manifest_revision, release.release_fingerprint,
+                          release.created_at, release.updated_at,
+                          manifest.manifest_code, manifest.manifest_fingerprint,
+                          COUNT(delivery.id) AS delivery_count
+                   FROM releases release
+                   JOIN release_manifests manifest
+                     ON manifest.release_id = release.id AND manifest.revision_number = release.current_manifest_revision
+                   LEFT JOIN delivery_attempts delivery ON delivery.release_id = release.id
+                   GROUP BY release.id, manifest.id
+                   ORDER BY release.updated_at DESC, release.release_code"""
+            )
+            rows = cursor.fetchall()
+        return [self._serialize(row) for row in rows]
+
     def verify_artifact_refs(self, artifact_refs: list[dict[str, Any]]) -> list[str]:
         failures: list[str] = []
         with self.connection.cursor(row_factory=dict_row) as cursor:

@@ -29,6 +29,7 @@ import { AssetLibraryPage } from "../assets/AssetLibraryPage";
 import { ContentProjectsPage } from "../content/ContentProjectsPage";
 import { LiveRoomPlannerPage } from "../live-rooms/LiveRoomPlannerPage";
 import { VideoProductionPage } from "../videos/VideoProductionPage";
+import { ReleaseWorkspacePage } from "../releases/ReleaseWorkspacePage";
 import { OperationsPage } from "../operations/OperationsPage";
 import { LearningPage } from "../learning/LearningPage";
 import { KnowledgePage } from "../knowledge/KnowledgePage";
@@ -250,11 +251,6 @@ function AssetsWorkspace({ search }: { search: string }) {
 }
 
 
-function EmptyWorkspace({ icon, title, entity }: { icon: typeof BookOpen; title: string; entity: string }) {
-  return <section className="console-empty-workspace"><EmptyBlock icon={icon} title={`暂无${title}`} detail={`${entity}会在对应领域 API 产生数据后显示。`} /></section>;
-}
-
-
 export function Workspace({ pathname, search, tasks, notifications, loading }: { pathname: string; search: string; tasks: ConsoleTask[]; notifications: ConsoleNotification[]; loading: boolean }) {
   if (pathname === "/" || pathname === "/console" || pathname === "/console/") return <Dashboard tasks={tasks} notifications={notifications} loading={loading} />;
   if (pathname.startsWith("/assets/library")) return <AssetsWorkspace search={search} />;
@@ -266,7 +262,7 @@ export function Workspace({ pathname, search, tasks, notifications, loading }: {
   if (pathname.startsWith("/knowledge")) return <KnowledgePage />;
   if (pathname.startsWith("/content/projects")) return <ContentProjectsPage />;
   if (pathname.startsWith("/production/videos")) return <VideoProductionPage />;
-  if (pathname.startsWith("/production/releases")) return <EmptyWorkspace icon={PackageCheck} title="发布记录" entity="ReleaseManifest" />;
+  if (pathname.startsWith("/production/releases")) return <ReleaseWorkspacePage search={search} />;
   if (pathname.startsWith("/operations/live-sessions")) return <OperationsPage view="sessions" />;
   if (pathname.startsWith("/operations/attribution")) return <OperationsPage view="attribution" />;
   if (pathname.startsWith("/learning")) return <LearningPage />;

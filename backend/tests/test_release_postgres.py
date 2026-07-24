@@ -190,6 +190,14 @@ def test_release_validation_approval_delivery_and_exposure_are_independent_facts
         )
         assert exposure["live_session_code"] == f"SESSION-{suffix}"
 
+        summaries = release_repository.list_releases()
+        summary = next(item for item in summaries if item["release_code"] == candidate["release_code"])
+        assert summary["subject_type"] == "production_variant"
+        assert summary["subject_code"] == f"VARIANT-{suffix}"
+        assert summary["status"] == "delivered"
+        assert summary["manifest_code"] == candidate["manifest"]["manifest_code"]
+        assert summary["delivery_count"] == 1
+
         with connection.cursor() as cursor:
             cursor.execute("SELECT count(*) FROM releases WHERE release_code = %s", (candidate["release_code"],))
             release_count = cursor.fetchone()[0]
