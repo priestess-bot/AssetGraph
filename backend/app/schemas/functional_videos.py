@@ -31,6 +31,13 @@ class FunctionalVideoTimelineUpdate(BaseModel):
         return value
 
 
+class FunctionalVideoTimelineRevisionRead(BaseModel):
+    revision_number: int
+    production_timeline: dict[str, Any]
+    actor_id: str
+    created_at: datetime
+
+
 class FunctionalVideoPlanRead(BaseModel):
     plan_code: str
     project_code: str

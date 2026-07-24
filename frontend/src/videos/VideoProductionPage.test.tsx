@@ -30,6 +30,7 @@ describe("VideoProductionPage", () => {
       if (url === "/api/content-projects") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
       if (url === "/api/functional-video-plans") return new Response(JSON.stringify([plan]), { status: 200, headers: { "Content-Type": "application/json" } });
       if (url === "/api/functional-video-plans/VIDPLAN-001") return new Response(JSON.stringify(plan), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/functional-video-plans/VIDPLAN-001/timeline-revisions") return new Response(JSON.stringify([{ revision_number: 1, production_timeline: plan.production_timeline, actor_id: "operator", created_at: "2026-07-25T00:00:00Z" }]), { status: 200, headers: { "Content-Type": "application/json" } });
       if (url === "/api/functional-video-plans/VIDPLAN-001/timeline" && init?.method === "PUT") return new Response(JSON.stringify({ ...plan, timeline_revision: 2 }), { status: 200, headers: { "Content-Type": "application/json" } });
       throw new Error(`Unexpected request: ${url}`);
     }));
@@ -40,6 +41,7 @@ describe("VideoProductionPage", () => {
     expect(screen.getByRole("heading", { name: "生产阶段" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "质量检查" })).toBeInTheDocument();
     expect(screen.getByText("subtitle_text_complete")).toBeInTheDocument();
+    expect(await screen.findByText("修订历史")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "上移 SHOT-02" }));
     await user.click(screen.getByRole("button", { name: "保存时间轴修订" }));
 

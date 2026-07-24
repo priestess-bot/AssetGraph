@@ -8,7 +8,7 @@ from psycopg import Connection
 from app.core.database import get_db
 from app.domain.errors import DomainValidationError
 from app.repositories.video_productions import VideoProductionRetryConflictError
-from app.schemas.functional_videos import FunctionalVideoPlanCreate, FunctionalVideoPlanRead, FunctionalVideoTimelineUpdate
+from app.schemas.functional_videos import FunctionalVideoPlanCreate, FunctionalVideoPlanRead, FunctionalVideoTimelineRevisionRead, FunctionalVideoTimelineUpdate
 from app.services.functional_videos import FunctionalVideoService
 
 
@@ -40,6 +40,17 @@ def get_video_plan(plan_code: str, service: Annotated[FunctionalVideoService, De
     if plan is None:
         raise HTTPException(status_code=404, detail="Video plan not found")
     return plan
+
+
+@router.get("/{plan_code}/timeline-revisions", response_model=list[FunctionalVideoTimelineRevisionRead])
+def list_video_timeline_revisions(
+    plan_code: str,
+    service: Annotated[FunctionalVideoService, Depends(get_service)],
+) -> list[dict]:
+    revisions = service.list_timeline_revisions(plan_code)
+    if revisions is None:
+        raise HTTPException(status_code=404, detail="Video plan not found")
+    return revisions
 
 
 @router.put("/{plan_code}/timeline", response_model=FunctionalVideoPlanRead)

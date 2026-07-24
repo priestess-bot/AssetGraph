@@ -81,6 +81,24 @@ class FunctionalVideoService:
             row = cursor.fetchone()
         return self._enrich(row) if row else None
 
+    def list_timeline_revisions(self, plan_code: str) -> list[dict[str, Any]] | None:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                "SELECT id FROM functional_video_plans WHERE plan_code = %s",
+                (plan_code,),
+            )
+            plan = cursor.fetchone()
+            if plan is None:
+                return None
+            cursor.execute(
+                """SELECT revision_number, production_timeline, actor_id, created_at
+                   FROM functional_video_timeline_revisions
+                   WHERE plan_id = %s
+                   ORDER BY revision_number DESC""",
+                (plan["id"],),
+            )
+            return [dict(row) for row in cursor.fetchall()]
+
     def retry(self, plan_code: str) -> dict[str, Any] | None:
         plan = self.get_plan(plan_code)
         if plan is None:
