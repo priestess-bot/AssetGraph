@@ -364,15 +364,24 @@ class FunctionalContentService:
         project_revision = int(current["revision_number"])
         self._pin_fact_cards(dict(current["content"] or {}), require_existing_pins=True)
         if current["status"] != "confirmed":
-            current = self.core.confirm_project_revision(project_code, revision_number=project_revision, actor_id=actor_id)
+            raise DomainConflictError(
+                "CONTENT_PROJECT_CONFIRM_REQUIRED",
+                "Confirm the content project before generating the content chain",
+            )
+        design_brief = self._confirmed_design_brief(current["project_id"], project_revision)
+        if design_brief is None:
+            raise DomainConflictError(
+                "DESIGN_BRIEF_CONFIRM_REQUIRED",
+                "Confirm a DesignBrief for the current content-project revision before generation",
+            )
         content = current["content"]
-        design_ref = f"functional-design-brief:{project_code}:r{current['revision_number']}"
+        design_ref = f"{design_brief['design_brief_code']}:r{design_brief['revision_number']}"
         story = self.production.create_story_brief_revision(
             project_code=project_code,
             project_revision=int(current["revision_number"]),
             expected_revision=self._current_story_revision(current["project_id"]),
             source_design_brief_revision=design_ref,
-            content=self._story_content(current["generation_goal"], content),
+            content=self._story_content(current["generation_goal"], content, design_brief["parsed_brief"]),
             fact_revision_refs=self._fact_revision_refs(content),
             template_revision_refs=self._template_refs(content),
             actor_id=actor_id,
@@ -609,6 +618,19 @@ class FunctionalContentService:
             row = cursor.fetchone()
         return int(row["current_revision_number"]) if row else 0
 
+    def _confirmed_design_brief(self, project_id: str, source_project_revision: int) -> dict[str, Any] | None:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT design_brief_code, revision_number, parsed_brief, response_fingerprint_sha256
+                FROM functional_design_briefs
+                WHERE project_id = %s AND source_project_revision_number = %s AND status = 'confirmed'
+                """,
+                (project_id, source_project_revision),
+            )
+            row = cursor.fetchone()
+        return row
+
     def _current_project_revision(self, table: str, project_id: str) -> int:
         allowed = {"content_script_revisions", "content_program_revisions", "shot_list_revisions"}
         if table not in allowed:
@@ -619,15 +641,16 @@ class FunctionalContentService:
         return int(row["revision"])
 
     @staticmethod
-    def _story_content(goal: str, content: dict[str, Any]) -> dict[str, Any]:
+    def _story_content(goal: str, content: dict[str, Any], design_brief: dict[str, Any]) -> dict[str, Any]:
         return {
             "objective": goal,
-            "theme": content.get("theme") or goal,
-            "story": content.get("story") or "通过清晰的场景和节奏帮助观众完成选择。",
-            "audience": content.get("audience") or "目标直播间观众",
-            "tone": content.get("tone") or "自然、可信、直接",
-            "must_include": content.get("must_include") or [],
-            "must_avoid": content.get("must_avoid") or [],
+            "theme": design_brief.get("theme") or content.get("theme") or goal,
+            "story": design_brief.get("story") or content.get("story") or "通过清晰的场景和节奏帮助观众完成选择。",
+            "audience": design_brief.get("audience") or content.get("audience") or "目标直播间观众",
+            "tone": design_brief.get("tone") or content.get("tone") or "自然、可信、直接",
+            "must_include": design_brief.get("must_include") or content.get("must_include") or [],
+            "must_avoid": design_brief.get("must_avoid") or content.get("must_avoid") or [],
+            "design_brief_fingerprint": canonical_fingerprint(design_brief),
         }
 
     @staticmethod

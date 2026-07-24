@@ -33,6 +33,16 @@ def test_functional_content_chain_is_generated_and_can_be_regenerated() -> None:
             },
             actor_id="test-operator",
         )
+        service.confirm_project(created["project_code"], expected_revision=1, actor_id="test-operator")
+        service.parse_design_brief(
+            created["project_code"],
+            expected_revision=1,
+            raw_input="Use the content project objective as the only trusted input.",
+            actor_id="test-operator",
+        )
+        service.confirm_design_brief(
+            created["project_code"], expected_revision=1, actor_id="test-operator"
+        )
         first = service.generate_chain(created["project_code"], actor_id="test-operator")
         second = service.generate_chain(created["project_code"], actor_id="test-operator")
 
@@ -47,6 +57,23 @@ def test_functional_content_chain_is_generated_and_can_be_regenerated() -> None:
             "digital_human",
             "background",
         ]
+
+
+def test_generation_requires_confirmed_project_and_design_brief() -> None:
+    with psycopg.connect(DATABASE_URL) as connection:
+        service = FunctionalContentService(connection)
+        created = service.create_project(
+            {"title": f"Generation guard {uuid4().hex}", "generation_goal": "Explain a product choice"},
+            actor_id="test-operator",
+        )
+        with pytest.raises(DomainConflictError) as project_error:
+            service.generate_chain(created["project_code"], actor_id="test-operator")
+        assert project_error.value.code == "CONTENT_PROJECT_CONFIRM_REQUIRED"
+
+        service.confirm_project(created["project_code"], expected_revision=1, actor_id="test-operator")
+        with pytest.raises(DomainConflictError) as brief_error:
+            service.generate_chain(created["project_code"], actor_id="test-operator")
+        assert brief_error.value.code == "DESIGN_BRIEF_CONFIRM_REQUIRED"
 
 
 def test_content_project_update_requires_current_revision() -> None:
