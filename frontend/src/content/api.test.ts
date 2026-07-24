@@ -41,6 +41,24 @@ describe("content projects api", () => {
     expect(detail.factCards).toEqual([{ fact_card_code: "FACT-WINE", version_number: 4, version_code: "FACT-WINE-V4", content_sha256: "sha256" }]);
   });
 
+  it("updates template references with explicit module contribution decisions", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response({
+      project_code: "CONTENT-001", title: "选酒直播", revision_number: 4, status: "draft", generation_goal: "帮助观众选酒",
+      updated_at: "2026-07-25T00:00:00Z", content: { primary_template_code: "TPL-WINE", secondary_template_codes: ["TPL-HOST"] }, generated: false,
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await contentProjectsApi.update("CONTENT-001", {
+      expected_revision: 3, primary_template_code: "TPL-WINE", secondary_template_codes: ["TPL-HOST"],
+      template_contribution_decisions: [{ template_code: "TPL-WINE", accepted_modules: ["opening"] }, { template_code: "TPL-HOST", accepted_modules: ["close"] }],
+    });
+
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      expected_revision: 3, primary_template_code: "TPL-WINE", secondary_template_codes: ["TPL-HOST"],
+      template_contribution_decisions: [{ template_code: "TPL-WINE", accepted_modules: ["opening"] }, { template_code: "TPL-HOST", accepted_modules: ["close"] }],
+    });
+  });
+
   it("ranks content strategies only from explicit category, module, and compatibility matches", () => {
     const template = (code: string, category: string, title: string, compatibilityTags: string[]): RoomTemplate => ({
       template_code: code, title: code, source_session_code: "CAP-001", source_type: "external_flat_video", templateKind: "content_strategy", latest_revision: 1, published_revision: 1, status: "published", layout_fidelity: "none", buildability: "reference_only", contentReadiness: "ready", scenes: [],
