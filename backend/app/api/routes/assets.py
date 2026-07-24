@@ -286,7 +286,10 @@ def update_asset_gap(
     payload: AssetGapUpdate,
     repository: Annotated[MaterialLibraryRepository, Depends(get_material_library_repository)],
 ) -> dict:
-    row = repository.update_gap(gap_code, payload.model_dump())
+    try:
+        row = repository.update_gap(gap_code, payload.model_dump(mode="json"))
+    except MaterialLibraryValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset gap not found")
     return row

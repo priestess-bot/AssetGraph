@@ -158,13 +158,27 @@ class AssetGapCreate(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     role: MaterialRole
     severity: str = Field(default="medium", pattern="^(low|medium|high|critical)$")
+    gap_type: str = Field(default="material_missing", pattern="^(material_missing|role_coverage|constraint_conflict|rights_pending|quality_improvement)$")
     specification: dict[str, Any] = Field(default_factory=dict)
     source_context: dict[str, Any] = Field(default_factory=dict)
+    impact_summary: str | None = Field(default=None, max_length=2000)
+    alternative_asset_codes: list[str] = Field(default_factory=list)
 
 
 class AssetGapUpdate(BaseModel):
     status: str = Field(pattern="^(open|candidate_found|resolved|waived|obsolete)$")
     resolution_asset_code: str | None = Field(default=None, max_length=64)
+    actor: str = Field(default="library_user", min_length=1, max_length=128)
+    waiver_reason: str | None = Field(default=None, max_length=2000)
+    resolution_evidence: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_resolution_details(self) -> "AssetGapUpdate":
+        if self.status in {"candidate_found", "resolved"} and not self.resolution_asset_code:
+            raise ValueError("resolution_asset_code is required for candidate_found and resolved")
+        if self.status == "waived" and not self.waiver_reason:
+            raise ValueError("waiver_reason is required for waived")
+        return self
 
 
 class AssetGapRead(BaseModel):
@@ -173,8 +187,17 @@ class AssetGapRead(BaseModel):
     role: str
     severity: str
     status: str
+    gap_type: str
     specification: dict[str, Any]
     source_context: dict[str, Any]
+    impact_summary: str | None = None
+    alternative_asset_codes: list[str] = Field(default_factory=list)
     resolution_asset_code: str | None = None
+    resolution_snapshot: dict[str, Any] = Field(default_factory=dict)
+    resolution_evidence: dict[str, Any] = Field(default_factory=dict)
+    resolved_by: str | None = None
+    resolved_at: datetime | None = None
+    waived_reason: str | None = None
+    events: list[dict[str, Any]] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime

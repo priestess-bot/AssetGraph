@@ -89,14 +89,39 @@ def test_material_library_groups_constraints_packs_and_gaps() -> None:
             "entries": published["entries"], "resolved_asset_codes": published["resolved_asset_codes"],
         }]
 
-        gap = library.create_gap({"title": f"Need foreground {suffix}", "role": "decoration_foreground"})
+        gap = library.create_gap(
+            {
+                "title": f"Need foreground {suffix}",
+                "role": "decoration_foreground",
+                "gap_type": "role_coverage",
+                "impact_summary": "The foreground layer is required for the selected branch.",
+                "alternative_asset_codes": [product["asset_code"]],
+            }
+        )
+        assert gap["status"] == "open"
+        assert gap["events"][-1]["status"] == "open"
+        with pytest.raises(Exception, match="ASSET_GAP_INVALID_TRANSITION"):
+            library.update_gap(gap["gap_code"], {"status": "resolved", "resolution_asset_code": product["asset_code"]})
+        connection.rollback()
+        role_mismatch = library.update_asset_classification(
+            product["asset_code"], media_kind="image", material_roles=["decoration_foreground"], execution_capability="local_only"
+        )
+        assert role_mismatch is not None
+        candidate = library.update_gap(
+            gap["gap_code"],
+            {"status": "candidate_found", "resolution_asset_code": product["asset_code"], "actor": "material_editor"},
+        )
+        assert candidate is not None
+        assert candidate["status"] == "candidate_found"
+        assert candidate["resolution_snapshot"]["asset_code"] == product["asset_code"]
         resolved = library.update_gap(
             gap["gap_code"],
-            {"status": "resolved", "resolution_asset_code": product["asset_code"]},
+            {"status": "resolved", "resolution_asset_code": product["asset_code"], "actor": "material_editor"},
         )
         assert resolved is not None
         assert resolved["status"] == "resolved"
         assert resolved["resolution_asset_code"] == product["asset_code"]
+        assert [event["status"] for event in resolved["events"]] == ["open", "candidate_found", "resolved"]
 
 
 def test_material_library_rejects_unknown_group_members_and_pack_targets() -> None:

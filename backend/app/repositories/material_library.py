@@ -253,37 +253,192 @@ class MaterialLibraryRepository:
             code = self._next_code(cursor, "AG-GAP", "asset_gap")
             cursor.execute(
                 """INSERT INTO asset_gaps
-                   (gap_code, title, role, severity, specification, source_context)
-                   VALUES (%s, %s, %s, %s, %s::jsonb, %s::jsonb) RETURNING *""",
+                   (gap_code, title, role, severity, gap_type, specification, source_context,
+                    impact_summary, alternative_asset_codes)
+                   VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s::jsonb) RETURNING id""",
                 (
                     code,
                     payload["title"],
                     payload["role"],
                     payload.get("severity", "medium"),
+                    payload.get("gap_type", "material_missing"),
                     json.dumps(payload.get("specification") or {}),
                     json.dumps(payload.get("source_context") or {}),
+                    payload.get("impact_summary"),
+                    json.dumps(self._dedupe_codes(payload.get("alternative_asset_codes") or [])),
                 ),
             )
             row = cursor.fetchone()
+            self._record_gap_event(cursor, row["id"], None, "open", "library_user", {"created": True})
         self.connection.commit()
-        return self._stringify(row)
+        return self.get_gap(code)  # type: ignore[return-value]
 
     def list_gaps(self) -> list[dict[str, Any]]:
         with self.connection.cursor(row_factory=dict_row) as cursor:
-            cursor.execute("SELECT * FROM asset_gaps ORDER BY updated_at DESC, gap_code")
+            cursor.execute(self._gap_select("ORDER BY g.updated_at DESC, g.gap_code"))
             rows = cursor.fetchall()
-        return [self._stringify(row) for row in rows]
+        return [self._gap_read(row) for row in rows]
+
+    def get_gap(self, gap_code: str) -> dict[str, Any] | None:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(self._gap_select("WHERE g.gap_code = %s"), (gap_code,))
+            row = cursor.fetchone()
+        return self._gap_read(row) if row else None
 
     def update_gap(self, gap_code: str, payload: dict[str, Any]) -> dict[str, Any] | None:
-        with self.connection.cursor(row_factory=dict_row) as cursor:
-            cursor.execute(
-                """UPDATE asset_gaps SET status = %s, resolution_asset_code = %s, updated_at = now()
-                   WHERE gap_code = %s RETURNING *""",
-                (payload["status"], payload.get("resolution_asset_code"), gap_code),
-            )
-            row = cursor.fetchone()
-        self.connection.commit()
-        return self._stringify(row) if row else None
+        try:
+            with self.connection.cursor(row_factory=dict_row) as cursor:
+                cursor.execute("SELECT * FROM asset_gaps WHERE gap_code = %s FOR UPDATE", (gap_code,))
+                gap = cursor.fetchone()
+                if gap is None:
+                    self.connection.rollback()
+                    return None
+                previous_status = str(gap["status"])
+                next_status = str(payload["status"])
+                self._validate_gap_transition(previous_status, next_status)
+                asset_code = payload.get("resolution_asset_code")
+                snapshot: dict[str, Any] = dict(gap.get("resolution_snapshot") or {})
+                if next_status in {"candidate_found", "resolved"}:
+                    if next_status == "resolved" and gap.get("resolution_asset_code") != asset_code:
+                        raise MaterialLibraryValidationError("ASSET_GAP_RESOLUTION_MUST_MATCH_CANDIDATE")
+                    snapshot = self._gap_candidate_snapshot(cursor, str(asset_code), str(gap["role"]))
+                waiver_reason = payload.get("waiver_reason") if next_status == "waived" else None
+                if next_status == "waived" and not waiver_reason:
+                    raise MaterialLibraryValidationError("ASSET_GAP_WAIVER_REASON_REQUIRED")
+                resolved_at = "now()" if next_status in {"resolved", "waived"} else None
+                cursor.execute(
+                    """UPDATE asset_gaps
+                       SET status = %s, resolution_asset_code = %s, resolution_snapshot = %s::jsonb,
+                           resolution_evidence = %s::jsonb, resolved_by = %s,
+                           resolved_at = CASE WHEN %s THEN now() ELSE resolved_at END,
+                           waived_reason = %s, updated_at = now()
+                       WHERE id = %s""",
+                    (
+                        next_status,
+                        asset_code if next_status in {"candidate_found", "resolved"} else None,
+                        json.dumps(snapshot),
+                        json.dumps(payload.get("resolution_evidence") or {}),
+                        payload.get("actor"),
+                        resolved_at is not None,
+                        waiver_reason,
+                        gap["id"],
+                    ),
+                )
+                self._record_gap_event(
+                    cursor,
+                    gap["id"],
+                    previous_status,
+                    next_status,
+                    str(payload.get("actor") or "library_user"),
+                    {
+                        "resolution_asset_code": asset_code if next_status in {"candidate_found", "resolved"} else None,
+                        "resolution_snapshot": snapshot if next_status in {"candidate_found", "resolved"} else {},
+                        "resolution_evidence": payload.get("resolution_evidence") or {},
+                        "waiver_reason": waiver_reason,
+                    },
+                )
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+        return self.get_gap(gap_code)
+
+    @staticmethod
+    def _validate_gap_transition(previous_status: str, next_status: str) -> None:
+        transitions = {
+            "open": {"candidate_found", "waived", "obsolete"},
+            "candidate_found": {"open", "resolved", "waived", "obsolete"},
+            "resolved": {"obsolete"},
+            "waived": {"obsolete"},
+            "obsolete": set(),
+        }
+        if next_status not in transitions.get(previous_status, set()):
+            raise MaterialLibraryValidationError(f"ASSET_GAP_INVALID_TRANSITION: {previous_status} -> {next_status}")
+
+    def _gap_candidate_snapshot(self, cursor: Any, asset_code: str, role: str) -> dict[str, Any]:
+        cursor.execute(
+            """SELECT id, asset_code, title, media_kind, material_roles, execution_capability,
+                      checksum_sha256, maitu_material_id, updated_at
+               FROM assets WHERE asset_code = %s AND deleted_at IS NULL""",
+            (asset_code,),
+        )
+        asset = cursor.fetchone()
+        if asset is None:
+            raise MaterialLibraryValidationError(f"ASSET_GAP_CANDIDATE_UNKNOWN_ASSET: {asset_code}")
+        roles = list(asset.get("material_roles") or [])
+        if role not in roles:
+            raise MaterialLibraryValidationError(f"ASSET_GAP_CANDIDATE_ROLE_MISMATCH: {asset_code} lacks {role}")
+        capability = str(asset.get("execution_capability") or "unclassified")
+        if capability in {"unavailable", "unclassified"}:
+            raise MaterialLibraryValidationError(f"ASSET_GAP_CANDIDATE_UNAVAILABLE: {asset_code}")
+        cursor.execute(
+            """SELECT p.profile_code, r.revision_number, r.fingerprint_sha256
+               FROM asset_constraint_profiles p
+               JOIN asset_constraint_profile_revisions r
+                 ON r.profile_id = p.id AND r.revision_number = p.current_revision
+               WHERE p.asset_id = %s""",
+            (asset["id"],),
+        )
+        profile = cursor.fetchone()
+        return {
+            "asset_code": asset["asset_code"],
+            "title": asset["title"],
+            "media_kind": asset["media_kind"],
+            "material_roles": roles,
+            "execution_capability": capability,
+            "checksum_sha256": asset["checksum_sha256"],
+            "maitu_material_id": asset["maitu_material_id"],
+            "asset_updated_at": asset["updated_at"].isoformat(),
+            "constraint_profile": {
+                "profile_code": profile["profile_code"],
+                "revision_number": int(profile["revision_number"]),
+                "fingerprint_sha256": profile["fingerprint_sha256"],
+            } if profile else None,
+        }
+
+    def _record_gap_event(
+        self,
+        cursor: Any,
+        gap_id: Any,
+        previous_status: str | None,
+        status: str,
+        actor: str,
+        payload: dict[str, Any],
+    ) -> None:
+        event_code = self._next_code(cursor, "AG-GAP-EVT", "asset_gap_resolution_event")
+        cursor.execute(
+            """INSERT INTO asset_gap_resolution_events
+               (event_code, gap_id, previous_status, status, actor, payload)
+               VALUES (%s, %s, %s, %s, %s, %s::jsonb)""",
+            (event_code, gap_id, previous_status, status, actor, json.dumps(payload)),
+        )
+
+    @staticmethod
+    def _gap_select(suffix: str) -> str:
+        return f"""
+            SELECT g.*, COALESCE((
+                SELECT jsonb_agg(jsonb_build_object(
+                    'event_code', e.event_code,
+                    'previous_status', e.previous_status,
+                    'status', e.status,
+                    'actor', e.actor,
+                    'payload', e.payload,
+                    'created_at', e.created_at
+                ) ORDER BY e.created_at, e.event_code)
+                FROM asset_gap_resolution_events e
+                WHERE e.gap_id = g.id
+            ), '[]'::jsonb) AS events
+            FROM asset_gaps g
+            {suffix}
+        """
+
+    def _gap_read(self, row: dict[str, Any]) -> dict[str, Any]:
+        result = self._stringify(row)
+        result["alternative_asset_codes"] = list(result.get("alternative_asset_codes") or [])
+        result["resolution_snapshot"] = dict(result.get("resolution_snapshot") or {})
+        result["resolution_evidence"] = dict(result.get("resolution_evidence") or {})
+        result["events"] = list(result.get("events") or [])
+        return result
 
     @staticmethod
     def _canonical(value: Any) -> str:

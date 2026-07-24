@@ -48,7 +48,13 @@ export interface AssetGap {
   role: string;
   severity: string;
   status: string;
+  gapType: string;
+  impactSummary?: string;
+  alternativeAssetCodes: string[];
   resolutionAssetCode?: string;
+  resolutionSnapshot: Record<string, unknown>;
+  waivedReason?: string;
+  events: Array<{ eventCode: string; previousStatus?: string; status: string; actor?: string; createdAt?: string }>;
 }
 
 function strings(value: unknown): string[] {
@@ -96,7 +102,10 @@ function gap(value: unknown): AssetGap | undefined {
   if (!isRecord(value)) return undefined;
   const gapCode = asString(value.gap_code);
   if (!gapCode) return undefined;
-  return { gapCode, title: asString(value.title, gapCode), role: asString(value.role), severity: asString(value.severity), status: asString(value.status), resolutionAssetCode: asOptionalString(value.resolution_asset_code) };
+  return {
+    gapCode, title: asString(value.title, gapCode), role: asString(value.role), severity: asString(value.severity), status: asString(value.status), gapType: asString(value.gap_type, "material_missing"), impactSummary: asOptionalString(value.impact_summary), alternativeAssetCodes: strings(value.alternative_asset_codes), resolutionAssetCode: asOptionalString(value.resolution_asset_code), resolutionSnapshot: isRecord(value.resolution_snapshot) ? value.resolution_snapshot : {}, waivedReason: asOptionalString(value.waived_reason),
+    events: asArray(value.events).flatMap((event) => isRecord(event) && asString(event.status) ? [{ eventCode: asString(event.event_code), previousStatus: asOptionalString(event.previous_status), status: asString(event.status), actor: asOptionalString(event.actor), createdAt: asOptionalString(event.created_at) }] : []),
+  };
 }
 
 export const assetLibraryApi = {
@@ -136,12 +145,12 @@ export const assetLibraryApi = {
     return result;
   }),
   listGaps: () => requestJson<unknown[]>(`${ROOT}/gaps`).then((rows) => rows.flatMap((row) => gap(row) ?? [])),
-  createGap: (payload: { title: string; role: string; severity: string }) => postJson<unknown>(`${ROOT}/gaps`, payload).then((value) => {
+  createGap: (payload: { title: string; role: string; severity: string; gap_type?: string; impact_summary?: string; alternative_asset_codes?: string[] }) => postJson<unknown>(`${ROOT}/gaps`, payload).then((value) => {
     const result = gap(value);
     if (!result) throw new Error("素材缺口响应无效");
     return result;
   }),
-  updateGap: (gapCode: string, payload: { status: string; resolution_asset_code?: string }) => patchJson<unknown>(`${ROOT}/gaps/${gapCode}`, payload).then((value) => {
+  updateGap: (gapCode: string, payload: { status: string; resolution_asset_code?: string; waiver_reason?: string; actor?: string; resolution_evidence?: Record<string, unknown> }) => patchJson<unknown>(`${ROOT}/gaps/${gapCode}`, payload).then((value) => {
     const result = gap(value);
     if (!result) throw new Error("素材缺口响应无效");
     return result;
