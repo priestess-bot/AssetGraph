@@ -95,6 +95,34 @@
 .console-empty-workspace { min-height: calc(100vh - 130px); border-top: 1px solid var(--wb-line-strong); }
 .console-governance > .console-notification-list { margin-top: 14px; }
 
+.asset-library-layout { display: grid; grid-template-columns: minmax(300px, .9fr) minmax(400px, 1.1fr); gap: 16px; margin-top: 14px; }
+.asset-library-layout > div { display: grid; align-content: start; gap: 16px; min-width: 0; }
+.asset-inline-form, .asset-pack-entry { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 8px; padding: 12px; border-bottom: 1px solid var(--wb-line); }
+.asset-stack-form { display: grid; gap: 10px; padding: 13px; }
+.asset-search { display: grid; grid-template-columns: 20px minmax(0, 1fr); align-items: center; gap: 6px; margin: 12px; padding: 8px 9px; border: 1px solid var(--wb-line-strong); border-radius: 5px; color: var(--wb-muted); }
+.asset-search input { min-width: 0; border: 0; outline: 0; background: transparent; color: var(--wb-text); font-size: 10px; }
+.asset-list { display: grid; max-height: 590px; overflow-y: auto; border-top: 1px solid var(--wb-line); }
+.asset-list button { display: grid; grid-template-columns: minmax(0, 1fr) auto; min-height: 62px; align-items: center; gap: 8px; padding: 8px 12px; border: 0; border-bottom: 1px solid var(--wb-line); background: #fff; color: var(--wb-text); text-align: left; cursor: pointer; }
+.asset-list button:hover, .asset-list button.active { background: var(--wb-accent-soft); }
+.asset-list button > span, .asset-summary-list > div > span { display: flex; min-width: 0; flex-direction: column; }
+.asset-list strong, .asset-summary-list strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.asset-list code, .asset-summary-list code { margin-top: 3px; color: var(--console-cyan); font-size: 8px; }
+.asset-list small, .asset-summary-list small { overflow-wrap: anywhere; margin-top: 3px; color: var(--wb-muted); font-size: 8px; }
+.asset-detail-panel { padding: 13px; border: 1px solid var(--wb-line); border-radius: 6px; background: #fff; }
+.asset-detail-panel .wb-section-header { padding: 0 0 10px; border-bottom: 1px solid var(--wb-line); }
+.asset-detail-panel .wb-form-grid { margin-top: 12px; }
+.asset-role-options { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
+.asset-role-options label { display: inline-flex; align-items: center; gap: 4px; padding: 4px 6px; border: 1px solid var(--wb-line); border-radius: 4px; color: var(--wb-text); font-size: 9px; }
+.asset-role-options input { margin: 0; }
+.asset-constraint-list { display: grid; gap: 7px; margin: 10px 0; }
+.asset-constraint-row { display: grid; grid-template-columns: minmax(130px, .8fr) 74px minmax(120px, 1fr) auto; align-items: center; gap: 6px; }
+.asset-constraint-row label { display: inline-flex; align-items: center; gap: 4px; color: var(--wb-muted); font-size: 8px; }
+.asset-summary-list { display: grid; }
+.asset-summary-list > div { display: grid; min-height: 66px; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 9px 12px; border-bottom: 1px solid var(--wb-line); }
+.asset-entry-list { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }
+.asset-entry-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 7px; border: 1px solid var(--wb-line); border-radius: 4px; background: var(--wb-subtle); }
+.asset-entry-list button { border: 0; background: transparent; color: var(--wb-red); font-size: 8px; cursor: pointer; }
+
 .console-entity-inspector { min-width: 0; max-height: calc(100vh - 84px); border: 1px solid var(--wb-line-strong); border-radius: 6px; background: #fff; box-shadow: 0 12px 28px rgb(24 32 26 / 10%); overflow-y: auto; }
 .console-entity-inspector > header { position: sticky; z-index: 3; top: 0; display: flex; min-height: 76px; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--wb-line); background: rgb(255 255 255 / 97%); }
 .console-entity-inspector > header > div { display: flex; min-width: 0; flex-direction: column; }

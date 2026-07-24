@@ -17,7 +17,27 @@ from app.repositories.assets import (
     AssetBindingReceiptReplayError,
     AssetRepository,
 )
+from app.repositories.material_library import (
+    MaterialLibraryRepository,
+    MaterialLibraryValidationError,
+)
 from app.schemas.assets import AssetCreate, AssetFileRead, AssetMaituMaterialBindingUpdate, AssetRead
+from app.schemas.material_library import (
+    AssetConstraintProfileRead,
+    AssetConstraintProfileWrite,
+    AssetClassificationUpdate,
+    AssetGapCreate,
+    AssetGapRead,
+    AssetGapUpdate,
+    AssetGroupCreate,
+    AssetGroupMembersReplace,
+    AssetGroupRead,
+    ExecutionCapability,
+    MaterialPackCreate,
+    MaterialPackRead,
+    MaterialRole,
+    MediaKind,
+)
 from app.services.asset_candidates import AssetRetrievalIndex
 from app.services.maitu_authority import (
     MaituAuthorityConfigurationError,
@@ -34,6 +54,10 @@ router = APIRouter(prefix="/assets", tags=["assets"])
 
 def get_asset_repository(connection: Annotated[Connection, Depends(get_db)]) -> AssetRepository:
     return AssetRepository(connection)
+
+
+def get_material_library_repository(connection: Annotated[Connection, Depends(get_db)]) -> MaterialLibraryRepository:
+    return MaterialLibraryRepository(connection)
 
 
 def get_object_storage() -> ObjectStorage:
@@ -101,8 +125,11 @@ def list_assets(
     q: str | None = None,
     limit: int = 50,
     offset: int = 0,
+    media_kind: MediaKind | None = None,
+    material_role: MaterialRole | None = None,
+    execution_capability: ExecutionCapability | None = None,
 ) -> list[dict]:
-    return repository.list(
+    rows = repository.list(
         asset_type=asset_type,
         maitu_category=maitu_category,
         local_file_code=local_file_code,
@@ -117,6 +144,13 @@ def list_assets(
         limit=limit,
         offset=offset,
     )
+    return [
+        row
+        for row in rows
+        if (media_kind is None or row.get("media_kind") == media_kind)
+        and (material_role is None or material_role in (row.get("material_roles") or []))
+        and (execution_capability is None or row.get("execution_capability") == execution_capability)
+    ]
 
 
 @router.get("/stats")
@@ -124,6 +158,124 @@ def asset_stats(
     repository: Annotated[AssetRepository, Depends(get_asset_repository)],
 ) -> dict:
     return repository.stats()
+
+
+@router.patch("/{asset_code}/classification", response_model=AssetRead)
+def update_asset_classification(
+    asset_code: str,
+    payload: AssetClassificationUpdate,
+    repository: Annotated[MaterialLibraryRepository, Depends(get_material_library_repository)],
+) -> dict:
+    row = repository.update_asset_classification(
+        asset_code,
+        media_kind=payload.media_kind,
+        material_roles=list(payload.material_roles),
+        execution_capability=payload.execution_capability,
+    )
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found")
+    return row
+
+
+@router.post("/groups", response_model=AssetGroupRead, status_code=status.HTTP_201_CREATED)
+def create_asset_group(
+    payload: AssetGroupCreate,
+    repository: Annotated[MaterialLibraryRepository, Depends(get_material_library_repository)],
+) -> dict:
+    try:
+        return repository.create_group(payload.model_dump())
+    except MaterialLibraryValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+
+
+@router.get("/groups", response_model=list[AssetGroupRead])
+def list_asset_groups(
+    repository: Annotated[MaterialLibraryRepository, Depends(get_material_library_repository)],
+) -> list[dict]:
+    return repository.list_groups()
+
+
+@router.put("/groups/{group_code}/members", response_model=AssetGroupRead)
+def replace_asset_group_members(
+    group_code: str,
+    payload: AssetGroupMembersReplace,
+    repository: Annotated[MaterialLibraryRepository, Depends(get_material_library_repository)],
+) -> dict:
+    try:
+        row = repository.replace_group_members(group_code, payload.asset_codes)
+    except MaterialLibraryValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset group not found")
+    return row
+
+
+@router.post("/{asset_code}/constraint-profile", response_model=AssetConstraintProfileRead)
+def write_asset_constraint_profile(
+    asset_code: str,
+    payload: AssetConstraintProfileWrite,
+    repository: Annotated[MaterialLibraryRepository, Depends(get_material_library_repository)],
+) -> dict:
+    row = repository.write_constraint_profile(asset_code, [rule.model_dump(mode="json") for rule in payload.constraints])
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found")
+    return row
+
+
+@router.get("/{asset_code}/constraint-profile", response_model=AssetConstraintProfileRead)
+def get_asset_constraint_profile(
+    asset_code: str,
+    repository: Annotated[MaterialLibraryRepository, Depends(get_material_library_repository)],
+) -> dict:
+    row = repository.get_constraint_profile(asset_code)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset constraint profile not found")
+    return row
+
+
+@router.post("/material-packs", response_model=MaterialPackRead, status_code=status.HTTP_201_CREATED)
+def create_material_pack(
+    payload: MaterialPackCreate,
+    repository: Annotated[MaterialLibraryRepository, Depends(get_material_library_repository)],
+) -> dict:
+    try:
+        return repository.create_pack(payload.model_dump(mode="json"))
+    except MaterialLibraryValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+
+
+@router.get("/material-packs", response_model=list[MaterialPackRead])
+def list_material_packs(
+    repository: Annotated[MaterialLibraryRepository, Depends(get_material_library_repository)],
+) -> list[dict]:
+    return repository.list_packs()
+
+
+@router.post("/gaps", response_model=AssetGapRead, status_code=status.HTTP_201_CREATED)
+def create_asset_gap(
+    payload: AssetGapCreate,
+    repository: Annotated[MaterialLibraryRepository, Depends(get_material_library_repository)],
+) -> dict:
+    return repository.create_gap(payload.model_dump(mode="json"))
+
+
+@router.get("/gaps", response_model=list[AssetGapRead])
+def list_asset_gaps(
+    repository: Annotated[MaterialLibraryRepository, Depends(get_material_library_repository)],
+) -> list[dict]:
+    return repository.list_gaps()
+
+
+@router.patch("/gaps/{gap_code}", response_model=AssetGapRead)
+def update_asset_gap(
+    gap_code: str,
+    payload: AssetGapUpdate,
+    repository: Annotated[MaterialLibraryRepository, Depends(get_material_library_repository)],
+) -> dict:
+    row = repository.update_gap(gap_code, payload.model_dump())
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset gap not found")
+    return row
 
 
 @router.get("/candidates")

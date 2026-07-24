@@ -5,6 +5,7 @@ from typing import Any
 
 from psycopg import Connection
 from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 
 from app.services.code_generator import AssetType, format_asset_code
 
@@ -29,6 +30,9 @@ class AssetRepository:
         "status",
         "project_id",
         "description",
+        "media_kind",
+        "material_roles",
+        "execution_capability",
         "display_code",
         "local_file_code",
         "entity_code",
@@ -74,6 +78,7 @@ class AssetRepository:
     def create(self, payload: dict[str, Any], *, commit: bool = True) -> dict[str, Any]:
         tags = self._normalize_tags(payload.get("tags") or [])
         data = self._filter_writable(payload)
+        data["material_roles"] = Jsonb(self._normalize_json_array(data.get("material_roles") or []))
         data["asset_type"] = AssetType(data["asset_type"]).value
         data["asset_code"] = self._next_asset_code(data["asset_type"])
         fields = tuple(data.keys())
@@ -96,6 +101,10 @@ class AssetRepository:
         result = self._stringify_ids(row)
         result["tags"] = tags
         return result
+
+    @staticmethod
+    def _normalize_json_array(values: list[Any]) -> list[str]:
+        return list(dict.fromkeys(str(value) for value in values if str(value).strip()))
 
     def get_by_code(self, asset_code: str) -> dict[str, Any] | None:
         with self.connection.cursor(row_factory=dict_row) as cursor:

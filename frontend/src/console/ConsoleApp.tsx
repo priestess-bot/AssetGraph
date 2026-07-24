@@ -26,7 +26,7 @@ import {
 import type { ComponentType } from "react";
 import { GeminiPage } from "../maitu/GeminiPage";
 import { ProductionPage } from "../maitu/ProductionPage";
-import { ResourcesPage } from "../maitu/ResourcesPage";
+import { AssetLibraryPage } from "../assets/AssetLibraryPage";
 import { SessionsPage } from "../live-research/SessionsPage";
 import { TemplatesPage } from "../live-research/TemplatesPage";
 import { WatchPage } from "../live-research/WatchPage";
@@ -241,7 +241,7 @@ function ResearchWorkspace({ search }: { search: string }) {
 
 function AssetsWorkspace({ search }: { search: string }) {
   const panel = new URLSearchParams(search).get("panel");
-  return <>{panel === "analysis" ? <GeminiPage /> : <ResourcesPage />}</>;
+  return <>{panel === "analysis" ? <GeminiPage /> : <AssetLibraryPage />}</>;
 }
 
 

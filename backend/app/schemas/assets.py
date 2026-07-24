@@ -3,6 +3,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.schemas.material_library import ExecutionCapability, MaterialRole, MediaKind
+
 
 class MaituAssetCategory(StrEnum):
     DIGITAL_HUMAN_VIDEO = "digital_human_video"
@@ -46,6 +48,12 @@ class AssetCreate(BaseModel):
     status: str = "created"
     project_id: str | None = None
     description: str | None = None
+
+    # Functional material-library classification.  Old asset_type and
+    # maitu_category remain compatibility/source fields and are not inferred.
+    media_kind: MediaKind | None = None
+    material_roles: list[MaterialRole] = Field(default_factory=list)
+    execution_capability: ExecutionCapability = ExecutionCapability.UNCLASSIFIED
 
     # Source-side identity mapping. AssetGraph keeps a stable global
     # asset_code, while preserving Maitu / local Browser-use-friendly codes
