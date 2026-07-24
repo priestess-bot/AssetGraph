@@ -111,4 +111,25 @@ describe("AssetLibraryPage", () => {
     const request = requests.find((item) => item.url === "/api/assets/material-packs/AG-PACK-001/revisions" && item.init?.method === "POST");
     expect(request?.init?.body).toBe(JSON.stringify({ expected_revision: 1, entries: [{ selection_kind: "group", selection_code: "AG-GRP-001", mode: "required", min_occurrences: 1 }] }));
   });
+
+  it("shows structured additions and removals against the prior material-pack revision", async () => {
+    const pack = { pack_code: "AG-PACK-001", title: "背景素材包", role: "background", revision_number: 2, status: "draft", fingerprint_sha256: "b".repeat(64), entries: [{ selection_kind: "asset", selection_code: "AG-IMG-002", mode: "optional", min_occurrences: 0, max_occurrences: null }], resolved_asset_codes: ["AG-IMG-002"], created_at: "2026-07-25T00:00:00Z", updated_at: "2026-07-25T00:00:00Z" };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/assets" || url === "/api/assets/groups" || url === "/api/assets/gaps") return response([]);
+      if (url === "/api/assets/material-packs" && !init?.method) return response([pack]);
+      if (url === "/api/assets/material-packs/AG-PACK-001/revisions" && !init?.method) return response([
+        { revision_number: 2, entries: pack.entries, fingerprint_sha256: pack.fingerprint_sha256, created_at: "2026-07-25T00:00:00Z" },
+        { revision_number: 1, entries: [{ selection_kind: "group", selection_code: "AG-GRP-001", mode: "required", min_occurrences: 1, max_occurrences: null }], fingerprint_sha256: "a".repeat(64), created_at: "2026-07-24T00:00:00Z" },
+      ]);
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("tab", { name: "素材包" }));
+    expect(await screen.findByText("与 r1 差异")).toBeInTheDocument();
+    expect(screen.getByText(/新增：optional:asset:AG-IMG-002/)).toBeInTheDocument();
+    expect(screen.getByText(/移除：required:group:AG-GRP-001/)).toBeInTheDocument();
+  });
 });
