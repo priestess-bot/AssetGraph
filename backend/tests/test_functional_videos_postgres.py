@@ -93,6 +93,17 @@ def test_functional_video_plan_seeds_content_stages_and_queues_renderer() -> Non
         assert restored["timeline_revision"] == 3
         assert restored["production_timeline"]["tracks"][0]["clips"][0]["transition"] == clips[0]["transition"]
 
+        branch = FunctionalVideoService(connection).branch_plan(
+            plan["plan_code"], {"title": "Video branch"}, actor_id="test-operator"
+        )
+        assert branch is not None
+        assert branch["plan_code"] != plan["plan_code"]
+        assert branch["video_job_code"] != plan["video_job_code"]
+        assert branch["title"] == "Video branch"
+        assert branch["production_timeline"] == restored["production_timeline"]
+        assert branch["render_profile"]["branched_from_plan_code"] == plan["plan_code"]
+        assert branch["job_status"] == "queued"
+
         with connection.cursor() as cursor:
             cursor.execute(
                 "SELECT status FROM video_production_stages WHERE job_code = %s ORDER BY stage_order",

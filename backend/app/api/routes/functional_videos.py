@@ -9,6 +9,7 @@ from app.core.database import get_db
 from app.domain.errors import DomainValidationError
 from app.repositories.video_productions import VideoProductionRetryConflictError
 from app.schemas.functional_videos import (
+    FunctionalVideoPlanBranch,
     FunctionalVideoPlanCreate,
     FunctionalVideoPlanRead,
     FunctionalVideoTimelineRestore,
@@ -43,6 +44,21 @@ def list_video_plans(service: Annotated[FunctionalVideoService, Depends(get_serv
 @router.get("/{plan_code}", response_model=FunctionalVideoPlanRead)
 def get_video_plan(plan_code: str, service: Annotated[FunctionalVideoService, Depends(get_service)]) -> dict:
     plan = service.get_plan(plan_code)
+    if plan is None:
+        raise HTTPException(status_code=404, detail="Video plan not found")
+    return plan
+
+
+@router.post("/{plan_code}/branch", response_model=FunctionalVideoPlanRead, status_code=status.HTTP_201_CREATED)
+def branch_video_plan(
+    plan_code: str,
+    payload: FunctionalVideoPlanBranch,
+    service: Annotated[FunctionalVideoService, Depends(get_service)],
+) -> dict:
+    try:
+        plan = service.branch_plan(plan_code, payload.model_dump(mode="json", exclude_none=True), actor_id="functional-operator")
+    except DomainValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=exc.message) from exc
     if plan is None:
         raise HTTPException(status_code=404, detail="Video plan not found")
     return plan

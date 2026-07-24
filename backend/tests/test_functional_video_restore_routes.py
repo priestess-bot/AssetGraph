@@ -34,6 +34,13 @@ def plan(revision: int = 2) -> dict:
 class FakeFunctionalVideoService:
     def __init__(self) -> None:
         self.calls: list[tuple[str, int, int, str]] = []
+        self.branch_calls: list[tuple[str, dict, str]] = []
+
+    def branch_plan(self, plan_code: str, payload: dict, *, actor_id: str) -> dict | None:
+        if plan_code == "VIDPLAN-MISSING":
+            return None
+        self.branch_calls.append((plan_code, payload, actor_id))
+        return {**plan(1), "plan_code": "VIDPLAN-002", "title": payload.get("title") or "恢复时间轴 - 分支"}
 
     def restore_timeline_revision(
         self,
@@ -82,3 +89,13 @@ def test_restore_timeline_revision_reports_stale_editor_as_conflict(client: tupl
     )
 
     assert response.status_code == 409
+
+
+def test_branch_video_plan_creates_a_new_queued_plan(client: tuple[TestClient, FakeFunctionalVideoService]) -> None:
+    test_client, service = client
+
+    response = test_client.post("/api/functional-video-plans/VIDPLAN-001/branch", json={"title": "剪辑调整"})
+
+    assert response.status_code == 201
+    assert response.json()["plan_code"] == "VIDPLAN-002"
+    assert service.branch_calls == [("VIDPLAN-001", {"title": "剪辑调整"}, "functional-operator")]

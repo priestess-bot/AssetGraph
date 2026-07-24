@@ -132,12 +132,124 @@ class FunctionalVideoService:
             actor_id=actor_id,
         )
 
+    def branch_plan(self, plan_code: str, payload: dict[str, Any], *, actor_id: str) -> dict[str, Any] | None:
+        """Create a queued editable branch from the exact fixed source of an existing plan."""
+        source = self._branch_source(plan_code)
+        if source is None:
+            return None
+        timeline = deepcopy(dict(source["production_timeline"] or {}))
+        shot_list = self._timeline_shot_list(dict(source["job_shot_list"] or {}), timeline)
+        duration = round(float(timeline.get("global_end_ms") or 0) / 1000)
+        if not 30 <= duration <= 120:
+            raise DomainValidationError("VIDEO_BRANCH_DURATION_INVALID", "The source timeline has an unsupported duration")
+        title = str(payload.get("title") or f"{source['title']} - 分支")
+        variant = self.production.create_production_variant(
+            project_code=str(source["source_project_code"]),
+            project_revision=int(source["source_project_revision"]),
+            story_brief_code=str(source["story_brief_code"]),
+            story_brief_revision=int(source["story_brief_revision"]),
+            script_revision_code=str(source["script_revision_code"]),
+            shot_list_revision_code=str(source["shot_list_revision_code"]),
+            carrier_kind="rendered_video",
+            branch_target={
+                **dict(source["variant_branch_target"] or {}),
+                "delivery": "local_render",
+                "title": title,
+                "branched_from_plan_code": plan_code,
+            },
+            configuration={
+                **dict(source["variant_configuration"] or {}),
+                "target_duration_seconds": duration,
+                "branched_from_plan_code": plan_code,
+            },
+            material_snapshot_ref=deepcopy(dict(source["material_snapshot_ref"] or {})),
+            constraint_snapshot_ref=deepcopy(dict(source["constraint_snapshot_ref"] or {})),
+            actor_id=actor_id,
+            producer_strategy_revision="functional-video.branch.v1",
+        )
+        variant = self.production.confirm_production_variant_revision(
+            variant["variant_code"], revision_number=int(variant["revision_number"]), actor_id=actor_id
+        )
+        job = self.videos.create({"topic": source["job_topic"], "target_duration_seconds": duration})
+        seeded = self.videos.seed_content_project_job(
+            job["job_code"],
+            story_brief=deepcopy(dict(source["job_story_brief"] or {})),
+            script=deepcopy(dict(source["job_script"] or {})),
+            shot_list=shot_list,
+        )
+        if seeded is None:
+            raise RuntimeError("branched video job cannot be seeded")
+        self.production.bind_video_production_job(
+            job_code=job["job_code"],
+            variant_code=variant["variant_code"],
+            variant_revision=int(variant["revision_number"]),
+            actor_id=actor_id,
+        )
+        profile = deepcopy(dict(source["render_profile"] or {}))
+        profile["target_duration_seconds"] = duration
+        profile["branched_from_plan_code"] = plan_code
+        try:
+            with self.connection.cursor(row_factory=dict_row) as cursor:
+                code = self._next_code(cursor)
+                cursor.execute(
+                    """INSERT INTO functional_video_plans
+                       (plan_code, project_code, variant_code, video_job_code, title, production_timeline, render_profile)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING *""",
+                    (code, source["project_code"], variant["variant_code"], job["job_code"], title, Jsonb(timeline), Jsonb(profile)),
+                )
+                row = cursor.fetchone()
+                cursor.execute(
+                    """INSERT INTO functional_video_timeline_revisions
+                       (plan_id, revision_number, production_timeline, actor_id)
+                       VALUES (%s, %s, %s, %s)""",
+                    (row["id"], int(row["timeline_revision"]), Jsonb(timeline), actor_id),
+                )
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+        return self._enrich(row)
+
     def retry(self, plan_code: str) -> dict[str, Any] | None:
         plan = self.get_plan(plan_code)
         if plan is None:
             return None
         self.videos.retry(plan["video_job_code"])
         return self.get_plan(plan_code)
+
+    def _branch_source(self, plan_code: str) -> dict[str, Any] | None:
+        """Load only confirmed, immutable source revisions for a branch copy."""
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """SELECT plan.*, job.topic AS job_topic, job.story_brief AS job_story_brief,
+                          job.script AS job_script, job.shot_list AS job_shot_list,
+                          project.project_code AS source_project_code,
+                          project.revision_number AS source_project_revision,
+                          story.story_brief_code, story.revision_number AS story_brief_revision,
+                          script.script_revision_code, shots.shot_list_revision_code,
+                          variant.configuration AS variant_configuration,
+                          variant.branch_target AS variant_branch_target,
+                          variant.material_snapshot_ref, variant.constraint_snapshot_ref
+                   FROM functional_video_plans AS plan
+                   JOIN video_production_jobs AS job ON job.job_code = plan.video_job_code
+                   JOIN production_variant_revisions AS variant
+                     ON variant.variant_code = plan.variant_code AND variant.status = 'confirmed'
+                   JOIN content_project_revisions AS project ON project.id = variant.source_project_revision_id
+                   JOIN story_brief_revisions AS story ON story.id = variant.source_story_brief_revision_id
+                   JOIN content_script_revisions AS script ON script.id = variant.source_script_revision_id
+                   JOIN shot_list_revisions AS shots ON shots.id = variant.source_shot_list_revision_id
+                   WHERE plan.plan_code = %s
+                   ORDER BY variant.revision_number DESC
+                   LIMIT 1""",
+                (plan_code,),
+            )
+            source = cursor.fetchone()
+        if source is None:
+            return None
+        for revision_key in ("source_project_revision", "story_brief_revision"):
+            if int(source[revision_key]) < 1:
+                raise DomainValidationError("VIDEO_BRANCH_SOURCE_INVALID", "The source content revisions are invalid")
+        return source
 
     def update_timeline(self, plan_code: str, payload: dict[str, Any], *, actor_id: str) -> dict[str, Any] | None:
         """Apply a constrained edit and update the queued worker input atomically."""

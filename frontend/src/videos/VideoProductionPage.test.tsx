@@ -75,4 +75,29 @@ describe("VideoProductionPage", () => {
     const request = requests.find((item) => item.url.endsWith("/timeline-revisions/1/restore") && item.init?.method === "POST");
     expect(request?.init?.body).toBe(JSON.stringify({ expected_revision: 2 }));
   });
+
+  it("creates an editable branch after a render job has started", async () => {
+    const running = { ...plan, job_status: "running", current_stage: "rendering" };
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); requests.push({ url, init });
+      if (url === "/api/content-projects") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/functional-video-plans") return new Response(JSON.stringify([running]), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/functional-video-plans/VIDPLAN-001") return new Response(JSON.stringify(running), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/functional-video-plans/VIDPLAN-002") return new Response(JSON.stringify({ ...plan, plan_code: "VIDPLAN-002", title: "剪辑修订" }), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/functional-video-plans/VIDPLAN-001/timeline-revisions") return new Response(JSON.stringify([{ revision_number: 1, production_timeline: plan.production_timeline, actor_id: "operator", created_at: "2026-07-25T00:00:00Z" }]), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/functional-video-plans/VIDPLAN-001/branch" && init?.method === "POST") return new Response(JSON.stringify({ ...plan, plan_code: "VIDPLAN-002", title: "剪辑修订" }), { status: 201, headers: { "Content-Type": "application/json" } });
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByRole("heading", { name: "镜头重排" });
+    await user.type(screen.getByRole("textbox", { name: "分支名称" }), "剪辑修订");
+    await user.click(screen.getByRole("button", { name: "创建可编辑分支" }));
+
+    const request = requests.find((item) => item.url.endsWith("/branch") && item.init?.method === "POST");
+    expect(request?.init?.body).toBe(JSON.stringify({ title: "剪辑修订" }));
+    expect(await screen.findByRole("heading", { name: "剪辑修订" })).toBeInTheDocument();
+  });
 });

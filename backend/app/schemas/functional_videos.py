@@ -12,6 +12,10 @@ class FunctionalVideoPlanCreate(BaseModel):
     target_duration_seconds: int = Field(default=55, ge=30, le=120)
 
 
+class FunctionalVideoPlanBranch(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+
+
 class FunctionalVideoTimelineClipUpdate(BaseModel):
     clip_code: str = Field(min_length=1, max_length=80)
     duration_ms: int = Field(ge=250, le=120_000)

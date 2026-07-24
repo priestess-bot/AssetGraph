@@ -42,5 +42,6 @@ export const functionalVideosApi = {
   create: (payload: { project_code: string; title?: string; target_duration_seconds: number }) => postJson<unknown>(ROOT, payload).then(plan),
   updateTimeline: (code: string, payload: { expected_revision: number; video_clips: Array<{ clip_code: string; duration_ms: number; transition: string; source_start_seconds?: number; source_end_seconds?: number }> }) => requestJson<unknown>(`${ROOT}/${code}/timeline`, { method: "PUT", body: JSON.stringify(payload) }).then(plan),
   restoreTimelineRevision: (code: string, sourceRevision: number, expectedRevision: number) => postJson<unknown>(`${ROOT}/${code}/timeline-revisions/${sourceRevision}/restore`, { expected_revision: expectedRevision }).then(plan),
+  branch: (code: string, payload: { title?: string }) => postJson<unknown>(`${ROOT}/${code}/branch`, payload).then(plan),
   retry: (code: string) => postJson<unknown>(`${ROOT}/${code}/retry`).then(plan),
 };
