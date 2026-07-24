@@ -34,14 +34,54 @@ function TimelineRevisionHistory({ plan }: { plan: FunctionalVideoPlan }) {
   return <div className="video-timeline-history"><div><strong>修订历史</strong><small>{timelineDiff(plan.productionTimeline, previous?.productionTimeline).join(" · ")}</small></div><ol>{history.map((revision) => <li key={revision.revisionNumber}><span><strong>r{revision.revisionNumber}</strong><small>{timelineClips(revision.productionTimeline).map((clip) => clip.clip_code).join(" / ")} · {(revision.productionTimeline.global_end_ms / 1000).toFixed(1)} 秒</small></span><span className="video-timeline-history-actions"><StatusBadge label={revision.revisionNumber === current?.revisionNumber ? "当前" : revision.actorId} tone={revision.revisionNumber === current?.revisionNumber ? "info" : "neutral"} />{plan.jobStatus === "queued" && revision.revisionNumber !== current?.revisionNumber ? <button type="button" className="wb-icon-button" title={`恢复 r${revision.revisionNumber} 为新修订`} aria-label={`恢复 r${revision.revisionNumber}`} disabled={restore.isPending} onClick={() => restore.mutate(revision.revisionNumber)}><RotateCcw size={14} aria-hidden="true" /></button> : null}</span></li>)}</ol>{restore.error ? <InlineNotice tone="danger" title="时间轴恢复失败">{text(restore.error)}</InlineNotice> : null}</div>;
 }
 
+type EditableTimelineClip = {
+  clipCode: string;
+  durationMs: number;
+  transition: string;
+  sourceStartSeconds?: number;
+  sourceEndSeconds?: number;
+  sourceAvailableStartSeconds?: number;
+  sourceAvailableEndSeconds?: number;
+};
+
+function editableTimelineClips(videoTrack: FunctionalVideoPlan["productionTimeline"]["tracks"][number] | undefined): EditableTimelineClip[] {
+  return videoTrack?.clips.map((clip) => ({
+    clipCode: clip.clip_code,
+    durationMs: clip.timeline_range.duration_ms,
+    transition: clip.transition ?? "cut",
+    sourceStartSeconds: clip.source_range?.start_seconds,
+    sourceEndSeconds: clip.source_range?.end_seconds,
+    sourceAvailableStartSeconds: clip.source_range?.available_start_seconds,
+    sourceAvailableEndSeconds: clip.source_range?.available_end_seconds,
+  })) ?? [];
+}
+
 function TimelineEditor({ plan }: { plan: FunctionalVideoPlan }) {
   const queryClient = useQueryClient();
   const videoTrack = plan.productionTimeline.tracks.find((track) => track.track_kind === "video");
-  const [clips, setClips] = useState(() => videoTrack?.clips.map((clip) => ({ clipCode: clip.clip_code, durationMs: clip.timeline_range.duration_ms, transition: clip.transition ?? "cut" })) ?? []);
-  useEffect(() => setClips(videoTrack?.clips.map((clip) => ({ clipCode: clip.clip_code, durationMs: clip.timeline_range.duration_ms, transition: clip.transition ?? "cut" })) ?? []), [plan.timelineRevision, videoTrack]);
-  const update = useMutation({ mutationFn: () => functionalVideosApi.updateTimeline(plan.planCode, { expected_revision: plan.timelineRevision, video_clips: clips.map((clip) => ({ clip_code: clip.clipCode, duration_ms: clip.durationMs, transition: clip.transition })) }), onSuccess: (next) => { queryClient.setQueryData(["functional-video", plan.planCode], next); void queryClient.invalidateQueries({ queryKey: ["functional-videos"] }); void queryClient.invalidateQueries({ queryKey: ["functional-video", plan.planCode, "timeline-revisions"] }); } });
+  const [clips, setClips] = useState<EditableTimelineClip[]>(() => editableTimelineClips(videoTrack));
+  useEffect(() => setClips(editableTimelineClips(videoTrack)), [plan.timelineRevision, videoTrack]);
+  const update = useMutation({
+    mutationFn: () => functionalVideosApi.updateTimeline(plan.planCode, {
+      expected_revision: plan.timelineRevision,
+      video_clips: clips.map((clip) => ({
+        clip_code: clip.clipCode,
+        duration_ms: clip.durationMs,
+        transition: clip.transition,
+        ...(typeof clip.sourceStartSeconds === "number" && typeof clip.sourceEndSeconds === "number" ? {
+          source_start_seconds: clip.sourceStartSeconds,
+          source_end_seconds: clip.sourceEndSeconds,
+        } : {}),
+      })),
+    }),
+    onSuccess: (next) => {
+      queryClient.setQueryData(["functional-video", plan.planCode], next);
+      void queryClient.invalidateQueries({ queryKey: ["functional-videos"] });
+      void queryClient.invalidateQueries({ queryKey: ["functional-video", plan.planCode, "timeline-revisions"] });
+    },
+  });
   const totalSeconds = clips.reduce((sum, clip) => sum + clip.durationMs, 0) / 1000;
-  const updateClip = (index: number, changes: Partial<(typeof clips)[number]>) => setClips((current) => current.map((clip, clipIndex) => clipIndex === index ? { ...clip, ...changes } : clip));
+  const updateClip = (index: number, changes: Partial<EditableTimelineClip>) => setClips((current) => current.map((clip, clipIndex) => clipIndex === index ? { ...clip, ...changes } : clip));
   const moveClip = (index: number, offset: number) => setClips((current) => {
     const destination = index + offset;
     if (destination < 0 || destination >= current.length) return current;
@@ -49,7 +89,13 @@ function TimelineEditor({ plan }: { plan: FunctionalVideoPlan }) {
     [next[index], next[destination]] = [next[destination]!, next[index]!];
     return next;
   });
-  return <section className="wb-section"><SectionHeader kicker={`TIMELINE r${plan.timelineRevision}`} title="时间轴" actions={<StatusBadge label={`${totalSeconds.toFixed(1)} 秒`} tone="info" />} /><div className="video-timeline">{clips.map((clip) => <div key={clip.clipCode} style={{ flexGrow: Math.max(1, clip.durationMs) }}><span>{clip.clipCode}</span><strong>{(clip.durationMs / 1000).toFixed(1)}s</strong><small>{videoTrack?.clips.find((item) => item.clip_code === clip.clipCode)?.source_range?.asset_code ?? "voice"} · {clip.transition}</small></div>)}</div><div className="video-timeline-editor">{clips.map((clip, index) => <div key={clip.clipCode}><code>{clip.clipCode}</code><div className="video-clip-order"><button type="button" className="wb-icon-button" title="上移镜头" aria-label={`上移 ${clip.clipCode}`} disabled={plan.jobStatus !== "queued" || index === 0} onClick={() => moveClip(index, -1)}><ArrowUp size={14} aria-hidden="true" /></button><button type="button" className="wb-icon-button" title="下移镜头" aria-label={`下移 ${clip.clipCode}`} disabled={plan.jobStatus !== "queued" || index === clips.length - 1} onClick={() => moveClip(index, 1)}><ArrowDown size={14} aria-hidden="true" /></button></div><label className="wb-field"><span>时长（毫秒）</span><input className="wb-input" type="number" min="250" max="120000" value={clip.durationMs} disabled={plan.jobStatus !== "queued"} onChange={(event) => updateClip(index, { durationMs: Number(event.target.value) })} /></label><label className="wb-field"><span>转场</span><select className="wb-input" value={clip.transition} disabled={plan.jobStatus !== "queued"} onChange={(event) => updateClip(index, { transition: event.target.value })}><option value="cut">cut</option><option value="fade">fade</option><option value="fade_out">fade_out</option></select></label></div>)}</div><TimelineRevisionHistory plan={plan} />{plan.jobStatus === "queued" ? <div className="wb-form-actions"><button type="button" className="wb-button wb-button-primary" disabled={update.isPending || totalSeconds < 30 || totalSeconds > 120} onClick={() => update.mutate()}>保存时间轴修订</button></div> : <InlineNotice tone="warning" title="时间轴已锁定">渲染任务已被领取或结束。请创建新的成片分支进行调整。</InlineNotice>}{update.error ? <InlineNotice tone="danger" title="时间轴未保存">{text(update.error)}</InlineNotice> : null}</section>;
+  const editable = plan.jobStatus === "queued";
+  return <section className="wb-section"><SectionHeader kicker={`TIMELINE r${plan.timelineRevision}`} title="时间轴" actions={<StatusBadge label={`${totalSeconds.toFixed(1)} 秒`} tone="info" />} /><div className="video-timeline">{clips.map((clip) => <div key={clip.clipCode} style={{ flexGrow: Math.max(1, clip.durationMs) }}><span>{clip.clipCode}</span><strong>{(clip.durationMs / 1000).toFixed(1)}s</strong><small>{videoTrack?.clips.find((item) => item.clip_code === clip.clipCode)?.source_range?.asset_code ?? "voice"} · {clip.transition}</small></div>)}</div><div className="video-timeline-editor">{clips.map((clip, index) => {
+    const hasSourceRange = typeof clip.sourceStartSeconds === "number" && typeof clip.sourceEndSeconds === "number";
+    const sourceLowerBound = clip.sourceAvailableStartSeconds ?? 0;
+    const sourceUpperBound = clip.sourceAvailableEndSeconds;
+    return <div key={clip.clipCode}><code>{clip.clipCode}</code><div className="video-clip-order"><button type="button" className="wb-icon-button" title="上移镜头" aria-label={`上移 ${clip.clipCode}`} disabled={!editable || index === 0} onClick={() => moveClip(index, -1)}><ArrowUp size={14} aria-hidden="true" /></button><button type="button" className="wb-icon-button" title="下移镜头" aria-label={`下移 ${clip.clipCode}`} disabled={!editable || index === clips.length - 1} onClick={() => moveClip(index, 1)}><ArrowDown size={14} aria-hidden="true" /></button></div><label className="wb-field"><span>时长（毫秒）</span><input className="wb-input" type="number" min="250" max="120000" value={clip.durationMs} disabled={!editable} onChange={(event) => updateClip(index, { durationMs: Number(event.target.value) })} /></label><label className="wb-field"><span>转场</span><select className="wb-input" value={clip.transition} disabled={!editable} onChange={(event) => updateClip(index, { transition: event.target.value })}><option value="cut">cut</option><option value="fade">fade</option><option value="fade_out">fade_out</option></select></label>{hasSourceRange ? <div className="video-source-range"><label className="wb-field"><span>素材入点（秒）</span><input aria-label={`素材入点 ${clip.clipCode}`} className="wb-input" type="number" step="0.01" min={sourceLowerBound} max={clip.sourceEndSeconds! - 0.01} value={clip.sourceStartSeconds} disabled={!editable} onChange={(event) => updateClip(index, { sourceStartSeconds: Number(event.target.value) })} /></label><label className="wb-field"><span>素材出点（秒）</span><input aria-label={`素材出点 ${clip.clipCode}`} className="wb-input" type="number" step="0.01" min={clip.sourceStartSeconds! + 0.01} max={sourceUpperBound} value={clip.sourceEndSeconds} disabled={!editable} onChange={(event) => updateClip(index, { sourceEndSeconds: Number(event.target.value) })} /></label><small>固定可用范围 {sourceLowerBound.toFixed(2)}-{sourceUpperBound?.toFixed(2) ?? "--"} 秒</small></div> : null}</div>;
+  })}</div><TimelineRevisionHistory plan={plan} />{editable ? <div className="wb-form-actions"><button type="button" className="wb-button wb-button-primary" disabled={update.isPending || totalSeconds < 30 || totalSeconds > 120} onClick={() => update.mutate()}>保存时间轴修订</button></div> : <InlineNotice tone="warning" title="时间轴已锁定">渲染任务已被领取或结束。请创建新的成片分支进行调整。</InlineNotice>}{update.error ? <InlineNotice tone="danger" title="时间轴未保存">{text(update.error)}</InlineNotice> : null}</section>;
 }
 
 function WorkflowPanel({ plan }: { plan: FunctionalVideoPlan }) {

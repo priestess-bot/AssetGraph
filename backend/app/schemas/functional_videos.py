@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class FunctionalVideoPlanCreate(BaseModel):
@@ -16,6 +16,20 @@ class FunctionalVideoTimelineClipUpdate(BaseModel):
     clip_code: str = Field(min_length=1, max_length=80)
     duration_ms: int = Field(ge=250, le=120_000)
     transition: str = Field(default="cut", pattern="^(cut|fade|fade_out)$")
+    source_start_seconds: float | None = Field(default=None, ge=0)
+    source_end_seconds: float | None = Field(default=None, gt=0)
+
+    @model_validator(mode="after")
+    def source_range_is_complete_and_ordered(self) -> "FunctionalVideoTimelineClipUpdate":
+        if (self.source_start_seconds is None) != (self.source_end_seconds is None):
+            raise ValueError("source start and end must be supplied together")
+        if (
+            self.source_start_seconds is not None
+            and self.source_end_seconds is not None
+            and self.source_end_seconds <= self.source_start_seconds
+        ):
+            raise ValueError("source end must be after source start")
+        return self
 
 
 class FunctionalVideoTimelineUpdate(BaseModel):

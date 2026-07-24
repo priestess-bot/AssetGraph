@@ -8,8 +8,8 @@ const plan = {
   plan_code: "VIDPLAN-001", project_code: "CONTENT-001", variant_code: "VAR-001", video_job_code: "VIDJOB-001", title: "镜头重排", timeline_revision: 1,
   production_timeline: { global_end_ms: 60_000, tracks: [
     { track_kind: "video", clips: [
-      { clip_code: "SHOT-01", timeline_range: { start_ms: 0, duration_ms: 30_000 }, source_range: { asset_code: "ASSET-01" }, transition: "cut" },
-      { clip_code: "SHOT-02", timeline_range: { start_ms: 30_000, duration_ms: 30_000 }, source_range: { asset_code: "ASSET-02" }, transition: "cut" },
+      { clip_code: "SHOT-01", timeline_range: { start_ms: 0, duration_ms: 30_000 }, source_range: { asset_code: "ASSET-01", start_seconds: 0, end_seconds: 40, available_start_seconds: 0, available_end_seconds: 40 }, transition: "cut" },
+      { clip_code: "SHOT-02", timeline_range: { start_ms: 30_000, duration_ms: 30_000 }, source_range: { asset_code: "ASSET-02", start_seconds: 10, end_seconds: 50, available_start_seconds: 10, available_end_seconds: 50 }, transition: "cut" },
     ] },
     { track_kind: "audio", clips: [] },
   ] },
@@ -43,12 +43,14 @@ describe("VideoProductionPage", () => {
     expect(screen.getByText("subtitle_text_complete")).toBeInTheDocument();
     expect(await screen.findByText("修订历史")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "上移 SHOT-02" }));
+    await user.clear(screen.getByRole("spinbutton", { name: "素材入点 SHOT-02" }));
+    await user.type(screen.getByRole("spinbutton", { name: "素材入点 SHOT-02" }), "12");
     await user.click(screen.getByRole("button", { name: "保存时间轴修订" }));
 
     const request = requests.find((item) => item.url.endsWith("/timeline") && item.init?.method === "PUT");
     expect(request?.init?.body).toBe(JSON.stringify({ expected_revision: 1, video_clips: [
-      { clip_code: "SHOT-02", duration_ms: 30_000, transition: "cut" },
-      { clip_code: "SHOT-01", duration_ms: 30_000, transition: "cut" },
+      { clip_code: "SHOT-02", duration_ms: 30_000, transition: "cut", source_start_seconds: 12, source_end_seconds: 50 },
+      { clip_code: "SHOT-01", duration_ms: 30_000, transition: "cut", source_start_seconds: 0, source_end_seconds: 40 },
     ] }));
   });
 

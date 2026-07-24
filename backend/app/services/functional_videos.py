@@ -245,11 +245,23 @@ class FunctionalVideoService:
         updates: list[dict[str, Any]] = []
         for clip in video.get("clips") or []:
             timeline_range = clip.get("timeline_range") or {}
+            source_range = clip.get("source_range")
+            source_update = (
+                {
+                    "source_start_seconds": source_range["start_seconds"],
+                    "source_end_seconds": source_range["end_seconds"],
+                }
+                if isinstance(source_range, dict)
+                and "start_seconds" in source_range
+                and "end_seconds" in source_range
+                else {}
+            )
             updates.append(
                 {
                     "clip_code": str(clip.get("clip_code") or ""),
                     "duration_ms": int(timeline_range.get("duration_ms") or 0),
                     "transition": str(clip.get("transition") or "cut"),
+                    **source_update,
                 }
             )
         return updates
@@ -279,6 +291,48 @@ class FunctionalVideoService:
             transition = str(update.get("transition") or "cut")
             if duration < 250 or duration > 120_000 or transition not in {"cut", "fade", "fade_out"}:
                 raise DomainValidationError("VIDEO_TIMELINE_INVALID_CLIP", "Timeline clip duration or transition is invalid")
+            source_start = update.get("source_start_seconds")
+            source_end = update.get("source_end_seconds")
+            if (source_start is None) != (source_end is None):
+                raise DomainValidationError(
+                    "VIDEO_TIMELINE_SOURCE_RANGE_INCOMPLETE",
+                    "Source range edits require both a start and end",
+                )
+            if source_start is not None and source_end is not None:
+                source = dict(clip.get("source_range") or {})
+                if not source:
+                    raise DomainValidationError(
+                        "VIDEO_TIMELINE_SOURCE_RANGE_UNAVAILABLE",
+                        "This clip has no editable source range",
+                        details={"clip_code": clip["clip_code"]},
+                    )
+                available_start = float(source.get("available_start_seconds", source.get("start_seconds", 0)))
+                available_end = float(source.get("available_end_seconds", source.get("end_seconds", 0)))
+                requested_start = float(source_start)
+                requested_end = float(source_end)
+                if (
+                    requested_end <= requested_start
+                    or requested_start < available_start
+                    or requested_end > available_end
+                ):
+                    raise DomainValidationError(
+                        "VIDEO_TIMELINE_SOURCE_RANGE_INVALID",
+                        "Source range must stay inside the fixed available range",
+                        details={
+                            "clip_code": clip["clip_code"],
+                            "available_start_seconds": available_start,
+                            "available_end_seconds": available_end,
+                        },
+                    )
+                source.update(
+                    {
+                        "start_seconds": requested_start,
+                        "end_seconds": requested_end,
+                        "available_start_seconds": available_start,
+                        "available_end_seconds": available_end,
+                    }
+                )
+                clip["source_range"] = source
             clip["timeline_range"] = {"start_ms": cursor, "duration_ms": duration}
             clip["transition"] = transition
             cursor += duration
@@ -336,6 +390,11 @@ class FunctionalVideoService:
             shot["end_seconds"] = start + duration
             shot["duration_seconds"] = duration
             shot["transition"] = clip.get("transition") or "cut"
+            source_range = clip.get("source_range") or {}
+            if "start_seconds" in source_range and "end_seconds" in source_range:
+                shot["source_start_seconds"] = float(source_range["start_seconds"])
+                shot["source_end_seconds"] = float(source_range["end_seconds"])
+                shot["source_available_seconds"] = float(source_range["end_seconds"]) - float(source_range["start_seconds"])
             ordered_shots.append(shot)
         result["shots"] = ordered_shots
         result["duration_seconds"] = timeline["global_end_ms"] / 1000
@@ -360,7 +419,7 @@ class FunctionalVideoService:
         story = {"source": "content_project_revision", "project_code": detail["project_code"], "objective": detail["generation_goal"], "content": detail["story_brief"]["content"], "format": {"orientation": "vertical", "width": 1080, "height": 1920, "target_duration_seconds": duration, "shot_count": 6}}
         script = {"source": "content_project_revision", "title": detail["title"], "spoken_script": "".join(chunks), "sections": [{"section_index": index, "section_type": "content_project", "narration": chunk, "tts_text": chunk.replace("PRO", "P R O"), "screen_text": chunk[:28]} for index, chunk in enumerate(chunks)], "section_count": len(chunks)}
         shots = {"source": "content_project_revision", "canvas": {"width": 1080, "height": 1920, "fps": 30}, "duration_seconds": duration, "shot_count": len(compiled), "shots": compiled}
-        timeline = {"schema_version": "otio-compatible-production-timeline.v1", "global_start_ms": 0, "global_end_ms": duration * 1000, "tracks": [{"track_kind": "video", "clips": [{"clip_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "source_range": {"asset_code": shot["asset_code"], "start_seconds": shot["source_start_seconds"], "end_seconds": shot["source_end_seconds"]}, "transition": shot["transition"]} for shot in compiled]}, {"track_kind": "audio", "clips": [{"clip_code": f"VOICE-{shot['shot_code']}", "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}} for shot in compiled]}]}
+        timeline = {"schema_version": "otio-compatible-production-timeline.v1", "global_start_ms": 0, "global_end_ms": duration * 1000, "tracks": [{"track_kind": "video", "clips": [{"clip_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "source_range": {"asset_code": shot["asset_code"], "start_seconds": shot["source_start_seconds"], "end_seconds": shot["source_end_seconds"], "available_start_seconds": shot["source_start_seconds"], "available_end_seconds": shot["source_end_seconds"]}, "transition": shot["transition"]} for shot in compiled]}, {"track_kind": "audio", "clips": [{"clip_code": f"VOICE-{shot['shot_code']}", "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}} for shot in compiled]}]}
         return story, script, shots, timeline
 
     @staticmethod

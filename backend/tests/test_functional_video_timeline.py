@@ -11,8 +11,8 @@ def _timeline() -> dict[str, object]:
             {
                 "track_kind": "video",
                 "clips": [
-                    {"clip_code": "SHOT-01", "timeline_range": {"start_ms": 0, "duration_ms": 30_000}, "source_range": {"asset_code": "ASSET-01"}},
-                    {"clip_code": "SHOT-02", "timeline_range": {"start_ms": 30_000, "duration_ms": 30_000}, "source_range": {"asset_code": "ASSET-02"}},
+                    {"clip_code": "SHOT-01", "timeline_range": {"start_ms": 0, "duration_ms": 30_000}, "source_range": {"asset_code": "ASSET-01", "start_seconds": 0, "end_seconds": 40}},
+                    {"clip_code": "SHOT-02", "timeline_range": {"start_ms": 30_000, "duration_ms": 30_000}, "source_range": {"asset_code": "ASSET-02", "start_seconds": 10, "end_seconds": 50}},
                 ],
             },
             {
@@ -31,7 +31,7 @@ def test_timeline_update_preserves_requested_clip_order_across_tracks_and_shots(
     updated = FunctionalVideoService._apply_timeline_update(
         _timeline(),
         [
-            {"clip_code": "SHOT-02", "duration_ms": 35_000, "transition": "fade"},
+            {"clip_code": "SHOT-02", "duration_ms": 35_000, "transition": "fade", "source_start_seconds": 12, "source_end_seconds": 45},
             {"clip_code": "SHOT-01", "duration_ms": 25_000, "transition": "fade_out"},
         ],
     )
@@ -46,6 +46,8 @@ def test_timeline_update_preserves_requested_clip_order_across_tracks_and_shots(
         {"start_ms": 0, "duration_ms": 35_000},
         {"start_ms": 35_000, "duration_ms": 25_000},
     ]
+    assert video_track["clips"][0]["source_range"]["start_seconds"] == 12
+    assert video_track["clips"][0]["source_range"]["end_seconds"] == 45
 
     shot_list = {
         "shots": [
@@ -56,3 +58,21 @@ def test_timeline_update_preserves_requested_clip_order_across_tracks_and_shots(
     rendered_input = FunctionalVideoService._timeline_shot_list(shot_list, updated)
     assert [shot["shot_code"] for shot in rendered_input["shots"]] == ["SHOT-02", "SHOT-01"]
     assert [shot["start_seconds"] for shot in rendered_input["shots"]] == [0.0, 35.0]
+    assert rendered_input["shots"][0]["source_start_seconds"] == 12.0
+
+
+def test_timeline_source_range_cannot_escape_its_fixed_available_range() -> None:
+    from app.domain.errors import DomainValidationError
+
+    try:
+        FunctionalVideoService._apply_timeline_update(
+            _timeline(),
+            [
+                {"clip_code": "SHOT-01", "duration_ms": 30_000, "source_start_seconds": 0, "source_end_seconds": 41},
+                {"clip_code": "SHOT-02", "duration_ms": 30_000},
+            ],
+        )
+    except DomainValidationError as exc:
+        assert exc.code == "VIDEO_TIMELINE_SOURCE_RANGE_INVALID"
+    else:
+        raise AssertionError("source ranges outside the fixed evidence range must be rejected")

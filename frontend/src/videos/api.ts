@@ -5,7 +5,7 @@ const ROOT = "/api/functional-video-plans";
 export interface FunctionalVideoPlan {
   planCode: string; projectCode: string; variantCode: string; videoJobCode: string; title: string;
   timelineRevision: number;
-  productionTimeline: { global_end_ms: number; tracks: Array<{ track_kind: string; clips: Array<{ clip_code: string; timeline_range: { start_ms: number; duration_ms: number }; source_range?: { asset_code: string }; transition?: string }> }> };
+  productionTimeline: { global_end_ms: number; tracks: Array<{ track_kind: string; clips: Array<{ clip_code: string; timeline_range: { start_ms: number; duration_ms: number }; source_range?: { asset_code: string; start_seconds?: number; end_seconds?: number; available_start_seconds?: number; available_end_seconds?: number }; transition?: string }> }> };
   renderProfile: { visual_asset_mode?: string; target_duration_seconds?: number; canvas?: { width: number; height: number; fps: number } };
   jobStatus: string; currentStage?: string; progressPercent: number; errorMessage?: string; finalAssetId?: string;
   qualityReport: { passed?: boolean; checks: Record<string, boolean> };
@@ -19,7 +19,7 @@ export interface VideoTimelineRevision {
 
 function productionTimeline(value: unknown): FunctionalVideoPlan["productionTimeline"] {
   const timeline = isRecord(value) ? value : {};
-  return { global_end_ms: asNumber(timeline.global_end_ms), tracks: asArray(timeline.tracks).flatMap((track) => isRecord(track) ? [{ track_kind: asString(track.track_kind), clips: asArray(track.clips).flatMap((clip) => isRecord(clip) && isRecord(clip.timeline_range) ? [{ clip_code: asString(clip.clip_code), timeline_range: { start_ms: asNumber(clip.timeline_range.start_ms), duration_ms: asNumber(clip.timeline_range.duration_ms) }, source_range: isRecord(clip.source_range) ? { asset_code: asString(clip.source_range.asset_code) } : undefined, transition: asOptionalString(clip.transition) }] : []) }] : []) };
+  return { global_end_ms: asNumber(timeline.global_end_ms), tracks: asArray(timeline.tracks).flatMap((track) => isRecord(track) ? [{ track_kind: asString(track.track_kind), clips: asArray(track.clips).flatMap((clip) => isRecord(clip) && isRecord(clip.timeline_range) ? [{ clip_code: asString(clip.clip_code), timeline_range: { start_ms: asNumber(clip.timeline_range.start_ms), duration_ms: asNumber(clip.timeline_range.duration_ms) }, source_range: isRecord(clip.source_range) ? { asset_code: asString(clip.source_range.asset_code), start_seconds: typeof clip.source_range.start_seconds === "number" ? clip.source_range.start_seconds : undefined, end_seconds: typeof clip.source_range.end_seconds === "number" ? clip.source_range.end_seconds : undefined, available_start_seconds: typeof clip.source_range.available_start_seconds === "number" ? clip.source_range.available_start_seconds : undefined, available_end_seconds: typeof clip.source_range.available_end_seconds === "number" ? clip.source_range.available_end_seconds : undefined } : undefined, transition: asOptionalString(clip.transition) }] : []) }] : []) };
 }
 
 function plan(value: unknown): FunctionalVideoPlan {
@@ -40,7 +40,7 @@ export const functionalVideosApi = {
   get: (code: string) => requestJson<unknown>(`${ROOT}/${code}`).then(plan),
   listTimelineRevisions: (code: string) => requestJson<unknown[]>(`${ROOT}/${code}/timeline-revisions`).then((rows) => rows.map(timelineRevision)),
   create: (payload: { project_code: string; title?: string; target_duration_seconds: number }) => postJson<unknown>(ROOT, payload).then(plan),
-  updateTimeline: (code: string, payload: { expected_revision: number; video_clips: Array<{ clip_code: string; duration_ms: number; transition: string }> }) => requestJson<unknown>(`${ROOT}/${code}/timeline`, { method: "PUT", body: JSON.stringify(payload) }).then(plan),
+  updateTimeline: (code: string, payload: { expected_revision: number; video_clips: Array<{ clip_code: string; duration_ms: number; transition: string; source_start_seconds?: number; source_end_seconds?: number }> }) => requestJson<unknown>(`${ROOT}/${code}/timeline`, { method: "PUT", body: JSON.stringify(payload) }).then(plan),
   restoreTimelineRevision: (code: string, sourceRevision: number, expectedRevision: number) => postJson<unknown>(`${ROOT}/${code}/timeline-revisions/${sourceRevision}/restore`, { expected_revision: expectedRevision }).then(plan),
   retry: (code: string) => postJson<unknown>(`${ROOT}/${code}/retry`).then(plan),
 };
