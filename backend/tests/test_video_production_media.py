@@ -147,7 +147,7 @@ def test_shot_render_command_honors_source_end_instead_of_looping_the_full_file(
             "crop_x": 0.25,
             "crop_y": 0.75,
             "overlay_roles": ["product_sticker"],
-            "transition": "cut",
+            "transition": "fade",
         },
         destination,
     )
@@ -161,6 +161,8 @@ def test_shot_render_command_honors_source_end_instead_of_looping_the_full_file(
     assert "crop=1080:1920:x=(in_w-out_w)*0.250:y=(in_h-out_h)*0.750" in filters
     assert "[1:v]scale=640:640:force_original_aspect_ratio=decrease" in filters
     assert "overlay=x=(W-w)/2:y=1020:shortest=1" in filters
+    assert "fade=t=in:st=0:d=0.300" in filters
+    assert "fade=t=out:st=4.700:d=0.300" in filters
     assert destination.read_bytes() == b"video"
 
 

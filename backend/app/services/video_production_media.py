@@ -472,9 +472,18 @@ class FFmpegRenderer:
             )
 
         presentation_filters = ["format=yuv420p"]
-        if shot.get("transition") == "fade_out":
+        transition = str(shot.get("transition") or "cut")
+        fade_duration = min(0.3, duration / 2 if transition == "fade" else duration)
+        if transition == "fade":
+            presentation_filters.extend(
+                [
+                    f"fade=t=in:st=0:d={fade_duration:.3f}",
+                    f"fade=t=out:st={max(0.0, duration - fade_duration):.3f}:d={fade_duration:.3f}",
+                ]
+            )
+        elif transition == "fade_out":
             presentation_filters.append(
-                f"fade=t=out:st={max(0.0, duration - 0.3):.3f}:d=0.3"
+                f"fade=t=out:st={max(0.0, duration - fade_duration):.3f}:d={fade_duration:.3f}"
             )
         presented_label = "presented"
         filter_parts.append(f"[base]{','.join(presentation_filters)}[{presented_label}]")
