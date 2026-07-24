@@ -477,6 +477,32 @@ def test_live_room_plan_selects_only_published_material_pack_and_freezes_resolve
                 }
             )
         assert overlap.value.code == "CONTENT_EXPOSURE_OVERLAP_CONFLICT"
+        replacement = operations.correct_exposure(
+            {
+                "source_exposure_code": exposure["exposure_code"],
+                "correction_kind": "supersede",
+                "reason": "Recording review corrected the observed duration.",
+                "actor": "test-operator",
+                "replacement": {
+                    "session_code": session["session_code"],
+                    "plan_code": plan["plan_code"],
+                    "scene_code": plan["blueprint"]["scenes"][0]["scene_code"],
+                    "started_at": observed_start,
+                    "ended_at": observed_start + timedelta(minutes=2),
+                    "source_kind": "recording_match",
+                    "evidence_note": "The recording confirms a two-minute scene interval.",
+                    "confidence": 0.95,
+                },
+            }
+        )
+        assert replacement["status"] == "active"
+        assert replacement["supersedes_exposure_code"] == exposure["exposure_code"]
+        exposures = {row["exposure_code"]: row for row in operations.list_exposures()}
+        assert exposures[exposure["exposure_code"]]["status"] == "superseded"
+        assert exposures[exposure["exposure_code"]]["superseded_by_exposure_code"] == replacement["exposure_code"]
+        corrected_timeline = operations.get_content_timeline(session["session_code"])
+        assert [span["exposure_code"] for span in corrected_timeline["spans"]] == [replacement["exposure_code"]]
+        assert corrected_timeline["observed_seconds"] == 120.0
 
 
 def test_live_room_constraint_profiles_bind_to_snapshot_and_place_product_on_table_surface() -> (

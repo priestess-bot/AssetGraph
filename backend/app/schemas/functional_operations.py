@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class OperationSessionCreate(BaseModel):
@@ -46,7 +46,26 @@ class ContentExposureRead(ContentExposureCreate):
     variant_code: str
     release_code: str | None = None
     status: str
+    supersedes_exposure_code: str | None = None
+    superseded_by_exposure_code: str | None = None
+    correction_reason: str | None = None
     created_at: datetime
+
+
+class ContentExposureCorrection(BaseModel):
+    source_exposure_code: str = Field(min_length=1, max_length=64)
+    correction_kind: str = Field(pattern="^(supersede|retract)$")
+    reason: str = Field(min_length=1, max_length=4000)
+    actor: str = Field(default="functional-operator", min_length=1, max_length=128)
+    replacement: ContentExposureCreate | None = None
+
+    @model_validator(mode="after")
+    def validate_replacement(self) -> "ContentExposureCorrection":
+        if self.correction_kind == "supersede" and self.replacement is None:
+            raise ValueError("a supersede correction requires replacement exposure evidence")
+        if self.correction_kind == "retract" and self.replacement is not None:
+            raise ValueError("a retract correction cannot include replacement exposure evidence")
+        return self
 
 
 class ContentTimelineSpanRead(BaseModel):

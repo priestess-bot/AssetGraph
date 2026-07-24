@@ -7,6 +7,7 @@ from app.domain.errors import DomainValidationError
 from app.schemas.functional_operations import (
     AttributionReportCreate,
     AttributionReportRead,
+    ContentExposureCorrection,
     ContentExposureCreate,
     ContentExposureRead,
     ContentTimelineRead,
@@ -79,6 +80,14 @@ def list_exposures(
     instance: Annotated[FunctionalOperationsService, Depends(service)],
 ) -> list[dict]:
     return instance.list_exposures()
+
+
+@router.post("/exposure-corrections", response_model=ContentExposureRead)
+def correct_exposure(
+    payload: ContentExposureCorrection,
+    instance: Annotated[FunctionalOperationsService, Depends(service)],
+) -> dict:
+    return call(instance.correct_exposure, payload.model_dump())
 
 
 @router.post(

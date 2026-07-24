@@ -108,99 +108,193 @@ class FunctionalOperationsService:
             )
             return [dict(row) for row in cursor.fetchall()]
 
-    def create_exposure(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def _exposure_context(
+        self,
+        cursor: Any,
+        payload: dict[str, Any],
+        *,
+        ignored_exposure_codes: list[str] | None = None,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
         if payload["ended_at"] <= payload["started_at"]:
             raise DomainValidationError(
                 "CONTENT_EXPOSURE_INTERVAL_INVALID",
                 "Exposure end time must be after start time",
             )
+        cursor.execute(
+            "SELECT * FROM functional_operation_sessions WHERE session_code = %s FOR UPDATE",
+            (payload["session_code"],),
+        )
+        session = cursor.fetchone()
+        if session is None:
+            raise DomainValidationError(
+                "CONTENT_EXPOSURE_SESSION_NOT_FOUND",
+                "The operation session does not exist",
+            )
+        if payload["started_at"] < session["started_at"] or payload["ended_at"] > session["ended_at"]:
+            raise DomainValidationError(
+                "CONTENT_EXPOSURE_OUTSIDE_SESSION",
+                "Exposure must be contained by the operation session interval",
+            )
+        cursor.execute(
+            "SELECT plan_code, project_code, variant_code, release_code, blueprint FROM functional_live_room_plans WHERE plan_code = %s",
+            (payload["plan_code"],),
+        )
+        plan = cursor.fetchone()
+        if plan is None:
+            raise DomainValidationError(
+                "CONTENT_EXPOSURE_PLAN_NOT_FOUND",
+                "The referenced live-room plan does not exist",
+            )
+        if session.get("live_room_plan_code") and session["live_room_plan_code"] != plan["plan_code"]:
+            raise DomainValidationError(
+                "CONTENT_EXPOSURE_SESSION_PLAN_MISMATCH",
+                "Session is bound to a different live-room plan",
+            )
+        scene_codes = {
+            str(scene.get("scene_code") or "")
+            for scene in (plan["blueprint"] or {}).get("scenes") or []
+        }
+        if payload["scene_code"] not in scene_codes:
+            raise DomainValidationError(
+                "CONTENT_EXPOSURE_SCENE_NOT_FOUND",
+                "Exposure scene is not in the referenced plan",
+            )
+        statement = """SELECT exposure_code FROM functional_content_exposures
+                       WHERE session_id = %s AND status = 'active'
+                         AND started_at < %s AND ended_at > %s"""
+        parameters: list[Any] = [session["id"], payload["ended_at"], payload["started_at"]]
+        if ignored_exposure_codes:
+            statement += " AND exposure_code <> ALL(%s)"
+            parameters.append(ignored_exposure_codes)
+        cursor.execute(statement, parameters)
+        conflicting = [row["exposure_code"] for row in cursor.fetchall()]
+        if conflicting:
+            raise DomainValidationError(
+                "CONTENT_EXPOSURE_OVERLAP_CONFLICT",
+                "An active exposure already covers this session interval",
+                details={"exposure_codes": conflicting},
+            )
+        return session, plan
+
+    def _insert_exposure(
+        self,
+        cursor: Any,
+        *,
+        session: dict[str, Any],
+        plan: dict[str, Any],
+        payload: dict[str, Any],
+        supersedes_exposure_code: str | None = None,
+        correction_reason: str | None = None,
+    ) -> dict[str, Any]:
+        code = self._next(cursor, "EXPOSURE", "functional_content_exposure")
+        cursor.execute(
+            """INSERT INTO functional_content_exposures
+               (exposure_code,session_id,session_code,plan_code,variant_code,release_code,scene_code,
+                started_at,ended_at,source_kind,evidence_note,confidence,supersedes_exposure_code,correction_reason)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
+            (
+                code,
+                session["id"],
+                session["session_code"],
+                plan["plan_code"],
+                plan["variant_code"],
+                plan["release_code"],
+                payload["scene_code"],
+                payload["started_at"],
+                payload["ended_at"],
+                payload["source_kind"],
+                payload["evidence_note"].strip(),
+                payload.get("confidence", 0.5),
+                supersedes_exposure_code,
+                correction_reason,
+            ),
+        )
+        return dict(cursor.fetchone())
+
+    def create_exposure(self, payload: dict[str, Any]) -> dict[str, Any]:
         try:
             with self.connection.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(
-                    "SELECT * FROM functional_operation_sessions WHERE session_code = %s FOR UPDATE",
-                    (payload["session_code"],),
-                )
-                session = cursor.fetchone()
-                if session is None:
-                    raise DomainValidationError(
-                        "CONTENT_EXPOSURE_SESSION_NOT_FOUND",
-                        "The operation session does not exist",
-                    )
-                if (
-                    payload["started_at"] < session["started_at"]
-                    or payload["ended_at"] > session["ended_at"]
-                ):
-                    raise DomainValidationError(
-                        "CONTENT_EXPOSURE_OUTSIDE_SESSION",
-                        "Exposure must be contained by the operation session interval",
-                    )
-                cursor.execute(
-                    "SELECT plan_code, project_code, variant_code, release_code, blueprint FROM functional_live_room_plans WHERE plan_code = %s",
-                    (payload["plan_code"],),
-                )
-                plan = cursor.fetchone()
-                if plan is None:
-                    raise DomainValidationError(
-                        "CONTENT_EXPOSURE_PLAN_NOT_FOUND",
-                        "The referenced live-room plan does not exist",
-                    )
-                if (
-                    session.get("live_room_plan_code")
-                    and session["live_room_plan_code"] != plan["plan_code"]
-                ):
-                    raise DomainValidationError(
-                        "CONTENT_EXPOSURE_SESSION_PLAN_MISMATCH",
-                        "Session is bound to a different live-room plan",
-                    )
-                scene_codes = {
-                    str(scene.get("scene_code") or "")
-                    for scene in (plan["blueprint"] or {}).get("scenes") or []
-                }
-                if payload["scene_code"] not in scene_codes:
-                    raise DomainValidationError(
-                        "CONTENT_EXPOSURE_SCENE_NOT_FOUND",
-                        "Exposure scene is not in the referenced plan",
-                    )
-                cursor.execute(
-                    """SELECT exposure_code FROM functional_content_exposures
-                       WHERE session_id = %s AND status = 'active'
-                         AND started_at < %s AND ended_at > %s""",
-                    (session["id"], payload["ended_at"], payload["started_at"]),
-                )
-                conflicting = [row["exposure_code"] for row in cursor.fetchall()]
-                if conflicting:
-                    raise DomainValidationError(
-                        "CONTENT_EXPOSURE_OVERLAP_CONFLICT",
-                        "An active exposure already covers this session interval",
-                        details={"exposure_codes": conflicting},
-                    )
-                code = self._next(cursor, "EXPOSURE", "functional_content_exposure")
-                cursor.execute(
-                    """INSERT INTO functional_content_exposures
-                       (exposure_code,session_id,session_code,plan_code,variant_code,release_code,scene_code,
-                        started_at,ended_at,source_kind,evidence_note,confidence)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
-                    (
-                        code,
-                        session["id"],
-                        session["session_code"],
-                        plan["plan_code"],
-                        plan["variant_code"],
-                        plan["release_code"],
-                        payload["scene_code"],
-                        payload["started_at"],
-                        payload["ended_at"],
-                        payload["source_kind"],
-                        payload["evidence_note"].strip(),
-                        payload.get("confidence", 0.5),
-                    ),
-                )
-                row = cursor.fetchone()
+                session, plan = self._exposure_context(cursor, payload)
+                row = self._insert_exposure(cursor, session=session, plan=plan, payload=payload)
             self.connection.commit()
         except Exception:
             self.connection.rollback()
             raise
-        return dict(row)
+        return row
+
+    def correct_exposure(self, payload: dict[str, Any]) -> dict[str, Any]:
+        reason = str(payload["reason"]).strip()
+        actor = str(payload["actor"]).strip()
+        try:
+            with self.connection.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    "SELECT * FROM functional_content_exposures WHERE exposure_code = %s FOR UPDATE",
+                    (payload["source_exposure_code"],),
+                )
+                source = cursor.fetchone()
+                if source is None:
+                    raise DomainValidationError("CONTENT_EXPOSURE_NOT_FOUND", "The source exposure does not exist")
+                if source["status"] != "active":
+                    raise DomainValidationError(
+                        "CONTENT_EXPOSURE_NOT_ACTIVE",
+                        "Only an active exposure can be corrected",
+                        details={"status": source["status"]},
+                    )
+                replacement = None
+                if payload["correction_kind"] == "supersede":
+                    replacement_payload = payload["replacement"]
+                    if replacement_payload["session_code"] != source["session_code"]:
+                        raise DomainValidationError(
+                            "CONTENT_EXPOSURE_CORRECTION_SESSION_MISMATCH",
+                            "Replacement exposure must remain in the same operation session",
+                        )
+                    session, plan = self._exposure_context(
+                        cursor,
+                        replacement_payload,
+                        ignored_exposure_codes=[source["exposure_code"]],
+                    )
+                    replacement = self._insert_exposure(
+                        cursor,
+                        session=session,
+                        plan=plan,
+                        payload=replacement_payload,
+                        supersedes_exposure_code=source["exposure_code"],
+                        correction_reason=reason,
+                    )
+                    cursor.execute(
+                        """UPDATE functional_content_exposures
+                           SET status = 'superseded', superseded_by_exposure_code = %s, correction_reason = %s
+                           WHERE id = %s""",
+                        (replacement["exposure_code"], reason, source["id"]),
+                    )
+                    result = replacement
+                else:
+                    cursor.execute(
+                        """UPDATE functional_content_exposures
+                           SET status = 'retracted', correction_reason = %s
+                           WHERE id = %s RETURNING *""",
+                        (reason, source["id"]),
+                    )
+                    result = dict(cursor.fetchone())
+                correction_code = self._next(cursor, "EXPOSURE-CORR", "functional_content_exposure_correction")
+                cursor.execute(
+                    """INSERT INTO functional_content_exposure_corrections
+                       (correction_code, source_exposure_id, replacement_exposure_id, correction_kind, reason, actor)
+                       VALUES (%s, %s, %s, %s, %s, %s)""",
+                    (
+                        correction_code,
+                        source["id"],
+                        replacement["id"] if replacement else None,
+                        payload["correction_kind"],
+                        reason,
+                        actor,
+                    ),
+                )
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+        return result
 
     def list_exposures(self) -> list[dict[str, Any]]:
         with self.connection.cursor(row_factory=dict_row) as cursor:

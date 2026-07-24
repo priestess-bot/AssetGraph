@@ -404,6 +404,8 @@
 .operations-list span { display: flex; min-width: 0; flex-direction: column; }
 .operations-list strong { overflow-wrap: anywhere; font-size: 10px; }
 .operations-list code, .operations-list small { margin-top: 3px; color: var(--wb-muted); font-size: 8px; overflow-wrap: anywhere; }
+.operations-exposure-status { display: flex; align-items: center; gap: 6px; }
+.operations-exposure-status .wb-button { min-width: 52px; }
 .operations-timeline-button { min-height: 27px; font-size: 8px; }
 .operations-timeline-panel { display: grid; gap: 9px; padding: 12px; border-top: 1px solid var(--wb-line-strong); }
 .operations-timeline-heading { display: flex; align-items: center; justify-content: space-between; gap: 9px; }
