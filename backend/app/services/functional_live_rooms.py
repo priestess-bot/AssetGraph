@@ -11,6 +11,7 @@ from app.core.config import settings
 from app.domain.contracts import canonical_fingerprint, canonical_json_bytes
 from app.domain.errors import DomainValidationError
 from app.repositories.content_production import ContentProductionRepository
+from app.repositories.material_library import MaterialLibraryRepository, MaterialLibraryValidationError
 from app.repositories.maitu import MaituMaterialSlotRepository
 from app.repositories.releases import ReleaseRepository
 from app.services.functional_content import FunctionalContentService
@@ -31,6 +32,7 @@ class FunctionalLiveRoomService:
         self.connection = connection
         self.content = FunctionalContentService(connection)
         self.production = ContentProductionRepository(connection)
+        self.materials = MaterialLibraryRepository(connection)
         self.maitu = MaituMaterialSlotRepository(connection)
         self._release_signing_key = release_signing_key
         self._release_signing_key_id = release_signing_key_id
@@ -41,7 +43,16 @@ class FunctionalLiveRoomService:
             raise KeyError(payload["project_code"])
         if not detail["generated"]:
             raise DomainValidationError("LIVE_ROOM_SHOT_LIST_REQUIRED", "Generate the ContentProject before planning a live room")
-        selected_assets = self._selected_assets(payload.get("asset_codes") or [], payload.get("group_codes") or [])
+        try:
+            material_pack_refs, material_pack_asset_codes = self.materials.resolve_published_packs(
+                payload.get("material_pack_codes") or []
+            )
+        except MaterialLibraryValidationError as exc:
+            raise DomainValidationError("LIVE_ROOM_MATERIAL_PACK_INVALID", str(exc)) from exc
+        selected_assets = self._selected_assets(
+            [*(payload.get("asset_codes") or []), *material_pack_asset_codes],
+            payload.get("group_codes") or [],
+        )
         if not selected_assets:
             raise DomainValidationError("LIVE_ROOM_ASSETS_REQUIRED", "Select at least one asset or group before planning")
         story = detail["story_brief"]
@@ -59,6 +70,7 @@ class FunctionalLiveRoomService:
                 }
                 for asset in selected_assets
             ],
+            "material_pack_refs": material_pack_refs,
         }
         templates = self._project_template_selection(detail, payload)
         variant = self.production.create_production_variant(
@@ -70,7 +82,11 @@ class FunctionalLiveRoomService:
             shot_list_revision_code=shot_list["shot_list_revision_code"],
             carrier_kind="live_room",
             branch_target={"live_room_id": payload["target_live_room_id"], "expected_title": payload["expected_title"]},
-            configuration={"templates": templates, "selected_asset_codes": snapshot["asset_codes"]},
+            configuration={
+                "templates": templates,
+                "selected_asset_codes": snapshot["asset_codes"],
+                "selected_material_pack_codes": payload.get("material_pack_codes") or [],
+            },
             material_snapshot_ref=snapshot,
             constraint_snapshot_ref={
                 "schema_version": "functional-asset-constraint-profiles.v1",
@@ -100,7 +116,12 @@ class FunctionalLiveRoomService:
             build_mode="plan_only",
             inventory_snapshot_ref=snapshot,
             site_protection_policy={"requires_empty_draft": True, "go_live_disabled": True},
-            configuration={"templates": templates, "selected_asset_codes": snapshot["asset_codes"], "selected_group_codes": payload.get("group_codes") or []},
+            configuration={
+                "templates": templates,
+                "selected_asset_codes": snapshot["asset_codes"],
+                "selected_group_codes": payload.get("group_codes") or [],
+                "selected_material_pack_codes": payload.get("material_pack_codes") or [],
+            },
             actor_id=actor_id,
         )
         configuration = self.production.confirm_live_room_configuration_revision(
@@ -146,16 +167,16 @@ class FunctionalLiveRoomService:
                 INSERT INTO functional_live_room_plans (
                     plan_code, project_code, variant_code, configuration_code,
                     target_live_room_id, expected_title, primary_template_code,
-                    secondary_template_codes, selected_asset_codes, selected_group_codes,
+                    secondary_template_codes, selected_asset_codes, selected_group_codes, selected_material_pack_codes,
                     blueprint, build_plan, gate_results, quality_report, status, blocked_reasons
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING *
                 """,
                 (
                     code, detail["project_code"], variant["variant_code"], configuration["configuration_code"],
                     payload["target_live_room_id"], payload["expected_title"], templates["primary_template_code"],
                     Jsonb(templates["secondary_template_codes"]), Jsonb(snapshot["asset_codes"]),
-                    Jsonb(payload.get("group_codes") or []), Jsonb(blueprint), Jsonb(build_plan),
+                    Jsonb(payload.get("group_codes") or []), Jsonb(payload.get("material_pack_codes") or []), Jsonb(blueprint), Jsonb(build_plan),
                     Jsonb(gate_results), Jsonb(quality_report), status, Jsonb(plan_blocked_reasons),
                 ),
             )
@@ -365,6 +386,7 @@ class FunctionalLiveRoomService:
                 "secondary_template_codes": list(source["secondary_template_codes"] or []),
                 "asset_codes": list(source["selected_asset_codes"] or []),
                 "group_codes": list(source["selected_group_codes"] or []),
+                "material_pack_codes": list(source["selected_material_pack_codes"] or []),
             },
             actor_id=actor_id,
         )
@@ -377,6 +399,7 @@ class FunctionalLiveRoomService:
                 "pinned_template_revisions",
                 "selected_asset_codes",
                 "selected_group_codes",
+                "selected_material_pack_codes",
             ],
             "cleared_target_state": [
                 "target_live_room_fingerprint",
@@ -750,6 +773,8 @@ class FunctionalLiveRoomService:
                 "subject_refs": subject_refs,
                 "selected_assets": list(plan["selected_asset_codes"] or []),
                 "selected_groups": list(plan["selected_group_codes"] or []),
+                "selected_material_packs": list(plan["selected_material_pack_codes"] or []),
+                "material_pack_refs": plan["build_plan"].get("inventory_snapshot", {}).get("material_pack_refs", []),
                 "blueprint": plan["blueprint"],
                 "build_plan": plan["build_plan"],
                 "static_gate_results": plan["gate_results"],

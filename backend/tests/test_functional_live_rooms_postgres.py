@@ -216,6 +216,60 @@ def test_functional_live_room_plan_blocks_unbound_required_material() -> None:
         assert blocked["execution_status"] == "blocked"
 
 
+def test_live_room_plan_selects_only_published_material_pack_and_freezes_resolved_assets() -> None:
+    suffix = uuid4().hex
+    with psycopg.connect(DATABASE_URL) as connection:
+        assets = AssetRepository(connection)
+        library = MaterialLibraryRepository(connection)
+        project = _generated_project(connection, suffix)
+        selected = [
+            _asset(assets, suffix, "digital_human"),
+            _asset(assets, suffix, "background"),
+            _asset(assets, suffix, "promotion_text"),
+        ]
+        group = library.create_group(
+            {"title": f"Pack inputs {suffix}", "asset_codes": [asset["asset_code"] for asset in selected]}
+        )
+        draft_pack = library.create_pack(
+            {
+                "title": f"Room pack {suffix}", "role": "background",
+                "entries": [{"selection_kind": "group", "selection_code": group["group_code"], "mode": "required", "min_occurrences": 1}],
+            }
+        )
+        service = FunctionalLiveRoomService(connection)
+        with pytest.raises(DomainValidationError) as draft_invalid:
+            service.create_plan(
+                {
+                    "project_code": project["project_code"], "target_live_room_id": f"draft-pack-{suffix}",
+                    "expected_title": "Draft pack must fail", "material_pack_codes": [draft_pack["pack_code"]],
+                },
+                actor_id="test-operator",
+            )
+        assert draft_invalid.value.code == "LIVE_ROOM_MATERIAL_PACK_INVALID"
+
+        published_pack = library.publish_pack(draft_pack["pack_code"])
+        assert published_pack is not None
+        plan = service.create_plan(
+            {
+                "project_code": project["project_code"], "target_live_room_id": f"published-pack-{suffix}",
+                "expected_title": "Published pack plan", "material_pack_codes": [published_pack["pack_code"]],
+            },
+            actor_id="test-operator",
+        )
+        assert plan["status"] == "ready"
+        assert plan["selected_material_pack_codes"] == [published_pack["pack_code"]]
+        assert plan["selected_asset_codes"] == published_pack["resolved_asset_codes"]
+        snapshot = plan["build_plan"]["inventory_snapshot"]
+        assert snapshot["material_pack_refs"] == [{
+            "pack_code": published_pack["pack_code"], "revision_number": 1,
+            "fingerprint_sha256": published_pack["fingerprint_sha256"], "role": "background",
+            "entries": published_pack["entries"], "resolved_asset_codes": published_pack["resolved_asset_codes"],
+        }]
+
+        library.replace_group_members(group["group_code"], [selected[0]["asset_code"]])
+        assert plan["build_plan"]["inventory_snapshot"]["asset_codes"] == [asset["asset_code"] for asset in selected]
+
+
 def test_live_room_constraint_profiles_bind_to_snapshot_and_place_product_on_table_surface() -> None:
     suffix = uuid4().hex
     with psycopg.connect(DATABASE_URL) as connection:

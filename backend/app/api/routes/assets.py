@@ -251,6 +251,20 @@ def list_material_packs(
     return repository.list_packs()
 
 
+@router.post("/material-packs/{pack_code}/publish", response_model=MaterialPackRead)
+def publish_material_pack(
+    pack_code: str,
+    repository: Annotated[MaterialLibraryRepository, Depends(get_material_library_repository)],
+) -> dict:
+    try:
+        row = repository.publish_pack(pack_code)
+    except MaterialLibraryValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Material pack not found")
+    return row
+
+
 @router.post("/gaps", response_model=AssetGapRead, status_code=status.HTTP_201_CREATED)
 def create_asset_gap(
     payload: AssetGapCreate,

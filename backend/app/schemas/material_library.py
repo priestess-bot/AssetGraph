@@ -147,6 +147,7 @@ class MaterialPackRead(BaseModel):
     description: str | None = None
     revision_number: int
     status: str
+    fingerprint_sha256: str
     entries: list[MaterialPackEntry]
     resolved_asset_codes: list[str] = Field(default_factory=list)
     created_at: datetime

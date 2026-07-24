@@ -13,6 +13,7 @@ export interface FunctionalLiveRoomPlan {
   secondaryTemplateCodes: string[];
   selectedAssetCodes: string[];
   selectedGroupCodes: string[];
+  selectedMaterialPackCodes: string[];
   blueprint: { schema_version: string; scenes: Array<{ scene_code: string; shot_code: string; title: string; layers: Array<{ role: string; asset_code: string; execution_capability: string; z_order: number }>; script: string }> };
   buildPlan: { schema_version: string; build_plan_code?: string; target_live_room_id: string; go_live: boolean; operations: Array<{ kind: string; scene_code?: string; asset_code?: string; role?: string; script_block_code?: string }> };
   gateResults: Array<{ gate: string; status: string; ruleCode: string; remediation?: string }>;
@@ -70,6 +71,7 @@ function plan(value: unknown): FunctionalLiveRoomPlan {
     secondaryTemplateCodes: strings(value.secondary_template_codes),
     selectedAssetCodes: strings(value.selected_asset_codes),
     selectedGroupCodes: strings(value.selected_group_codes),
+    selectedMaterialPackCodes: strings(value.selected_material_pack_codes),
     blueprint: {
       schema_version: asString(blueprint.schema_version),
       scenes: asArray(blueprint.scenes).flatMap((scene) => isRecord(scene) ? [{
@@ -123,7 +125,7 @@ export const functionalLiveRoomsApi = {
   list: () => requestJson<unknown[]>(ROOT).then((rows) => rows.map(plan)),
   get: (planCode: string) => requestJson<unknown>(`${ROOT}/${planCode}`).then(plan),
   getTrace: (planCode: string) => requestJson<unknown>(`${ROOT}/${planCode}/trace`).then(trace),
-  create: (payload: { project_code: string; target_live_room_id: string; expected_title: string; primary_template_code?: string; secondary_template_codes: string[]; asset_codes: string[]; group_codes: string[] }) => postJson<unknown>(ROOT, payload).then(plan),
+  create: (payload: { project_code: string; target_live_room_id: string; expected_title: string; primary_template_code?: string; secondary_template_codes: string[]; asset_codes: string[]; group_codes: string[]; material_pack_codes: string[] }) => postJson<unknown>(ROOT, payload).then(plan),
   confirmExecution: (planCode: string) => postJson<unknown>(`${ROOT}/${planCode}/confirm-execution`, { confirmed: true }).then(plan),
   createReleaseCandidate: (planCode: string) => postJson<unknown>(`${ROOT}/${planCode}/release-candidate`, {}).then(plan),
   clone: (planCode: string, payload: { target_live_room_id: string; expected_title: string }) => postJson<unknown>(`${ROOT}/${planCode}/clone`, payload).then(plan),

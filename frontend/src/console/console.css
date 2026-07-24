@@ -119,6 +119,7 @@
 .asset-constraint-row label { display: inline-flex; align-items: center; gap: 4px; color: var(--wb-muted); font-size: 8px; }
 .asset-summary-list { display: grid; }
 .asset-summary-list > div { display: grid; min-height: 66px; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 9px 12px; border-bottom: 1px solid var(--wb-line); }
+.asset-pack-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
 .asset-entry-list { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }
 .asset-entry-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 7px; border: 1px solid var(--wb-line); border-radius: 4px; background: var(--wb-subtle); }
 .asset-entry-list button { border: 0; background: transparent; color: var(--wb-red); font-size: 8px; cursor: pointer; }

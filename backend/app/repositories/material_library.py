@@ -179,7 +179,7 @@ class MaterialLibraryRepository:
             cursor.execute(
                 """
                 SELECT p.pack_code, p.title, p.role, p.description, p.current_revision,
-                       p.status, p.created_at, p.updated_at, r.entries
+                       p.status, p.created_at, p.updated_at, r.entries, r.fingerprint_sha256
                 FROM material_packs p
                 JOIN material_pack_revisions r ON r.pack_id = p.id AND r.revision_number = p.current_revision
                 WHERE p.status <> 'archived' ORDER BY p.updated_at DESC, p.pack_code
@@ -193,7 +193,7 @@ class MaterialLibraryRepository:
             cursor.execute(
                 """
                 SELECT p.pack_code, p.title, p.role, p.description, p.current_revision,
-                       p.status, p.created_at, p.updated_at, r.entries
+                       p.status, p.created_at, p.updated_at, r.entries, r.fingerprint_sha256
                 FROM material_packs p
                 JOIN material_pack_revisions r ON r.pack_id = p.id AND r.revision_number = p.current_revision
                 WHERE p.pack_code = %s
@@ -202,6 +202,51 @@ class MaterialLibraryRepository:
             )
             row = cursor.fetchone()
         return self._pack_read(row) if row else None
+
+    def publish_pack(self, pack_code: str) -> dict[str, Any] | None:
+        """Make the current immutable pack revision eligible for branch selection."""
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute("SELECT id, status FROM material_packs WHERE pack_code = %s FOR UPDATE", (pack_code,))
+            pack = cursor.fetchone()
+            if pack is None:
+                self.connection.rollback()
+                return None
+            if pack["status"] == "archived":
+                self.connection.rollback()
+                raise MaterialLibraryValidationError("Archived material packs cannot be published")
+            if pack["status"] != "published":
+                cursor.execute(
+                    "UPDATE material_packs SET status = 'published', updated_at = now() WHERE id = %s",
+                    (pack["id"],),
+                )
+        self.connection.commit()
+        return self.get_pack(pack_code)
+
+    def resolve_published_packs(self, pack_codes: list[str]) -> tuple[list[dict[str, Any]], list[str]]:
+        """Expand pack/group membership once so a downstream snapshot has no dynamic references."""
+        refs: list[dict[str, Any]] = []
+        resolved_codes: list[str] = []
+        for pack_code in self._dedupe_codes(pack_codes):
+            pack = self.get_pack(pack_code)
+            if pack is None:
+                raise MaterialLibraryValidationError(f"Unknown material pack code: {pack_code}")
+            if pack["status"] != "published":
+                raise MaterialLibraryValidationError(f"Material pack must be published before selection: {pack_code}")
+            asset_codes = list(pack["resolved_asset_codes"])
+            if not asset_codes:
+                raise MaterialLibraryValidationError(f"Published material pack resolves to no active assets: {pack_code}")
+            refs.append(
+                {
+                    "pack_code": pack["pack_code"],
+                    "revision_number": int(pack["revision_number"]),
+                    "fingerprint_sha256": pack["fingerprint_sha256"],
+                    "role": pack["role"],
+                    "entries": pack["entries"],
+                    "resolved_asset_codes": asset_codes,
+                }
+            )
+            resolved_codes.extend(asset_codes)
+        return refs, self._dedupe_codes(resolved_codes)
 
     def create_gap(self, payload: dict[str, Any]) -> dict[str, Any]:
         with self.connection.cursor(row_factory=dict_row) as cursor:

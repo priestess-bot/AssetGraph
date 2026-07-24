@@ -77,6 +77,17 @@ def test_material_library_groups_constraints_packs_and_gaps() -> None:
             }
         )
         assert set(pack["resolved_asset_codes"]) == {background["asset_code"], product["asset_code"]}
+        assert pack["status"] == "draft"
+        published = library.publish_pack(pack["pack_code"])
+        assert published is not None
+        assert published["status"] == "published"
+        refs, resolved_asset_codes = library.resolve_published_packs([pack["pack_code"]])
+        assert resolved_asset_codes == published["resolved_asset_codes"]
+        assert refs == [{
+            "pack_code": pack["pack_code"], "revision_number": 1,
+            "fingerprint_sha256": published["fingerprint_sha256"], "role": "background",
+            "entries": published["entries"], "resolved_asset_codes": published["resolved_asset_codes"],
+        }]
 
         gap = library.create_gap({"title": f"Need foreground {suffix}", "role": "decoration_foreground"})
         resolved = library.update_gap(

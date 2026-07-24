@@ -36,6 +36,8 @@ export interface MaterialPack {
   role: string;
   description?: string;
   revisionNumber: number;
+  status: "draft" | "published" | "archived";
+  fingerprintSha256: string;
   entries: Array<{ selection_kind: "asset" | "group"; selection_code: string; mode: "required" | "optional" | "alternative"; min_occurrences: number; max_occurrences?: number }>;
   resolvedAssetCodes: string[];
 }
@@ -87,7 +89,7 @@ function pack(value: unknown): MaterialPack | undefined {
     min_occurrences: asNumber(item.min_occurrences),
     max_occurrences: typeof item.max_occurrences === "number" ? item.max_occurrences : undefined,
   }] : []);
-  return { packCode, title: asString(value.title, packCode), role: asString(value.role), description: asOptionalString(value.description), revisionNumber: asNumber(value.revision_number), entries, resolvedAssetCodes: strings(value.resolved_asset_codes) };
+  return { packCode, title: asString(value.title, packCode), role: asString(value.role), description: asOptionalString(value.description), revisionNumber: asNumber(value.revision_number), status: asString(value.status, "draft") as MaterialPack["status"], fingerprintSha256: asString(value.fingerprint_sha256), entries, resolvedAssetCodes: strings(value.resolved_asset_codes) };
 }
 
 function gap(value: unknown): AssetGap | undefined {
@@ -126,6 +128,11 @@ export const assetLibraryApi = {
   createPack: (payload: { title: string; role: string; description?: string; entries: MaterialPack["entries"] }) => postJson<unknown>(`${ROOT}/material-packs`, payload).then((value) => {
     const result = pack(value);
     if (!result) throw new Error("素材包响应无效");
+    return result;
+  }),
+  publishPack: (packCode: string) => postJson<unknown>(`${ROOT}/material-packs/${packCode}/publish`, {}).then((value) => {
+    const result = pack(value);
+    if (!result) throw new Error("素材包发布响应无效");
     return result;
   }),
   listGaps: () => requestJson<unknown[]>(`${ROOT}/gaps`).then((rows) => rows.flatMap((row) => gap(row) ?? [])),

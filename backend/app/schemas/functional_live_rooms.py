@@ -14,6 +14,7 @@ class FunctionalLiveRoomPlanCreate(BaseModel):
     secondary_template_codes: list[str] = Field(default_factory=list)
     asset_codes: list[str] = Field(default_factory=list)
     group_codes: list[str] = Field(default_factory=list)
+    material_pack_codes: list[str] = Field(default_factory=list)
 
     @field_validator("secondary_template_codes")
     @classmethod
@@ -21,6 +22,14 @@ class FunctionalLiveRoomPlanCreate(BaseModel):
         normalized = list(dict.fromkeys(item.strip() for item in value if item.strip()))
         if len(normalized) != len(value):
             raise ValueError("secondary template codes must be unique and non-empty")
+        return normalized
+
+    @field_validator("asset_codes", "group_codes", "material_pack_codes")
+    @classmethod
+    def unique_selection_codes(cls, value: list[str]) -> list[str]:
+        normalized = list(dict.fromkeys(item.strip() for item in value if item.strip()))
+        if len(normalized) != len(value):
+            raise ValueError("selection codes must be unique and non-empty")
         return normalized
 
 
@@ -58,6 +67,7 @@ class FunctionalLiveRoomPlanRead(BaseModel):
     secondary_template_codes: list[str]
     selected_asset_codes: list[str]
     selected_group_codes: list[str]
+    selected_material_pack_codes: list[str]
     blueprint: dict[str, Any]
     build_plan: dict[str, Any]
     gate_results: list[dict[str, Any]] = Field(default_factory=list)
