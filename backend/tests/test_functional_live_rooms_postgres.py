@@ -18,10 +18,14 @@ from app.services.releases import ReleaseService
 
 
 DATABASE_URL = os.getenv("ASSETGRAPH_TEST_DATABASE_URL")
-pytestmark = pytest.mark.skipif(not DATABASE_URL, reason="ASSETGRAPH_TEST_DATABASE_URL is not configured")
+pytestmark = pytest.mark.skipif(
+    not DATABASE_URL, reason="ASSETGRAPH_TEST_DATABASE_URL is not configured"
+)
 
 
-def _asset(repository: AssetRepository, suffix: str, role: str, capability: str = "maitu_bound") -> dict:
+def _asset(
+    repository: AssetRepository, suffix: str, role: str, capability: str = "maitu_bound"
+) -> dict:
     return repository.create(
         {
             "asset_type": "IMG",
@@ -55,14 +59,18 @@ def _generated_project(
         },
         actor_id="test-operator",
     )
-    content.confirm_project(project["project_code"], expected_revision=1, actor_id="test-operator")
+    content.confirm_project(
+        project["project_code"], expected_revision=1, actor_id="test-operator"
+    )
     content.parse_design_brief(
         project["project_code"],
         expected_revision=1,
         raw_input="Create the project baseline before the live-room branch.",
         actor_id="test-operator",
     )
-    content.confirm_design_brief(project["project_code"], expected_revision=1, actor_id="test-operator")
+    content.confirm_design_brief(
+        project["project_code"], expected_revision=1, actor_id="test-operator"
+    )
     return content.generate_chain(project["project_code"], actor_id="test-operator")
 
 
@@ -89,12 +97,20 @@ def test_functional_live_room_plan_compiles_and_only_requests_maitu_execution() 
         )
 
         assert plan["status"] == "ready"
-        assert plan["blueprint"]["schema_version"] == "maitu-scene-blueprint.functional.v1"
+        assert (
+            plan["blueprint"]["schema_version"] == "maitu-scene-blueprint.functional.v1"
+        )
         assert len(plan["blueprint"]["scenes"]) == 3
         assert plan["build_plan"]["go_live"] is False
         assert plan["build_plan"]["build_plan_code"].startswith("MT-BUILD-")
-        assert "go_live" not in {operation["operation_type"] for operation in plan["build_plan"]["operations"]}
-        assert {operation["operation_type"] for operation in plan["build_plan"]["operations"]} <= {
+        assert "go_live" not in {
+            operation["operation_type"]
+            for operation in plan["build_plan"]["operations"]
+        }
+        assert {
+            operation["operation_type"]
+            for operation in plan["build_plan"]["operations"]
+        } <= {
             "preflight_content_build_plan",
             "fill_default_scene",
             "create_scene",
@@ -114,19 +130,30 @@ def test_functional_live_room_plan_compiles_and_only_requests_maitu_execution() 
             "evidence_completeness": "warning",
         }
         assert plan["quality_report"]["missing_material_roles"] == []
-        assert all(scene["scene_blueprint_code"].startswith("MSB-VARIANT-") for scene in plan["blueprint"]["scenes"])
-        assert all(layer["layer_blueprint_code"].startswith("LYR-MSB-VARIANT-") for scene in plan["blueprint"]["scenes"] for layer in scene["layers"])
+        assert all(
+            scene["scene_blueprint_code"].startswith("MSB-VARIANT-")
+            for scene in plan["blueprint"]["scenes"]
+        )
+        assert all(
+            layer["layer_blueprint_code"].startswith("LYR-MSB-VARIANT-")
+            for scene in plan["blueprint"]["scenes"]
+            for layer in scene["layers"]
+        )
 
         trace = service.get_trace(plan["plan_code"])
         assert trace["content_chain"]["content_project_revision"] == {
-            "code": project["project_code"], "revision": 1,
+            "code": project["project_code"],
+            "revision": 1,
         }
         assert [operation["operation_type"] for operation in trace["operations"]] == [
-            operation["operation_type"] for operation in plan["build_plan"]["operations"]
+            operation["operation_type"]
+            for operation in plan["build_plan"]["operations"]
         ]
         assert all(operation["targets"] for operation in trace["operations"])
         assert all(
-            target["shot"] is not None and target["program_segment"] is not None and target["script_blocks"]
+            target["shot"] is not None
+            and target["program_segment"] is not None
+            and target["script_blocks"]
             for operation in trace["operations"]
             for target in operation["targets"]
         )
@@ -151,7 +178,12 @@ def test_functional_live_room_plan_compiles_and_only_requests_maitu_execution() 
                 JOIN maitu_scene_blueprints AS scene ON scene.id = layer.scene_blueprint_id
                 WHERE scene.scene_blueprint_code = ANY(%s)
                 """,
-                ([scene["scene_blueprint_code"] for scene in plan["blueprint"]["scenes"]],),
+                (
+                    [
+                        scene["scene_blueprint_code"]
+                        for scene in plan["blueprint"]["scenes"]
+                    ],
+                ),
             )
             assert cursor.fetchone()[0] == 6
             cursor.execute(
@@ -160,8 +192,15 @@ def test_functional_live_room_plan_compiles_and_only_requests_maitu_execution() 
                 WHERE target_code = ANY(%s) AND target_type IN ('maitu_scene_blueprint', 'layer_blueprint')
                 """,
                 (
-                    [scene["scene_blueprint_code"] for scene in plan["blueprint"]["scenes"]]
-                    + [layer["layer_blueprint_code"] for scene in plan["blueprint"]["scenes"] for layer in scene["layers"]],
+                    [
+                        scene["scene_blueprint_code"]
+                        for scene in plan["blueprint"]["scenes"]
+                    ]
+                    + [
+                        layer["layer_blueprint_code"]
+                        for scene in plan["blueprint"]["scenes"]
+                        for layer in scene["layers"]
+                    ],
                 ),
             )
             assert cursor.fetchone()[0] == 9
@@ -181,7 +220,9 @@ def test_functional_live_room_plan_compiles_and_only_requests_maitu_execution() 
                 """,
                 (plan["plan_code"],),
             )
-            assert cursor.fetchone()[0] == sum(len(operation["targets"]) for operation in trace["operations"])
+            assert cursor.fetchone()[0] == sum(
+                len(operation["targets"]) for operation in trace["operations"]
+            )
 
         requested = service.confirm_execution(plan["plan_code"], confirmed=True)
         assert requested is not None
@@ -212,13 +253,18 @@ def test_functional_live_room_plan_blocks_unbound_required_material() -> None:
         )
 
         assert plan["status"] == "blocked"
-        assert any(reason.startswith("asset_not_maitu_bound") for reason in plan["blocked_reasons"])
+        assert any(
+            reason.startswith("asset_not_maitu_bound")
+            for reason in plan["blocked_reasons"]
+        )
         blocked = service.confirm_execution(plan["plan_code"], confirmed=True)
         assert blocked is not None
         assert blocked["execution_status"] == "blocked"
 
 
-def test_live_room_plan_selects_only_published_material_pack_and_freezes_resolved_assets() -> None:
+def test_live_room_plan_selects_only_published_material_pack_and_freezes_resolved_assets() -> (
+    None
+):
     suffix = uuid4().hex
     with psycopg.connect(DATABASE_URL) as connection:
         assets = AssetRepository(connection)
@@ -230,20 +276,33 @@ def test_live_room_plan_selects_only_published_material_pack_and_freezes_resolve
             _asset(assets, suffix, "promotion_text"),
         ]
         group = library.create_group(
-            {"title": f"Pack inputs {suffix}", "asset_codes": [asset["asset_code"] for asset in selected]}
+            {
+                "title": f"Pack inputs {suffix}",
+                "asset_codes": [asset["asset_code"] for asset in selected],
+            }
         )
         draft_pack = library.create_pack(
             {
-                "title": f"Room pack {suffix}", "role": "background",
-                "entries": [{"selection_kind": "group", "selection_code": group["group_code"], "mode": "required", "min_occurrences": 1}],
+                "title": f"Room pack {suffix}",
+                "role": "background",
+                "entries": [
+                    {
+                        "selection_kind": "group",
+                        "selection_code": group["group_code"],
+                        "mode": "required",
+                        "min_occurrences": 1,
+                    }
+                ],
             }
         )
         service = FunctionalLiveRoomService(connection)
         with pytest.raises(DomainValidationError) as draft_invalid:
             service.create_plan(
                 {
-                    "project_code": project["project_code"], "target_live_room_id": f"draft-pack-{suffix}",
-                    "expected_title": "Draft pack must fail", "material_pack_codes": [draft_pack["pack_code"]],
+                    "project_code": project["project_code"],
+                    "target_live_room_id": f"draft-pack-{suffix}",
+                    "expected_title": "Draft pack must fail",
+                    "material_pack_codes": [draft_pack["pack_code"]],
                 },
                 actor_id="test-operator",
             )
@@ -253,8 +312,10 @@ def test_live_room_plan_selects_only_published_material_pack_and_freezes_resolve
         assert published_pack is not None
         plan = service.create_plan(
             {
-                "project_code": project["project_code"], "target_live_room_id": f"published-pack-{suffix}",
-                "expected_title": "Published pack plan", "material_pack_codes": [published_pack["pack_code"]],
+                "project_code": project["project_code"],
+                "target_live_room_id": f"published-pack-{suffix}",
+                "expected_title": "Published pack plan",
+                "material_pack_codes": [published_pack["pack_code"]],
             },
             actor_id="test-operator",
         )
@@ -262,34 +323,50 @@ def test_live_room_plan_selects_only_published_material_pack_and_freezes_resolve
         assert plan["selected_material_pack_codes"] == [published_pack["pack_code"]]
         assert plan["selected_asset_codes"] == published_pack["resolved_asset_codes"]
         snapshot = plan["build_plan"]["inventory_snapshot"]
-        assert snapshot["material_pack_refs"] == [{
-            "pack_code": published_pack["pack_code"], "revision_number": 1,
-            "fingerprint_sha256": published_pack["fingerprint_sha256"], "role": "background",
-            "entries": published_pack["entries"], "resolved_asset_codes": published_pack["resolved_asset_codes"],
-        }]
+        assert snapshot["material_pack_refs"] == [
+            {
+                "pack_code": published_pack["pack_code"],
+                "revision_number": 1,
+                "fingerprint_sha256": published_pack["fingerprint_sha256"],
+                "role": "background",
+                "entries": published_pack["entries"],
+                "resolved_asset_codes": published_pack["resolved_asset_codes"],
+            }
+        ]
         assert all(
-            {"kind": "material_pack", "code": published_pack["pack_code"]} in asset["selection_sources"]
+            {"kind": "material_pack", "code": published_pack["pack_code"]}
+            in asset["selection_sources"]
             for asset in snapshot["assets"]
         )
 
         library.replace_group_members(group["group_code"], [selected[0]["asset_code"]])
-        assert plan["build_plan"]["inventory_snapshot"]["asset_codes"] == [asset["asset_code"] for asset in selected]
+        assert plan["build_plan"]["inventory_snapshot"]["asset_codes"] == [
+            asset["asset_code"] for asset in selected
+        ]
 
         observed_start = datetime.now(UTC).replace(microsecond=0)
         operations = FunctionalOperationsService(connection)
         session = operations.import_session(
             {
-                "title": "Observed published-pack session", "platform": "douyin",
-                "live_room_plan_code": plan["plan_code"], "started_at": observed_start,
-                "ended_at": observed_start + timedelta(minutes=10), "metrics": {"watchers": 88},
+                "title": "Observed published-pack session",
+                "platform": "douyin",
+                "live_room_plan_code": plan["plan_code"],
+                "started_at": observed_start,
+                "ended_at": observed_start + timedelta(minutes=10),
+                "metrics": {"watchers": 88},
             }
         )
+        assert session["target_resource_id"] == f"published-pack-{suffix}"
         exposure = operations.create_exposure(
             {
-                "session_code": session["session_code"], "plan_code": plan["plan_code"],
+                "session_code": session["session_code"],
+                "plan_code": plan["plan_code"],
                 "scene_code": plan["blueprint"]["scenes"][0]["scene_code"],
-                "started_at": observed_start, "ended_at": observed_start + timedelta(minutes=1),
-                "source_kind": "manual_observation", "evidence_note": "Operator observed the scene in the room.", "confidence": 0.8,
+                "started_at": observed_start,
+                "ended_at": observed_start + timedelta(minutes=1),
+                "source_kind": "manual_observation",
+                "evidence_note": "Operator observed the scene in the room.",
+                "confidence": 0.8,
             }
         )
         assert exposure["variant_code"] == plan["variant_code"]
@@ -312,11 +389,19 @@ def test_live_room_plan_selects_only_published_material_pack_and_freezes_resolve
         }
         assert report["results"]["metadata"]["observed_session_count"] == 1
         with pytest.raises(DomainValidationError) as overlap:
-            operations.create_exposure({**exposure, "exposure_code": None, "evidence_note": "Overlapping interval."})
+            operations.create_exposure(
+                {
+                    **exposure,
+                    "exposure_code": None,
+                    "evidence_note": "Overlapping interval.",
+                }
+            )
         assert overlap.value.code == "CONTENT_EXPOSURE_OVERLAP_CONFLICT"
 
 
-def test_live_room_constraint_profiles_bind_to_snapshot_and_place_product_on_table_surface() -> None:
+def test_live_room_constraint_profiles_bind_to_snapshot_and_place_product_on_table_surface() -> (
+    None
+):
     suffix = uuid4().hex
     with psycopg.connect(DATABASE_URL) as connection:
         assets = AssetRepository(connection)
@@ -326,15 +411,37 @@ def test_live_room_constraint_profiles_bind_to_snapshot_and_place_product_on_tab
         product = _asset(assets, suffix, "product_display")
         library.write_constraint_profile(
             background["asset_code"],
-            [{"kind": "table_surface", "hard": True, "parameters": {"name": "table_surface", "rect": [0.2, 0.65, 0.6, 0.15]}}],
+            [
+                {
+                    "kind": "table_surface",
+                    "hard": True,
+                    "parameters": {
+                        "name": "table_surface",
+                        "rect": [0.2, 0.65, 0.6, 0.15],
+                    },
+                }
+            ],
         )
         library.write_constraint_profile(
             product["asset_code"],
-            [{"kind": "align_anchor", "hard": True, "parameters": {"region": "table_surface", "anchor": "bottom_center"}}],
+            [
+                {
+                    "kind": "align_anchor",
+                    "hard": True,
+                    "parameters": {
+                        "region": "table_surface",
+                        "anchor": "bottom_center",
+                    },
+                }
+            ],
         )
         service = FunctionalLiveRoomService(connection)
-        selected = service._selected_assets([background["asset_code"], product["asset_code"]], [])
-        detail = FunctionalContentService(connection).get_detail(project["project_code"])
+        selected = service._selected_assets(
+            [background["asset_code"], product["asset_code"]], []
+        )
+        detail = FunctionalContentService(connection).get_detail(
+            project["project_code"]
+        )
         assert detail is not None
         for shot in detail["shot_list"]["shots"]:
             shot["material_role_requirements"] = ["background", "product_display"]
@@ -342,20 +449,37 @@ def test_live_room_constraint_profiles_bind_to_snapshot_and_place_product_on_tab
         blueprint, _, blocked = service._compile(
             detail,
             selected,
-            {"target_live_room_id": f"draft-{suffix}", "expected_title": "Constrained draft"},
+            {
+                "target_live_room_id": f"draft-{suffix}",
+                "expected_title": "Constrained draft",
+            },
             variant_code=f"VARIANT-{suffix}",
         )
 
         assert blocked == []
         layers = {layer["role"]: layer for layer in blueprint["scenes"][0]["layers"]}
         assert layers["product_display"]["normalized_geometry"] == {
-            "x": pytest.approx(0.3), "y": pytest.approx(0.65), "width": pytest.approx(0.4), "height": pytest.approx(0.15),
+            "x": pytest.approx(0.3),
+            "y": pytest.approx(0.65),
+            "width": pytest.approx(0.4),
+            "height": pytest.approx(0.15),
         }
-        assert layers["product_display"]["constraint_evidence"]["constraint_profile_ref"]["revision"] == 1
+        assert (
+            layers["product_display"]["constraint_evidence"]["constraint_profile_ref"][
+                "revision"
+            ]
+            == 1
+        )
 
         library.write_constraint_profile(
             product["asset_code"],
-            [{"kind": "require_named_region", "hard": True, "parameters": {"region": "missing_surface"}}],
+            [
+                {
+                    "kind": "require_named_region",
+                    "hard": True,
+                    "parameters": {"region": "missing_surface"},
+                }
+            ],
         )
         missing_region = service._selected_assets([product["asset_code"]], [])
         for shot in detail["shot_list"]["shots"]:
@@ -363,7 +487,10 @@ def test_live_room_constraint_profiles_bind_to_snapshot_and_place_product_on_tab
         _, _, missing_blocked = service._compile(
             detail,
             missing_region,
-            {"target_live_room_id": f"draft-{suffix}", "expected_title": "Blocked constrained draft"},
+            {
+                "target_live_room_id": f"draft-{suffix}",
+                "expected_title": "Blocked constrained draft",
+            },
             variant_code=f"VARIANT-{suffix}-B",
         )
         assert missing_blocked == [
@@ -392,13 +519,19 @@ def test_live_room_duration_deviation_warns_without_blocking_plan() -> None:
             },
             actor_id="test-operator",
         )
-        quality_gate = next(gate for gate in plan["gate_results"] if gate["gate"] == "branch_quality")
+        quality_gate = next(
+            gate for gate in plan["gate_results"] if gate["gate"] == "branch_quality"
+        )
         assert plan["status"] == "ready"
         assert quality_gate["status"] == "warning"
-        assert plan["quality_report"]["warnings"] == ["duration_deviation_over_50_percent"]
+        assert plan["quality_report"]["warnings"] == [
+            "duration_deviation_over_50_percent"
+        ]
 
 
-def test_live_room_release_candidate_freezes_plan_and_stays_pending_external_evidence() -> None:
+def test_live_room_release_candidate_freezes_plan_and_stays_pending_external_evidence() -> (
+    None
+):
     suffix = uuid4().hex
     with psycopg.connect(DATABASE_URL) as connection:
         assets = AssetRepository(connection)
@@ -424,12 +557,19 @@ def test_live_room_release_candidate_freezes_plan_and_stays_pending_external_evi
             actor_id="test-operator",
         )
 
-        candidate = service.create_release_candidate(plan["plan_code"], actor_id="test-operator")
-        replay = service.create_release_candidate(plan["plan_code"], actor_id="test-operator")
+        candidate = service.create_release_candidate(
+            plan["plan_code"], actor_id="test-operator"
+        )
+        replay = service.create_release_candidate(
+            plan["plan_code"], actor_id="test-operator"
+        )
         assert candidate["release"] is not None
         assert candidate["release"]["release_code"] == replay["release"]["release_code"]
         assert candidate["release"]["status"] == "candidate"
-        assert candidate["release_snapshot_artifact_code"] == candidate["release"]["snapshot_artifact_code"]
+        assert (
+            candidate["release_snapshot_artifact_code"]
+            == candidate["release"]["snapshot_artifact_code"]
+        )
 
         repository = ReleaseRepository(connection)
         release = repository.get_release(candidate["release"]["release_code"])
@@ -441,8 +581,14 @@ def test_live_room_release_candidate_freezes_plan_and_stays_pending_external_evi
             "code": project["project_code"],
             "revision": 1,
         }
-        assert manifest["subject_refs"]["production_variant_revision"]["code"] == plan["variant_code"]
-        assert manifest["carrier_facet"]["build_plan_ref"]["code"] == plan["build_plan"]["build_plan_code"]
+        assert (
+            manifest["subject_refs"]["production_variant_revision"]["code"]
+            == plan["variant_code"]
+        )
+        assert (
+            manifest["carrier_facet"]["build_plan_ref"]["code"]
+            == plan["build_plan"]["build_plan_code"]
+        )
         assert manifest["artifact_refs"] == [
             {
                 "artifact_code": candidate["release_snapshot_artifact_code"],
@@ -472,7 +618,10 @@ def test_live_room_release_candidate_freezes_plan_and_stays_pending_external_evi
             )
             snapshot = cursor.fetchone()
         assert snapshot is not None
-        assert snapshot[0]["build_plan"]["build_plan_code"] == plan["build_plan"]["build_plan_code"]
+        assert (
+            snapshot[0]["build_plan"]["build_plan_code"]
+            == plan["build_plan"]["build_plan_code"]
+        )
         assert snapshot[0]["subject_refs"] == manifest["subject_refs"]
 
         with pytest.raises(DomainValidationError) as invalid:
@@ -529,8 +678,13 @@ def test_live_room_plan_clone_recompiles_business_inputs_for_a_new_target() -> N
         assert cloned["release_code"] is None
         assert cloned["cloned_from_plan_code"] == source["plan_code"]
         assert cloned["clone_context"]["cleared_target_state"] == [
-            "target_live_room_fingerprint", "authorization", "execution_status",
-            "execution_evidence", "release", "delivery", "readback",
+            "target_live_room_fingerprint",
+            "authorization",
+            "execution_status",
+            "execution_evidence",
+            "release",
+            "delivery",
+            "readback",
         ]
 
         with pytest.raises(DomainValidationError) as same_target:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from psycopg import Connection
 from psycopg.rows import dict_row
@@ -20,30 +21,62 @@ class FunctionalOperationsService:
                 "OPERATION_SESSION_INTERVAL_INVALID",
                 "End time must be after start time",
             )
+        try:
+            ZoneInfo(payload.get("source_timezone") or "UTC")
+        except ZoneInfoNotFoundError as exc:
+            raise DomainValidationError(
+                "OPERATION_SESSION_TIMEZONE_INVALID",
+                "Source timezone must be a valid IANA timezone",
+            ) from exc
         with self.connection.cursor(row_factory=dict_row) as cursor:
+            external_session_id = payload.get("external_session_id")
             plan = None
             plan_code = payload.get("live_room_plan_code")
             if plan_code:
                 cursor.execute(
-                    "SELECT plan_code, project_code, variant_code, release_code FROM functional_live_room_plans WHERE plan_code = %s",
+                    """SELECT plan_code, project_code, variant_code, release_code, target_live_room_id
+                       FROM functional_live_room_plans WHERE plan_code = %s""",
                     (plan_code,),
                 )
                 plan = cursor.fetchone()
                 if plan is None:
-                    raise DomainValidationError("OPERATION_SESSION_PLAN_NOT_FOUND", "The selected live-room plan does not exist")
+                    raise DomainValidationError(
+                        "OPERATION_SESSION_PLAN_NOT_FOUND",
+                        "The selected live-room plan does not exist",
+                    )
                 requested_project = payload.get("content_project_code")
                 if requested_project and requested_project != plan["project_code"]:
-                    raise DomainValidationError("OPERATION_SESSION_PROJECT_PLAN_MISMATCH", "The session project must match its live-room plan")
+                    raise DomainValidationError(
+                        "OPERATION_SESSION_PROJECT_PLAN_MISMATCH",
+                        "The session project must match its live-room plan",
+                    )
+                requested_target = payload.get("target_resource_id")
+                if requested_target and requested_target != plan["target_live_room_id"]:
+                    raise DomainValidationError(
+                        "OPERATION_SESSION_TARGET_PLAN_MISMATCH",
+                        "The session target resource must match its live-room plan",
+                    )
             code = self._next(cursor, "OPS", "functional_operation_session")
             cursor.execute(
                 """INSERT INTO functional_operation_sessions
-                   (session_code,title,platform,content_project_code,live_room_plan_code,variant_code,release_code,started_at,ended_at,metrics)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
+                   (session_code,title,platform,external_session_id,account_id,target_resource_id,source_timezone,source_evidence,
+                    content_project_code,live_room_plan_code,variant_code,release_code,started_at,ended_at,metrics)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                   ON CONFLICT (platform, external_session_id) WHERE external_session_id IS NOT NULL DO NOTHING
+                   RETURNING *""",
                 (
                     code,
                     payload["title"],
                     payload["platform"],
-                    plan["project_code"] if plan else payload.get("content_project_code"),
+                    external_session_id,
+                    payload.get("account_id"),
+                    payload.get("target_resource_id")
+                    or (plan["target_live_room_id"] if plan else None),
+                    payload.get("source_timezone") or "UTC",
+                    Jsonb(payload.get("source_evidence") or {}),
+                    plan["project_code"]
+                    if plan
+                    else payload.get("content_project_code"),
                     plan["plan_code"] if plan else None,
                     plan["variant_code"] if plan else None,
                     plan["release_code"] if plan else None,
@@ -53,6 +86,18 @@ class FunctionalOperationsService:
                 ),
             )
             row = cursor.fetchone()
+            if row is None:
+                cursor.execute(
+                    """SELECT * FROM functional_operation_sessions
+                       WHERE platform = %s AND external_session_id = %s""",
+                    (payload["platform"], external_session_id),
+                )
+                row = cursor.fetchone()
+            if row is None:
+                raise DomainValidationError(
+                    "OPERATION_SESSION_IDEMPOTENCY_CONFLICT",
+                    "Operation session could not be created or resolved by its external identity",
+                )
         self.connection.commit()
         return dict(row)
 
@@ -65,7 +110,10 @@ class FunctionalOperationsService:
 
     def create_exposure(self, payload: dict[str, Any]) -> dict[str, Any]:
         if payload["ended_at"] <= payload["started_at"]:
-            raise DomainValidationError("CONTENT_EXPOSURE_INTERVAL_INVALID", "Exposure end time must be after start time")
+            raise DomainValidationError(
+                "CONTENT_EXPOSURE_INTERVAL_INVALID",
+                "Exposure end time must be after start time",
+            )
         try:
             with self.connection.cursor(row_factory=dict_row) as cursor:
                 cursor.execute(
@@ -74,21 +122,45 @@ class FunctionalOperationsService:
                 )
                 session = cursor.fetchone()
                 if session is None:
-                    raise DomainValidationError("CONTENT_EXPOSURE_SESSION_NOT_FOUND", "The operation session does not exist")
-                if payload["started_at"] < session["started_at"] or payload["ended_at"] > session["ended_at"]:
-                    raise DomainValidationError("CONTENT_EXPOSURE_OUTSIDE_SESSION", "Exposure must be contained by the operation session interval")
+                    raise DomainValidationError(
+                        "CONTENT_EXPOSURE_SESSION_NOT_FOUND",
+                        "The operation session does not exist",
+                    )
+                if (
+                    payload["started_at"] < session["started_at"]
+                    or payload["ended_at"] > session["ended_at"]
+                ):
+                    raise DomainValidationError(
+                        "CONTENT_EXPOSURE_OUTSIDE_SESSION",
+                        "Exposure must be contained by the operation session interval",
+                    )
                 cursor.execute(
                     "SELECT plan_code, project_code, variant_code, release_code, blueprint FROM functional_live_room_plans WHERE plan_code = %s",
                     (payload["plan_code"],),
                 )
                 plan = cursor.fetchone()
                 if plan is None:
-                    raise DomainValidationError("CONTENT_EXPOSURE_PLAN_NOT_FOUND", "The referenced live-room plan does not exist")
-                if session.get("live_room_plan_code") and session["live_room_plan_code"] != plan["plan_code"]:
-                    raise DomainValidationError("CONTENT_EXPOSURE_SESSION_PLAN_MISMATCH", "Session is bound to a different live-room plan")
-                scene_codes = {str(scene.get("scene_code") or "") for scene in (plan["blueprint"] or {}).get("scenes") or []}
+                    raise DomainValidationError(
+                        "CONTENT_EXPOSURE_PLAN_NOT_FOUND",
+                        "The referenced live-room plan does not exist",
+                    )
+                if (
+                    session.get("live_room_plan_code")
+                    and session["live_room_plan_code"] != plan["plan_code"]
+                ):
+                    raise DomainValidationError(
+                        "CONTENT_EXPOSURE_SESSION_PLAN_MISMATCH",
+                        "Session is bound to a different live-room plan",
+                    )
+                scene_codes = {
+                    str(scene.get("scene_code") or "")
+                    for scene in (plan["blueprint"] or {}).get("scenes") or []
+                }
                 if payload["scene_code"] not in scene_codes:
-                    raise DomainValidationError("CONTENT_EXPOSURE_SCENE_NOT_FOUND", "Exposure scene is not in the referenced plan")
+                    raise DomainValidationError(
+                        "CONTENT_EXPOSURE_SCENE_NOT_FOUND",
+                        "Exposure scene is not in the referenced plan",
+                    )
                 cursor.execute(
                     """SELECT exposure_code FROM functional_content_exposures
                        WHERE session_id = %s AND status = 'active'
@@ -109,9 +181,18 @@ class FunctionalOperationsService:
                         started_at,ended_at,source_kind,evidence_note,confidence)
                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
                     (
-                        code, session["id"], session["session_code"], plan["plan_code"], plan["variant_code"],
-                        plan["release_code"], payload["scene_code"], payload["started_at"], payload["ended_at"],
-                        payload["source_kind"], payload["evidence_note"].strip(), payload.get("confidence", 0.5),
+                        code,
+                        session["id"],
+                        session["session_code"],
+                        plan["plan_code"],
+                        plan["variant_code"],
+                        plan["release_code"],
+                        payload["scene_code"],
+                        payload["started_at"],
+                        payload["ended_at"],
+                        payload["source_kind"],
+                        payload["evidence_note"].strip(),
+                        payload.get("confidence", 0.5),
                     ),
                 )
                 row = cursor.fetchone()
@@ -123,7 +204,9 @@ class FunctionalOperationsService:
 
     def list_exposures(self) -> list[dict[str, Any]]:
         with self.connection.cursor(row_factory=dict_row) as cursor:
-            cursor.execute("SELECT * FROM functional_content_exposures ORDER BY started_at DESC, exposure_code")
+            cursor.execute(
+                "SELECT * FROM functional_content_exposures ORDER BY started_at DESC, exposure_code"
+            )
             return [dict(row) for row in cursor.fetchall()]
 
     def create_report(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -149,7 +232,9 @@ class FunctionalOperationsService:
             )
             exposures_by_session: dict[str, list[dict[str, Any]]] = {}
             for exposure in cursor.fetchall():
-                exposures_by_session.setdefault(exposure["session_code"], []).append(dict(exposure))
+                exposures_by_session.setdefault(exposure["session_code"], []).append(
+                    dict(exposure)
+                )
 
             groups: dict[str, dict[str, Any]] = {}
             source_kind_counts: dict[str, int] = {}
@@ -158,7 +243,9 @@ class FunctionalOperationsService:
             for session in rows:
                 session_code = session["session_code"]
                 session_exposures = exposures_by_session.get(session_code, [])
-                metric_value = float((session["metrics"] or {}).get(payload["metric_key"], 0))
+                metric_value = float(
+                    (session["metrics"] or {}).get(payload["metric_key"], 0)
+                )
                 plan_codes = sorted({item["plan_code"] for item in session_exposures})
                 if len(plan_codes) == 1:
                     group_key = f"plan:{plan_codes[0]}"
@@ -201,11 +288,17 @@ class FunctionalOperationsService:
                 evidence = group["source_evidence"]
                 for exposure in session_exposures:
                     source_kind = exposure["source_kind"]
-                    source_kind_counts[source_kind] = source_kind_counts.get(source_kind, 0) + 1
+                    source_kind_counts[source_kind] = (
+                        source_kind_counts.get(source_kind, 0) + 1
+                    )
                     evidence["exposure_count"] += 1
-                    evidence["coverage_seconds"] += (exposure["ended_at"] - exposure["started_at"]).total_seconds()
+                    evidence["coverage_seconds"] += (
+                        exposure["ended_at"] - exposure["started_at"]
+                    ).total_seconds()
                     evidence["confidence_sum"] += float(exposure["confidence"])
-                    evidence["source_kind_counts"][source_kind] = evidence["source_kind_counts"].get(source_kind, 0) + 1
+                    evidence["source_kind_counts"][source_kind] = (
+                        evidence["source_kind_counts"].get(source_kind, 0) + 1
+                    )
                     if exposure["scene_code"] not in evidence["scene_codes"]:
                         evidence["scene_codes"].append(exposure["scene_code"])
                     if exposure["release_code"]:
@@ -228,7 +321,9 @@ class FunctionalOperationsService:
                     "source_evidence": {
                         **evidence,
                         "exposure_count": exposure_count,
-                        "average_confidence": confidence_sum / exposure_count if exposure_count else None,
+                        "average_confidence": confidence_sum / exposure_count
+                        if exposure_count
+                        else None,
                     },
                     "limitations": [
                         "Metric remains at operation-session grain and is not allocated to individual scenes.",

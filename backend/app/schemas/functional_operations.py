@@ -9,6 +9,11 @@ from pydantic import BaseModel, Field
 class OperationSessionCreate(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     platform: str = Field(min_length=1, max_length=64)
+    external_session_id: str | None = Field(default=None, min_length=1, max_length=128)
+    account_id: str | None = Field(default=None, min_length=1, max_length=128)
+    target_resource_id: str | None = Field(default=None, min_length=1, max_length=128)
+    source_timezone: str = Field(default="UTC", min_length=1, max_length=64)
+    source_evidence: dict[str, Any] = Field(default_factory=dict)
     content_project_code: str | None = Field(default=None, max_length=64)
     live_room_plan_code: str | None = Field(default=None, max_length=64)
     started_at: datetime
@@ -29,7 +34,9 @@ class ContentExposureCreate(BaseModel):
     scene_code: str = Field(min_length=1, max_length=64)
     started_at: datetime
     ended_at: datetime
-    source_kind: str = Field(pattern="^(manual_observation|served_log|recording_match)$")
+    source_kind: str = Field(
+        pattern="^(manual_observation|served_log|recording_match)$"
+    )
     evidence_note: str = Field(min_length=1, max_length=4000)
     confidence: float = Field(default=0.5, ge=0, le=1)
 
