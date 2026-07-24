@@ -1,0 +1,67 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it, vi } from "vitest";
+import { AssetLibraryPage } from "./AssetLibraryPage";
+
+function response(body: unknown): Response {
+  return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
+}
+
+function renderPage() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  return render(<QueryClientProvider client={client}><AssetLibraryPage /></QueryClientProvider>);
+}
+
+describe("AssetLibraryPage", () => {
+  it("updates independent group membership and retains multi-membership semantics", async () => {
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/assets") return response([{ asset_code: "AG-IMG-001", title: "主图", original_filename: "main.png", asset_type: "IMG", material_roles: ["background"], execution_capability: "maitu_bound" }]);
+      if (url === "/api/assets/groups") return response([{ group_code: "AG-GRP-001", title: "主素材组", asset_codes: ["AG-IMG-001"], asset_count: 1, created_at: "2026-07-25T00:00:00Z", updated_at: "2026-07-25T00:00:00Z" }]);
+      if (url === "/api/assets/material-packs" || url === "/api/assets/gaps") return response([]);
+      if (url === "/api/assets/groups/AG-GRP-001/members" && init?.method === "PUT") return response({ group_code: "AG-GRP-001", title: "主素材组", asset_codes: [], asset_count: 0, created_at: "2026-07-25T00:00:00Z", updated_at: "2026-07-25T00:00:00Z" });
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetch);
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("tab", { name: "分组" }));
+    const member = await screen.findByRole("checkbox", { name: /主图/ });
+    expect(member).toBeChecked();
+    await user.click(member);
+    await user.click(screen.getByRole("button", { name: "更新成员" }));
+
+    expect(fetch).toHaveBeenCalledWith("/api/assets/groups/AG-GRP-001/members", expect.objectContaining({ method: "PUT", body: JSON.stringify({ asset_codes: [] }) }));
+  });
+
+  it("submits material-pack occurrence constraints", async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); requests.push({ url, init });
+      if (url === "/api/assets") return response([]);
+      if (url === "/api/assets/groups") return response([{ group_code: "AG-GRP-001", title: "主素材组", asset_codes: [], asset_count: 0, created_at: "2026-07-25T00:00:00Z", updated_at: "2026-07-25T00:00:00Z" }]);
+      if (url === "/api/assets/material-packs" && init?.method === "POST") return response({ pack_code: "AG-PACK-001", title: "主场景素材包", role: "background", revision_number: 1, status: "draft", fingerprint_sha256: "a".repeat(64), entries: [], resolved_asset_codes: [], created_at: "2026-07-25T00:00:00Z", updated_at: "2026-07-25T00:00:00Z" });
+      if (url === "/api/assets/material-packs" || url === "/api/assets/gaps") return response([]);
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("tab", { name: "素材包" }));
+    await user.type(screen.getByLabelText("素材包名称"), "主场景素材包");
+    await user.type(screen.getByPlaceholderText("AG-GRP-*"), "AG-GRP-001");
+    const selects = screen.getAllByRole("combobox");
+    await user.selectOptions(selects[2]!, "required");
+    await user.clear(screen.getByLabelText("最少出现次数"));
+    await user.type(screen.getByLabelText("最少出现次数"), "2");
+    await user.type(screen.getByLabelText("最多出现次数"), "3");
+    await user.click(screen.getByRole("button", { name: "添加" }));
+    expect(screen.getByText("required · 2 至 3 次")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "创建素材包" }));
+
+    const request = requests.find((item) => item.url === "/api/assets/material-packs" && item.init?.method === "POST");
+    expect(request?.init?.body).toBe(JSON.stringify({ title: "主场景素材包", role: "background", entries: [{ selection_kind: "group", selection_code: "AG-GRP-001", mode: "required", min_occurrences: 2, max_occurrences: 3 }] }));
+  });
+});
