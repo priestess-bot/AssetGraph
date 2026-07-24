@@ -124,8 +124,17 @@
 .asset-role-options label { display: inline-flex; align-items: center; gap: 4px; padding: 4px 6px; border: 1px solid var(--wb-line); border-radius: 4px; color: var(--wb-text); font-size: 9px; }
 .asset-role-options input { margin: 0; }
 .asset-constraint-list { display: grid; gap: 7px; margin: 10px 0; }
-.asset-constraint-row { display: grid; grid-template-columns: minmax(130px, .8fr) 74px minmax(120px, 1fr) auto; align-items: center; gap: 6px; }
+.asset-constraint-row { display: grid; grid-template-columns: minmax(180px, .72fr) minmax(0, 1.28fr) auto; align-items: start; gap: 8px; padding: 8px; border: 1px solid var(--wb-line); background: var(--wb-subtle); }
+.asset-constraint-heading { display: grid; gap: 7px; }
+.asset-constraint-heading > label:first-child { display: grid; gap: 3px; }
+.asset-constraint-heading > label:first-child > span, .asset-constraint-fields label > span { color: var(--wb-muted); font-size: 8px; }
 .asset-constraint-row label { display: inline-flex; align-items: center; gap: 4px; color: var(--wb-muted); font-size: 8px; }
+.asset-constraint-parameters { display: grid; gap: 7px; min-width: 0; }
+.asset-constraint-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.asset-constraint-fields label { display: grid; min-width: 0; gap: 3px; }
+.asset-constraint-fields .wb-input { min-width: 0; }
+.asset-region-preview { position: relative; aspect-ratio: 16 / 9; overflow: hidden; border: 1px solid var(--wb-line-strong); background: repeating-linear-gradient(0deg, transparent 0 24%, rgb(20 137 143 / 10%) 25%), repeating-linear-gradient(90deg, transparent 0 24%, rgb(20 137 143 / 10%) 25%); }
+.asset-region-preview > span { position: absolute; display: block; min-width: 2px; min-height: 2px; border: 2px solid var(--console-cyan); background: rgb(20 137 143 / 16%); }
 .asset-summary-list { display: grid; }
 .asset-summary-list > div { display: grid; min-height: 66px; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 9px 12px; border-bottom: 1px solid var(--wb-line); }
 .asset-group-list { display: grid; border-top: 1px solid var(--wb-line); }
@@ -523,6 +532,8 @@
   .console-summary > div:nth-child(-n+2) { border-bottom: 1px solid var(--wb-line); }
   .console-entity-inspector { width: min(560px, 100vw); }
   .asset-library-layout { grid-template-columns: 1fr; }
+  .asset-constraint-row { grid-template-columns: 1fr; }
+  .asset-constraint-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .content-project-layout, .knowledge-layout, .live-room-layout, .video-plan-layout, .release-workspace, .operations-layout { grid-template-columns: 1fr; }
   .content-template-contributions, .content-module-options { grid-template-columns: 1fr; }
   .release-rail { position: static; max-height: none; }

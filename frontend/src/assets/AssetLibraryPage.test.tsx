@@ -64,4 +64,28 @@ describe("AssetLibraryPage", () => {
     const request = requests.find((item) => item.url === "/api/assets/material-packs" && item.init?.method === "POST");
     expect(request?.init?.body).toBe(JSON.stringify({ title: "主场景素材包", role: "background", entries: [{ selection_kind: "group", selection_code: "AG-GRP-001", mode: "required", min_occurrences: 2, max_occurrences: 3 }] }));
   });
+
+  it("writes a table-surface constraint through structured normalized fields", async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); requests.push({ url, init });
+      if (url === "/api/assets") return response([{ asset_code: "AG-IMG-001", title: "餐桌背景", original_filename: "table.png", asset_type: "IMG", material_roles: ["background"], execution_capability: "maitu_bound" }]);
+      if (url === "/api/assets/groups" || url === "/api/assets/material-packs" || url === "/api/assets/gaps") return response([]);
+      if (url === "/api/assets/AG-IMG-001/constraint-profile" && !init?.method) return response({ profile_code: "AG-CP-001", asset_code: "AG-IMG-001", revision_number: 1, constraints: [], fingerprint_sha256: "a".repeat(64), created_at: "2026-07-25T00:00:00Z" });
+      if (url === "/api/assets/AG-IMG-001/constraint-profile" && init?.method === "POST") return response({ profile_code: "AG-CP-001", asset_code: "AG-IMG-001", revision_number: 2, constraints: [], fingerprint_sha256: "b".repeat(64), created_at: "2026-07-25T00:00:00Z" });
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText("位置与图层约束");
+    await user.click(screen.getByRole("button", { name: "添加约束" }));
+    await user.selectOptions(screen.getByLabelText("约束类型"), "table_surface");
+    expect(screen.getByLabelText("归一化区域预览")).toBeInTheDocument();
+    expect(screen.getByLabelText("约束参数：承载商品角色")).toHaveValue("product_display");
+    await user.click(screen.getByRole("button", { name: "保存新修订" }));
+
+    const request = requests.find((item) => item.url === "/api/assets/AG-IMG-001/constraint-profile" && item.init?.method === "POST");
+    expect(request?.init?.body).toBe(JSON.stringify({ constraints: [{ kind: "table_surface", hard: true, parameters: { region: "table_surface", x: 0.1, y: 0.58, width: 0.8, height: 0.28, product_role: "product_display", product_anchor: "bottom_center" } }] }));
+  });
 });
