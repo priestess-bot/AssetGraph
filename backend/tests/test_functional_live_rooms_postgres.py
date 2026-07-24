@@ -294,6 +294,23 @@ def test_live_room_plan_selects_only_published_material_pack_and_freezes_resolve
         )
         assert exposure["variant_code"] == plan["variant_code"]
         assert exposure["release_code"] is None
+        report = operations.create_report(
+            {"metric_key": "watchers", "session_codes": [session["session_code"]]}
+        )
+        group = report["results"]["groups"][f"plan:{plan['plan_code']}"]
+        assert group["scope_type"] == "live_room_plan"
+        assert group["average"] == 88.0
+        assert group["sample_size"] == 1
+        assert group["source_evidence"] == {
+            "release_bound_exposure_count": 0,
+            "coverage_seconds": 60.0,
+            "source_kind_counts": {"manual_observation": 1},
+            "scene_codes": [plan["blueprint"]["scenes"][0]["scene_code"]],
+            "release_codes": [],
+            "exposure_count": 1,
+            "average_confidence": 0.8,
+        }
+        assert report["results"]["metadata"]["observed_session_count"] == 1
         with pytest.raises(DomainValidationError) as overlap:
             operations.create_exposure({**exposure, "exposure_code": None, "evidence_note": "Overlapping interval."})
         assert overlap.value.code == "CONTENT_EXPOSURE_OVERLAP_CONFLICT"

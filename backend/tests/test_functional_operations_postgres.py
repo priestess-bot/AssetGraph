@@ -23,7 +23,24 @@ def test_operations_import_descriptive_report_and_planning_conflicts() -> None:
         second = service.import_session({"title": f"Second {suffix}", "platform": "douyin", "content_project_code": "CP-ONE", "started_at": start + timedelta(days=1), "ended_at": start + timedelta(days=1, minutes=20), "metrics": {"watchers": 200}})
         report = service.create_report({"metric_key": "watchers", "session_codes": [first["session_code"], second["session_code"]]})
         assert report["evidence_level"] == "descriptive"
-        assert report["results"]["CP-ONE"] == {"average": 150.0, "sample_size": 2}
+        assert report["results"]["metadata"] == {
+            "method": "session_metric_grouped_by_source_backed_exposure",
+            "metric_grain": "operation_session",
+            "selected_session_count": 2,
+            "observed_session_count": 0,
+            "session_only_count": 2,
+            "source_kind_counts": {},
+            "release_bound_exposure_count": 0,
+            "evidence_level": "descriptive",
+        }
+        assert {
+            result["average"]
+            for result in report["results"]["groups"].values()
+        } == {100.0, 200.0}
+        assert {
+            result["scope_type"]
+            for result in report["results"]["groups"].values()
+        } == {"session_only"}
         room_id = f"room-{suffix}"
         initial = service.create_schedule({"title": "First plan", "target_live_room_id": room_id, "starts_at": start, "duration_minutes": 30})
         conflict = service.create_schedule({"title": "Overlap", "target_live_room_id": room_id, "starts_at": start + timedelta(minutes=15), "duration_minutes": 30})

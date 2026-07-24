@@ -139,18 +139,115 @@ class FunctionalOperationsService:
                     "ATTRIBUTION_SESSION_NOT_FOUND",
                     "Every selected operation session must exist",
                 )
-            values = [
-                float((row["metrics"] or {}).get(payload["metric_key"], 0))
-                for row in rows
-            ]
-            grouped: dict[str, list[float]] = {}
-            for row, value in zip(rows, values, strict=True):
-                grouped.setdefault(
-                    row["content_project_code"] or "unlinked", []
-                ).append(value)
+            cursor.execute(
+                """SELECT exposure_code, session_code, plan_code, release_code, scene_code,
+                          started_at, ended_at, source_kind, confidence
+                   FROM functional_content_exposures
+                   WHERE session_code = ANY(%s) AND status = 'active'
+                   ORDER BY session_code, started_at, exposure_code""",
+                (codes,),
+            )
+            exposures_by_session: dict[str, list[dict[str, Any]]] = {}
+            for exposure in cursor.fetchall():
+                exposures_by_session.setdefault(exposure["session_code"], []).append(dict(exposure))
+
+            groups: dict[str, dict[str, Any]] = {}
+            source_kind_counts: dict[str, int] = {}
+            observed_sessions = 0
+            release_bound_exposures = 0
+            for session in rows:
+                session_code = session["session_code"]
+                session_exposures = exposures_by_session.get(session_code, [])
+                metric_value = float((session["metrics"] or {}).get(payload["metric_key"], 0))
+                plan_codes = sorted({item["plan_code"] for item in session_exposures})
+                if len(plan_codes) == 1:
+                    group_key = f"plan:{plan_codes[0]}"
+                    scope_type = "live_room_plan"
+                    scope_code = plan_codes[0]
+                    display_label = f"实际展示计划 {plan_codes[0]}"
+                    observed_sessions += 1
+                elif plan_codes:
+                    group_key = f"mixed:{session_code}"
+                    scope_type = "mixed_observed_content"
+                    scope_code = session_code
+                    display_label = f"混合实际内容 {session_code}"
+                    observed_sessions += 1
+                else:
+                    group_key = f"session_only:{session_code}"
+                    scope_type = "session_only"
+                    scope_code = session_code
+                    display_label = f"未登记实际展示 {session_code}"
+                group = groups.setdefault(
+                    group_key,
+                    {
+                        "scope_type": scope_type,
+                        "scope_code": scope_code,
+                        "display_label": display_label,
+                        "values": [],
+                        "session_codes": [],
+                        "source_evidence": {
+                            "exposure_count": 0,
+                            "release_bound_exposure_count": 0,
+                            "coverage_seconds": 0.0,
+                            "source_kind_counts": {},
+                            "scene_codes": [],
+                            "release_codes": [],
+                            "confidence_sum": 0.0,
+                        },
+                    },
+                )
+                group["values"].append(metric_value)
+                group["session_codes"].append(session_code)
+                evidence = group["source_evidence"]
+                for exposure in session_exposures:
+                    source_kind = exposure["source_kind"]
+                    source_kind_counts[source_kind] = source_kind_counts.get(source_kind, 0) + 1
+                    evidence["exposure_count"] += 1
+                    evidence["coverage_seconds"] += (exposure["ended_at"] - exposure["started_at"]).total_seconds()
+                    evidence["confidence_sum"] += float(exposure["confidence"])
+                    evidence["source_kind_counts"][source_kind] = evidence["source_kind_counts"].get(source_kind, 0) + 1
+                    if exposure["scene_code"] not in evidence["scene_codes"]:
+                        evidence["scene_codes"].append(exposure["scene_code"])
+                    if exposure["release_code"]:
+                        release_bound_exposures += 1
+                        evidence["release_bound_exposure_count"] += 1
+                        if exposure["release_code"] not in evidence["release_codes"]:
+                            evidence["release_codes"].append(exposure["release_code"])
+            materialized_groups: dict[str, dict[str, Any]] = {}
+            for group_key, group in groups.items():
+                evidence = group["source_evidence"]
+                exposure_count = evidence.pop("exposure_count")
+                confidence_sum = evidence.pop("confidence_sum")
+                materialized_groups[group_key] = {
+                    "scope_type": group["scope_type"],
+                    "scope_code": group["scope_code"],
+                    "display_label": group["display_label"],
+                    "average": sum(group["values"]) / len(group["values"]),
+                    "sample_size": len(group["values"]),
+                    "session_codes": group["session_codes"],
+                    "source_evidence": {
+                        **evidence,
+                        "exposure_count": exposure_count,
+                        "average_confidence": confidence_sum / exposure_count if exposure_count else None,
+                    },
+                    "limitations": [
+                        "Metric remains at operation-session grain and is not allocated to individual scenes.",
+                        "This descriptive result does not establish causality.",
+                    ],
+                }
             results = {
-                key: {"average": sum(items) / len(items), "sample_size": len(items)}
-                for key, items in grouped.items()
+                "schema_version": "functional-attribution-report.v2",
+                "groups": materialized_groups,
+                "metadata": {
+                    "method": "session_metric_grouped_by_source_backed_exposure",
+                    "metric_grain": "operation_session",
+                    "selected_session_count": len(rows),
+                    "observed_session_count": observed_sessions,
+                    "session_only_count": len(rows) - observed_sessions,
+                    "source_kind_counts": source_kind_counts,
+                    "release_bound_exposure_count": release_bound_exposures,
+                    "evidence_level": "descriptive",
+                },
             }
             code = self._next(cursor, "ATTR", "functional_attribution_report")
             cursor.execute(
