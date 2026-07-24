@@ -8,6 +8,7 @@ import pytest
 
 from app.domain.errors import DomainValidationError
 from app.repositories.assets import AssetRepository
+from app.repositories.material_library import MaterialLibraryRepository
 from app.repositories.releases import ReleaseRepository
 from app.services.functional_content import FunctionalContentService
 from app.services.functional_live_rooms import FunctionalLiveRoomService
@@ -213,6 +214,62 @@ def test_functional_live_room_plan_blocks_unbound_required_material() -> None:
         blocked = service.confirm_execution(plan["plan_code"], confirmed=True)
         assert blocked is not None
         assert blocked["execution_status"] == "blocked"
+
+
+def test_live_room_constraint_profiles_bind_to_snapshot_and_place_product_on_table_surface() -> None:
+    suffix = uuid4().hex
+    with psycopg.connect(DATABASE_URL) as connection:
+        assets = AssetRepository(connection)
+        library = MaterialLibraryRepository(connection)
+        project = _generated_project(connection, suffix)
+        background = _asset(assets, suffix, "background")
+        product = _asset(assets, suffix, "product_display")
+        library.write_constraint_profile(
+            background["asset_code"],
+            [{"kind": "table_surface", "hard": True, "parameters": {"name": "table_surface", "rect": [0.2, 0.65, 0.6, 0.15]}}],
+        )
+        library.write_constraint_profile(
+            product["asset_code"],
+            [{"kind": "align_anchor", "hard": True, "parameters": {"region": "table_surface", "anchor": "bottom_center"}}],
+        )
+        service = FunctionalLiveRoomService(connection)
+        selected = service._selected_assets([background["asset_code"], product["asset_code"]], [])
+        detail = FunctionalContentService(connection).get_detail(project["project_code"])
+        assert detail is not None
+        for shot in detail["shot_list"]["shots"]:
+            shot["material_role_requirements"] = ["background", "product_display"]
+
+        blueprint, _, blocked = service._compile(
+            detail,
+            selected,
+            {"target_live_room_id": f"draft-{suffix}", "expected_title": "Constrained draft"},
+            variant_code=f"VARIANT-{suffix}",
+        )
+
+        assert blocked == []
+        layers = {layer["role"]: layer for layer in blueprint["scenes"][0]["layers"]}
+        assert layers["product_display"]["normalized_geometry"] == {
+            "x": pytest.approx(0.3), "y": pytest.approx(0.65), "width": pytest.approx(0.4), "height": pytest.approx(0.15),
+        }
+        assert layers["product_display"]["constraint_evidence"]["constraint_profile_ref"]["revision"] == 1
+
+        library.write_constraint_profile(
+            product["asset_code"],
+            [{"kind": "require_named_region", "hard": True, "parameters": {"region": "missing_surface"}}],
+        )
+        missing_region = service._selected_assets([product["asset_code"]], [])
+        for shot in detail["shot_list"]["shots"]:
+            shot["material_role_requirements"] = ["product_display"]
+        _, _, missing_blocked = service._compile(
+            detail,
+            missing_region,
+            {"target_live_room_id": f"draft-{suffix}", "expected_title": "Blocked constrained draft"},
+            variant_code=f"VARIANT-{suffix}-B",
+        )
+        assert missing_blocked == [
+            f"constraint_named_region_missing:missing_surface:shot:{shot['shot_code']}"
+            for shot in detail["shot_list"]["shots"]
+        ]
 
 
 def test_live_room_duration_deviation_warns_without_blocking_plan() -> None:

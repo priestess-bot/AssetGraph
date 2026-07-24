@@ -41,14 +41,23 @@ class ExecutionCapability(StrEnum):
 class ConstraintKind(StrEnum):
     ALLOWED_REGION = "allowed_region"
     FORBIDDEN_REGION = "forbidden_region"
+    PROVIDE_NAMED_REGION = "provide_named_region"
+    REQUIRE_NAMED_REGION = "require_named_region"
     PRESERVE_ASPECT_RATIO = "preserve_aspect_ratio"
     SIZE_RANGE = "size_range"
     SCALE_RANGE = "scale_range"
+    CROP_POLICY = "crop_policy"
+    ROTATION_POLICY = "rotation_policy"
     PIN_LAYER_TOP = "pin_layer_top"
     PIN_LAYER_BOTTOM = "pin_layer_bottom"
     ABOVE_ROLE = "above_role"
     BELOW_ROLE = "below_role"
     AVOID_OVERLAP = "avoid_overlap"
+    ALIGN_ANCHOR = "align_anchor"
+    DISTANCE_RANGE = "distance_range"
+    LOOP_POLICY = "loop_policy"
+    MUTE_POLICY = "mute_policy"
+    VOLUME_RANGE = "volume_range"
     TABLE_SURFACE = "table_surface"
 
 

@@ -55,6 +55,7 @@ class FunctionalLiveRoomService:
                 {
                     "asset_code": asset["asset_code"], "media_kind": asset["media_kind"],
                     "material_roles": asset["material_roles"], "execution_capability": asset["execution_capability"],
+                    "constraint_profile_ref": asset["constraint_profile_ref"],
                 }
                 for asset in selected_assets
             ],
@@ -71,7 +72,16 @@ class FunctionalLiveRoomService:
             branch_target={"live_room_id": payload["target_live_room_id"], "expected_title": payload["expected_title"]},
             configuration={"templates": templates, "selected_asset_codes": snapshot["asset_codes"]},
             material_snapshot_ref=snapshot,
-            constraint_snapshot_ref={"source": "functional_asset_constraint_profiles.v1"},
+            constraint_snapshot_ref={
+                "schema_version": "functional-asset-constraint-profiles.v1",
+                "asset_profiles": [
+                    {
+                        "asset_code": asset["asset_code"],
+                        "profile": asset["constraint_profile_ref"],
+                    }
+                    for asset in selected_assets
+                ],
+            },
             actor_id=actor_id,
             producer_strategy_revision="functional-live-room.v1",
         )
@@ -900,13 +910,37 @@ class FunctionalLiveRoomService:
             if not codes:
                 return []
             cursor.execute(
-                """SELECT asset_code, COALESCE(title, original_filename) AS title,
-                          media_kind, material_roles, execution_capability
-                   FROM assets WHERE asset_code = ANY(%s) AND deleted_at IS NULL""",
+                """
+                SELECT asset.asset_code, COALESCE(asset.title, asset.original_filename) AS title,
+                       asset.media_kind, asset.material_roles, asset.execution_capability,
+                       profile.profile_code, revision.revision_number AS constraint_profile_revision,
+                       revision.constraints AS constraint_profile_constraints,
+                       revision.fingerprint_sha256 AS constraint_profile_fingerprint
+                FROM assets AS asset
+                LEFT JOIN asset_constraint_profiles AS profile ON profile.asset_id = asset.id
+                LEFT JOIN asset_constraint_profile_revisions AS revision
+                  ON revision.profile_id = profile.id AND revision.revision_number = profile.current_revision
+                WHERE asset.asset_code = ANY(%s) AND asset.deleted_at IS NULL
+                """,
                 (codes,),
             )
             rows = cursor.fetchall()
-        by_code = {row["asset_code"]: row for row in rows}
+        by_code = {
+            row["asset_code"]: {
+                **row,
+                "constraint_profile_ref": (
+                    {
+                        "profile_code": row["profile_code"],
+                        "revision": int(row["constraint_profile_revision"]),
+                        "fingerprint": row["constraint_profile_fingerprint"],
+                        "constraints": list(row["constraint_profile_constraints"] or []),
+                    }
+                    if row["profile_code"] is not None
+                    else None
+                ),
+            }
+            for row in rows
+        }
         missing = [code for code in codes if code not in by_code]
         if missing:
             raise DomainValidationError("LIVE_ROOM_ASSET_NOT_FOUND", "Selected assets no longer exist", details={"asset_codes": missing})
@@ -1132,6 +1166,8 @@ class FunctionalLiveRoomService:
         scenes: list[dict[str, Any]] = []
         operations: list[dict[str, Any]] = [{"kind": "rename_room", "expected_title": payload["expected_title"]}]
         blocked: list[str] = []
+        named_regions, named_region_failures = FunctionalLiveRoomService._named_regions(assets)
+        blocked.extend(named_region_failures)
         active_start_ms = 0
         for index, shot in enumerate(shots):
             layers: list[dict[str, Any]] = []
@@ -1141,12 +1177,37 @@ class FunctionalLiveRoomService:
                     blocked.append(f"missing_role:{role}:shot:{shot['shot_code']}")
                     continue
                 asset = candidates[0]
-                layers.append({"layer_blueprint_code": f"LYR-MSB-{variant_code}-{index + 1:03d}-{len(layers) + 1:02d}", "role": role, "asset_code": asset["asset_code"], "execution_capability": asset["execution_capability"], "z_order": 100 if role == "digital_human" else 10})
+                geometry, z_order, visual_properties, audio_properties, constraint_evidence, failures = (
+                    FunctionalLiveRoomService._resolve_layer_constraints(
+                        asset=asset,
+                        role=str(role),
+                        named_regions=named_regions,
+                    )
+                )
+                blocked.extend(f"{failure}:shot:{shot['shot_code']}" for failure in failures)
+                layers.append(
+                    {
+                        "layer_blueprint_code": f"LYR-MSB-{variant_code}-{index + 1:03d}-{len(layers) + 1:02d}",
+                        "role": role,
+                        "asset_code": asset["asset_code"],
+                        "execution_capability": asset["execution_capability"],
+                        "normalized_geometry": geometry,
+                        "z_order": z_order,
+                        "visual_properties": visual_properties,
+                        "audio_properties": audio_properties,
+                        "constraint_evidence": constraint_evidence,
+                        "constraint_rules": FunctionalLiveRoomService._constraint_rules(asset),
+                    }
+                )
                 if asset["execution_capability"] != "maitu_bound":
                     blocked.append(f"asset_not_maitu_bound:{asset['asset_code']}")
+            blocked.extend(
+                f"{failure}:shot:{shot['shot_code']}"
+                for failure in FunctionalLiveRoomService._resolve_scene_layer_relationships(layers)
+            )
             scene_code = f"MSB-{variant_code}-{index + 1:03d}"
             duration_ms = int(shot.get("estimated_duration_ms") or 1)
-            scenes.append({"scene_code": scene_code, "shot_code": shot["shot_code"], "title": shot["shot_goal"], "layers": layers, "script": blocks[index]["content"], "transition_strategy": {"type": "cut" if index else "initial"}, "estimated_active_start_ms": active_start_ms, "estimated_active_end_ms": active_start_ms + duration_ms, "estimated_duration_ms": duration_ms, "constraint_evidence": {"selection_source": "functional_live_room.v1", "required_roles": shot["material_role_requirements"]}})
+            scenes.append({"scene_code": scene_code, "shot_code": shot["shot_code"], "title": shot["shot_goal"], "layers": layers, "script": blocks[index]["content"], "transition_strategy": {"type": "cut" if index else "initial"}, "estimated_active_start_ms": active_start_ms, "estimated_active_end_ms": active_start_ms + duration_ms, "estimated_duration_ms": duration_ms, "constraint_evidence": {"selection_source": "functional_live_room.v1", "required_roles": shot["material_role_requirements"], "named_regions": named_regions}})
             operations.append({"kind": "create_scene", "scene_code": scene_code, "source_shot": shot["shot_code"]})
             operations.extend({"kind": "insert_bound_asset", "scene_code": scene_code, "asset_code": layer["asset_code"], "role": layer["role"]} for layer in layers)
             operations.append({"kind": "write_script", "scene_code": scene_code, "script_block_code": blocks[index]["block_code"]})
@@ -1156,6 +1217,246 @@ class FunctionalLiveRoomService:
             {"schema_version": "maitu-scene-blueprint.functional.v1", "scenes": scenes},
             {"schema_version": "maitu-build-plan.functional.v1", "target_live_room_id": payload["target_live_room_id"], "operations": operations, "go_live": False},
             list(dict.fromkeys(blocked)),
+        )
+
+    @staticmethod
+    def _constraint_rules(asset: dict[str, Any]) -> list[dict[str, Any]]:
+        profile = asset.get("constraint_profile_ref")
+        if not isinstance(profile, dict):
+            return []
+        return [rule for rule in profile.get("constraints") or [] if isinstance(rule, dict)]
+
+    @staticmethod
+    def _default_geometry(role: str) -> dict[str, float]:
+        defaults = {
+            "background": {"x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0},
+            "digital_human": {"x": 0.08, "y": 0.18, "width": 0.36, "height": 0.64},
+            "product_display": {"x": 0.52, "y": 0.28, "width": 0.4, "height": 0.4},
+            "product_image": {"x": 0.52, "y": 0.28, "width": 0.4, "height": 0.4},
+            "promotion_text": {"x": 0.08, "y": 0.78, "width": 0.84, "height": 0.14},
+        }
+        return dict(defaults.get(role, {"x": 0.1, "y": 0.1, "width": 0.3, "height": 0.3}))
+
+    @staticmethod
+    def _named_regions(assets: list[dict[str, Any]]) -> tuple[dict[str, dict[str, float]], list[str]]:
+        regions: dict[str, dict[str, float]] = {}
+        failures: list[str] = []
+        for asset in assets:
+            for rule in FunctionalLiveRoomService._constraint_rules(asset):
+                kind = str(rule.get("kind") or "")
+                if kind not in {"provide_named_region", "table_surface"}:
+                    continue
+                parameters = rule.get("parameters") if isinstance(rule.get("parameters"), dict) else {}
+                name = str(parameters.get("name") or ("table_surface" if kind == "table_surface" else "")).strip()
+                rect = FunctionalLiveRoomService._constraint_rect(parameters)
+                if not name or rect is None:
+                    if bool(rule.get("hard", True)):
+                        failures.append(f"constraint_named_region_invalid:{asset['asset_code']}")
+                    continue
+                previous = regions.get(name)
+                if previous is not None and previous != rect and bool(rule.get("hard", True)):
+                    failures.append(f"constraint_named_region_conflict:{name}")
+                    continue
+                regions.setdefault(name, rect)
+        return regions, failures
+
+    @staticmethod
+    def _resolve_layer_constraints(
+        *,
+        asset: dict[str, Any],
+        role: str,
+        named_regions: dict[str, dict[str, float]],
+    ) -> tuple[dict[str, float], int, dict[str, Any], dict[str, Any], dict[str, Any], list[str]]:
+        geometry = FunctionalLiveRoomService._default_geometry(role)
+        z_order = 100 if role == "digital_human" else 10
+        visual_properties: dict[str, Any] = {}
+        audio_properties: dict[str, Any] = {}
+        failures: list[str] = []
+        applied: list[dict[str, Any]] = []
+        for rule in FunctionalLiveRoomService._constraint_rules(asset):
+            kind = str(rule.get("kind") or "")
+            hard = bool(rule.get("hard", True))
+            parameters = rule.get("parameters") if isinstance(rule.get("parameters"), dict) else {}
+            if kind == "allowed_region":
+                rect = FunctionalLiveRoomService._constraint_rect(parameters)
+                if rect is None:
+                    if hard:
+                        failures.append(f"constraint_allowed_region_invalid:{asset['asset_code']}")
+                    continue
+                geometry = FunctionalLiveRoomService._fit_inside(geometry, rect)
+            elif kind == "forbidden_region":
+                rect = FunctionalLiveRoomService._constraint_rect(parameters)
+                if rect is None:
+                    if hard:
+                        failures.append(f"constraint_forbidden_region_invalid:{asset['asset_code']}")
+                    continue
+                if FunctionalLiveRoomService._intersects(geometry, rect) and hard:
+                    failures.append(f"constraint_forbidden_region_hit:{asset['asset_code']}")
+            elif kind == "size_range":
+                geometry = FunctionalLiveRoomService._apply_size_range(geometry, parameters)
+            elif kind == "scale_range":
+                geometry = FunctionalLiveRoomService._apply_scale_range(geometry, parameters)
+            elif kind in {"require_named_region", "align_anchor"}:
+                name = str(parameters.get("region") or parameters.get("name") or "").strip()
+                region = named_regions.get(name)
+                if region is None:
+                    if hard:
+                        failures.append(f"constraint_named_region_missing:{name or asset['asset_code']}")
+                    continue
+                if kind == "align_anchor":
+                    geometry = FunctionalLiveRoomService._align_anchor(
+                        FunctionalLiveRoomService._fit_inside(geometry, region),
+                        region,
+                        str(parameters.get("anchor") or "bottom_center"),
+                    )
+            elif kind == "pin_layer_top":
+                z_order = 1000
+            elif kind == "pin_layer_bottom":
+                z_order = -1000
+            elif kind == "crop_policy":
+                visual_properties["crop_policy"] = parameters.get("policy") or parameters.get("value") or "contain"
+            elif kind == "rotation_policy":
+                visual_properties["rotation_policy"] = parameters.get("policy") or parameters.get("value") or "locked"
+            elif kind == "loop_policy":
+                audio_properties["loop_policy"] = parameters.get("policy") or parameters.get("value") or "disabled"
+            elif kind == "mute_policy":
+                audio_properties["mute_policy"] = parameters.get("policy") or parameters.get("value") or "muted"
+            elif kind == "volume_range":
+                audio_properties["volume_range"] = parameters
+            applied.append({"kind": kind, "hard": hard, "parameters": parameters})
+        return (
+            geometry,
+            z_order,
+            visual_properties,
+            audio_properties,
+            {
+                "schema_version": "functional-live-room-constraints.v1",
+                "asset_code": asset["asset_code"],
+                "constraint_profile_ref": asset.get("constraint_profile_ref"),
+                "applied_rules": applied,
+                "named_regions_available": sorted(named_regions),
+                "failures": failures,
+            },
+            failures,
+        )
+
+    @staticmethod
+    def _resolve_scene_layer_relationships(layers: list[dict[str, Any]]) -> list[str]:
+        failures: list[str] = []
+        by_role: dict[str, list[dict[str, Any]]] = {}
+        for layer in layers:
+            by_role.setdefault(str(layer["role"]), []).append(layer)
+        for layer in layers:
+            z_order = int(layer["z_order"])
+            for rule in layer.get("constraint_rules") or []:
+                kind = str(rule.get("kind") or "")
+                parameters = rule.get("parameters") if isinstance(rule.get("parameters"), dict) else {}
+                target_role = str(parameters.get("role") or parameters.get("target_role") or "").strip()
+                targets = by_role.get(target_role) or []
+                if kind in {"above_role", "below_role"}:
+                    if not targets:
+                        if bool(rule.get("hard", True)):
+                            failures.append(f"constraint_related_role_missing:{target_role or layer['asset_code']}")
+                        continue
+                    target_z = max(int(target["z_order"]) for target in targets) if kind == "above_role" else min(int(target["z_order"]) for target in targets)
+                    requested = target_z + 1 if kind == "above_role" else target_z - 1
+                    if (z_order == -1000 and kind == "above_role") or (z_order == 1000 and kind == "below_role"):
+                        if bool(rule.get("hard", True)):
+                            failures.append(f"constraint_layer_order_conflict:{layer['asset_code']}")
+                    else:
+                        layer["z_order"] = requested
+                        z_order = requested
+                if kind == "avoid_overlap" and targets:
+                    for target in targets:
+                        if target is layer:
+                            continue
+                        if FunctionalLiveRoomService._intersects(layer["normalized_geometry"], target["normalized_geometry"]):
+                            if bool(rule.get("hard", True)):
+                                failures.append(f"constraint_overlap:{layer['asset_code']}:{target['asset_code']}")
+        return failures
+
+    @staticmethod
+    def _constraint_rect(parameters: dict[str, Any]) -> dict[str, float] | None:
+        raw = parameters.get("rect")
+        if isinstance(raw, (list, tuple)) and len(raw) == 4:
+            values = raw
+        else:
+            values = [parameters.get("x"), parameters.get("y"), parameters.get("width"), parameters.get("height")]
+        try:
+            x, y, width, height = (float(value) for value in values)
+        except (TypeError, ValueError):
+            return None
+        if x < 0 or y < 0 or width <= 0 or height <= 0 or x + width > 1 or y + height > 1:
+            return None
+        return {"x": x, "y": y, "width": width, "height": height}
+
+    @staticmethod
+    def _fit_inside(geometry: dict[str, float], rect: dict[str, float]) -> dict[str, float]:
+        width = min(float(geometry["width"]), rect["width"])
+        height = min(float(geometry["height"]), rect["height"])
+        return {
+            "x": min(max(float(geometry["x"]), rect["x"]), rect["x"] + rect["width"] - width),
+            "y": min(max(float(geometry["y"]), rect["y"]), rect["y"] + rect["height"] - height),
+            "width": width,
+            "height": height,
+        }
+
+    @staticmethod
+    def _apply_size_range(geometry: dict[str, float], parameters: dict[str, Any]) -> dict[str, float]:
+        result = dict(geometry)
+        for dimension in ("width", "height"):
+            try:
+                minimum = float(parameters.get(f"min_{dimension}", 0.0))
+                maximum = float(parameters.get(f"max_{dimension}", 1.0))
+            except (TypeError, ValueError):
+                continue
+            if 0 <= minimum <= maximum <= 1:
+                result[dimension] = min(max(result[dimension], minimum), maximum)
+        result["x"] = min(max(result["x"], 0.0), 1.0 - result["width"])
+        result["y"] = min(max(result["y"], 0.0), 1.0 - result["height"])
+        return result
+
+    @staticmethod
+    def _apply_scale_range(geometry: dict[str, float], parameters: dict[str, Any]) -> dict[str, float]:
+        try:
+            minimum = float(parameters.get("min_scale", 0.0))
+            maximum = float(parameters.get("max_scale", 1.0))
+        except (TypeError, ValueError):
+            return geometry
+        if minimum < 0 or maximum < minimum:
+            return geometry
+        scale = min(max(1.0, minimum), maximum)
+        return FunctionalLiveRoomService._apply_size_range(
+            {**geometry, "width": geometry["width"] * scale, "height": geometry["height"] * scale},
+            {},
+        )
+
+    @staticmethod
+    def _align_anchor(geometry: dict[str, float], region: dict[str, float], anchor: str) -> dict[str, float]:
+        result = dict(geometry)
+        if anchor == "top_left":
+            result["x"], result["y"] = region["x"], region["y"]
+        elif anchor == "top_center":
+            result["x"], result["y"] = region["x"] + (region["width"] - result["width"]) / 2, region["y"]
+        elif anchor == "bottom_center":
+            result["x"], result["y"] = (
+                region["x"] + (region["width"] - result["width"]) / 2,
+                region["y"] + region["height"] - result["height"],
+            )
+        else:
+            result["x"], result["y"] = (
+                region["x"] + (region["width"] - result["width"]) / 2,
+                region["y"] + (region["height"] - result["height"]) / 2,
+            )
+        return result
+
+    @staticmethod
+    def _intersects(first: dict[str, float], second: dict[str, float]) -> bool:
+        return not (
+            first["x"] + first["width"] <= second["x"]
+            or second["x"] + second["width"] <= first["x"]
+            or first["y"] + first["height"] <= second["y"]
+            or second["y"] + second["height"] <= first["y"]
         )
 
     @staticmethod

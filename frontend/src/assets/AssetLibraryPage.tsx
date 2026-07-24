@@ -6,7 +6,7 @@ import { type AssetGap, type ConstraintRule, type ExecutionCapability, type Libr
 
 const ROLES: MaterialRole[] = ["background", "product_display", "digital_human", "brand_title", "promotion_text", "decoration_foreground", "supporting_video", "voice", "background_music", "sound_effect"];
 const MEDIA_KINDS = ["image", "video", "audio", "digital_human", "text", "template_preview", "document"];
-const CONSTRAINT_KINDS = ["allowed_region", "forbidden_region", "preserve_aspect_ratio", "size_range", "scale_range", "pin_layer_top", "pin_layer_bottom", "above_role", "below_role", "avoid_overlap", "table_surface"];
+const CONSTRAINT_KINDS = ["allowed_region", "forbidden_region", "provide_named_region", "require_named_region", "preserve_aspect_ratio", "size_range", "scale_range", "crop_policy", "rotation_policy", "pin_layer_top", "pin_layer_bottom", "above_role", "below_role", "avoid_overlap", "align_anchor", "distance_range", "loop_policy", "mute_policy", "volume_range", "table_surface"];
 
 type Tab = "materials" | "groups" | "packs" | "gaps";
 
