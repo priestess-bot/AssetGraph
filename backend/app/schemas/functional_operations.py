@@ -80,6 +80,7 @@ class ContentTimelineSpanRead(BaseModel):
     source_kind: str
     confidence: float
     scene: dict[str, Any]
+    content: dict[str, Any]
     layers: list[dict[str, Any]]
 
 

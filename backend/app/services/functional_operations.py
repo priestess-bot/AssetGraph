@@ -303,6 +303,70 @@ class FunctionalOperationsService:
             )
             return [dict(row) for row in cursor.fetchall()]
 
+    @staticmethod
+    def _timeline_content_projections(
+        cursor: Any, variant_codes: list[str]
+    ) -> dict[tuple[str, str], dict[str, Any]]:
+        if not variant_codes:
+            return {}
+        cursor.execute(
+            """
+            SELECT variant.variant_code, shot.shot_code,
+                   segment.segment_code, segment.program_phase, segment.semantic_goal,
+                   segment.product_refs, segment.cta_actions,
+                   block.block_code, block.module_type, block.product_ref,
+                   block.template_sources, block.cta_intent
+            FROM production_variant_revisions AS variant
+            JOIN shot_list_revisions AS shot_list
+              ON shot_list.id = variant.source_shot_list_revision_id
+            JOIN shots AS shot ON shot.shot_list_revision_id = shot_list.id
+            JOIN program_segments AS segment ON segment.id = shot.program_segment_id
+            LEFT JOIN shot_script_block_sources AS source ON source.shot_id = shot.id
+            LEFT JOIN content_script_blocks AS block ON block.id = source.script_block_id
+            WHERE variant.variant_code = ANY(%s) AND variant.status = 'confirmed'
+            ORDER BY variant.variant_code, shot.shot_code, source.source_order
+            """,
+            (variant_codes,),
+        )
+        projections: dict[tuple[str, str], dict[str, Any]] = {}
+        for row in cursor.fetchall():
+            key = (str(row["variant_code"]), str(row["shot_code"]))
+            projection = projections.setdefault(
+                key,
+                {
+                    "status": "resolved",
+                    "program_segment": {
+                        "segment_code": row["segment_code"],
+                        "program_phase": row["program_phase"],
+                        "semantic_goal": row["semantic_goal"],
+                        "product_refs": row["product_refs"] or [],
+                        "cta_actions": row["cta_actions"] or [],
+                    },
+                    "script_blocks": [],
+                },
+            )
+            if row["block_code"] is None:
+                continue
+            template_modules = [
+                {
+                    "template_code": source["template_code"],
+                    "revision": source.get("revision"),
+                    "module_key": row["module_type"],
+                }
+                for source in row["template_sources"] or []
+                if isinstance(source, dict) and source.get("template_code")
+            ]
+            projection["script_blocks"].append(
+                {
+                    "block_code": row["block_code"],
+                    "module_type": row["module_type"],
+                    "product_ref": row["product_ref"],
+                    "template_modules": template_modules,
+                    "cta_intent": row["cta_intent"] or {},
+                }
+            )
+        return projections
+
     def get_content_timeline(self, session_code: str) -> dict[str, Any]:
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
@@ -335,6 +399,10 @@ class FunctionalOperationsService:
                 plans_by_code = {
                     row["plan_code"]: dict(row) for row in cursor.fetchall()
                 }
+            content_by_variant_shot = self._timeline_content_projections(
+                cursor,
+                sorted({str(item["variant_code"]) for item in exposures}),
+            )
 
         total_seconds = (session["ended_at"] - session["started_at"]).total_seconds()
         observed_seconds = 0.0
@@ -350,6 +418,7 @@ class FunctionalOperationsService:
                 "scene_code": exposure["scene_code"],
                 "status": "missing_plan",
             }
+            content: dict[str, Any] = {"status": "missing_plan", "script_blocks": []}
             layers: list[dict[str, Any]] = []
             if plan is None:
                 if exposure["plan_code"] not in missing_plan_codes:
@@ -367,6 +436,7 @@ class FunctionalOperationsService:
                 )
                 if source_scene is None:
                     scene["status"] = "missing_scene"
+                    content = {"status": "missing_scene", "script_blocks": []}
                 else:
                     scene = {
                         "scene_code": source_scene.get("scene_code"),
@@ -377,6 +447,10 @@ class FunctionalOperationsService:
                         ),
                         "status": "resolved",
                     }
+                    content = content_by_variant_shot.get(
+                        (str(exposure["variant_code"]), str(source_scene.get("shot_code") or "")),
+                        {"status": "missing_source_projection", "script_blocks": []},
+                    )
                     layers = [
                         {
                             "layer_blueprint_code": layer.get("layer_blueprint_code"),
@@ -395,6 +469,7 @@ class FunctionalOperationsService:
                     **exposure,
                     "duration_seconds": duration_seconds,
                     "scene": scene,
+                    "content": content,
                     "layers": layers,
                 }
             )

@@ -22,6 +22,7 @@ import {
 import {
   operationsApi,
   type ContentExposure,
+  type ContentProjection,
   type ContentTimeline,
 } from "./api";
 
@@ -63,6 +64,31 @@ function metricValidation(metrics: SessionMetricDraft[]): string | undefined {
     seen.add(key);
   }
   return undefined;
+}
+
+function contentProjectionSummary(content: ContentProjection): string {
+  if (content.status !== "resolved") return "内容链未解析";
+  const labels: string[] = [];
+  if (content.programSegment?.segmentCode) {
+    labels.push(`节目段 ${content.programSegment.segmentCode}`);
+  }
+  if (content.scriptBlocks.length) {
+    labels.push(`剧本段 ${content.scriptBlocks.map((block) => block.blockCode).join("、")}`);
+  }
+  const modules = content.scriptBlocks.flatMap((block) => block.templateModules);
+  if (modules.length) {
+    labels.push(
+      `模板 ${modules.map((module) => `${module.templateCode}:${module.moduleKey ?? "模块"}`).join("、")}`,
+    );
+  }
+  const products = [
+    ...(content.programSegment?.productRefs ?? []),
+    ...content.scriptBlocks.flatMap((block) => (block.productRef ? [block.productRef] : [])),
+  ];
+  if (products.length) labels.push(`商品 ${products.length} 项`);
+  const hasCta = (content.programSegment?.ctaActions.length ?? 0) > 0 || content.scriptBlocks.some((block) => Object.keys(block.ctaIntent).length > 0);
+  if (hasCta) labels.push("CTA 已映射");
+  return labels.join(" · ") || "内容链无可展示字段";
 }
 
 function TimelinePanel({
@@ -134,6 +160,7 @@ function TimelinePanel({
                 <code>
                   {span.planCode} · {span.exposureCode}
                 </code>
+                <small>{contentProjectionSummary(span.content)}</small>
               </div>
               <div>
                 {span.layers.length ? (

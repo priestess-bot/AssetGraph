@@ -457,6 +457,14 @@ def test_live_room_plan_selects_only_published_material_pack_and_freezes_resolve
             ),
             "status": "resolved",
         }
+        content_projection = timeline["spans"][0]["content"]
+        assert content_projection["status"] == "resolved"
+        assert content_projection["program_segment"]["segment_code"] == project[
+            "shot_list"
+        ]["shots"][0]["program_segment_code"]
+        assert [block["block_code"] for block in content_projection["script_blocks"]] == project[
+            "shot_list"
+        ]["shots"][0]["script_block_codes"]
         assert timeline["spans"][0]["layers"] == [
             {
                 "layer_blueprint_code": layer["layer_blueprint_code"],
