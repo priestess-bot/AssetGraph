@@ -712,6 +712,264 @@ class ContentProductionRepository:
         self.connection.commit()
         return self._serialize(row)
 
+    def create_maitu_scene_blueprint_projections(
+        self,
+        *,
+        variant_code: str,
+        variant_revision: int,
+        configuration_code: str,
+        configuration_revision: int,
+        scenes: list[dict[str, Any]],
+        actor_id: str,
+        producer_strategy_revision: str = "functional-live-room.v1",
+    ) -> list[dict[str, Any]]:
+        """Persist generated target scenes and layers, then link each to its Shot.
+
+        These are production projections. They intentionally do not reuse the
+        observed/reference-room blueprint tables, whose layout claims have a
+        different provenance and buildability contract.
+        """
+        if not scenes:
+            raise DomainValidationError("MAITU_SCENE_BLUEPRINT_REQUIRED", "At least one Maitu scene is required")
+        persisted: list[dict[str, Any]] = []
+        try:
+            with self.connection.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    """
+                    SELECT * FROM production_variant_revisions
+                    WHERE variant_code = %s AND revision_number = %s AND status = 'confirmed'
+                    FOR SHARE
+                    """,
+                    (variant_code, variant_revision),
+                )
+                variant = cursor.fetchone()
+                if variant is None or variant["carrier_kind"] != "live_room":
+                    raise DomainValidationError(
+                        "MAITU_SCENE_VARIANT_INVALID",
+                        "A confirmed live-room ProductionVariant is required",
+                    )
+                cursor.execute(
+                    """
+                    SELECT * FROM live_room_configuration_revisions
+                    WHERE configuration_code = %s AND revision_number = %s AND status = 'confirmed'
+                    FOR SHARE
+                    """,
+                    (configuration_code, configuration_revision),
+                )
+                configuration = cursor.fetchone()
+                if configuration is None or configuration["production_variant_revision_id"] != variant["id"]:
+                    raise DomainValidationError(
+                        "MAITU_SCENE_CONFIGURATION_INVALID",
+                        "The confirmed live-room configuration must belong to the ProductionVariant revision",
+                    )
+
+                for sort_order, scene in enumerate(scenes):
+                    scene_code = str(scene.get("scene_code") or "").strip()
+                    shot_code = str(scene.get("shot_code") or "").strip()
+                    layers = scene.get("layers") or []
+                    if not scene_code or not shot_code or not isinstance(layers, list):
+                        raise DomainValidationError(
+                            "MAITU_SCENE_BLUEPRINT_INVALID",
+                            "Each Maitu scene needs a stable code, source Shot, and layer list",
+                        )
+                    cursor.execute(
+                        """
+                        SELECT shot.id, shot.program_segment_id, shot.estimated_duration_ms
+                        FROM shots AS shot
+                        WHERE shot.shot_code = %s AND shot.shot_list_revision_id = %s
+                        """,
+                        (shot_code, variant["source_shot_list_revision_id"]),
+                    )
+                    shot = cursor.fetchone()
+                    if shot is None:
+                        raise DomainValidationError(
+                            "MAITU_SCENE_SHOT_INVALID",
+                            "MaituSceneBlueprint source Shot is not part of the fixed ShotList",
+                            details={"shot_code": shot_code},
+                        )
+                    cursor.execute(
+                        """
+                        SELECT block.block_code
+                        FROM shot_script_block_sources AS source
+                        JOIN content_script_blocks AS block ON block.id = source.script_block_id
+                        WHERE source.shot_id = %s
+                        ORDER BY source.id
+                        """,
+                        (shot["id"],),
+                    )
+                    source_blocks = [row["block_code"] for row in cursor.fetchall()]
+                    start_ms = int(scene.get("estimated_active_start_ms") or 0)
+                    duration_ms = int(scene.get("estimated_duration_ms") or shot["estimated_duration_ms"] or 1)
+                    end_ms = int(scene.get("estimated_active_end_ms") or (start_ms + duration_ms))
+                    if start_ms < 0 or end_ms <= start_ms:
+                        raise DomainValidationError(
+                            "MAITU_SCENE_INTERVAL_INVALID",
+                            "Maitu scene active intervals must be finite positive ranges",
+                        )
+                    scene_payload = {
+                        "scene_blueprint_code": scene_code,
+                        "revision": 1,
+                        "variant_code": variant_code,
+                        "variant_revision": variant_revision,
+                        "configuration_code": configuration_code,
+                        "configuration_revision": configuration_revision,
+                        "shot_code": shot_code,
+                        "sort_order": sort_order,
+                        "title": str(scene.get("title") or shot_code),
+                        "script": str(scene.get("script") or ""),
+                        "transition_strategy": scene.get("transition_strategy") or {"type": "cut"},
+                        "estimated_active_start_ms": start_ms,
+                        "estimated_active_end_ms": end_ms,
+                        "constraint_evidence": scene.get("constraint_evidence") or {},
+                        "producer_strategy_revision": producer_strategy_revision,
+                    }
+                    cursor.execute(
+                        """
+                        INSERT INTO maitu_scene_blueprints (
+                            scene_blueprint_code, revision_number, production_variant_revision_id,
+                            live_room_configuration_revision_id, shot_id, program_segment_id,
+                            sort_order, title, transition_strategy, estimated_active_start_ms,
+                            estimated_active_end_ms, constraint_evidence, fingerprint_sha256, created_by
+                        ) VALUES (%s, 1, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        RETURNING id
+                        """,
+                        (
+                            scene_code,
+                            variant["id"],
+                            configuration["id"],
+                            shot["id"],
+                            shot["program_segment_id"],
+                            sort_order,
+                            scene_payload["title"],
+                            Jsonb(scene_payload["transition_strategy"]),
+                            start_ms,
+                            end_ms,
+                            Jsonb(scene_payload["constraint_evidence"]),
+                            canonical_fingerprint(scene_payload),
+                            actor_id,
+                        ),
+                    )
+                    scene_row = cursor.fetchone()
+                    cursor.execute(
+                        """
+                        INSERT INTO shot_projection_links (
+                            shot_id, target_type, target_code, target_revision, relation_type, evidence
+                        ) VALUES (%s, 'maitu_scene_blueprint', %s, 1, 'projects_to', %s)
+                        ON CONFLICT DO NOTHING
+                        """,
+                        (
+                            shot["id"],
+                            scene_code,
+                            Jsonb({"compiler": producer_strategy_revision, "configuration_code": configuration_code}),
+                        ),
+                    )
+                    persisted_layers: list[dict[str, Any]] = []
+                    for layer_order, layer in enumerate(layers):
+                        if not isinstance(layer, dict):
+                            raise DomainValidationError("LAYER_BLUEPRINT_INVALID", "LayerBlueprint entries must be objects")
+                        asset_code = str(layer.get("asset_code") or "").strip()
+                        role = str(layer.get("role") or "").strip()
+                        layer_code = str(layer.get("layer_blueprint_code") or f"LYR-{scene_code}-{layer_order + 1:02d}")
+                        if not asset_code or not role:
+                            raise DomainValidationError("LAYER_BLUEPRINT_INVALID", "LayerBlueprint needs an asset and a business role")
+                        cursor.execute(
+                            """
+                            SELECT id, execution_capability FROM assets
+                            WHERE asset_code = %s AND deleted_at IS NULL
+                            """,
+                            (asset_code,),
+                        )
+                        asset = cursor.fetchone()
+                        if asset is None:
+                            raise DomainValidationError(
+                                "LAYER_BLUEPRINT_ASSET_MISSING",
+                                "LayerBlueprint asset is unavailable",
+                                details={"asset_code": asset_code},
+                            )
+                        geometry = layer.get("normalized_geometry") or self._default_layer_geometry(role)
+                        layer_payload = {
+                            "layer_blueprint_code": layer_code,
+                            "revision": 1,
+                            "scene_blueprint_code": scene_code,
+                            "shot_code": shot_code,
+                            "asset_code": asset_code,
+                            "material_role": role,
+                            "asset_binding_ref": {
+                                "asset_code": asset_code,
+                                "execution_capability": asset["execution_capability"],
+                                "binding_revision": "inventory-snapshot.v1",
+                            },
+                            "normalized_geometry": geometry,
+                            "z_order": int(layer.get("z_order") or 0),
+                            "visual_properties": layer.get("visual_properties") or {},
+                            "audio_properties": layer.get("audio_properties") or {},
+                            "constraint_evidence": layer.get("constraint_evidence") or {},
+                            "source_script_block_codes": source_blocks,
+                        }
+                        cursor.execute(
+                            """
+                            INSERT INTO layer_blueprints (
+                                layer_blueprint_code, revision_number, scene_blueprint_id, source_shot_id,
+                                asset_id, asset_code, material_role, asset_binding_ref, normalized_geometry,
+                                z_order, visual_properties, audio_properties, constraint_evidence,
+                                source_script_block_codes, fingerprint_sha256
+                            ) VALUES (%s, 1, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            """,
+                            (
+                                layer_code,
+                                scene_row["id"],
+                                shot["id"],
+                                asset["id"],
+                                asset_code,
+                                role,
+                                Jsonb(layer_payload["asset_binding_ref"]),
+                                Jsonb(geometry),
+                                layer_payload["z_order"],
+                                Jsonb(layer_payload["visual_properties"]),
+                                Jsonb(layer_payload["audio_properties"]),
+                                Jsonb(layer_payload["constraint_evidence"]),
+                                Jsonb(source_blocks),
+                                canonical_fingerprint(layer_payload),
+                            ),
+                        )
+                        cursor.execute(
+                            """
+                            INSERT INTO shot_projection_links (
+                                shot_id, target_type, target_code, target_revision, relation_type, evidence
+                            ) VALUES (%s, 'layer_blueprint', %s, 1, 'implemented_by', %s)
+                            ON CONFLICT DO NOTHING
+                            """,
+                            (
+                                shot["id"],
+                                layer_code,
+                                Jsonb({"scene_blueprint_code": scene_code, "compiler": producer_strategy_revision}),
+                            ),
+                        )
+                        persisted_layers.append({**layer_payload, "source_script_block_codes": source_blocks})
+                    persisted.append(
+                        {
+                            **scene_payload,
+                            "scene_code": scene_code,
+                            "layers": persisted_layers,
+                            "source_script_block_codes": source_blocks,
+                        }
+                    )
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+        return persisted
+
+    @staticmethod
+    def _default_layer_geometry(role: str) -> dict[str, float]:
+        defaults = {
+            "background": {"x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0},
+            "digital_human": {"x": 0.08, "y": 0.18, "width": 0.36, "height": 0.64},
+            "product_image": {"x": 0.52, "y": 0.28, "width": 0.4, "height": 0.4},
+            "promotion_text": {"x": 0.08, "y": 0.78, "width": 0.84, "height": 0.14},
+        }
+        return defaults.get(role, {"x": 0.1, "y": 0.1, "width": 0.3, "height": 0.3})
+
     def create_production_variant(
         self,
         *,

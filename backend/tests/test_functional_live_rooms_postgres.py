@@ -81,7 +81,64 @@ def test_functional_live_room_plan_compiles_and_only_requests_maitu_execution() 
         assert plan["blueprint"]["schema_version"] == "maitu-scene-blueprint.functional.v1"
         assert len(plan["blueprint"]["scenes"]) == 3
         assert plan["build_plan"]["go_live"] is False
-        assert "go_live" not in {operation["kind"] for operation in plan["build_plan"]["operations"]}
+        assert plan["build_plan"]["build_plan_code"].startswith("MT-BUILD-")
+        assert "go_live" not in {operation["operation_type"] for operation in plan["build_plan"]["operations"]}
+        assert {operation["operation_type"] for operation in plan["build_plan"]["operations"]} <= {
+            "preflight_content_build_plan",
+            "fill_default_scene",
+            "create_scene",
+            "insert_asset_layer",
+            "position_asset_layer",
+            "write_script",
+            "verify_scene",
+            "save_draft",
+        }
+        assert all(scene["scene_blueprint_code"].startswith("MSB-VARIANT-") for scene in plan["blueprint"]["scenes"])
+        assert all(layer["layer_blueprint_code"].startswith("LYR-MSB-VARIANT-") for scene in plan["blueprint"]["scenes"] for layer in scene["layers"])
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT count(*)
+                FROM maitu_scene_blueprints
+                WHERE production_variant_revision_id = (
+                    SELECT id FROM production_variant_revisions
+                    WHERE variant_code = %s AND revision_number = 1
+                )
+                """,
+                (plan["variant_code"],),
+            )
+            assert cursor.fetchone()[0] == 3
+            cursor.execute(
+                """
+                SELECT count(*)
+                FROM layer_blueprints AS layer
+                JOIN maitu_scene_blueprints AS scene ON scene.id = layer.scene_blueprint_id
+                WHERE scene.scene_blueprint_code = ANY(%s)
+                """,
+                ([scene["scene_blueprint_code"] for scene in plan["blueprint"]["scenes"]],),
+            )
+            assert cursor.fetchone()[0] == 6
+            cursor.execute(
+                """
+                SELECT count(*) FROM shot_projection_links
+                WHERE target_code = ANY(%s) AND target_type IN ('maitu_scene_blueprint', 'layer_blueprint')
+                """,
+                (
+                    [scene["scene_blueprint_code"] for scene in plan["blueprint"]["scenes"]]
+                    + [layer["layer_blueprint_code"] for scene in plan["blueprint"]["scenes"] for layer in scene["layers"]],
+                ),
+            )
+            assert cursor.fetchone()[0] == 9
+            cursor.execute(
+                """
+                SELECT details->'script_layout_build_plan'->>'blueprint_fingerprint' AS blueprint_fingerprint
+                FROM maitu_live_room_build_plans
+                WHERE build_plan_code = %s
+                """,
+                (plan["build_plan"]["build_plan_code"],),
+            )
+            assert cursor.fetchone()[0] == plan["build_plan"]["blueprint_fingerprint"]
 
         requested = service.confirm_execution(plan["plan_code"], confirmed=True)
         assert requested is not None

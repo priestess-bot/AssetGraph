@@ -7,9 +7,12 @@ from psycopg import Connection
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
+from app.domain.contracts import canonical_fingerprint
 from app.domain.errors import DomainValidationError
 from app.repositories.content_production import ContentProductionRepository
+from app.repositories.maitu import MaituMaterialSlotRepository
 from app.services.functional_content import FunctionalContentService
+from app.services.script_layout_build_plan_builder import ScriptLayoutBuildPlanBuilder
 
 
 class FunctionalLiveRoomService:
@@ -19,6 +22,7 @@ class FunctionalLiveRoomService:
         self.connection = connection
         self.content = FunctionalContentService(connection)
         self.production = ContentProductionRepository(connection)
+        self.maitu = MaituMaterialSlotRepository(connection)
 
     def create_plan(self, payload: dict[str, Any], *, actor_id: str) -> dict[str, Any]:
         detail = self.content.get_detail(payload["project_code"])
@@ -81,8 +85,31 @@ class FunctionalLiveRoomService:
         configuration = self.production.confirm_live_room_configuration_revision(
             configuration["configuration_code"], revision_number=int(configuration["revision_number"]), actor_id=actor_id
         )
-        blueprint, build_plan, blocked_reasons = self._compile(detail, selected_assets, payload)
-        status = "blocked" if blocked_reasons else "ready"
+        blueprint, _, blocked_reasons = self._compile(
+            detail,
+            selected_assets,
+            payload,
+            variant_code=variant["variant_code"],
+        )
+        blueprint["scenes"] = self.production.create_maitu_scene_blueprint_projections(
+            variant_code=variant["variant_code"],
+            variant_revision=int(variant["revision_number"]),
+            configuration_code=configuration["configuration_code"],
+            configuration_revision=int(configuration["revision_number"]),
+            scenes=blueprint["scenes"],
+            actor_id=actor_id,
+            producer_strategy_revision="functional-live-room.v1",
+        )
+        build_plan = self._persist_build_plan(
+            detail=detail,
+            variant=variant,
+            configuration=configuration,
+            inventory_snapshot=snapshot,
+            blueprint=blueprint,
+            blocked_reasons=blocked_reasons,
+        )
+        plan_blocked_reasons = list(dict.fromkeys([*blocked_reasons, *(build_plan.get("blocked_reasons") or [])]))
+        status = "blocked" if plan_blocked_reasons or not build_plan.get("can_execute") else "ready"
         with self.connection.cursor(row_factory=dict_row) as cursor:
             code = self._next_code(cursor, "LIVEPLAN", "functional_live_room_plan")
             cursor.execute(
@@ -99,7 +126,7 @@ class FunctionalLiveRoomService:
                     code, detail["project_code"], variant["variant_code"], configuration["configuration_code"],
                     payload["target_live_room_id"], payload["expected_title"], templates["primary_template_code"],
                     Jsonb(templates["secondary_template_codes"]), Jsonb(snapshot["asset_codes"]),
-                    Jsonb(payload.get("group_codes") or []), Jsonb(blueprint), Jsonb(build_plan), status, Jsonb(blocked_reasons),
+                    Jsonb(payload.get("group_codes") or []), Jsonb(blueprint), Jsonb(build_plan), status, Jsonb(plan_blocked_reasons),
                 ),
             )
             row = cursor.fetchone()
@@ -220,8 +247,80 @@ class FunctionalLiveRoomService:
             "secondary_template_refs": [ref for ref in secondary_refs if isinstance(ref, dict)],
         }
 
+    def _persist_build_plan(
+        self,
+        *,
+        detail: dict[str, Any],
+        variant: dict[str, Any],
+        configuration: dict[str, Any],
+        inventory_snapshot: dict[str, Any],
+        blueprint: dict[str, Any],
+        blocked_reasons: list[str],
+    ) -> dict[str, Any]:
+        layout_scenes: list[dict[str, Any]] = []
+        for scene_index, scene in enumerate(blueprint["scenes"]):
+            layers = []
+            for layer in scene["layers"]:
+                geometry = layer.get("normalized_geometry") or {}
+                layers.append(
+                    {
+                        "layer_id": layer["layer_blueprint_code"],
+                        "layer_type": layer["material_role"],
+                        "asset_code": layer["asset_code"],
+                        "x": float(geometry.get("x", 0.0)) * 1080,
+                        "y": float(geometry.get("y", 0.0)) * 1920,
+                        "width": float(geometry.get("width", 1.0)) * 1080,
+                        "height": float(geometry.get("height", 1.0)) * 1920,
+                        "z_index": layer["z_order"],
+                        "status": "ready",
+                    }
+                )
+            layout_scenes.append(
+                {
+                    "scene_index": scene_index,
+                    "scene_name": scene["scene_code"],
+                    "layers": layers,
+                    "script_block": {"text": scene.get("script") or ""},
+                }
+            )
+        plan_inputs = {
+            "schema_version": "maitu-build-plan.functional.v2",
+            "content_project": {"project_code": detail["project_code"], "revision": detail["revision_number"]},
+            "production_variant": {"variant_code": variant["variant_code"], "revision": variant["revision_number"]},
+            "live_room_configuration": {"configuration_code": configuration["configuration_code"], "revision": configuration["revision_number"]},
+            "inventory_snapshot": inventory_snapshot,
+            "blueprint_fingerprint": canonical_fingerprint(blueprint),
+            "policy_fingerprint": canonical_fingerprint({"requires_empty_draft": True, "go_live_disabled": True}),
+        }
+        layout_plan = {
+            "status": "blocked_missing_required_assets" if blocked_reasons else "ready_for_build_plan",
+            "build_mode": "plan_only",
+            "can_generate_layout": not blocked_reasons,
+            "can_generate_executable_build_plan": not blocked_reasons,
+            "blocking_gap_count": len(blocked_reasons),
+            "manual_review_required": bool(blocked_reasons),
+            "scenes": layout_scenes,
+        }
+        build_plan = ScriptLayoutBuildPlanBuilder().build(
+            layout_plan,
+            target_live_room_id=configuration["target_live_room_id"],
+        )
+        build_plan.update(plan_inputs)
+        build_plan["go_live"] = False
+        persisted = self.maitu.create_script_layout_build_plan(
+            build_plan,
+            plan_name=f"{detail['title']} {configuration['expected_title']} BuildPlan",
+        )
+        return persisted
+
     @staticmethod
-    def _compile(detail: dict[str, Any], assets: list[dict[str, Any]], payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
+    def _compile(
+        detail: dict[str, Any],
+        assets: list[dict[str, Any]],
+        payload: dict[str, Any],
+        *,
+        variant_code: str,
+    ) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
         shots = detail["shot_list"]["shots"]
         blocks = detail["script"]["blocks"]
         layers_by_role: dict[str, list[dict[str, Any]]] = {}
@@ -231,6 +330,7 @@ class FunctionalLiveRoomService:
         scenes: list[dict[str, Any]] = []
         operations: list[dict[str, Any]] = [{"kind": "rename_room", "expected_title": payload["expected_title"]}]
         blocked: list[str] = []
+        active_start_ms = 0
         for index, shot in enumerate(shots):
             layers: list[dict[str, Any]] = []
             for role in shot["material_role_requirements"]:
@@ -239,14 +339,16 @@ class FunctionalLiveRoomService:
                     blocked.append(f"missing_role:{role}:shot:{shot['shot_code']}")
                     continue
                 asset = candidates[0]
-                layers.append({"role": role, "asset_code": asset["asset_code"], "execution_capability": asset["execution_capability"], "z_order": 100 if role == "digital_human" else 10})
+                layers.append({"layer_blueprint_code": f"LYR-MSB-{variant_code}-{index + 1:03d}-{len(layers) + 1:02d}", "role": role, "asset_code": asset["asset_code"], "execution_capability": asset["execution_capability"], "z_order": 100 if role == "digital_human" else 10})
                 if asset["execution_capability"] != "maitu_bound":
                     blocked.append(f"asset_not_maitu_bound:{asset['asset_code']}")
-            scene_code = f"SCENE-{index + 1:02d}"
-            scenes.append({"scene_code": scene_code, "shot_code": shot["shot_code"], "title": shot["shot_goal"], "layers": layers, "script": blocks[index]["content"]})
+            scene_code = f"MSB-{variant_code}-{index + 1:03d}"
+            duration_ms = int(shot.get("estimated_duration_ms") or 1)
+            scenes.append({"scene_code": scene_code, "shot_code": shot["shot_code"], "title": shot["shot_goal"], "layers": layers, "script": blocks[index]["content"], "transition_strategy": {"type": "cut" if index else "initial"}, "estimated_active_start_ms": active_start_ms, "estimated_active_end_ms": active_start_ms + duration_ms, "estimated_duration_ms": duration_ms, "constraint_evidence": {"selection_source": "functional_live_room.v1", "required_roles": shot["material_role_requirements"]}})
             operations.append({"kind": "create_scene", "scene_code": scene_code, "source_shot": shot["shot_code"]})
             operations.extend({"kind": "insert_bound_asset", "scene_code": scene_code, "asset_code": layer["asset_code"], "role": layer["role"]} for layer in layers)
             operations.append({"kind": "write_script", "scene_code": scene_code, "script_block_code": blocks[index]["block_code"]})
+            active_start_ms += duration_ms
         operations.append({"kind": "save_draft"})
         return (
             {"schema_version": "maitu-scene-blueprint.functional.v1", "scenes": scenes},
