@@ -285,6 +285,72 @@ class MaterialLibraryRepository:
             row = cursor.fetchone()
         return self._gap_read(row) if row else None
 
+    def preview_selection(self, *, role: str, carrier_kind: str) -> dict[str, Any]:
+        """Return a deterministic, explainable candidate preview before planning.
+
+        This is deliberately not a resolver: missing RightsGrant and geometric
+        solver evidence remain explicit warnings instead of hidden assumptions.
+        """
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """SELECT asset.asset_code, COALESCE(asset.title, asset.original_filename) AS title,
+                          asset.media_kind, asset.material_roles, asset.execution_capability,
+                          profile.profile_code, revision.revision_number, revision.fingerprint_sha256
+                   FROM assets asset
+                   LEFT JOIN asset_constraint_profiles profile ON profile.asset_id = asset.id
+                   LEFT JOIN asset_constraint_profile_revisions revision
+                     ON revision.profile_id = profile.id AND revision.revision_number = profile.current_revision
+                   WHERE asset.deleted_at IS NULL
+                   ORDER BY asset.asset_code"""
+            )
+            rows = cursor.fetchall()
+        candidates: list[dict[str, Any]] = []
+        excluded: list[dict[str, Any]] = []
+        for row in rows:
+            roles = list(row.get("material_roles") or [])
+            capability = str(row.get("execution_capability") or "unclassified")
+            exclusion_codes: list[str] = []
+            if role not in roles:
+                exclusion_codes.append("ROLE_MISMATCH")
+            if capability in {"unavailable", "unclassified"}:
+                exclusion_codes.append("EXECUTION_CAPABILITY_UNAVAILABLE")
+            if carrier_kind == "live_room" and capability != "maitu_bound":
+                exclusion_codes.append("LIVE_ROOM_MAITU_BINDING_REQUIRED")
+            if exclusion_codes:
+                excluded.append({"asset_code": row["asset_code"], "title": row["title"], "exclusion_codes": exclusion_codes})
+                continue
+            score_parts = {
+                "role_match": 60,
+                "execution_capability": 30 if capability == "maitu_bound" else 20,
+                "constraint_profile": 10 if row["profile_code"] is not None else 0,
+            }
+            candidates.append(
+                {
+                    "asset_code": row["asset_code"],
+                    "title": row["title"],
+                    "media_kind": row["media_kind"],
+                    "material_roles": roles,
+                    "execution_capability": capability,
+                    "score": sum(score_parts.values()),
+                    "score_parts": score_parts,
+                    "selection_reasons": ["ROLE_MATCH", f"CAPABILITY_{capability.upper()}"] + (["CONSTRAINT_PROFILE_BOUND"] if row["profile_code"] is not None else []),
+                    "constraint_profile": {
+                        "profile_code": row["profile_code"],
+                        "revision_number": int(row["revision_number"]),
+                        "fingerprint_sha256": row["fingerprint_sha256"],
+                    } if row["profile_code"] is not None else None,
+                }
+            )
+        candidates.sort(key=lambda item: (-int(item["score"]), str(item["asset_code"])))
+        return {
+            "schema_version": "deterministic-material-selection-preview.v1",
+            "role": role,
+            "carrier_kind": carrier_kind,
+            "candidates": candidates,
+            "excluded": excluded,
+            "unverified_gates": ["RIGHTS_GRANT_NOT_IMPLEMENTED", "CONSTRAINT_SOLVER_NOT_RUN"],
+        }
+
     def update_gap(self, gap_code: str, payload: dict[str, Any]) -> dict[str, Any] | None:
         try:
             with self.connection.cursor(row_factory=dict_row) as cursor:

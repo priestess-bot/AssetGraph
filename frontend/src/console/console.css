@@ -111,6 +111,14 @@
 .asset-detail-panel { padding: 13px; border: 1px solid var(--wb-line); border-radius: 6px; background: #fff; }
 .asset-detail-panel .wb-section-header { padding: 0 0 10px; border-bottom: 1px solid var(--wb-line); }
 .asset-detail-panel .wb-form-grid { margin-top: 12px; }
+.asset-selection-preview { display: grid; gap: 10px; margin-top: 12px; }
+.asset-selection-preview > div { display: grid; gap: 1px; border: 1px solid var(--wb-line); }
+.asset-selection-preview > div > strong { padding: 7px 9px; background: var(--wb-subtle); font-size: 9px; }
+.asset-selection-preview article { display: grid; grid-template-columns: 116px minmax(0, 1fr) auto; gap: 6px; align-items: center; padding: 7px 9px; border-top: 1px solid var(--wb-line); }
+.asset-selection-preview code { overflow: hidden; color: var(--console-cyan); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.asset-selection-preview article > span { min-width: 0; overflow-wrap: anywhere; font-size: 9px; }
+.asset-selection-preview article > b { color: var(--wb-accent); font-size: 10px; }
+.asset-selection-preview article > small { grid-column: 1 / -1; color: var(--wb-muted); font-size: 8px; overflow-wrap: anywhere; }
 .asset-role-options { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
 .asset-role-options label { display: inline-flex; align-items: center; gap: 4px; padding: 4px 6px; border: 1px solid var(--wb-line); border-radius: 4px; color: var(--wb-text); font-size: 9px; }
 .asset-role-options input { margin: 0; }

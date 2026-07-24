@@ -201,3 +201,8 @@ class AssetGapRead(BaseModel):
     events: list[dict[str, Any]] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
+
+
+class MaterialSelectionPreviewRequest(BaseModel):
+    role: MaterialRole
+    carrier_kind: str = Field(default="live_room", pattern="^(live_room|rendered_video)$")

@@ -57,6 +57,14 @@ export interface AssetGap {
   events: Array<{ eventCode: string; previousStatus?: string; status: string; actor?: string; createdAt?: string }>;
 }
 
+export interface MaterialSelectionPreview {
+  role: string;
+  carrierKind: string;
+  candidates: Array<{ assetCode: string; title: string; score: number; scoreParts: Record<string, number>; reasons: string[]; constraintProfile?: { profileCode: string; revisionNumber: number } }>;
+  excluded: Array<{ assetCode: string; title: string; exclusionCodes: string[] }>;
+  unverifiedGates: string[];
+}
+
 function strings(value: unknown): string[] {
   return asArray(value).flatMap((item) => typeof item === "string" ? [item] : []);
 }
@@ -108,6 +116,19 @@ function gap(value: unknown): AssetGap | undefined {
   };
 }
 
+function selectionPreview(value: unknown): MaterialSelectionPreview {
+  if (!isRecord(value)) throw new Error("选材预览响应无效");
+  return {
+    role: asString(value.role), carrierKind: asString(value.carrier_kind),
+    candidates: asArray(value.candidates).flatMap((item) => isRecord(item) && asString(item.asset_code) ? [{
+      assetCode: asString(item.asset_code), title: asString(item.title, asString(item.asset_code)), score: asNumber(item.score), scoreParts: isRecord(item.score_parts) ? Object.fromEntries(Object.entries(item.score_parts).map(([key, score]) => [key, asNumber(score)])) : {}, reasons: strings(item.selection_reasons),
+      constraintProfile: isRecord(item.constraint_profile) && asString(item.constraint_profile.profile_code) ? { profileCode: asString(item.constraint_profile.profile_code), revisionNumber: asNumber(item.constraint_profile.revision_number) } : undefined,
+    }] : []),
+    excluded: asArray(value.excluded).flatMap((item) => isRecord(item) && asString(item.asset_code) ? [{ assetCode: asString(item.asset_code), title: asString(item.title, asString(item.asset_code)), exclusionCodes: strings(item.exclusion_codes) }] : []),
+    unverifiedGates: strings(value.unverified_gates),
+  };
+}
+
 export const assetLibraryApi = {
   listAssets: () => requestJson<unknown[]>(ROOT).then((rows) => rows.flatMap((row) => asset(row) ?? [])),
   createAsset: (payload: { title: string; original_filename: string; asset_type: string; media_kind?: string; material_roles: string[]; execution_capability: ExecutionCapability }) => postJson<unknown>(ROOT, payload).then((value) => {
@@ -133,6 +154,7 @@ export const assetLibraryApi = {
   }),
   getConstraintProfile: (assetCode: string) => requestJson<{ constraints: ConstraintRule[] }>(`${ROOT}/${assetCode}/constraint-profile`),
   writeConstraintProfile: (assetCode: string, constraints: ConstraintRule[]) => postJson<{ constraints: ConstraintRule[] }>(`${ROOT}/${assetCode}/constraint-profile`, { constraints }),
+  previewSelection: (payload: { role: string; carrier_kind: "live_room" | "rendered_video" }) => postJson<unknown>(`${ROOT}/selection-preview`, payload).then(selectionPreview),
   listPacks: () => requestJson<unknown[]>(`${ROOT}/material-packs`).then((rows) => rows.flatMap((row) => pack(row) ?? [])),
   createPack: (payload: { title: string; role: string; description?: string; entries: MaterialPack["entries"] }) => postJson<unknown>(`${ROOT}/material-packs`, payload).then((value) => {
     const result = pack(value);

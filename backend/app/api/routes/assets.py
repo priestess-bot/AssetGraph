@@ -29,6 +29,7 @@ from app.schemas.material_library import (
     AssetGapCreate,
     AssetGapRead,
     AssetGapUpdate,
+    MaterialSelectionPreviewRequest,
     AssetGroupCreate,
     AssetGroupMembersReplace,
     AssetGroupRead,
@@ -278,6 +279,14 @@ def list_asset_gaps(
     repository: Annotated[MaterialLibraryRepository, Depends(get_material_library_repository)],
 ) -> list[dict]:
     return repository.list_gaps()
+
+
+@router.post("/selection-preview")
+def preview_material_selection(
+    payload: MaterialSelectionPreviewRequest,
+    repository: Annotated[MaterialLibraryRepository, Depends(get_material_library_repository)],
+) -> dict:
+    return repository.preview_selection(role=payload.role.value, carrier_kind=payload.carrier_kind)
 
 
 @router.patch("/gaps/{gap_code}", response_model=AssetGapRead)

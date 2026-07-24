@@ -46,6 +46,12 @@ function ConstraintEditor({ assetCode }: { assetCode: string }) {
   </section>;
 }
 
+function SelectionPreviewPanel() {
+  const [role, setRole] = useState<string>("background"); const [carrier, setCarrier] = useState<"live_room" | "rendered_video">("live_room");
+  const preview = useMutation({ mutationFn: () => assetLibraryApi.previewSelection({ role, carrier_kind: carrier }) });
+  return <section className="asset-detail-panel"><SectionHeader kicker="SELECTION PREVIEW" title="选材解释" /><div className="wb-form-grid"><label className="wb-field"><span>所需角色</span><select className="wb-input" value={role} onChange={(event) => setRole(event.target.value)}>{ROLES.map((item) => <option key={item}>{item}</option>)}</select></label><label className="wb-field"><span>目标载体</span><select className="wb-input" value={carrier} onChange={(event) => setCarrier(event.target.value as "live_room" | "rendered_video")}><option value="live_room">直播间草稿</option><option value="rendered_video">成片渲染</option></select></label></div><div className="wb-form-actions"><button type="button" className="wb-button wb-button-primary" disabled={preview.isPending} onClick={() => preview.mutate()}><Search size={14} aria-hidden="true" />预览候选</button></div>{preview.data ? <div className="asset-selection-preview"><div><strong>候选 {preview.data.candidates.length}</strong>{preview.data.candidates.map((candidate) => <article key={candidate.assetCode}><code>{candidate.assetCode}</code><span>{candidate.title}</span><b>{candidate.score}</b><small>{candidate.reasons.join(" / ")}{candidate.constraintProfile ? ` · ${candidate.constraintProfile.profileCode} r${candidate.constraintProfile.revisionNumber}` : ""}</small></article>)}</div><div><strong>排除 {preview.data.excluded.length}</strong>{preview.data.excluded.map((candidate) => <article key={candidate.assetCode}><code>{candidate.assetCode}</code><span>{candidate.title}</span><small>{candidate.exclusionCodes.join(" / ")}</small></article>)}</div><InlineNotice tone="warning" title="尚未验证门禁">{preview.data.unverifiedGates.join(" / ")}</InlineNotice></div> : null}{preview.error ? <InlineNotice tone="danger" title="选材预览失败">{message(preview.error)}</InlineNotice> : null}</section>;
+}
+
 function MaterialTab({ assets }: { assets: LibraryAsset[] }) {
   const queryClient = useQueryClient();
   const [selectedCode, setSelectedCode] = useState("");
@@ -61,7 +67,7 @@ function MaterialTab({ assets }: { assets: LibraryAsset[] }) {
     <label className="asset-search"><Search size={15} aria-hidden="true" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="筛选素材编码、名称或角色" /></label>
     <div className="asset-list">{filtered.map((item) => <button key={item.assetCode} type="button" className={selected?.assetCode === item.assetCode ? "active" : undefined} onClick={() => setSelectedCode(item.assetCode)}><span><strong>{item.title}</strong><code>{item.assetCode}</code><small>{item.materialRoles.join(" / ") || "未分类"}</small></span><StatusBadge label={item.executionCapability} tone={item.executionCapability === "maitu_bound" ? "success" : item.executionCapability === "unclassified" ? "warning" : "neutral"} /></button>)}</div>
     {!filtered.length ? <EmptyBlock icon={Boxes} title="尚无匹配素材" /> : null}</section>
-    <div>{selected ? <><ClassificationEditor key={selected.assetCode} asset={selected} onSaved={() => void queryClient.invalidateQueries({ queryKey: ["assets", "library"] })} /><ConstraintEditor key={`constraints:${selected.assetCode}`} assetCode={selected.assetCode} /></> : <EmptyBlock icon={Boxes} title="选择一个素材" detail="创建或同步素材后可设置分类与约束。" />}</div></div>;
+    <div>{selected ? <><ClassificationEditor key={selected.assetCode} asset={selected} onSaved={() => void queryClient.invalidateQueries({ queryKey: ["assets", "library"] })} /><ConstraintEditor key={`constraints:${selected.assetCode}`} assetCode={selected.assetCode} /><SelectionPreviewPanel /></> : <><EmptyBlock icon={Boxes} title="选择一个素材" detail="创建或同步素材后可设置分类与约束。" /><SelectionPreviewPanel /></>}</div></div>;
 }
 
 function GroupsTab({ groups }: { groups: Awaited<ReturnType<typeof assetLibraryApi.listGroups>> }) {

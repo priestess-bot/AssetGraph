@@ -123,6 +123,12 @@ def test_material_library_groups_constraints_packs_and_gaps() -> None:
         assert resolved["resolution_asset_code"] == product["asset_code"]
         assert [event["status"] for event in resolved["events"]] == ["open", "candidate_found", "resolved"]
 
+        preview = library.preview_selection(role="decoration_foreground", carrier_kind="rendered_video")
+        product_candidate = next(item for item in preview["candidates"] if item["asset_code"] == product["asset_code"])
+        assert product_candidate["score_parts"]["role_match"] == 60
+        assert any(item["asset_code"] == background["asset_code"] and "ROLE_MISMATCH" in item["exclusion_codes"] for item in preview["excluded"])
+        assert preview["unverified_gates"] == ["RIGHTS_GRANT_NOT_IMPLEMENTED", "CONSTRAINT_SOLVER_NOT_RUN"]
+
 
 def test_material_library_rejects_unknown_group_members_and_pack_targets() -> None:
     with psycopg.connect(DATABASE_URL) as connection:
