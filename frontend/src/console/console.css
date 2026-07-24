@@ -332,8 +332,9 @@
 .video-timeline strong { font-size: 12px; }
 .video-timeline small { color: var(--wb-muted); font-size: 7px; overflow-wrap: anywhere; }
 .video-timeline-editor { display: grid; gap: 1px; border-top: 1px solid var(--wb-line); background: var(--wb-line); }
-.video-timeline-editor > div { display: grid; grid-template-columns: minmax(90px, 1fr) minmax(120px, 1fr) minmax(100px, 1fr); align-items: end; gap: 8px; padding: 9px 12px; background: #fff; }
+.video-timeline-editor > div { display: grid; grid-template-columns: minmax(90px, 1fr) auto minmax(120px, 1fr) minmax(100px, 1fr); align-items: end; gap: 8px; padding: 9px 12px; background: #fff; }
 .video-timeline-editor code { align-self: center; color: var(--console-cyan); font-size: 8px; }
+.video-clip-order { display: flex; gap: 3px; }
 .video-artifacts { display: flex; flex-wrap: wrap; gap: 7px; padding: 13px; }
 .video-render-preview { display: block; width: min(100%, 440px); max-height: 680px; margin: 13px auto; background: #101310; }
 .release-workspace { display: grid; grid-template-columns: minmax(285px, .72fr) minmax(0, 1.28fr); gap: 16px; }

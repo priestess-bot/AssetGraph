@@ -176,10 +176,11 @@ class FunctionalVideoService:
                 "Timeline edits must retain the complete current video clip set",
                 details={"expected_clip_codes": current_codes},
             )
-        by_code = {str(update["clip_code"]): update for update in updates}
+        current_by_code = {str(clip["clip_code"]): clip for clip in clips}
         cursor = 0
-        for clip in clips:
-            update = by_code[str(clip["clip_code"])]
+        ordered_clips: list[dict[str, Any]] = []
+        for update in updates:
+            clip = deepcopy(current_by_code[str(update["clip_code"])])
             duration = int(update["duration_ms"])
             transition = str(update.get("transition") or "cut")
             if duration < 250 or duration > 120_000 or transition not in {"cut", "fade", "fade_out"}:
@@ -187,6 +188,7 @@ class FunctionalVideoService:
             clip["timeline_range"] = {"start_ms": cursor, "duration_ms": duration}
             clip["transition"] = transition
             cursor += duration
+            ordered_clips.append(clip)
         if not 30_000 <= cursor <= 120_000:
             raise DomainValidationError(
                 "VIDEO_TIMELINE_DURATION_OUT_OF_RANGE",
@@ -195,16 +197,27 @@ class FunctionalVideoService:
             )
         result["global_start_ms"] = 0
         result["global_end_ms"] = cursor
+        video["clips"] = ordered_clips
         for track in tracks:
             if track.get("track_kind") != "audio":
                 continue
-            for clip in track.get("clips") or []:
-                video_code = str(clip.get("clip_code") or "").removeprefix("VOICE-")
-                update = by_code.get(video_code)
-                if update is None:
+            audio_by_video_code = {
+                str(clip.get("clip_code") or "").removeprefix("VOICE-"): clip
+                for clip in track.get("clips") or []
+                if str(clip.get("clip_code") or "").removeprefix("VOICE-") in current_by_code
+            }
+            ordered_audio = []
+            for video_clip in ordered_clips:
+                audio_clip = audio_by_video_code.get(str(video_clip["clip_code"]))
+                if audio_clip is None:
                     continue
-                video_clip = next(item for item in clips if item["clip_code"] == video_code)
-                clip["timeline_range"] = dict(video_clip["timeline_range"])
+                ordered_audio.append({**deepcopy(audio_clip), "timeline_range": dict(video_clip["timeline_range"])})
+            unlinked_audio = [
+                deepcopy(clip)
+                for clip in track.get("clips") or []
+                if str(clip.get("clip_code") or "").removeprefix("VOICE-") not in current_by_code
+            ]
+            track["clips"] = [*ordered_audio, *unlinked_audio]
         return result
 
     @staticmethod
@@ -217,8 +230,11 @@ class FunctionalVideoService:
         shots = list(result.get("shots") or [])
         if {str(shot.get("shot_code") or "") for shot in shots} != set(clips):
             raise DomainValidationError("VIDEO_TIMELINE_SHOT_MAPPING_INVALID", "Timeline clips no longer match the fixed ShotList")
-        for shot in shots:
-            clip = clips[str(shot["shot_code"])]
+        shots_by_code = {str(shot["shot_code"]): shot for shot in shots}
+        ordered_shots: list[dict[str, Any]] = []
+        for clip_code in [str(clip["clip_code"]) for clip in video_track.get("clips") or []]:
+            shot = deepcopy(shots_by_code[clip_code])
+            clip = clips[clip_code]
             timing = clip["timeline_range"]
             start = int(timing["start_ms"]) / 1000
             duration = int(timing["duration_ms"]) / 1000
@@ -226,6 +242,8 @@ class FunctionalVideoService:
             shot["end_seconds"] = start + duration
             shot["duration_seconds"] = duration
             shot["transition"] = clip.get("transition") or "cut"
+            ordered_shots.append(shot)
+        result["shots"] = ordered_shots
         result["duration_seconds"] = timeline["global_end_ms"] / 1000
         result["timeline_revision"] = timeline.get("timeline_revision")
         return result
