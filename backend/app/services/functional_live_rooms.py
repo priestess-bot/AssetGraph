@@ -150,6 +150,11 @@ class FunctionalLiveRoomService:
                 ),
             )
             row = cursor.fetchone()
+        self._persist_operation_trace_links(
+            plan_id=row["id"],
+            build_plan_code=str(build_plan["build_plan_code"]),
+            blueprint=blueprint,
+        )
         self.connection.commit()
         return self._with_release(self._serialize(row))
 
@@ -387,6 +392,258 @@ class FunctionalLiveRoomService:
         self.connection.commit()
         return self._with_release(self._serialize(row))
 
+    def get_trace(self, plan_code: str) -> dict[str, Any]:
+        """Return an explicit operation-to-content provenance projection."""
+        plan = self._releaseable_plan(plan_code)
+        if plan is None:
+            raise KeyError(plan_code)
+        self._ensure_operation_trace_links(plan)
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT link.build_plan_operation_id, operation.operation_type,
+                       operation.operation_name, operation.sort_order,
+                       operation.scene_name, operation.layer_name,
+                       operation.selected_asset_code, link.target_type,
+                       link.target_code, link.target_revision, link.relation_type,
+                       scene.scene_blueprint_code, scene.shot_id AS scene_shot_id,
+                       layer.layer_blueprint_code, layer.source_shot_id AS layer_shot_id,
+                       shot.id AS shot_id, shot.shot_code, shot.shot_goal,
+                       segment.segment_code, segment.semantic_goal AS program_segment_goal
+                FROM functional_live_room_operation_trace_links AS link
+                JOIN maitu_live_room_build_plan_operations AS operation
+                  ON operation.id = link.build_plan_operation_id
+                LEFT JOIN maitu_scene_blueprints AS scene
+                  ON link.target_type = 'maitu_scene_blueprint'
+                 AND scene.scene_blueprint_code = link.target_code
+                 AND scene.revision_number = link.target_revision
+                LEFT JOIN layer_blueprints AS layer
+                  ON link.target_type = 'layer_blueprint'
+                 AND layer.layer_blueprint_code = link.target_code
+                 AND layer.revision_number = link.target_revision
+                LEFT JOIN shots AS shot ON shot.id = COALESCE(scene.shot_id, layer.source_shot_id)
+                LEFT JOIN program_segments AS segment ON segment.id = shot.program_segment_id
+                WHERE link.plan_id = %s
+                ORDER BY operation.sort_order, operation.id, link.target_type, link.target_code
+                """,
+                (plan["id"],),
+            )
+            rows = cursor.fetchall()
+
+            shot_ids = list(
+                dict.fromkeys(row["shot_id"] for row in rows if row["shot_id"] is not None)
+            )
+            blocks_by_shot: dict[str, list[dict[str, Any]]] = {}
+            if shot_ids:
+                cursor.execute(
+                    """
+                    SELECT source.shot_id, block.block_code, block.content,
+                           block.fact_citations, block.template_sources, source.relation_type
+                    FROM shot_script_block_sources AS source
+                    JOIN content_script_blocks AS block ON block.id = source.script_block_id
+                    WHERE source.shot_id = ANY(%s)
+                    ORDER BY source.shot_id, source.source_order, block.block_code
+                    """,
+                    (shot_ids,),
+                )
+                for block in cursor.fetchall():
+                    blocks_by_shot.setdefault(str(block["shot_id"]), []).append(
+                        {
+                            "block_code": block["block_code"],
+                            "content": block["content"],
+                            "relation_type": block["relation_type"],
+                            "fact_citations": block["fact_citations"],
+                            "template_sources": block["template_sources"],
+                        }
+                    )
+
+        operations: list[dict[str, Any]] = []
+        by_operation: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            operation_id = str(row["build_plan_operation_id"])
+            operation = by_operation.get(operation_id)
+            if operation is None:
+                operation = {
+                    "operation_id": operation_id,
+                    "operation_type": row["operation_type"],
+                    "operation_name": row["operation_name"],
+                    "sort_order": row["sort_order"],
+                    "scene_name": row["scene_name"],
+                    "layer_name": row["layer_name"],
+                    "asset_code": row["selected_asset_code"],
+                    "targets": [],
+                }
+                by_operation[operation_id] = operation
+                operations.append(operation)
+            shot_id = row["shot_id"]
+            operation["targets"].append(
+                {
+                    "target_type": row["target_type"],
+                    "target_code": row["target_code"],
+                    "target_revision": row["target_revision"],
+                    "relation_type": row["relation_type"],
+                    "shot": (
+                        {
+                            "shot_code": row["shot_code"],
+                            "shot_goal": row["shot_goal"],
+                        }
+                        if row["shot_code"]
+                        else None
+                    ),
+                    "program_segment": (
+                        {
+                            "segment_code": row["segment_code"],
+                            "semantic_goal": row["program_segment_goal"],
+                        }
+                        if row["segment_code"]
+                        else None
+                    ),
+                    "script_blocks": blocks_by_shot.get(str(shot_id), []) if shot_id is not None else [],
+                }
+            )
+        return {
+            "plan_code": plan_code,
+            "content_chain": {
+                "content_project_revision": {
+                    "code": plan["source_project_code"],
+                    "revision": int(plan["project_revision"]),
+                },
+                "story_brief_revision": {
+                    "code": plan["story_brief_code"],
+                    "revision": int(plan["story_brief_revision"]),
+                    "fact_revision_refs": plan["fact_revision_refs"],
+                    "template_revision_refs": plan["template_revision_refs"],
+                },
+                "script_revision": {
+                    "code": plan["script_revision_code"],
+                    "revision": int(plan["script_revision"]),
+                },
+                "program_revision": {
+                    "code": plan["program_revision_code"],
+                    "revision": int(plan["program_revision"]),
+                },
+                "shot_list_revision": {
+                    "code": plan["shot_list_revision_code"],
+                    "revision": int(plan["shot_list_revision"]),
+                },
+            },
+            "operations": operations,
+        }
+
+    def _ensure_operation_trace_links(self, plan: dict[str, Any]) -> None:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT count(*) FROM functional_live_room_operation_trace_links WHERE plan_id = %s",
+                (plan["id"],),
+            )
+            existing_count = int(cursor.fetchone()[0])
+        if existing_count:
+            return
+        self._persist_operation_trace_links(
+            plan_id=plan["id"],
+            build_plan_code=str(plan["build_plan"]["build_plan_code"]),
+            blueprint=plan["blueprint"],
+        )
+        self.connection.commit()
+
+    def _persist_operation_trace_links(
+        self,
+        *,
+        plan_id: Any,
+        build_plan_code: str,
+        blueprint: dict[str, Any],
+    ) -> None:
+        scenes = [scene for scene in blueprint.get("scenes") or [] if isinstance(scene, dict)]
+        scenes_by_code = {
+            str(scene.get("scene_code") or scene.get("scene_blueprint_code")): scene
+            for scene in scenes
+            if scene.get("scene_code") or scene.get("scene_blueprint_code")
+        }
+        layers_by_code = {
+            str(layer.get("layer_blueprint_code")): layer
+            for scene in scenes
+            for layer in scene.get("layers") or []
+            if isinstance(layer, dict) and layer.get("layer_blueprint_code")
+        }
+        if not scenes_by_code:
+            raise DomainValidationError(
+                "LIVE_ROOM_TRACE_SCENES_REQUIRED",
+                "Cannot persist operation trace links without generated MaituSceneBlueprints",
+            )
+        relation_by_operation = {
+            "preflight_content_build_plan": "preflights",
+            "fill_default_scene": "configures",
+            "create_scene": "configures",
+            "insert_asset_layer": "mutates",
+            "position_asset_layer": "mutates",
+            "write_script": "writes",
+            "verify_scene": "verifies",
+            "save_draft": "saves",
+        }
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT id, operation_type, scene_name, layer_name
+                FROM maitu_live_room_build_plan_operations
+                WHERE build_plan_code = %s
+                ORDER BY sort_order, id
+                """,
+                (build_plan_code,),
+            )
+            operations = cursor.fetchall()
+            for operation in operations:
+                operation_type = str(operation["operation_type"])
+                relation_type = relation_by_operation.get(operation_type)
+                if relation_type is None:
+                    raise DomainValidationError(
+                        "LIVE_ROOM_TRACE_OPERATION_UNKNOWN",
+                        "BuildPlan operation cannot be traced to an allowed target",
+                        details={"operation_type": operation_type, "build_plan_code": build_plan_code},
+                    )
+                targets: list[tuple[str, str]] = []
+                layer_code = str(operation["layer_name"] or "")
+                scene_code = str(operation["scene_name"] or "")
+                if layer_code and layer_code in layers_by_code:
+                    targets.append(("layer_blueprint", layer_code))
+                elif scene_code and scene_code in scenes_by_code:
+                    targets.append(("maitu_scene_blueprint", scene_code))
+                elif operation_type in {"preflight_content_build_plan", "save_draft"}:
+                    targets.extend(("maitu_scene_blueprint", code) for code in scenes_by_code)
+                else:
+                    raise DomainValidationError(
+                        "LIVE_ROOM_TRACE_TARGET_MISSING",
+                        "BuildPlan operation does not reference a generated Scene or LayerBlueprint",
+                        details={
+                            "operation_type": operation_type,
+                            "scene_name": operation["scene_name"],
+                            "layer_name": operation["layer_name"],
+                        },
+                    )
+                for target_type, target_code in targets:
+                    cursor.execute(
+                        """
+                        INSERT INTO functional_live_room_operation_trace_links (
+                            plan_id, build_plan_operation_id, target_type, target_code,
+                            target_revision, relation_type, evidence
+                        ) VALUES (%s, %s, %s, %s, 1, %s, %s)
+                        ON CONFLICT DO NOTHING
+                        """,
+                        (
+                            plan_id,
+                            operation["id"],
+                            target_type,
+                            target_code,
+                            relation_type,
+                            Jsonb(
+                                {
+                                    "schema_version": "functional-live-room-operation-trace.v1",
+                                    "build_plan_code": build_plan_code,
+                                    "operation_type": operation_type,
+                                }
+                            ),
+                        ),
+                    )
+
     def _releaseable_plan(self, plan_code: str) -> dict[str, Any] | None:
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
@@ -397,6 +654,7 @@ class FunctionalLiveRoomService:
                        project_revision.revision_number AS project_revision,
                        story.story_brief_code AS story_brief_code,
                        story.revision_number AS story_brief_revision,
+                       story.fact_revision_refs, story.template_revision_refs,
                        script.script_revision_code AS script_revision_code,
                        script.revision_number AS script_revision,
                        program.program_revision_code AS program_revision_code,

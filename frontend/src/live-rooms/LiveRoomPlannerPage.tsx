@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CircleAlert, Copy, FileCheck2, MonitorUp, Send, WandSparkles } from "lucide-react";
+import { CircleAlert, Copy, FileCheck2, GitFork, MonitorUp, Send, WandSparkles } from "lucide-react";
 import { assetLibraryApi } from "../assets/api";
 import { contentProjectsApi } from "../content/api";
 import { EmptyBlock, InlineNotice, LoadingBlock, SectionHeader, StatusBadge } from "../workbench/components";
@@ -33,9 +33,11 @@ function PlanDetail({ plan }: { plan: FunctionalLiveRoomPlan }) {
   const [cloneOpen, setCloneOpen] = useState(false);
   const [cloneRoomId, setCloneRoomId] = useState("");
   const [cloneTitle, setCloneTitle] = useState("");
+  const [traceVisible, setTraceVisible] = useState(false);
   const request = useMutation({ mutationFn: () => functionalLiveRoomsApi.confirmExecution(plan.planCode), onSuccess: (next) => { queryClient.setQueryData(["functional-live-room-plan", plan.planCode], next); void queryClient.invalidateQueries({ queryKey: ["functional-live-room-plans"] }); } });
   const release = useMutation({ mutationFn: () => functionalLiveRoomsApi.createReleaseCandidate(plan.planCode), onSuccess: (next) => { queryClient.setQueryData(["functional-live-room-plan", plan.planCode], next); void queryClient.invalidateQueries({ queryKey: ["functional-live-room-plans"] }); } });
   const clone = useMutation({ mutationFn: () => functionalLiveRoomsApi.clone(plan.planCode, { target_live_room_id: cloneRoomId, expected_title: cloneTitle }), onSuccess: (next) => { setCloneOpen(false); setCloneRoomId(""); setCloneTitle(""); queryClient.setQueryData(["functional-live-room-plan", next.planCode], next); void queryClient.invalidateQueries({ queryKey: ["functional-live-room-plans"] }); } });
+  const trace = useQuery({ queryKey: ["functional-live-room-trace", plan.planCode], queryFn: () => functionalLiveRoomsApi.getTrace(plan.planCode), enabled: traceVisible });
   return <div className="live-plan-detail">
     <section className="wb-section"><SectionHeader kicker={plan.planCode} title={plan.expectedTitle} actions={<div className="live-plan-badges"><StatusBadge label={label(plan.status)} tone={tone(plan.status)} /><StatusBadge label={label(plan.executionStatus)} tone={tone(plan.executionStatus)} /></div>} />
       <div className="live-plan-summary"><div><span>目标直播间</span><strong>{plan.targetLiveRoomId}</strong></div><div><span>生产变体</span><code>{plan.variantCode}</code></div><div><span>直播间配置</span><code>{plan.configurationCode}</code></div><div><span>开播动作</span><strong>已关闭</strong></div></div>
@@ -48,6 +50,11 @@ function PlanDetail({ plan }: { plan: FunctionalLiveRoomPlan }) {
     <section className="wb-section"><SectionHeader kicker={plan.buildPlan.build_plan_code ?? "BUILD PLAN"} title="麦兔草稿操作" actions={<StatusBadge label={plan.buildPlan.go_live ? "包含开播" : "不含开播"} tone={plan.buildPlan.go_live ? "danger" : "success"} />} />
       <ol className="live-operation-list">{plan.buildPlan.operations.map((operation, index) => <li key={`${operation.kind}:${index}`}><b>{index + 1}</b><span>{operation.kind}</span><code>{operation.scene_code ?? operation.asset_code ?? operation.script_block_code ?? ""}</code></li>)}</ol>
     </section>
+    <section className="wb-section"><SectionHeader kicker="PROVENANCE" title="操作来源追溯" actions={<button type="button" className="wb-icon-button" aria-label="加载操作来源追溯" title="加载操作来源追溯" onClick={() => setTraceVisible((visible) => !visible)}><GitFork size={15} aria-hidden="true" /></button>} />
+      {traceVisible && trace.isLoading ? <LoadingBlock label="正在加载操作来源" /> : null}
+      {traceVisible && trace.data ? <div className="live-trace-list">{trace.data.operations.map((operation) => <article key={operation.operationId}><header><b>{operation.sortOrder}</b><strong>{operation.operationType}</strong><span>{operation.operationName}</span></header>{operation.targets.map((target) => <div key={`${operation.operationId}:${target.targetType}:${target.targetCode}`}><code>{target.targetCode}</code><span>{target.relationType}</span>{target.shot ? <small>{target.shot.shotCode}</small> : null}{target.programSegment ? <small>{target.programSegment.segmentCode}</small> : null}{target.scriptBlocks.map((block) => <small key={block.blockCode}>{block.blockCode}</small>)}</div>)}</article>)}</div> : null}
+    </section>
+    {trace.error ? <InlineNotice tone="danger" title="操作来源无法加载">{message(trace.error)}</InlineNotice> : null}
     <section className="live-request-panel"><div><span>发布候选</span><strong>{plan.release ? `${plan.release.releaseCode} · ${plan.release.status}` : "尚未创建"}</strong><small>{plan.release ? `Manifest ${plan.release.manifestCode}；仍待权利、执行授权和现场回读。` : "创建后固定内容链、素材快照、Blueprint、BuildPlan 和当前质量结果。"}</small></div>{plan.release ? <div className="live-plan-badges"><StatusBadge label={plan.release.status} tone="warning" /><code>{plan.release.snapshotArtifactCode}</code></div> : <button type="button" className="wb-button wb-button-secondary" disabled={plan.status !== "ready" || release.isPending} onClick={() => release.mutate()}><FileCheck2 size={15} aria-hidden="true" />创建发布候选</button>}</section>
     {release.error ? <InlineNotice tone="danger" title="发布候选未创建">{message(release.error)}</InlineNotice> : null}
     <section className="live-request-panel"><div><span>克隆到新草稿房间</span><strong>{plan.clonedFromPlanCode ? `来自 ${plan.clonedFromPlanCode}` : "复制业务输入，重新编译"}</strong><small>不会复制旧房间的现场、授权、执行、发布或交付状态。</small></div><button type="button" className="wb-button wb-button-secondary" onClick={() => setCloneOpen((open) => !open)}><Copy size={15} aria-hidden="true" />克隆</button></section>

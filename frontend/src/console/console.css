@@ -195,6 +195,15 @@
 .live-operation-list b { display: grid; width: 18px; height: 18px; place-items: center; border: 1px solid var(--wb-line-strong); border-radius: 50%; color: var(--wb-muted); font-size: 7px; }
 .live-operation-list span { font-size: 9px; font-weight: 800; }
 .live-operation-list code { min-width: 0; overflow: hidden; color: var(--wb-muted); font-size: 8px; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.live-trace-list { display: grid; }
+.live-trace-list article { display: grid; gap: 5px; padding: 9px 13px; border-top: 1px solid var(--wb-line); }
+.live-trace-list header { display: grid; grid-template-columns: 24px minmax(110px, .8fr) minmax(0, 1.2fr); align-items: center; gap: 7px; }
+.live-trace-list header b { display: grid; width: 18px; height: 18px; place-items: center; border: 1px solid var(--wb-line-strong); border-radius: 50%; color: var(--wb-muted); font-size: 7px; }
+.live-trace-list header strong { font-size: 9px; overflow-wrap: anywhere; }
+.live-trace-list header span { color: var(--wb-muted); font-size: 8px; overflow-wrap: anywhere; }
+.live-trace-list article > div { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; padding-left: 31px; }
+.live-trace-list code { color: var(--console-cyan); font-size: 8px; overflow-wrap: anywhere; }
+.live-trace-list article > div > span, .live-trace-list small { color: var(--wb-muted); font-size: 7px; }
 .live-request-panel { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 13px; border: 1px solid var(--wb-line-strong); border-radius: 6px; background: #fff; }
 .live-request-panel > div:first-child { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
 .live-request-panel span { color: var(--console-cyan); font-size: 8px; font-weight: 900; }

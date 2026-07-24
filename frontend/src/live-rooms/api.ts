@@ -30,6 +30,25 @@ export interface FunctionalLiveRoomPlan {
   updatedAt: string;
 }
 
+export interface FunctionalLiveRoomTrace {
+  planCode: string;
+  contentChain: Record<string, unknown>;
+  operations: Array<{
+    operationId: string;
+    operationType: string;
+    operationName: string;
+    sortOrder: number;
+    targets: Array<{
+      targetType: string;
+      targetCode: string;
+      relationType: string;
+      shot?: { shotCode: string; shotGoal: string };
+      programSegment?: { segmentCode: string; semanticGoal: string };
+      scriptBlocks: Array<{ blockCode: string }>;
+    }>;
+  }>;
+}
+
 function strings(value: unknown): string[] {
   return asArray(value).flatMap((item) => typeof item === "string" ? [item] : []);
 }
@@ -82,9 +101,28 @@ function plan(value: unknown): FunctionalLiveRoomPlan {
   };
 }
 
+function trace(value: unknown): FunctionalLiveRoomTrace {
+  if (!isRecord(value)) throw new Error("直播间追溯响应无效");
+  return {
+    planCode: asString(value.plan_code),
+    contentChain: isRecord(value.content_chain) ? value.content_chain : {},
+    operations: asArray(value.operations).flatMap((operation) => isRecord(operation) ? [{
+      operationId: asString(operation.operation_id), operationType: asString(operation.operation_type), operationName: asString(operation.operation_name),
+      sortOrder: typeof operation.sort_order === "number" ? operation.sort_order : 0,
+      targets: asArray(operation.targets).flatMap((target) => isRecord(target) ? [{
+        targetType: asString(target.target_type), targetCode: asString(target.target_code), relationType: asString(target.relation_type),
+        shot: isRecord(target.shot) ? { shotCode: asString(target.shot.shot_code), shotGoal: asString(target.shot.shot_goal) } : undefined,
+        programSegment: isRecord(target.program_segment) ? { segmentCode: asString(target.program_segment.segment_code), semanticGoal: asString(target.program_segment.semantic_goal) } : undefined,
+        scriptBlocks: asArray(target.script_blocks).flatMap((block) => isRecord(block) && asString(block.block_code) ? [{ blockCode: asString(block.block_code) }] : []),
+      }] : []),
+    }] : []),
+  };
+}
+
 export const functionalLiveRoomsApi = {
   list: () => requestJson<unknown[]>(ROOT).then((rows) => rows.map(plan)),
   get: (planCode: string) => requestJson<unknown>(`${ROOT}/${planCode}`).then(plan),
+  getTrace: (planCode: string) => requestJson<unknown>(`${ROOT}/${planCode}/trace`).then(trace),
   create: (payload: { project_code: string; target_live_room_id: string; expected_title: string; primary_template_code?: string; secondary_template_codes: string[]; asset_codes: string[]; group_codes: string[] }) => postJson<unknown>(ROOT, payload).then(plan),
   confirmExecution: (planCode: string) => postJson<unknown>(`${ROOT}/${planCode}/confirm-execution`, { confirmed: true }).then(plan),
   createReleaseCandidate: (planCode: string) => postJson<unknown>(`${ROOT}/${planCode}/release-candidate`, {}).then(plan),

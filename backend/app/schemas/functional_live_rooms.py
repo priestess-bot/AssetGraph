@@ -41,6 +41,12 @@ class FunctionalLiveRoomReleaseRead(BaseModel):
     snapshot_artifact_code: str
 
 
+class FunctionalLiveRoomTraceRead(BaseModel):
+    plan_code: str
+    content_chain: dict[str, Any]
+    operations: list[dict[str, Any]]
+
+
 class FunctionalLiveRoomPlanRead(BaseModel):
     plan_code: str
     project_code: str

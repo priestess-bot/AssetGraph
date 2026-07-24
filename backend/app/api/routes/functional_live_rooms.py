@@ -12,6 +12,7 @@ from app.schemas.functional_live_rooms import (
     FunctionalLiveRoomPlanCreate,
     FunctionalLiveRoomPlanClone,
     FunctionalLiveRoomPlanRead,
+    FunctionalLiveRoomTraceRead,
 )
 from app.services.functional_live_rooms import FunctionalLiveRoomService
 
@@ -47,6 +48,17 @@ def get_live_room_plan(plan_code: str, service: Annotated[FunctionalLiveRoomServ
     if plan is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Live-room plan not found")
     return plan
+
+
+@router.get("/{plan_code}/trace", response_model=FunctionalLiveRoomTraceRead)
+def get_live_room_plan_trace(
+    plan_code: str,
+    service: Annotated[FunctionalLiveRoomService, Depends(get_service)],
+) -> dict:
+    try:
+        return service.get_trace(plan_code)
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Live-room plan not found") from exc
 
 
 @router.post("/{plan_code}/confirm-execution", response_model=FunctionalLiveRoomPlanRead)

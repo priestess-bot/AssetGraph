@@ -114,6 +114,20 @@ def test_functional_live_room_plan_compiles_and_only_requests_maitu_execution() 
         assert all(scene["scene_blueprint_code"].startswith("MSB-VARIANT-") for scene in plan["blueprint"]["scenes"])
         assert all(layer["layer_blueprint_code"].startswith("LYR-MSB-VARIANT-") for scene in plan["blueprint"]["scenes"] for layer in scene["layers"])
 
+        trace = service.get_trace(plan["plan_code"])
+        assert trace["content_chain"]["content_project_revision"] == {
+            "code": project["project_code"], "revision": 1,
+        }
+        assert [operation["operation_type"] for operation in trace["operations"]] == [
+            operation["operation_type"] for operation in plan["build_plan"]["operations"]
+        ]
+        assert all(operation["targets"] for operation in trace["operations"])
+        assert all(
+            target["shot"] is not None and target["program_segment"] is not None and target["script_blocks"]
+            for operation in trace["operations"]
+            for target in operation["targets"]
+        )
+
         with connection.cursor() as cursor:
             cursor.execute(
                 """
@@ -157,6 +171,14 @@ def test_functional_live_room_plan_compiles_and_only_requests_maitu_execution() 
                 (plan["build_plan"]["build_plan_code"],),
             )
             assert cursor.fetchone()[0] == plan["build_plan"]["blueprint_fingerprint"]
+            cursor.execute(
+                """
+                SELECT count(*) FROM functional_live_room_operation_trace_links
+                WHERE plan_id = (SELECT id FROM functional_live_room_plans WHERE plan_code = %s)
+                """,
+                (plan["plan_code"],),
+            )
+            assert cursor.fetchone()[0] == sum(len(operation["targets"]) for operation in trace["operations"])
 
         requested = service.confirm_execution(plan["plan_code"], confirmed=True)
         assert requested is not None
