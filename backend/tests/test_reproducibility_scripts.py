@@ -268,6 +268,7 @@ def test_migration_discovery_is_contiguous() -> None:
                 "functional_content_exposure_corrections.sql",
                 "functional_operation_metric_definition_refs.sql",
                 "functional_session_time_mappings.sql",
+                "functional_effect_estimates.sql",
             ],
             start=1,
         )

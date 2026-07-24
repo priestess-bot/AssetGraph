@@ -3,9 +3,11 @@ import os
 from uuid import uuid4
 import psycopg
 import pytest
+from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from app.domain.errors import DomainValidationError
+from app.services.functional_content import FunctionalContentService
 from app.services.functional_learning import FunctionalLearningService
 
 DATABASE_URL = os.getenv("ASSETGRAPH_TEST_DATABASE_URL")
@@ -17,6 +19,14 @@ pytestmark = pytest.mark.skipif(
 def test_decisions_and_stable_experiment_outcomes() -> None:
     with psycopg.connect(DATABASE_URL) as c:
         s = FunctionalLearningService(c)
+        source = FunctionalContentService(c).create_project(
+            {
+                "title": f"Effect source {uuid4().hex}",
+                "generation_goal": "Explain a product choice",
+                "platform": "douyin",
+            },
+            actor_id="test-operator",
+        )
         report_code = f"ATTR-LEARNING-{uuid4().hex}"
         with c.cursor() as cursor:
             cursor.execute(
@@ -40,6 +50,34 @@ def test_decisions_and_stable_experiment_outcomes() -> None:
         )
         assert d["decision_code"].startswith("DEC-")
         assert d["attribution_report_code"] == report_code
+        effect = s.create_effect_estimate(
+            {
+                "attribution_report_code": report_code,
+                "subject_type": "content_project",
+                "subject_code": source["project_code"],
+                "context": {"platform": "douyin"},
+                "note": "Manual review of this descriptive report.",
+            }
+        )
+        assert effect["status"] == "candidate"
+        assert effect["eligibility_snapshot"]["qualification"] == "descriptive_only"
+        approved = s.approve_effect_estimate(effect["effect_code"], "operator")
+        assert approved is not None
+        assert approved["status"] == "approved"
+        reproduction = s.reproduce_effect(
+            effect["effect_code"],
+            {"title": "Reproduced effect project"},
+        )
+        assert reproduction is not None
+        assert reproduction["source_project_code"] == source["project_code"]
+        assert reproduction["reproduced_project_code"] != source["project_code"]
+        with c.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                "SELECT source_revision_refs FROM content_project_revisions WHERE project_code = %s",
+                (reproduction["reproduced_project_code"],),
+            )
+            reproduced_refs = cursor.fetchone()["source_revision_refs"]
+        assert any(ref["relation_type"] == "approved_effect" for ref in reproduced_refs)
         with pytest.raises(DomainValidationError) as missing_report:
             s.create_decision(
                 {
