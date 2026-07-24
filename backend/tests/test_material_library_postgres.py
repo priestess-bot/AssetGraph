@@ -155,6 +155,10 @@ def test_material_library_groups_constraints_packs_and_gaps() -> None:
         assert resolved["status"] == "resolved"
         assert resolved["resolution_asset_code"] == product["asset_code"]
         assert [event["status"] for event in resolved["events"]] == ["open", "candidate_found", "resolved"]
+        gap_refs = library.resolve_gap_refs([gap["gap_code"]])
+        assert gap_refs[0]["gap_code"] == gap["gap_code"]
+        assert gap_refs[0]["status"] == "resolved"
+        assert len(gap_refs[0]["fingerprint_sha256"]) == 64
 
         preview = library.preview_selection(role="decoration_foreground", carrier_kind="rendered_video")
         product_candidate = next(item for item in preview["candidates"] if item["asset_code"] == product["asset_code"])

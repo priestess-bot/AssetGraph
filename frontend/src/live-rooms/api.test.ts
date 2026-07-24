@@ -26,7 +26,8 @@ describe("functional live room api", () => {
       plan_code: "LIVEPLAN-002", project_code: "CONTENT-001", variant_code: "VARIANT-001", configuration_code: "CONFIG-001", target_live_room_id: "room-001", expected_title: "素材选择", selected_asset_codes: [], selected_group_codes: [], selected_material_pack_codes: [], blueprint: { scenes: [] }, build_plan: { inventory_snapshot: {}, operations: [] }, gate_results: [], quality_report: {}, status: "ready", blocked_reasons: [], execution_status: "not_requested", execution_evidence: {}, clone_context: {}, updated_at: "2026-07-25T00:00:00Z",
     }));
     vi.stubGlobal("fetch", fetch);
-    await functionalLiveRoomsApi.create({ project_code: "CONTENT-001", target_live_room_id: "room-001", expected_title: "素材选择", secondary_template_codes: [], asset_codes: ["AG-IMG-001"], group_codes: [], material_pack_codes: [], material_role_overrides: { background: "AG-IMG-001" } });
+    await functionalLiveRoomsApi.create({ project_code: "CONTENT-001", target_live_room_id: "room-001", expected_title: "素材选择", secondary_template_codes: [], asset_codes: ["AG-IMG-001"], group_codes: [], material_pack_codes: [], asset_gap_codes: ["AG-GAP-001"], material_role_overrides: { background: "AG-IMG-001" } });
     expect(fetch).toHaveBeenCalledWith("/api/functional-live-room-plans", expect.objectContaining({ method: "POST", body: expect.stringContaining('"material_role_overrides":{"background":"AG-IMG-001"}') }));
+    expect(fetch).toHaveBeenCalledWith("/api/functional-live-room-plans", expect.objectContaining({ method: "POST", body: expect.stringContaining('"asset_gap_codes":["AG-GAP-001"]') }));
   });
 });

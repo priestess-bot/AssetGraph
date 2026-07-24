@@ -316,6 +316,63 @@ def test_functional_live_room_plan_blocks_unbound_required_material() -> None:
         assert blocked["execution_status"] == "blocked"
 
 
+def test_live_room_plan_snapshots_explicit_asset_gap_and_blocks_only_while_unresolved() -> None:
+    suffix = uuid4().hex
+    with psycopg.connect(DATABASE_URL) as connection:
+        assets = AssetRepository(connection)
+        library = MaterialLibraryRepository(connection)
+        project = _generated_project(connection, suffix)
+        selected = [
+            _asset(assets, suffix, "digital_human"),
+            _asset(assets, suffix, "background"),
+            _asset(assets, suffix, "promotion_text"),
+        ]
+        gap = library.create_gap(
+            {
+                "title": "需要经过审核的背景素材",
+                "role": "background",
+                "severity": "high",
+                "impact_summary": "当前场景仍需确认背景授权。",
+            }
+        )
+        service = FunctionalLiveRoomService(connection)
+        blocked = service.create_plan(
+            {
+                "project_code": project["project_code"],
+                "target_live_room_id": f"gap-blocked-{suffix}",
+                "expected_title": "Gap blocked draft",
+                "asset_codes": [item["asset_code"] for item in selected],
+                "group_codes": [],
+                "asset_gap_codes": [gap["gap_code"]],
+            },
+            actor_id="test-operator",
+        )
+        assert blocked["status"] == "blocked"
+        assert f"asset_gap_unresolved:{gap['gap_code']}:open" in blocked["blocked_reasons"]
+        assert blocked["build_plan"]["inventory_snapshot"]["asset_gap_refs"][0]["status"] == "open"
+        assert blocked["selected_asset_gap_codes"] == [gap["gap_code"]]
+
+        waived = library.update_gap(
+            gap["gap_code"],
+            {"status": "waived", "waiver_reason": "授权审查另行跟踪", "actor": "test-operator"},
+        )
+        assert waived is not None and waived["status"] == "waived"
+        ready = service.create_plan(
+            {
+                "project_code": project["project_code"],
+                "target_live_room_id": f"gap-waived-{suffix}",
+                "expected_title": "Gap waived draft",
+                "asset_codes": [item["asset_code"] for item in selected],
+                "group_codes": [],
+                "asset_gap_codes": [gap["gap_code"]],
+            },
+            actor_id="test-operator",
+        )
+        assert ready["status"] == "ready"
+        assert ready["build_plan"]["inventory_snapshot"]["asset_gap_refs"][0]["status"] == "waived"
+        assert blocked["build_plan"]["inventory_snapshot"]["asset_gap_refs"][0]["status"] == "open"
+
+
 def test_live_room_plan_selects_only_published_material_pack_and_freezes_resolved_assets() -> (
     None
 ):

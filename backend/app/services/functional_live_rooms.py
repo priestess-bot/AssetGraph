@@ -49,6 +49,10 @@ class FunctionalLiveRoomService:
             )
         except MaterialLibraryValidationError as exc:
             raise DomainValidationError("LIVE_ROOM_MATERIAL_PACK_INVALID", str(exc)) from exc
+        try:
+            asset_gap_refs = self.materials.resolve_gap_refs(payload.get("asset_gap_codes") or [])
+        except MaterialLibraryValidationError as exc:
+            raise DomainValidationError("LIVE_ROOM_ASSET_GAP_INVALID", str(exc)) from exc
         selected_assets = self._selected_assets(
             [*(payload.get("asset_codes") or []), *material_pack_asset_codes],
             payload.get("group_codes") or [],
@@ -81,6 +85,7 @@ class FunctionalLiveRoomService:
                 for asset in selected_assets
             ],
             "material_pack_refs": material_pack_refs,
+            "asset_gap_refs": asset_gap_refs,
             "material_role_overrides": material_role_overrides,
         }
         templates = self._project_template_selection(detail, payload)
@@ -97,6 +102,7 @@ class FunctionalLiveRoomService:
                 "templates": templates,
                 "selected_asset_codes": snapshot["asset_codes"],
                 "selected_material_pack_codes": payload.get("material_pack_codes") or [],
+                "selected_asset_gap_codes": payload.get("asset_gap_codes") or [],
                 "material_role_overrides": material_role_overrides,
             },
             material_snapshot_ref=snapshot,
@@ -133,6 +139,7 @@ class FunctionalLiveRoomService:
                 "selected_asset_codes": snapshot["asset_codes"],
                 "selected_group_codes": payload.get("group_codes") or [],
                 "selected_material_pack_codes": payload.get("material_pack_codes") or [],
+                "selected_asset_gap_codes": payload.get("asset_gap_codes") or [],
                 "material_role_overrides": material_role_overrides,
             },
             actor_id=actor_id,
@@ -145,6 +152,18 @@ class FunctionalLiveRoomService:
             selected_assets,
             payload,
             variant_code=variant["variant_code"],
+        )
+        blocked_reasons = list(
+            dict.fromkeys(
+                [
+                    *blocked_reasons,
+                    *[
+                        f"asset_gap_unresolved:{gap['gap_code']}:{gap['status']}"
+                        for gap in asset_gap_refs
+                        if gap["status"] in {"open", "candidate_found"}
+                    ],
+                ]
+            )
         )
         blueprint["scenes"] = self.production.create_maitu_scene_blueprint_projections(
             variant_code=variant["variant_code"],
@@ -400,6 +419,11 @@ class FunctionalLiveRoomService:
                 "asset_codes": list(source["selected_asset_codes"] or []),
                 "group_codes": list(source["selected_group_codes"] or []),
                 "material_pack_codes": list(source["selected_material_pack_codes"] or []),
+                "asset_gap_codes": [
+                    str(gap["gap_code"])
+                    for gap in source["build_plan"].get("inventory_snapshot", {}).get("asset_gap_refs", [])
+                    if isinstance(gap, dict) and gap.get("gap_code")
+                ],
                 "material_role_overrides": dict((source["quality_report"] or {}).get("material_role_overrides") or {}),
             },
             actor_id=actor_id,
@@ -414,6 +438,7 @@ class FunctionalLiveRoomService:
                 "selected_asset_codes",
                 "selected_group_codes",
                 "selected_material_pack_codes",
+                "selected_asset_gap_codes",
                 "material_role_overrides",
             ],
             "cleared_target_state": [
@@ -790,6 +815,7 @@ class FunctionalLiveRoomService:
                 "selected_groups": list(plan["selected_group_codes"] or []),
                 "selected_material_packs": list(plan["selected_material_pack_codes"] or []),
                 "material_pack_refs": plan["build_plan"].get("inventory_snapshot", {}).get("material_pack_refs", []),
+                "asset_gap_refs": plan["build_plan"].get("inventory_snapshot", {}).get("asset_gap_refs", []),
                 "blueprint": plan["blueprint"],
                 "build_plan": plan["build_plan"],
                 "static_gate_results": plan["gate_results"],
@@ -1669,7 +1695,14 @@ class FunctionalLiveRoomService:
 
     @staticmethod
     def _serialize(row: dict[str, Any]) -> dict[str, Any]:
-        return dict(row)
+        result = dict(row)
+        inventory_snapshot = dict(result.get("build_plan") or {}).get("inventory_snapshot") or {}
+        result["selected_asset_gap_codes"] = [
+            str(gap["gap_code"])
+            for gap in inventory_snapshot.get("asset_gap_refs") or []
+            if isinstance(gap, dict) and gap.get("gap_code")
+        ]
+        return result
 
     @staticmethod
     def _next_code(cursor: Any, prefix: str, object_type: str) -> str:

@@ -346,6 +346,28 @@ class MaterialLibraryRepository:
             row = cursor.fetchone()
         return self._gap_read(row) if row else None
 
+    def resolve_gap_refs(self, gap_codes: list[str]) -> list[dict[str, Any]]:
+        """Freeze the current gap state for an explicit production-input reference."""
+        refs: list[dict[str, Any]] = []
+        for gap_code in self._dedupe_codes(gap_codes):
+            gap = self.get_gap(gap_code)
+            if gap is None:
+                raise MaterialLibraryValidationError(f"Unknown asset gap code: {gap_code}")
+            snapshot = {
+                "gap_code": gap["gap_code"],
+                "title": gap["title"],
+                "role": gap["role"],
+                "severity": gap["severity"],
+                "status": gap["status"],
+                "gap_type": gap["gap_type"],
+                "impact_summary": gap.get("impact_summary"),
+                "alternative_asset_codes": gap["alternative_asset_codes"],
+                "resolution_asset_code": gap.get("resolution_asset_code"),
+                "resolution_snapshot": gap["resolution_snapshot"],
+            }
+            refs.append({**snapshot, "fingerprint_sha256": self._fingerprint(self._canonical(snapshot))})
+        return refs
+
     def preview_selection(self, *, role: str, carrier_kind: str) -> dict[str, Any]:
         """Return a deterministic, explainable candidate preview before planning.
 

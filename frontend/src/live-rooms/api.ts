@@ -14,6 +14,7 @@ export interface FunctionalLiveRoomPlan {
   selectedAssetCodes: string[];
   selectedGroupCodes: string[];
   selectedMaterialPackCodes: string[];
+  selectedAssetGapCodes: string[];
   materialRoleOverrides: Record<string, string>;
   materialSelectionDecisions: Array<{ role: string; shotCode?: string; strategy: string; selectedAssetCode: string; selectedScore: number; selectionReasons: string[]; candidateScores: Array<{ assetCode: string; score: number }> }>;
   materialSnapshot: {
@@ -27,6 +28,7 @@ export interface FunctionalLiveRoomPlan {
       selectionSources: Array<{ kind: string; code: string }>;
     }>;
     materialPackRefs: Array<{ packCode: string; revisionNumber: number; fingerprint: string; role: string }>;
+    assetGapRefs: Array<{ gapCode: string; title: string; role: string; severity: string; status: string; gapType: string; fingerprint: string }>;
   };
   blueprint: { schema_version: string; scenes: Array<{ scene_code: string; shot_code: string; title: string; layers: Array<{ role: string; asset_code: string; execution_capability: string; z_order: number }>; script: string }> };
   buildPlan: { schema_version: string; build_plan_code?: string; target_live_room_id: string; go_live: boolean; operations: Array<{ kind: string; scene_code?: string; asset_code?: string; role?: string; script_block_code?: string }> };
@@ -92,6 +94,7 @@ function plan(value: unknown): FunctionalLiveRoomPlan {
     selectedAssetCodes: strings(value.selected_asset_codes),
     selectedGroupCodes: strings(value.selected_group_codes),
     selectedMaterialPackCodes: strings(value.selected_material_pack_codes),
+    selectedAssetGapCodes: strings(value.selected_asset_gap_codes),
     materialRoleOverrides,
     materialSelectionDecisions,
     materialSnapshot: {
@@ -102,6 +105,7 @@ function plan(value: unknown): FunctionalLiveRoomPlan {
         selectionSources: asArray(asset.selection_sources).flatMap((source) => isRecord(source) && asString(source.kind) && asString(source.code) ? [{ kind: asString(source.kind), code: asString(source.code) }] : []),
       }] : []),
       materialPackRefs: asArray(inventorySnapshot.material_pack_refs).flatMap((pack) => isRecord(pack) && asString(pack.pack_code) ? [{ packCode: asString(pack.pack_code), revisionNumber: asNumber(pack.revision_number), fingerprint: asString(pack.fingerprint_sha256), role: asString(pack.role) }] : []),
+      assetGapRefs: asArray(inventorySnapshot.asset_gap_refs).flatMap((gap) => isRecord(gap) && asString(gap.gap_code) ? [{ gapCode: asString(gap.gap_code), title: asString(gap.title, asString(gap.gap_code)), role: asString(gap.role), severity: asString(gap.severity), status: asString(gap.status), gapType: asString(gap.gap_type), fingerprint: asString(gap.fingerprint_sha256) }] : []),
     },
     blueprint: {
       schema_version: asString(blueprint.schema_version),
@@ -156,7 +160,7 @@ export const functionalLiveRoomsApi = {
   list: () => requestJson<unknown[]>(ROOT).then((rows) => rows.map(plan)),
   get: (planCode: string) => requestJson<unknown>(`${ROOT}/${planCode}`).then(plan),
   getTrace: (planCode: string) => requestJson<unknown>(`${ROOT}/${planCode}/trace`).then(trace),
-  create: (payload: { project_code: string; target_live_room_id: string; expected_title: string; primary_template_code?: string; secondary_template_codes: string[]; asset_codes: string[]; group_codes: string[]; material_pack_codes: string[]; material_role_overrides: Record<string, string> }) => postJson<unknown>(ROOT, payload).then(plan),
+  create: (payload: { project_code: string; target_live_room_id: string; expected_title: string; primary_template_code?: string; secondary_template_codes: string[]; asset_codes: string[]; group_codes: string[]; material_pack_codes: string[]; asset_gap_codes: string[]; material_role_overrides: Record<string, string> }) => postJson<unknown>(ROOT, payload).then(plan),
   confirmExecution: (planCode: string) => postJson<unknown>(`${ROOT}/${planCode}/confirm-execution`, { confirmed: true }).then(plan),
   createReleaseCandidate: (planCode: string) => postJson<unknown>(`${ROOT}/${planCode}/release-candidate`, {}).then(plan),
   clone: (planCode: string, payload: { target_live_room_id: string; expected_title: string }) => postJson<unknown>(`${ROOT}/${planCode}/clone`, payload).then(plan),
