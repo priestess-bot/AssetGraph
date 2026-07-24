@@ -55,6 +55,11 @@ def test_functional_video_plan_seeds_content_stages_and_queues_renderer() -> Non
         assert plan["render_profile"]["visual_asset_mode"] == "baseline_verified_video_assets"
 
         clips = plan["production_timeline"]["tracks"][0]["clips"]
+        subtitles = next(
+            track["clips"]
+            for track in plan["production_timeline"]["tracks"]
+            if track["track_kind"] == "subtitle"
+        )
         durations = [8_000, 9_000, 9_000, 10_000, 9_000, 10_000]
         updated = FunctionalVideoService(connection).update_timeline(
             plan["plan_code"],
@@ -68,6 +73,14 @@ def test_functional_video_plan_seeds_content_stages_and_queues_renderer() -> Non
                     }
                     for index, (clip, duration) in enumerate(zip(clips, durations, strict=True))
                 ],
+                "subtitle_clips": [
+                    {
+                        "clip_code": clip["clip_code"],
+                        "subtitle_text": f"Edited {index}",
+                        "headline_text": f"Headline {index}",
+                    }
+                    for index, clip in enumerate(subtitles)
+                ],
             },
             actor_id="test-operator",
         )
@@ -75,6 +88,7 @@ def test_functional_video_plan_seeds_content_stages_and_queues_renderer() -> Non
         assert updated["timeline_revision"] == 2
         assert updated["production_timeline"]["global_end_ms"] == 55_000
         assert updated["production_timeline"]["tracks"][0]["clips"][0]["transition"] == "fade"
+        assert updated["production_timeline"]["tracks"][2]["clips"][0]["subtitle_text"] == "Edited 0"
         with pytest.raises(DomainValidationError) as stale:
             FunctionalVideoService(connection).update_timeline(
                 plan["plan_code"],
@@ -93,6 +107,7 @@ def test_functional_video_plan_seeds_content_stages_and_queues_renderer() -> Non
         assert restored is not None
         assert restored["timeline_revision"] == 3
         assert restored["production_timeline"]["tracks"][0]["clips"][0]["transition"] == clips[0]["transition"]
+        assert restored["production_timeline"]["tracks"][2]["clips"][0]["subtitle_text"] == subtitles[0]["subtitle_text"]
 
         branch = FunctionalVideoService(connection).branch_plan(
             plan["plan_code"], {"title": "Video branch"}, actor_id="test-operator"

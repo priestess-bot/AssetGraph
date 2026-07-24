@@ -36,7 +36,7 @@ def build_ass_subtitles(
         shot_index = int(shot["shot_index"])
         shot_start = float(shot["start_seconds"])
         shot_end = float(shot["end_seconds"])
-        narration = str(shot.get("narration") or "")
+        narration = str(shot.get("subtitle_text") or shot.get("narration") or "")
         captions = _caption_chunks(narration, maximum=30)
         if _normalized_text("".join(captions)) != _normalized_text(narration):
             incomplete_shot_indices.append(shot_index)

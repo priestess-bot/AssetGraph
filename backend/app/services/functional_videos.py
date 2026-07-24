@@ -137,10 +137,16 @@ class FunctionalVideoService:
                 "The requested timeline revision does not belong to this video plan",
                 details={"source_revision": source_revision},
             )
-        video_clips = self._timeline_video_updates(dict(source["production_timeline"] or {}))
+        source_timeline = dict(source["production_timeline"] or {})
+        video_clips = self._timeline_video_updates(source_timeline)
+        subtitle_clips = self._timeline_subtitle_updates(source_timeline)
         return self.update_timeline(
             plan_code,
-            {"expected_revision": expected_revision, "video_clips": video_clips},
+            {
+                "expected_revision": expected_revision,
+                "video_clips": video_clips,
+                "subtitle_clips": subtitle_clips,
+            },
             actor_id=actor_id,
         )
 
@@ -529,7 +535,11 @@ class FunctionalVideoService:
                         "Only an unclaimed queued render plan can be edited; create a new branch after rendering begins",
                         details={"job_status": job["status"]},
                     )
-                timeline = self._apply_timeline_update(dict(plan["production_timeline"] or {}), payload["video_clips"])
+                timeline = self._apply_timeline_update(
+                    dict(plan["production_timeline"] or {}),
+                    payload["video_clips"],
+                    payload.get("subtitle_clips") or [],
+                )
                 shot_list = self._timeline_shot_list(dict(job["shot_list"] or {}), timeline)
                 total_seconds = timeline["global_end_ms"] / 1000
                 profile = deepcopy(dict(plan["render_profile"] or {}))
@@ -630,7 +640,30 @@ class FunctionalVideoService:
         return updates
 
     @staticmethod
-    def _apply_timeline_update(timeline: dict[str, Any], updates: list[dict[str, Any]]) -> dict[str, Any]:
+    def _timeline_subtitle_updates(timeline: dict[str, Any]) -> list[dict[str, Any]]:
+        """Return a complete subtitle-edit payload when this timeline owns a subtitle track."""
+        subtitle = next((track for track in timeline.get("tracks") or [] if track.get("track_kind") == "subtitle"), None)
+        if subtitle is None:
+            return []
+        if not isinstance(subtitle, dict):
+            raise DomainValidationError("VIDEO_TIMELINE_SUBTITLE_TRACK_INVALID", "Timeline subtitle track is invalid")
+        updates: list[dict[str, Any]] = []
+        for clip in subtitle.get("clips") or []:
+            updates.append(
+                {
+                    "clip_code": str(clip.get("clip_code") or ""),
+                    "subtitle_text": str(clip.get("subtitle_text") or ""),
+                    "headline_text": str(clip.get("headline_text") or ""),
+                }
+            )
+        return updates
+
+    @staticmethod
+    def _apply_timeline_update(
+        timeline: dict[str, Any],
+        updates: list[dict[str, Any]],
+        subtitle_updates: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
         result = deepcopy(timeline)
         tracks = result.get("tracks") or []
         video = next((track for track in tracks if track.get("track_kind") == "video"), None)
@@ -709,6 +742,11 @@ class FunctionalVideoService:
         result["global_start_ms"] = 0
         result["global_end_ms"] = cursor
         video["clips"] = ordered_clips
+        FunctionalVideoService._apply_subtitle_updates(
+            tracks,
+            ordered_video_clips=ordered_clips,
+            subtitle_updates=subtitle_updates or [],
+        )
         for track in tracks:
             if track.get("track_kind") != "audio":
                 continue
@@ -732,12 +770,78 @@ class FunctionalVideoService:
         return result
 
     @staticmethod
+    def _apply_subtitle_updates(
+        tracks: list[dict[str, Any]],
+        *,
+        ordered_video_clips: list[dict[str, Any]],
+        subtitle_updates: list[dict[str, Any]],
+    ) -> None:
+        subtitle_track = next((track for track in tracks if track.get("track_kind") == "subtitle"), None)
+        if subtitle_track is None:
+            if subtitle_updates:
+                raise DomainValidationError(
+                    "VIDEO_TIMELINE_SUBTITLE_TRACK_MISSING",
+                    "Timeline has no editable subtitle track",
+                )
+            return
+        if not isinstance(subtitle_track, dict):
+            raise DomainValidationError("VIDEO_TIMELINE_SUBTITLE_TRACK_INVALID", "Timeline subtitle track is invalid")
+        current_clips = list(subtitle_track.get("clips") or [])
+        current_by_code = {str(clip.get("clip_code") or ""): clip for clip in current_clips}
+        video_codes = [str(clip["clip_code"]) for clip in ordered_video_clips]
+        expected_codes = [f"SUBTITLE-{code}" for code in video_codes]
+        if set(current_by_code) != set(expected_codes) or len(current_clips) != len(expected_codes):
+            raise DomainValidationError(
+                "VIDEO_TIMELINE_SUBTITLE_MAPPING_INVALID",
+                "Subtitle clips must remain one-to-one with the fixed video shot set",
+                details={"expected_clip_codes": expected_codes},
+            )
+        if subtitle_updates:
+            update_by_code = {str(update.get("clip_code") or ""): update for update in subtitle_updates}
+            if set(update_by_code) != set(expected_codes) or len(update_by_code) != len(subtitle_updates):
+                raise DomainValidationError(
+                    "VIDEO_TIMELINE_SUBTITLE_SET_MISMATCH",
+                    "Subtitle edits must retain the complete current subtitle clip set",
+                    details={"expected_clip_codes": expected_codes},
+                )
+        else:
+            update_by_code = {}
+        ordered_subtitles: list[dict[str, Any]] = []
+        for video_clip in ordered_video_clips:
+            video_code = str(video_clip["clip_code"])
+            subtitle_code = f"SUBTITLE-{video_code}"
+            subtitle = deepcopy(current_by_code[subtitle_code])
+            update = update_by_code.get(subtitle_code)
+            if update is not None:
+                subtitle_text = str(update.get("subtitle_text") or "").strip()
+                headline_text = str(update.get("headline_text") or "").strip()
+                if not subtitle_text or len(subtitle_text) > 500 or len(headline_text) > 160:
+                    raise DomainValidationError(
+                        "VIDEO_TIMELINE_SUBTITLE_TEXT_INVALID",
+                        "Subtitle text must be non-empty and stay within the supported length",
+                        details={"clip_code": subtitle_code},
+                    )
+                subtitle["subtitle_text"] = subtitle_text
+                subtitle["headline_text"] = headline_text
+            subtitle["linked_shot_code"] = video_code
+            subtitle["timeline_range"] = dict(video_clip["timeline_range"])
+            ordered_subtitles.append(subtitle)
+        subtitle_track["clips"] = ordered_subtitles
+
+    @staticmethod
     def _timeline_shot_list(shot_list: dict[str, Any], timeline: dict[str, Any]) -> dict[str, Any]:
         result = deepcopy(shot_list)
         video_track = next((track for track in timeline.get("tracks") or [] if track.get("track_kind") == "video"), None)
         if not isinstance(video_track, dict):
             raise DomainValidationError("VIDEO_TIMELINE_VIDEO_TRACK_MISSING", "Timeline has no editable video track")
         clips = {str(clip["clip_code"]): clip for clip in video_track.get("clips") or []}
+        subtitle_track = next((track for track in timeline.get("tracks") or [] if track.get("track_kind") == "subtitle"), None)
+        subtitle_clips = subtitle_track.get("clips") or [] if isinstance(subtitle_track, dict) else []
+        subtitle_by_shot = {
+            str(clip.get("linked_shot_code") or str(clip.get("clip_code") or "").removeprefix("SUBTITLE-")): clip
+            for clip in subtitle_clips
+            if isinstance(clip, dict)
+        }
         shots = list(result.get("shots") or [])
         if {str(shot.get("shot_code") or "") for shot in shots} != set(clips):
             raise DomainValidationError("VIDEO_TIMELINE_SHOT_MAPPING_INVALID", "Timeline clips no longer match the fixed ShotList")
@@ -758,6 +862,10 @@ class FunctionalVideoService:
                 shot["source_start_seconds"] = float(source_range["start_seconds"])
                 shot["source_end_seconds"] = float(source_range["end_seconds"])
                 shot["source_available_seconds"] = float(source_range["end_seconds"]) - float(source_range["start_seconds"])
+            subtitle = subtitle_by_shot.get(clip_code)
+            if subtitle is not None:
+                shot["subtitle_text"] = str(subtitle.get("subtitle_text") or shot.get("narration") or "")
+                shot["screen_text"] = str(subtitle.get("headline_text") or "")
             ordered_shots.append(shot)
         result["shots"] = ordered_shots
         result["duration_seconds"] = timeline["global_end_ms"] / 1000
@@ -782,7 +890,7 @@ class FunctionalVideoService:
         story = {"source": "content_project_revision", "project_code": detail["project_code"], "objective": detail["generation_goal"], "content": detail["story_brief"]["content"], "format": {"orientation": "vertical", "width": 1080, "height": 1920, "target_duration_seconds": duration, "shot_count": 6}}
         script = {"source": "content_project_revision", "title": detail["title"], "spoken_script": "".join(chunks), "sections": [{"section_index": index, "section_type": "content_project", "narration": chunk, "tts_text": chunk.replace("PRO", "P R O"), "screen_text": chunk[:28]} for index, chunk in enumerate(chunks)], "section_count": len(chunks)}
         shots = {"source": "content_project_revision", "canvas": {"width": 1080, "height": 1920, "fps": 30}, "duration_seconds": duration, "shot_count": len(compiled), "shots": compiled}
-        timeline = {"schema_version": "otio-compatible-production-timeline.v1", "global_start_ms": 0, "global_end_ms": duration * 1000, "tracks": [{"track_kind": "video", "clips": [{"clip_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "source_range": {"asset_code": shot["asset_code"], "start_seconds": shot["source_start_seconds"], "end_seconds": shot["source_end_seconds"], "available_start_seconds": shot["source_start_seconds"], "available_end_seconds": shot["source_end_seconds"]}, "transition": shot["transition"]} for shot in compiled]}, {"track_kind": "audio", "clips": [{"clip_code": f"VOICE-{shot['shot_code']}", "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}} for shot in compiled]}]}
+        timeline = {"schema_version": "otio-compatible-production-timeline.v1", "global_start_ms": 0, "global_end_ms": duration * 1000, "tracks": [{"track_kind": "video", "clips": [{"clip_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "source_range": {"asset_code": shot["asset_code"], "start_seconds": shot["source_start_seconds"], "end_seconds": shot["source_end_seconds"], "available_start_seconds": shot["source_start_seconds"], "available_end_seconds": shot["source_end_seconds"]}, "transition": shot["transition"]} for shot in compiled]}, {"track_kind": "audio", "clips": [{"clip_code": f"VOICE-{shot['shot_code']}", "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}} for shot in compiled]}, {"track_kind": "subtitle", "clips": [{"clip_code": f"SUBTITLE-{shot['shot_code']}", "linked_shot_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "subtitle_text": shot["narration"], "headline_text": shot["screen_text"]} for shot in compiled]}]}
         return story, script, shots, timeline
 
     @staticmethod
