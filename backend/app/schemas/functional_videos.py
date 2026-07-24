@@ -49,10 +49,16 @@ class FunctionalVideoSubtitleClipUpdate(BaseModel):
     headline_text: str = Field(default="", max_length=160)
 
 
+class FunctionalVideoAudioClipUpdate(BaseModel):
+    clip_code: str = Field(min_length=1, max_length=100)
+    gain_db: float = Field(default=0.0, ge=-24, le=12)
+
+
 class FunctionalVideoTimelineUpdate(BaseModel):
     expected_revision: int = Field(ge=1)
     video_clips: list[FunctionalVideoTimelineClipUpdate] = Field(min_length=1, max_length=100)
     subtitle_clips: list[FunctionalVideoSubtitleClipUpdate] = Field(default_factory=list, max_length=100)
+    audio_clips: list[FunctionalVideoAudioClipUpdate] = Field(default_factory=list, max_length=100)
 
     @field_validator("video_clips")
     @classmethod
@@ -70,6 +76,16 @@ class FunctionalVideoTimelineUpdate(BaseModel):
         codes = [clip.clip_code for clip in value]
         if len(codes) != len(set(codes)):
             raise ValueError("subtitle clip codes must be unique")
+        return value
+
+    @field_validator("audio_clips")
+    @classmethod
+    def unique_audio_clip_codes(
+        cls, value: list[FunctionalVideoAudioClipUpdate]
+    ) -> list[FunctionalVideoAudioClipUpdate]:
+        codes = [clip.clip_code for clip in value]
+        if len(codes) != len(set(codes)):
+            raise ValueError("audio clip codes must be unique")
         return value
 
 

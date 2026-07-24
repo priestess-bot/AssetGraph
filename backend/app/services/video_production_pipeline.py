@@ -307,7 +307,13 @@ class VideoProductionPipeline:
             raw = store.path(f"voice/raw-{index + 1:02d}.wav")
             fitted = store.path(f"voice/segment-{index + 1:02d}.wav")
             self.tts.synthesize(str(shot["tts_text"]), raw, speed=1.0)
-            timing = self.audio_processor.fit_to_duration(raw, fitted, float(shot["duration_seconds"]))
+            gain_db = float(shot.get("voice_gain_db") or 0)
+            timing = self.audio_processor.fit_to_duration(
+                raw,
+                fitted,
+                float(shot["duration_seconds"]),
+                gain_db=gain_db,
+            )
             if not 0.85 <= float(timing["tempo_factor"]) <= 1.15:
                 raise VideoProductionError(
                     "VOICE_PACING_OUT_OF_RANGE",
@@ -320,6 +326,7 @@ class VideoProductionPipeline:
                     "file_size": fitted.stat().st_size,
                     "checksum_sha256": _sha256(fitted),
                     "voice": self.tts.voice,
+                    "gain_db": gain_db,
                     **timing,
                 }
             )

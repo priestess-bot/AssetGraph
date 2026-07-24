@@ -18,8 +18,8 @@ def _timeline() -> dict[str, object]:
             {
                 "track_kind": "audio",
                 "clips": [
-                    {"clip_code": "VOICE-SHOT-01", "timeline_range": {"start_ms": 0, "duration_ms": 30_000}},
-                    {"clip_code": "VOICE-SHOT-02", "timeline_range": {"start_ms": 30_000, "duration_ms": 30_000}},
+                    {"clip_code": "VOICE-SHOT-01", "linked_shot_code": "SHOT-01", "timeline_range": {"start_ms": 0, "duration_ms": 30_000}, "gain_db": 0},
+                    {"clip_code": "VOICE-SHOT-02", "linked_shot_code": "SHOT-02", "timeline_range": {"start_ms": 30_000, "duration_ms": 30_000}, "gain_db": 0},
                     {"clip_code": "BGM-01", "timeline_range": {"start_ms": 0, "duration_ms": 60_000}},
                 ],
             },
@@ -73,6 +73,66 @@ def test_timeline_update_preserves_requested_clip_order_across_tracks_and_shots(
     assert rendered_input["shots"][0]["source_start_seconds"] == 12.0
     assert rendered_input["shots"][0]["subtitle_text"] == "第二段字幕"
     assert rendered_input["shots"][0]["screen_text"] == "第二段标题"
+    assert rendered_input["shots"][0]["voice_gain_db"] == 0.0
+
+
+def test_timeline_voice_gains_remain_bound_to_fixed_shots() -> None:
+    updated = FunctionalVideoService._apply_timeline_update(
+        _timeline(),
+        [
+            {"clip_code": "SHOT-02", "duration_ms": 30_000, "transition": "cut"},
+            {"clip_code": "SHOT-01", "duration_ms": 30_000, "transition": "cut"},
+        ],
+        audio_updates=[
+            {"clip_code": "VOICE-SHOT-01", "gain_db": -6.5},
+            {"clip_code": "VOICE-SHOT-02", "gain_db": 3},
+        ],
+    )
+    audio_track = updated["tracks"][1]
+    assert [(clip["clip_code"], clip["gain_db"]) for clip in audio_track["clips"][:2]] == [
+        ("VOICE-SHOT-02", 3.0),
+        ("VOICE-SHOT-01", -6.5),
+    ]
+    rendered_input = FunctionalVideoService._timeline_shot_list(
+        {"shots": [{"shot_code": "SHOT-01"}, {"shot_code": "SHOT-02"}]},
+        updated,
+    )
+    assert [shot["voice_gain_db"] for shot in rendered_input["shots"]] == [3.0, -6.5]
+
+
+def test_timeline_rejects_incomplete_or_out_of_range_voice_gains() -> None:
+    from app.domain.errors import DomainValidationError
+
+    try:
+        FunctionalVideoService._apply_timeline_update(
+            _timeline(),
+            [
+                {"clip_code": "SHOT-01", "duration_ms": 30_000, "transition": "cut"},
+                {"clip_code": "SHOT-02", "duration_ms": 30_000, "transition": "cut"},
+            ],
+            audio_updates=[{"clip_code": "VOICE-SHOT-01", "gain_db": 0}],
+        )
+    except DomainValidationError as exc:
+        assert exc.code == "VIDEO_TIMELINE_AUDIO_CLIP_SET_MISMATCH"
+    else:
+        raise AssertionError("audio updates must retain the complete fixed voice set")
+
+    try:
+        FunctionalVideoService._apply_timeline_update(
+            _timeline(),
+            [
+                {"clip_code": "SHOT-01", "duration_ms": 30_000, "transition": "cut"},
+                {"clip_code": "SHOT-02", "duration_ms": 30_000, "transition": "cut"},
+            ],
+            audio_updates=[
+                {"clip_code": "VOICE-SHOT-01", "gain_db": 15},
+                {"clip_code": "VOICE-SHOT-02", "gain_db": 0},
+            ],
+        )
+    except DomainValidationError as exc:
+        assert exc.code == "VIDEO_TIMELINE_AUDIO_GAIN_INVALID"
+    else:
+        raise AssertionError("voice gain outside the bounded range must be rejected")
 
 
 def test_timeline_subtitle_updates_remain_bound_to_fixed_shots() -> None:

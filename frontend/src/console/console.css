@@ -453,6 +453,13 @@
 .video-subtitle-editor > div { display: grid; grid-template-columns: minmax(80px, .5fr) minmax(190px, 1.5fr) minmax(140px, 1fr); align-items: start; gap: 8px; padding: 9px 12px; background: #fff; }
 .video-subtitle-editor code { align-self: center; color: var(--console-cyan); font-size: 8px; }
 .video-subtitle-editor textarea.wb-input { min-height: 56px; resize: vertical; }
+.video-audio-editor { display: grid; gap: 1px; border-top: 1px solid var(--wb-line); background: var(--wb-line); }
+.video-audio-editor > header { display: grid; gap: 3px; padding: 9px 12px; background: var(--wb-subtle); }
+.video-audio-editor > header strong { font-size: 10px; }
+.video-audio-editor > header small { color: var(--wb-muted); font-size: 8px; }
+.video-audio-editor > label { display: grid; grid-template-columns: minmax(120px, .8fr) minmax(0, 2fr); align-items: center; gap: 12px; padding: 9px 12px; background: #fff; }
+.video-audio-editor > label span { color: var(--wb-ink); font-size: 9px; }
+.video-audio-editor input[type="range"] { width: 100%; accent-color: var(--console-cyan); }
 .video-clip-order { display: flex; gap: 3px; }
 .video-timeline-history { display: grid; gap: 8px; padding: 11px 13px; border-top: 1px solid var(--wb-line); }
 .video-timeline-history > div { display: grid; gap: 3px; }
@@ -763,6 +770,7 @@
   .video-timeline-editor > div > .video-source-range { grid-column: 1 / -1; }
   .video-subtitle-editor > div { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .video-subtitle-editor code { grid-column: 1 / -1; }
+  .video-audio-editor > label { grid-template-columns: 1fr; gap: 6px; }
   .video-quality-diagnostics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .video-branch-form { align-items: stretch; flex-direction: column; }
   .video-branch-form .wb-button { justify-content: center; }

@@ -74,13 +74,30 @@ function editableSubtitleClips(subtitleTrack: FunctionalVideoPlan["productionTim
   })) ?? [];
 }
 
+type EditableAudioClip = {
+  clipCode: string;
+  shotCode: string;
+  gainDb: number;
+};
+
+function editableAudioClips(audioTrack: FunctionalVideoPlan["productionTimeline"]["tracks"][number] | undefined): EditableAudioClip[] {
+  return audioTrack?.clips.filter((clip) => clip.clip_code.startsWith("VOICE-")).map((clip) => ({
+    clipCode: clip.clip_code,
+    shotCode: clip.linked_shot_code ?? clip.clip_code.replace(/^VOICE-/, ""),
+    gainDb: clip.gain_db ?? 0,
+  })) ?? [];
+}
+
 function TimelineEditor({ plan }: { plan: FunctionalVideoPlan }) {
   const queryClient = useQueryClient();
   const videoTrack = plan.productionTimeline.tracks.find((track) => track.track_kind === "video");
+  const audioTrack = plan.productionTimeline.tracks.find((track) => track.track_kind === "audio");
   const subtitleTrack = plan.productionTimeline.tracks.find((track) => track.track_kind === "subtitle");
   const [clips, setClips] = useState<EditableTimelineClip[]>(() => editableTimelineClips(videoTrack));
+  const [audioClips, setAudioClips] = useState<EditableAudioClip[]>(() => editableAudioClips(audioTrack));
   const [subtitleClips, setSubtitleClips] = useState<EditableSubtitleClip[]>(() => editableSubtitleClips(subtitleTrack));
   useEffect(() => setClips(editableTimelineClips(videoTrack)), [plan.timelineRevision, videoTrack]);
+  useEffect(() => setAudioClips(editableAudioClips(audioTrack)), [plan.timelineRevision, audioTrack]);
   useEffect(() => setSubtitleClips(editableSubtitleClips(subtitleTrack)), [plan.timelineRevision, subtitleTrack]);
   const update = useMutation({
     mutationFn: () => functionalVideosApi.updateTimeline(plan.planCode, {
@@ -99,6 +116,7 @@ function TimelineEditor({ plan }: { plan: FunctionalVideoPlan }) {
         subtitle_text: clip.subtitleText,
         headline_text: clip.headlineText,
       })),
+      ...(audioClips.length ? { audio_clips: audioClips.map((clip) => ({ clip_code: clip.clipCode, gain_db: clip.gainDb })) } : {}),
     }),
     onSuccess: (next) => {
       queryClient.setQueryData(["functional-video", plan.planCode], next);
@@ -108,6 +126,7 @@ function TimelineEditor({ plan }: { plan: FunctionalVideoPlan }) {
   });
   const totalSeconds = clips.reduce((sum, clip) => sum + clip.durationMs, 0) / 1000;
   const updateClip = (index: number, changes: Partial<EditableTimelineClip>) => setClips((current) => current.map((clip, clipIndex) => clipIndex === index ? { ...clip, ...changes } : clip));
+  const updateAudio = (index: number, changes: Partial<EditableAudioClip>) => setAudioClips((current) => current.map((clip, clipIndex) => clipIndex === index ? { ...clip, ...changes } : clip));
   const updateSubtitle = (index: number, changes: Partial<EditableSubtitleClip>) => setSubtitleClips((current) => current.map((clip, clipIndex) => clipIndex === index ? { ...clip, ...changes } : clip));
   const moveClip = (index: number, offset: number) => setClips((current) => {
     const destination = index + offset;
@@ -123,7 +142,7 @@ function TimelineEditor({ plan }: { plan: FunctionalVideoPlan }) {
     const sourceLowerBound = clip.sourceAvailableStartSeconds ?? 0;
     const sourceUpperBound = clip.sourceAvailableEndSeconds;
     return <div key={clip.clipCode}><code>{clip.clipCode}</code><div className="video-clip-order"><button type="button" className="wb-icon-button" title="上移镜头" aria-label={`上移 ${clip.clipCode}`} disabled={!editable || index === 0} onClick={() => moveClip(index, -1)}><ArrowUp size={14} aria-hidden="true" /></button><button type="button" className="wb-icon-button" title="下移镜头" aria-label={`下移 ${clip.clipCode}`} disabled={!editable || index === clips.length - 1} onClick={() => moveClip(index, 1)}><ArrowDown size={14} aria-hidden="true" /></button></div><label className="wb-field"><span>时长（毫秒）</span><input className="wb-input" type="number" min="250" max="120000" value={clip.durationMs} disabled={!editable} onChange={(event) => updateClip(index, { durationMs: Number(event.target.value) })} /></label><label className="wb-field"><span>转场</span><select className="wb-input" value={clip.transition} disabled={!editable} onChange={(event) => updateClip(index, { transition: event.target.value })}><option value="cut">cut</option><option value="fade">fade</option><option value="fade_out">fade_out</option></select></label>{hasSourceRange ? <div className="video-source-range"><label className="wb-field"><span>素材入点（秒）</span><input aria-label={`素材入点 ${clip.clipCode}`} className="wb-input" type="number" step="0.01" min={sourceLowerBound} max={clip.sourceEndSeconds! - 0.01} value={clip.sourceStartSeconds} disabled={!editable} onChange={(event) => updateClip(index, { sourceStartSeconds: Number(event.target.value) })} /></label><label className="wb-field"><span>素材出点（秒）</span><input aria-label={`素材出点 ${clip.clipCode}`} className="wb-input" type="number" step="0.01" min={clip.sourceStartSeconds! + 0.01} max={sourceUpperBound} value={clip.sourceEndSeconds} disabled={!editable} onChange={(event) => updateClip(index, { sourceEndSeconds: Number(event.target.value) })} /></label><small>固定可用范围 {sourceLowerBound.toFixed(2)}-{sourceUpperBound?.toFixed(2) ?? "--"} 秒</small></div> : null}</div>;
-  })}</div>{subtitleTrack ? <div className="video-subtitle-editor"><header><strong>字幕轨</strong><small>字幕与标题始终绑定固定镜头，并随镜头时间范围同步。</small></header>{subtitleClips.map((clip, index) => <div key={clip.clipCode}><code>{clip.shotCode}</code><label className="wb-field"><span>字幕文本</span><textarea aria-label={`字幕文本 ${clip.shotCode}`} className="wb-input" rows={2} maxLength={500} value={clip.subtitleText} disabled={!editable} onChange={(event) => updateSubtitle(index, { subtitleText: event.target.value })} /></label><label className="wb-field"><span>标题文本</span><input aria-label={`标题文本 ${clip.shotCode}`} className="wb-input" maxLength={160} value={clip.headlineText} disabled={!editable} onChange={(event) => updateSubtitle(index, { headlineText: event.target.value })} /></label></div>)}</div> : null}{subtitleContentInvalid ? <InlineNotice tone="warning" title="字幕文本不能为空">每个固定镜头均需保留一段字幕文本。</InlineNotice> : null}<TimelineRevisionHistory plan={plan} />{editable ? <div className="wb-form-actions"><button type="button" className="wb-button wb-button-primary" disabled={update.isPending || totalSeconds < 30 || totalSeconds > 120 || subtitleContentInvalid} onClick={() => update.mutate()}>保存时间轴修订</button></div> : <InlineNotice tone="warning" title="时间轴已锁定">渲染任务已被领取或结束。请创建新的成片分支进行调整。</InlineNotice>}{update.error ? <InlineNotice tone="danger" title="时间轴未保存">{text(update.error)}</InlineNotice> : null}</section>;
+  })}</div>{audioClips.length ? <div className="video-audio-editor"><header><strong>配音轨</strong><small>增益会随对应镜头固定，重新渲染时写入音频处理。</small></header>{audioClips.map((clip, index) => <label key={clip.clipCode} className="wb-field"><span>{clip.shotCode} · {clip.gainDb.toFixed(1)} dB</span><input aria-label={`配音增益 ${clip.shotCode}`} type="range" min="-24" max="12" step="0.5" value={clip.gainDb} disabled={!editable} onChange={(event) => updateAudio(index, { gainDb: Number(event.target.value) })} /></label>)}</div> : null}{subtitleTrack ? <div className="video-subtitle-editor"><header><strong>字幕轨</strong><small>字幕与标题始终绑定固定镜头，并随镜头时间范围同步。</small></header>{subtitleClips.map((clip, index) => <div key={clip.clipCode}><code>{clip.shotCode}</code><label className="wb-field"><span>字幕文本</span><textarea aria-label={`字幕文本 ${clip.shotCode}`} className="wb-input" rows={2} maxLength={500} value={clip.subtitleText} disabled={!editable} onChange={(event) => updateSubtitle(index, { subtitleText: event.target.value })} /></label><label className="wb-field"><span>标题文本</span><input aria-label={`标题文本 ${clip.shotCode}`} className="wb-input" maxLength={160} value={clip.headlineText} disabled={!editable} onChange={(event) => updateSubtitle(index, { headlineText: event.target.value })} /></label></div>)}</div> : null}{subtitleContentInvalid ? <InlineNotice tone="warning" title="字幕文本不能为空">每个固定镜头均需保留一段字幕文本。</InlineNotice> : null}<TimelineRevisionHistory plan={plan} />{editable ? <div className="wb-form-actions"><button type="button" className="wb-button wb-button-primary" disabled={update.isPending || totalSeconds < 30 || totalSeconds > 120 || subtitleContentInvalid} onClick={() => update.mutate()}>保存时间轴修订</button></div> : <InlineNotice tone="warning" title="时间轴已锁定">渲染任务已锁定。请创建新的成片分支进行调整。</InlineNotice>}{update.error ? <InlineNotice tone="danger" title="时间轴未保存">{text(update.error)}</InlineNotice> : null}</section>;
 }
 
 function WorkflowPanel({ plan }: { plan: FunctionalVideoPlan }) {

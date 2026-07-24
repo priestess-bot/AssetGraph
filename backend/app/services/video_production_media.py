@@ -214,14 +214,25 @@ class AudioProcessor:
     def __init__(self, runner: SubprocessRunner) -> None:
         self.runner = runner
 
-    def fit_to_duration(self, source: Path, destination: Path, duration_seconds: float) -> dict[str, Any]:
+    def fit_to_duration(
+        self,
+        source: Path,
+        destination: Path,
+        duration_seconds: float,
+        *,
+        gain_db: float = 0.0,
+    ) -> dict[str, Any]:
         probe = probe_media(source, self.runner)
         source_duration = float((probe.get("format") or {}).get("duration") or 0)
         if source_duration <= 0:
             raise VideoProductionError("VOICE_DURATION_INVALID", f"voice audio has no duration: {source.name}")
         tempo = max(1.0, source_duration / duration_seconds)
         speech_duration = min(duration_seconds, source_duration / tempo)
+        if not math.isfinite(gain_db) or not -24 <= gain_db <= 12:
+            raise VideoProductionError("VOICE_GAIN_INVALID", "voice gain must remain between -24 dB and 12 dB")
         filters = [] if math.isclose(tempo, 1.0, abs_tol=0.0001) else _atempo_filters(tempo)
+        if not math.isclose(gain_db, 0.0, abs_tol=0.0001):
+            filters.append(f"volume={gain_db:.3f}dB")
         filters.extend([f"apad=pad_dur={duration_seconds:.3f}", f"atrim=0:{duration_seconds:.3f}"])
         temporary = _temporary_media_path(destination)
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -258,6 +269,7 @@ class AudioProcessor:
             "target_duration_seconds": round(duration_seconds, 3),
             "tempo_factor": round(tempo, 4),
             "speech_duration_seconds": round(speech_duration, 3),
+            "gain_db": round(gain_db, 3),
         }
 
 

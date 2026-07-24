@@ -63,6 +63,21 @@ def test_audio_processor_fits_wav_to_exact_duration(tmp_path: Path) -> None:
     assert not list(tmp_path.glob("*.part.wav"))
 
 
+def test_audio_processor_applies_a_bounded_voice_gain(tmp_path: Path) -> None:
+    source = tmp_path / "source.wav"
+    output = tmp_path / "fitted.wav"
+    _write_wav(source, seconds=0.5)
+    runner = SubprocessRunner()
+
+    timing = AudioProcessor(runner).fit_to_duration(source, output, 1.0, gain_db=-6.5)
+
+    assert timing["gain_db"] == -6.5
+    assert any("volume=-6.500dB" in argument for argument in runner.records[-1]["args"])
+    with pytest.raises(VideoProductionError) as error:
+        AudioProcessor(runner).fit_to_duration(source, output, 1.0, gain_db=13)
+    assert error.value.error_code == "VOICE_GAIN_INVALID"
+
+
 def test_atempo_chain_stays_inside_ffmpeg_limits() -> None:
     assert _atempo_filters(4.5) == ["atempo=2.0", "atempo=2.0", "atempo=1.125000"]
     assert _atempo_filters(0.2) == ["atempo=0.5", "atempo=0.5", "atempo=0.800000"]

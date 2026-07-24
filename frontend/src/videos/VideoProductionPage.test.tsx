@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { VideoProductionPage } from "./VideoProductionPage";
@@ -11,7 +11,10 @@ const plan = {
       { clip_code: "SHOT-01", timeline_range: { start_ms: 0, duration_ms: 30_000 }, source_range: { asset_code: "ASSET-01", start_seconds: 0, end_seconds: 40, available_start_seconds: 0, available_end_seconds: 40 }, transition: "cut" },
       { clip_code: "SHOT-02", timeline_range: { start_ms: 30_000, duration_ms: 30_000 }, source_range: { asset_code: "ASSET-02", start_seconds: 10, end_seconds: 50, available_start_seconds: 10, available_end_seconds: 50 }, transition: "cut" },
     ] },
-    { track_kind: "audio", clips: [] },
+    { track_kind: "audio", clips: [
+      { clip_code: "VOICE-SHOT-01", linked_shot_code: "SHOT-01", timeline_range: { start_ms: 0, duration_ms: 30_000 }, gain_db: 0 },
+      { clip_code: "VOICE-SHOT-02", linked_shot_code: "SHOT-02", timeline_range: { start_ms: 30_000, duration_ms: 30_000 }, gain_db: 0 },
+    ] },
     { track_kind: "subtitle", clips: [
       { clip_code: "SUBTITLE-SHOT-01", linked_shot_code: "SHOT-01", timeline_range: { start_ms: 0, duration_ms: 30_000 }, subtitle_text: "第一段字幕", headline_text: "第一段标题" },
       { clip_code: "SUBTITLE-SHOT-02", linked_shot_code: "SHOT-02", timeline_range: { start_ms: 30_000, duration_ms: 30_000 }, subtitle_text: "第二段字幕", headline_text: "第二段标题" },
@@ -55,6 +58,7 @@ describe("VideoProductionPage", () => {
     await user.type(screen.getByRole("spinbutton", { name: "素材入点 SHOT-02" }), "12");
     await user.clear(screen.getByRole("textbox", { name: "字幕文本 SHOT-02" }));
     await user.type(screen.getByRole("textbox", { name: "字幕文本 SHOT-02" }), "更新后的第二段字幕");
+    fireEvent.change(screen.getByRole("slider", { name: "配音增益 SHOT-02" }), { target: { value: "1" } });
     await user.click(screen.getByRole("button", { name: "保存时间轴修订" }));
 
     const request = requests.find((item) => item.url.endsWith("/timeline") && item.init?.method === "PUT");
@@ -64,6 +68,9 @@ describe("VideoProductionPage", () => {
     ], subtitle_clips: [
       { clip_code: "SUBTITLE-SHOT-01", subtitle_text: "第一段字幕", headline_text: "第一段标题" },
       { clip_code: "SUBTITLE-SHOT-02", subtitle_text: "更新后的第二段字幕", headline_text: "第二段标题" },
+    ], audio_clips: [
+      { clip_code: "VOICE-SHOT-01", gain_db: 0 },
+      { clip_code: "VOICE-SHOT-02", gain_db: 1 },
     ] }));
   });
 
