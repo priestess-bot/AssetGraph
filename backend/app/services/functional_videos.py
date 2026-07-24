@@ -733,6 +733,11 @@ class FunctionalVideoService:
                         else {}
                     ),
                     **({"playback_rate": float(clip["playback_rate"])} if clip.get("playback_rate") is not None else {}),
+                    **(
+                        {"show_product_sticker": "product_sticker" in (clip.get("overlay_roles") or [])}
+                        if clip.get("overlay_roles") is not None
+                        else {}
+                    ),
                 }
             )
         return updates
@@ -852,6 +857,18 @@ class FunctionalVideoService:
                         details={"clip_code": clip["clip_code"]},
                     )
                 clip["playback_rate"] = playback_rate
+            show_product_sticker = update.get("show_product_sticker")
+            if show_product_sticker is not None:
+                if type(show_product_sticker) is not bool:
+                    raise DomainValidationError(
+                        "VIDEO_TIMELINE_PRODUCT_STICKER_INVALID",
+                        "Product sticker selection must be a boolean",
+                        details={"clip_code": clip["clip_code"]},
+                    )
+                roles = [str(role) for role in clip.get("overlay_roles") or [] if str(role) != "product_sticker"]
+                if show_product_sticker:
+                    roles.append("product_sticker")
+                clip["overlay_roles"] = roles
             source_start = update.get("source_start_seconds")
             source_end = update.get("source_end_seconds")
             if (source_start is None) != (source_end is None):
@@ -1095,6 +1112,12 @@ class FunctionalVideoService:
                 shot["crop_y"] = float(clip["crop_y"])
             if clip.get("playback_rate") is not None:
                 shot["playback_rate"] = float(clip["playback_rate"])
+            if isinstance(clip.get("overlay_roles"), list):
+                shot["overlay_roles"] = [
+                    str(role)
+                    for role in clip["overlay_roles"]
+                    if str(role) in {"brand_logo", "product_sticker"}
+                ]
             source_range = clip.get("source_range") or {}
             if "start_seconds" in source_range and "end_seconds" in source_range:
                 shot["source_start_seconds"] = float(source_range["start_seconds"])
@@ -1136,7 +1159,7 @@ class FunctionalVideoService:
         story = {"source": "content_project_revision", "project_code": detail["project_code"], "objective": detail["generation_goal"], "content": detail["story_brief"]["content"], "format": {"orientation": "vertical", "width": 1080, "height": 1920, "target_duration_seconds": duration, "shot_count": 6}}
         script = {"source": "content_project_revision", "title": detail["title"], "spoken_script": "".join(chunks), "sections": [{"section_index": index, "section_type": "content_project", "narration": chunk, "tts_text": chunk.replace("PRO", "P R O"), "screen_text": chunk[:28]} for index, chunk in enumerate(chunks)], "section_count": len(chunks)}
         shots = {"source": "content_project_revision", "canvas": {"width": 1080, "height": 1920, "fps": 30}, "duration_seconds": duration, "shot_count": len(compiled), "shots": compiled}
-        timeline = {"schema_version": "otio-compatible-production-timeline.v1", "global_start_ms": 0, "global_end_ms": duration * 1000, "tracks": [{"track_kind": "video", "clips": [{"clip_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "source_range": {"asset_code": shot["asset_code"], "start_seconds": shot["source_start_seconds"], "end_seconds": shot["source_end_seconds"], "available_start_seconds": shot["source_start_seconds"], "available_end_seconds": shot["source_end_seconds"]}, "fit": shot["fit"], "crop_x": 0.5, "crop_y": 0.5, "playback_rate": shot["playback_rate"], "transition": shot["transition"]} for shot in compiled]}, {"track_kind": "audio", "clips": [{"clip_code": f"VOICE-{shot['shot_code']}", "linked_shot_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "gain_db": 0.0} for shot in compiled]}, {"track_kind": "subtitle", "clips": [{"clip_code": f"SUBTITLE-{shot['shot_code']}", "linked_shot_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "subtitle_text": shot["narration"], "headline_text": shot["screen_text"], "caption_position": "bottom"} for shot in compiled]}]}
+        timeline = {"schema_version": "otio-compatible-production-timeline.v1", "global_start_ms": 0, "global_end_ms": duration * 1000, "tracks": [{"track_kind": "video", "clips": [{"clip_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "source_range": {"asset_code": shot["asset_code"], "start_seconds": shot["source_start_seconds"], "end_seconds": shot["source_end_seconds"], "available_start_seconds": shot["source_start_seconds"], "available_end_seconds": shot["source_end_seconds"]}, "fit": shot["fit"], "crop_x": 0.5, "crop_y": 0.5, "playback_rate": shot["playback_rate"], "overlay_roles": shot["overlay_roles"], "transition": shot["transition"]} for shot in compiled]}, {"track_kind": "audio", "clips": [{"clip_code": f"VOICE-{shot['shot_code']}", "linked_shot_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "gain_db": 0.0} for shot in compiled]}, {"track_kind": "subtitle", "clips": [{"clip_code": f"SUBTITLE-{shot['shot_code']}", "linked_shot_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "subtitle_text": shot["narration"], "headline_text": shot["screen_text"], "caption_position": "bottom"} for shot in compiled]}]}
         return story, script, shots, timeline
 
     @staticmethod

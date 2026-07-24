@@ -165,6 +165,11 @@ class AssetSelector:
                     "crop_x": shot.get("crop_x", 0.5),
                     "crop_y": shot.get("crop_y", 0.5),
                     "playback_rate": playback_rate,
+                    "overlay_roles": [
+                        str(role)
+                        for role in shot.get("overlay_roles") or []
+                        if str(role) in {"brand_logo", "product_sticker"}
+                    ],
                     "selection_reason": f"preset role: {shot['visual_role']}",
                 }
                 for shot in shot_list.get("shots") or []
@@ -349,12 +354,13 @@ class FFmpegRenderer:
     ) -> tuple[Path, dict[str, Any]]:
         shot_paths: list[Path] = []
         logo = self.selector.resolve(str(asset_plan["overlays"]["brand_logo"]))
+        sticker = self.selector.resolve(str(asset_plan["overlays"]["product_sticker"]))
         by_shot = {int(item["shot_index"]): item for item in asset_plan["shot_assets"]}
         for shot in shot_list["shots"]:
             shot_index = int(shot["shot_index"])
             source = self.selector.resolve(str(by_shot[shot_index]["relative_path"]))
             output = store.path(f"render/shots/shot-{shot_index + 1:02d}.mp4")
-            self._render_shot(source, logo, shot, output)
+            self._render_shot(source, logo, sticker, shot, output)
             shot_paths.append(output)
 
         concat_list = store.path("render/video-concat.txt")
@@ -390,7 +396,14 @@ class FFmpegRenderer:
             },
         }
 
-    def _render_shot(self, source: Path, logo: Path, shot: dict[str, Any], destination: Path) -> None:
+    def _render_shot(
+        self,
+        source: Path,
+        logo: Path,
+        sticker: Path,
+        shot: dict[str, Any],
+        destination: Path,
+    ) -> None:
         duration = float(shot["duration_seconds"])
         source_start = float(shot["source_start_seconds"])
         source_end = float(shot["source_end_seconds"])
@@ -427,8 +440,17 @@ class FFmpegRenderer:
         )
 
         has_logo = "brand_logo" in (shot.get("overlay_roles") or [])
+        has_sticker = "product_sticker" in (shot.get("overlay_roles") or [])
+        logo_input_index: int | None = None
+        sticker_input_index: int | None = None
+        next_input_index = 1
         if has_logo:
+            logo_input_index = next_input_index
+            next_input_index += 1
             args.extend(["-loop", "1", "-framerate", "30", "-i", logo])
+        if has_sticker:
+            sticker_input_index = next_input_index
+            args.extend(["-loop", "1", "-framerate", "30", "-i", sticker])
 
         source_filter = _source_range_filter(source_window, duration, float(shot.get("playback_rate", 1.0)))
         filter_parts: list[str] = []
@@ -454,16 +476,30 @@ class FFmpegRenderer:
             presentation_filters.append(
                 f"fade=t=out:st={max(0.0, duration - 0.3):.3f}:d=0.3"
             )
-        presented_label = "presented" if has_logo else "v"
+        presented_label = "presented"
         filter_parts.append(f"[base]{','.join(presentation_filters)}[{presented_label}]")
+        current_label = presented_label
         if has_logo:
+            assert logo_input_index is not None
             filter_parts.extend(
                 [
-                    "[1:v]scale=108:108:force_original_aspect_ratio=decrease,"
+                    f"[{logo_input_index}:v]scale=108:108:force_original_aspect_ratio=decrease,"
                     "format=rgba,colorchannelmixer=aa=0.96[logo]",
-                    "[presented][logo]overlay=x=54:y=54:shortest=1[v]",
+                    f"[{current_label}][logo]overlay=x=54:y=54:shortest=1[with_logo]",
                 ]
             )
+            current_label = "with_logo"
+        if has_sticker:
+            assert sticker_input_index is not None
+            filter_parts.extend(
+                [
+                    f"[{sticker_input_index}:v]scale=640:640:force_original_aspect_ratio=decrease,"
+                    "format=rgba[sticker]",
+                    f"[{current_label}][sticker]overlay=x=(W-w)/2:y=1020:shortest=1[with_sticker]",
+                ]
+            )
+            current_label = "with_sticker"
+        filter_parts.append(f"[{current_label}]null[v]")
         args.extend(["-filter_complex", ";".join(filter_parts), "-map", "[v]"])
         args.extend(
             [

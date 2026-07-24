@@ -33,6 +33,7 @@ class FunctionalVideoTimelineClipUpdate(BaseModel):
     crop_x: float | None = Field(default=None, ge=0, le=1)
     crop_y: float | None = Field(default=None, ge=0, le=1)
     playback_rate: float | None = Field(default=None, ge=0.5, le=2)
+    show_product_sticker: bool | None = None
 
     @model_validator(mode="after")
     def source_range_is_complete_and_ordered(self) -> "FunctionalVideoTimelineClipUpdate":
