@@ -131,7 +131,13 @@ class AssetSelector:
         for shot in shot_list.get("shots") or []:
             source = by_code[str(shot["asset_code"])]
             duration = float(source.get("duration_seconds") or 0)
+            source_start = float(shot["source_start_seconds"])
             source_end = float(shot["source_end_seconds"])
+            if source_start < 0 or source_end <= source_start:
+                raise VideoProductionError(
+                    "SOURCE_RANGE_INVALID",
+                    f"{shot['shot_code']} has an invalid source range",
+                )
             if source_end > duration + 0.15:
                 raise VideoProductionError(
                     "SOURCE_RANGE_OUT_OF_BOUNDS",
@@ -288,6 +294,24 @@ def _atempo_filters(factor: float) -> list[str]:
     return filters
 
 
+def _source_range_filter(source_window_seconds: float, output_duration_seconds: float) -> str:
+    """Constrain a source window and loop only that selected window when needed."""
+    if not math.isfinite(source_window_seconds) or source_window_seconds <= 0:
+        raise VideoProductionError("SOURCE_RANGE_INVALID", "source range duration must be positive")
+    if not math.isfinite(output_duration_seconds) or output_duration_seconds <= 0:
+        raise VideoProductionError("SHOT_DURATION_INVALID", "rendered shot duration must be positive")
+    selected = f"fps=30,trim=duration={source_window_seconds:.3f},setpts=PTS-STARTPTS"
+    if output_duration_seconds > source_window_seconds + 0.01:
+        frame_count = max(1, round(source_window_seconds * 30))
+        selected = (
+            f"{selected},loop=loop=-1:size={frame_count}:start=0,"
+            f"trim=duration={output_duration_seconds:.3f}"
+        )
+    else:
+        selected = f"{selected},trim=duration={output_duration_seconds:.3f}"
+    return f"{selected},setpts=PTS-STARTPTS,setsar=1"
+
+
 class FFmpegRenderer:
     def __init__(self, assets_root: Path, runner: SubprocessRunner) -> None:
         self.selector = AssetSelector(assets_root, runner)
@@ -347,8 +371,14 @@ class FFmpegRenderer:
 
     def _render_shot(self, source: Path, logo: Path, shot: dict[str, Any], destination: Path) -> None:
         duration = float(shot["duration_seconds"])
-        source_duration = float(shot["source_available_seconds"])
-        extension = max(0.0, duration - source_duration)
+        source_start = float(shot["source_start_seconds"])
+        source_end = float(shot["source_end_seconds"])
+        source_window = source_end - source_start
+        if source_start < 0 or source_window <= 0:
+            raise VideoProductionError(
+                "SOURCE_RANGE_INVALID",
+                "rendered shot source range must have a non-negative start and positive duration",
+            )
         temporary = _temporary_media_path(destination)
         temporary.unlink(missing_ok=True)
         args: list[str | Path] = [
@@ -359,12 +389,10 @@ class FFmpegRenderer:
             "warning",
             "-y",
         ]
-        if extension > 0.01:
-            args.extend(["-stream_loop", "-1"])
         args.extend(
             [
                 "-ss",
-                f"{float(shot['source_start_seconds']):.3f}",
+                f"{source_start:.3f}",
                 "-i",
                 source,
             ]
@@ -374,9 +402,7 @@ class FFmpegRenderer:
         if has_logo:
             args.extend(["-loop", "1", "-framerate", "30", "-i", logo])
 
-        source_filter = (
-            f"fps=30,trim=duration={duration:.3f},setpts=PTS-STARTPTS,setsar=1"
-        )
+        source_filter = _source_range_filter(source_window, duration)
         filter_parts: list[str] = []
         if shot["fit"] == "contain":
             filter_parts.extend(

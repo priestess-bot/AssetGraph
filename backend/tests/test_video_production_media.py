@@ -8,10 +8,12 @@ import pytest
 
 from app.services.video_production_media import (
     AudioProcessor,
+    FFmpegRenderer,
     NARRATION_AUDIO_FILTER,
     SubprocessRunner,
     VideoQualityInspector,
     _atempo_filters,
+    _source_range_filter,
     probe_media,
 )
 from app.services.video_production_models import ArtifactStore, VideoProductionError
@@ -81,6 +83,63 @@ def test_audio_processor_applies_a_bounded_voice_gain(tmp_path: Path) -> None:
 def test_atempo_chain_stays_inside_ffmpeg_limits() -> None:
     assert _atempo_filters(4.5) == ["atempo=2.0", "atempo=2.0", "atempo=1.125000"]
     assert _atempo_filters(0.2) == ["atempo=0.5", "atempo=0.5", "atempo=0.800000"]
+
+
+def test_source_range_filter_crops_before_looping_only_the_selected_window() -> None:
+    assert _source_range_filter(3, 5) == (
+        "fps=30,trim=duration=3.000,setpts=PTS-STARTPTS,"
+        "loop=loop=-1:size=90:start=0,trim=duration=5.000,"
+        "setpts=PTS-STARTPTS,setsar=1"
+    )
+    assert _source_range_filter(5, 3) == (
+        "fps=30,trim=duration=5.000,setpts=PTS-STARTPTS,"
+        "trim=duration=3.000,setpts=PTS-STARTPTS,setsar=1"
+    )
+    with pytest.raises(VideoProductionError) as error:
+        _source_range_filter(0, 3)
+    assert error.value.error_code == "SOURCE_RANGE_INVALID"
+
+
+def test_shot_render_command_honors_source_end_instead_of_looping_the_full_file(tmp_path: Path) -> None:
+    class RecordingRunner:
+        def __init__(self) -> None:
+            self.calls: list[list[str]] = []
+
+        def run(self, args, **_kwargs):  # type: ignore[no-untyped-def]
+            command = [str(value) for value in args]
+            self.calls.append(command)
+            Path(command[-1]).write_bytes(b"video")
+            return SimpleNamespace(stdout="")
+
+    runner = RecordingRunner()
+    source = tmp_path / "source.mp4"
+    logo = tmp_path / "logo.png"
+    destination = tmp_path / "shot.mp4"
+    renderer = FFmpegRenderer(tmp_path, runner)  # type: ignore[arg-type]
+
+    renderer._render_shot(
+        source,
+        logo,
+        {
+            "shot_code": "SHOT-01",
+            "duration_seconds": 5,
+            "source_start_seconds": 2,
+            "source_end_seconds": 5,
+            "source_available_seconds": 3,
+            "fit": "cover",
+            "overlay_roles": [],
+            "transition": "cut",
+        },
+        destination,
+    )
+
+    command = runner.calls[0]
+    assert command[command.index("-ss") + 1] == "2.000"
+    assert "-stream_loop" not in command
+    filters = command[command.index("-filter_complex") + 1]
+    assert "trim=duration=3.000" in filters
+    assert "loop=loop=-1:size=90:start=0" in filters
+    assert destination.read_bytes() == b"video"
 
 
 def test_narration_filter_controls_dynamics_before_loudness_normalization() -> None:
