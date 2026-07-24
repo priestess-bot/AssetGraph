@@ -68,6 +68,63 @@ class VideoProductionRepository:
         self.connection.commit()
         return self.get_by_code(job_code)
 
+    def seed_content_project_job(
+        self,
+        job_code: str,
+        *,
+        story_brief: dict[str, Any],
+        script: dict[str, Any],
+        shot_list: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """Pre-compute immutable content stages before the media worker claims a job."""
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                "SELECT * FROM video_production_jobs WHERE job_code = %s FOR UPDATE",
+                (job_code,),
+            )
+            job = cursor.fetchone()
+            if job is None:
+                self.connection.rollback()
+                return None
+            if job["status"] != "queued" or job["claimed_by"] is not None:
+                self.connection.rollback()
+                raise VideoProductionRetryConflictError("Only an unclaimed queued job can be seeded from a content project")
+            cursor.execute(
+                """
+                UPDATE video_production_stages
+                SET status = 'succeeded', output_payload = %s, completed_at = now(), updated_at = now()
+                WHERE job_id = %s AND stage_name = %s
+                """,
+                (Jsonb(story_brief), job["id"], "brief_generation"),
+            )
+            cursor.execute(
+                """
+                UPDATE video_production_stages
+                SET status = 'succeeded', output_payload = %s, completed_at = now(), updated_at = now()
+                WHERE job_id = %s AND stage_name = %s
+                """,
+                (Jsonb(script), job["id"], "script_generation"),
+            )
+            cursor.execute(
+                """
+                UPDATE video_production_stages
+                SET status = 'succeeded', output_payload = %s, completed_at = now(), updated_at = now()
+                WHERE job_id = %s AND stage_name = %s
+                """,
+                (Jsonb(shot_list), job["id"], "shot_planning"),
+            )
+            cursor.execute(
+                """
+                UPDATE video_production_jobs
+                SET story_brief = %s, script = %s, shot_list = %s,
+                    current_stage = 'asset_selection', progress_percent = %s, updated_at = now()
+                WHERE id = %s
+                """,
+                (Jsonb(story_brief), Jsonb(script), Jsonb(shot_list), (3 * 100) // len(self.STAGES), job["id"]),
+            )
+        self.connection.commit()
+        return self.get_by_code(job_code)
+
     def list(
         self,
         *,

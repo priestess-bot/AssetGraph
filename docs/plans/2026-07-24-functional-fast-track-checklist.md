@@ -28,8 +28,8 @@
 
 ## F3 成片
 
-- [ ] `FT-3101` 从 ContentProject 创建视频分支、时间轴和渲染任务。关联：`CHK-3101`-`CHK-3189`。
-- [ ] `FT-3102` `/production/videos` 预览、进度、下载与重渲染。关联：`CHK-3200`-`CHK-3249`。
+- [x] `FT-3101` 从 ContentProject 创建视频分支、时间轴和渲染任务。关联：`CHK-3101`-`CHK-3189`。
+- [x] `FT-3102` `/production/videos` 预览、进度、下载与重渲染。关联：`CHK-3200`-`CHK-3249`。
 
 ## F4 运营与排播计划
 
@@ -56,3 +56,4 @@
 | `FT-1101`-`FT-1106` | done | pending implementation batch | migration `045_functional_fast_track_assets.sql`; `backend/tests/test_material_library_postgres.py` (`2 passed`); Console API schema smoke; `npm run build:console`; focused Ruff | `CHK-2101`-`CHK-2109`、`CHK-2140`-`CHK-2149`、`CHK-2180`-`CHK-2209`、`CHK-7240`；生产化退出门禁仍未勾选 |
 | `FT-2101` | done | pending implementation batch | `backend/tests/test_functional_content_postgres.py` plus `test_content_core_postgres.py` (`3 passed`); ContentProject OpenAPI smoke; `npm run build:console`; focused Ruff | `CHK-1101`-`CHK-1149`；当前生成策略明确为 `deterministic_demo`，不替代后续 provider 生产策略 |
 | `FT-2102` | done | pending implementation batch | migration `046_functional_live_room_plans.sql`; `test_material_library_postgres.py`、`test_content_core_postgres.py`、`test_functional_content_postgres.py`、`test_functional_live_rooms_postgres.py` (`7 passed`); migration/closed-loop parsing (`24 passed`); Functional API OpenAPI smoke; `npm run typecheck`; `npm run build:console`; focused Ruff | `CHK-1160`-`CHK-1188`；BuildPlan 明确 `go_live=false`。确认仅创建 `awaiting_maitu_worker` 请求，未宣称或模拟平台写入。 |
+| `FT-3101`-`FT-3102` | done | pending implementation batch | migration `047_functional_video_plans.sql`; `test_functional_videos_postgres.py`; functional suite (`8 passed`); Functional Video OpenAPI smoke; `npm run typecheck`; `npm run build:console`; focused Ruff | `CHK-3101`-`CHK-3249`；内容项目文本会预置为渲染任务的前三阶段输入，Worker 从素材选择继续。视觉源目前明确为已验证的基线素材；实际产物仅在 Worker 成功后显示预览和下载。 |

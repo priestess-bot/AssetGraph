@@ -204,6 +204,33 @@
 .live-request-action label { display: flex; align-items: flex-start; gap: 5px; color: var(--wb-muted); font-size: 8px; line-height: 1.35; }
 .live-request-action input { margin: 1px 0 0; }
 
+.video-plan-layout { display: grid; grid-template-columns: minmax(275px, .72fr) minmax(0, 1.28fr); gap: 16px; }
+.video-plan-rail { position: sticky; top: 84px; align-self: start; max-height: calc(100vh - 105px); overflow-y: auto; }
+.video-plan-form { display: grid; gap: 10px; padding: 12px; border-bottom: 1px solid var(--wb-line); }
+.video-plan-form .wb-button { width: 100%; justify-content: center; }
+.video-plan-list { display: grid; }
+.video-plan-list button { display: grid; min-height: 68px; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 9px 11px; border: 0; border-bottom: 1px solid var(--wb-line); background: #fff; color: var(--wb-text); text-align: left; cursor: pointer; }
+.video-plan-list button:hover, .video-plan-list button.active { background: var(--wb-accent-soft); }
+.video-plan-list button > span { display: flex; min-width: 0; flex-direction: column; }
+.video-plan-list strong { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.video-plan-list code, .video-plan-list small { margin-top: 3px; color: var(--wb-muted); font-size: 8px; }
+.video-plan-main, .video-plan-detail { display: grid; align-content: start; gap: 13px; min-width: 0; }
+.video-plan-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; border-top: 1px solid var(--wb-line); background: var(--wb-line); }
+.video-plan-summary > div { display: flex; min-height: 52px; min-width: 0; flex-direction: column; justify-content: center; gap: 4px; padding: 8px 12px; background: #fff; }
+.video-plan-summary span { color: var(--wb-muted); font-size: 8px; }
+.video-plan-summary strong, .video-plan-summary code { overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.video-plan-summary code { color: var(--console-cyan); }
+.video-progress { height: 4px; margin: 12px 13px 0; background: var(--wb-subtle); }
+.video-progress > i { display: block; height: 100%; background: var(--wb-accent); transition: width 160ms ease; }
+.video-plan-detail .wb-notice { margin: 11px 13px 0; }
+.video-timeline { display: flex; min-height: 110px; gap: 3px; padding: 13px; overflow-x: auto; }
+.video-timeline > div { display: flex; min-width: 78px; flex-basis: 0; flex-direction: column; justify-content: end; gap: 4px; padding: 8px; border: 1px solid var(--wb-line-strong); background: var(--wb-subtle); }
+.video-timeline span { color: var(--console-cyan); font-size: 8px; font-weight: 900; }
+.video-timeline strong { font-size: 12px; }
+.video-timeline small { color: var(--wb-muted); font-size: 7px; overflow-wrap: anywhere; }
+.video-artifacts { display: flex; flex-wrap: wrap; gap: 7px; padding: 13px; }
+.video-render-preview { display: block; width: min(100%, 440px); max-height: 680px; margin: 13px auto; background: #101310; }
+
 .console-entity-inspector { min-width: 0; max-height: calc(100vh - 84px); border: 1px solid var(--wb-line-strong); border-radius: 6px; background: #fff; box-shadow: 0 12px 28px rgb(24 32 26 / 10%); overflow-y: auto; }
 .console-entity-inspector > header { position: sticky; z-index: 3; top: 0; display: flex; min-height: 76px; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--wb-line); background: rgb(255 255 255 / 97%); }
 .console-entity-inspector > header > div { display: flex; min-width: 0; flex-direction: column; }
@@ -337,9 +364,9 @@
   .console-summary > div:nth-child(2) { border-right: 0; }
   .console-summary > div:nth-child(-n+2) { border-bottom: 1px solid var(--wb-line); }
   .console-entity-inspector { width: min(560px, 100vw); }
-  .content-project-layout, .live-room-layout { grid-template-columns: 1fr; }
-  .content-project-rail, .live-plan-rail { position: static; max-height: none; }
-  .live-plan-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .content-project-layout, .live-room-layout, .video-plan-layout { grid-template-columns: 1fr; }
+  .content-project-rail, .live-plan-rail, .video-plan-rail { position: static; max-height: none; }
+  .live-plan-summary, .video-plan-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 640px) {

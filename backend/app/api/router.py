@@ -4,6 +4,7 @@ from app.api.routes import (
     compatibility,
     content_projects,
     functional_live_rooms,
+    functional_videos,
     assets,
     console,
     control_plane,
@@ -29,6 +30,7 @@ api_router.include_router(policy.router)
 api_router.include_router(assets.router)
 api_router.include_router(content_projects.router)
 api_router.include_router(functional_live_rooms.router)
+api_router.include_router(functional_videos.router)
 api_router.include_router(lives.router)
 api_router.include_router(digital_humans.router)
 api_router.include_router(voice_profiles.router)
