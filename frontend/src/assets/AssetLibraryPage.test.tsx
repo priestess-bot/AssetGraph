@@ -86,6 +86,6 @@ describe("AssetLibraryPage", () => {
     await user.click(screen.getByRole("button", { name: "保存新修订" }));
 
     const request = requests.find((item) => item.url === "/api/assets/AG-IMG-001/constraint-profile" && item.init?.method === "POST");
-    expect(request?.init?.body).toBe(JSON.stringify({ constraints: [{ kind: "table_surface", hard: true, parameters: { region: "table_surface", x: 0.1, y: 0.58, width: 0.8, height: 0.28, product_role: "product_display", product_anchor: "bottom_center" } }] }));
+    expect(request?.init?.body).toBe(JSON.stringify({ constraints: [{ kind: "table_surface", hard: true, parameters: { name: "table_surface", x: 0.1, y: 0.58, width: 0.8, height: 0.28, product_role: "product_display", product_anchor: "bottom_center" } }] }));
   });
 });

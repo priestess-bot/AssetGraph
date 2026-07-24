@@ -1321,7 +1321,7 @@ class FunctionalLiveRoomService:
         blocked: list[str] = []
         material_role_overrides = dict(payload.get("material_role_overrides") or {})
         material_selection_decisions: list[dict[str, Any]] = []
-        named_regions, named_region_failures = FunctionalLiveRoomService._named_regions(assets)
+        named_regions, table_surfaces, named_region_failures = FunctionalLiveRoomService._named_regions(assets)
         blocked.extend(named_region_failures)
         active_start_ms = 0
         for index, shot in enumerate(shots):
@@ -1341,6 +1341,7 @@ class FunctionalLiveRoomService:
                         asset=asset,
                         role=str(role),
                         named_regions=named_regions,
+                        table_surfaces=table_surfaces,
                     )
                 )
                 constraint_evidence = {
@@ -1406,8 +1407,11 @@ class FunctionalLiveRoomService:
         return dict(defaults.get(role, {"x": 0.1, "y": 0.1, "width": 0.3, "height": 0.3}))
 
     @staticmethod
-    def _named_regions(assets: list[dict[str, Any]]) -> tuple[dict[str, dict[str, float]], list[str]]:
+    def _named_regions(
+        assets: list[dict[str, Any]],
+    ) -> tuple[dict[str, dict[str, float]], dict[str, dict[str, Any]], list[str]]:
         regions: dict[str, dict[str, float]] = {}
+        table_surfaces: dict[str, dict[str, Any]] = {}
         failures: list[str] = []
         for asset in assets:
             for rule in FunctionalLiveRoomService._constraint_rules(asset):
@@ -1415,7 +1419,13 @@ class FunctionalLiveRoomService:
                 if kind not in {"provide_named_region", "table_surface"}:
                     continue
                 parameters = rule.get("parameters") if isinstance(rule.get("parameters"), dict) else {}
-                name = str(parameters.get("name") or ("table_surface" if kind == "table_surface" else "")).strip()
+                # `region` was used by the early UI. Accept it in persisted
+                # profiles while emitting `name` from the structured editor.
+                name = str(
+                    parameters.get("name")
+                    or parameters.get("region")
+                    or ("table_surface" if kind == "table_surface" else "")
+                ).strip()
                 rect = FunctionalLiveRoomService._constraint_rect(parameters)
                 if not name or rect is None:
                     if bool(rule.get("hard", True)):
@@ -1426,7 +1436,18 @@ class FunctionalLiveRoomService:
                     failures.append(f"constraint_named_region_conflict:{name}")
                     continue
                 regions.setdefault(name, rect)
-        return regions, failures
+                if kind == "table_surface":
+                    policy = {
+                        "product_role": str(parameters.get("product_role") or "product_display").strip(),
+                        "product_anchor": str(parameters.get("product_anchor") or "bottom_center").strip(),
+                        "hard": bool(rule.get("hard", True)),
+                    }
+                    previous_policy = table_surfaces.get(name)
+                    if previous_policy is not None and previous_policy != policy and bool(rule.get("hard", True)):
+                        failures.append(f"constraint_table_surface_policy_conflict:{name}")
+                        continue
+                    table_surfaces.setdefault(name, policy)
+        return regions, table_surfaces, failures
 
     @staticmethod
     def _resolve_layer_constraints(
@@ -1434,6 +1455,7 @@ class FunctionalLiveRoomService:
         asset: dict[str, Any],
         role: str,
         named_regions: dict[str, dict[str, float]],
+        table_surfaces: dict[str, dict[str, Any]],
     ) -> tuple[dict[str, float], int, dict[str, Any], dict[str, Any], dict[str, Any], list[str]]:
         geometry = FunctionalLiveRoomService._default_geometry(role)
         z_order = 100 if role == "digital_human" else 10
@@ -1492,6 +1514,23 @@ class FunctionalLiveRoomService:
             elif kind == "volume_range":
                 audio_properties["volume_range"] = parameters
             applied.append({"kind": kind, "hard": hard, "parameters": parameters})
+        for name in sorted(table_surfaces):
+            policy = table_surfaces[name]
+            if policy["product_role"] != role:
+                continue
+            geometry = FunctionalLiveRoomService._align_anchor(
+                FunctionalLiveRoomService._fit_inside(geometry, named_regions[name]),
+                named_regions[name],
+                str(policy["product_anchor"]),
+            )
+            applied.append(
+                {
+                    "kind": "table_surface_placement",
+                    "hard": bool(policy["hard"]),
+                    "parameters": {"name": name, **policy},
+                }
+            )
+            break
         return (
             geometry,
             z_order,
@@ -1503,6 +1542,7 @@ class FunctionalLiveRoomService:
                 "constraint_profile_ref": asset.get("constraint_profile_ref"),
                 "applied_rules": applied,
                 "named_regions_available": sorted(named_regions),
+                "table_surfaces_available": table_surfaces,
                 "failures": failures,
             },
             failures,
