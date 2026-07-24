@@ -21,6 +21,8 @@ export interface FunctionalLiveRoomPlan {
   blockedReasons: string[];
   executionStatus: string;
   executionEvidence: Record<string, unknown>;
+  clonedFromPlanCode?: string;
+  cloneContext: Record<string, unknown>;
   releaseCode?: string;
   releaseSnapshotArtifactCode?: string;
   releaseManifestFingerprint?: string;
@@ -66,6 +68,8 @@ function plan(value: unknown): FunctionalLiveRoomPlan {
     blockedReasons: strings(value.blocked_reasons),
     executionStatus: asString(value.execution_status),
     executionEvidence: isRecord(value.execution_evidence) ? value.execution_evidence : {},
+    clonedFromPlanCode: asOptionalString(value.cloned_from_plan_code),
+    cloneContext: isRecord(value.clone_context) ? value.clone_context : {},
     releaseCode: asOptionalString(value.release_code),
     releaseSnapshotArtifactCode: asOptionalString(value.release_snapshot_artifact_code),
     releaseManifestFingerprint: asOptionalString(value.release_manifest_fingerprint),
@@ -84,4 +88,5 @@ export const functionalLiveRoomsApi = {
   create: (payload: { project_code: string; target_live_room_id: string; expected_title: string; primary_template_code?: string; secondary_template_codes: string[]; asset_codes: string[]; group_codes: string[] }) => postJson<unknown>(ROOT, payload).then(plan),
   confirmExecution: (planCode: string) => postJson<unknown>(`${ROOT}/${planCode}/confirm-execution`, { confirmed: true }).then(plan),
   createReleaseCandidate: (planCode: string) => postJson<unknown>(`${ROOT}/${planCode}/release-candidate`, {}).then(plan),
+  clone: (planCode: string, payload: { target_live_room_id: string; expected_title: string }) => postJson<unknown>(`${ROOT}/${planCode}/clone`, payload).then(plan),
 };

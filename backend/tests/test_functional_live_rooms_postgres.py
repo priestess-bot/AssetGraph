@@ -306,6 +306,66 @@ def test_live_room_release_candidate_freezes_plan_and_stays_pending_external_evi
         assert repository.get_release(release["release_code"])["status"] == "candidate"
 
 
+def test_live_room_plan_clone_recompiles_business_inputs_for_a_new_target() -> None:
+    suffix = uuid4().hex
+    with psycopg.connect(DATABASE_URL) as connection:
+        assets = AssetRepository(connection)
+        project = _generated_project(connection, suffix)
+        selected = [
+            _asset(assets, suffix, "digital_human"),
+            _asset(assets, suffix, "background"),
+            _asset(assets, suffix, "promotion_text"),
+        ]
+        service = FunctionalLiveRoomService(connection)
+        source = service.create_plan(
+            {
+                "project_code": project["project_code"],
+                "target_live_room_id": f"source-draft-{suffix}",
+                "expected_title": "Source draft",
+                "asset_codes": [item["asset_code"] for item in selected],
+                "group_codes": [],
+            },
+            actor_id="test-operator",
+        )
+        service.create_release_candidate(source["plan_code"], actor_id="test-operator")
+        source = service.confirm_execution(source["plan_code"], confirmed=True)
+        assert source is not None and source["execution_status"] == "requested"
+
+        cloned = service.clone_plan(
+            source["plan_code"],
+            {
+                "target_live_room_id": f"clone-draft-{suffix}",
+                "expected_title": "Cloned draft",
+            },
+            actor_id="test-operator",
+        )
+
+        assert cloned["plan_code"] != source["plan_code"]
+        assert cloned["variant_code"] != source["variant_code"]
+        assert cloned["target_live_room_id"] == f"clone-draft-{suffix}"
+        assert cloned["selected_asset_codes"] == source["selected_asset_codes"]
+        assert cloned["execution_status"] == "not_requested"
+        assert cloned["execution_evidence"] == {}
+        assert cloned["release"] is None
+        assert cloned["release_code"] is None
+        assert cloned["cloned_from_plan_code"] == source["plan_code"]
+        assert cloned["clone_context"]["cleared_target_state"] == [
+            "target_live_room_fingerprint", "authorization", "execution_status",
+            "execution_evidence", "release", "delivery", "readback",
+        ]
+
+        with pytest.raises(DomainValidationError) as same_target:
+            service.clone_plan(
+                source["plan_code"],
+                {
+                    "target_live_room_id": source["target_live_room_id"],
+                    "expected_title": "Invalid clone",
+                },
+                actor_id="test-operator",
+            )
+        assert same_target.value.code == "LIVE_ROOM_CLONE_TARGET_MUST_DIFFER"
+
+
 def test_live_room_plan_rejects_template_not_pinned_by_content_project() -> None:
     suffix = uuid4().hex
     with psycopg.connect(DATABASE_URL) as connection:

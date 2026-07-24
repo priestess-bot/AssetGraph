@@ -310,6 +310,83 @@ class FunctionalLiveRoomService:
         self.connection.commit()
         return self._with_release(self._serialize(updated))
 
+    def clone_plan(self, plan_code: str, payload: dict[str, Any], *, actor_id: str) -> dict[str, Any]:
+        """Recompile business inputs into a different target room.
+
+        Clone is intentionally not a room-copy operation. It never carries a
+        source room fingerprint, authorization, execution evidence, release or
+        delivery state into the target plan.
+        """
+        source = self._releaseable_plan(plan_code)
+        if source is None:
+            raise KeyError(plan_code)
+        target_live_room_id = str(payload["target_live_room_id"]).strip()
+        expected_title = str(payload["expected_title"]).strip()
+        if target_live_room_id == str(source["target_live_room_id"]):
+            raise DomainValidationError(
+                "LIVE_ROOM_CLONE_TARGET_MUST_DIFFER",
+                "A cloned plan must target a different empty draft room",
+                details={"source_plan_code": plan_code},
+            )
+        current_project = self.content.get_detail(str(source["project_code"]))
+        if current_project is None:
+            raise KeyError(source["project_code"])
+        if int(current_project["revision_number"]) != int(source["project_revision"]):
+            raise DomainValidationError(
+                "LIVE_ROOM_CLONE_SOURCE_STALE",
+                "The source plan is bound to an older ContentProject revision; create a new plan from the current content instead",
+                details={
+                    "source_plan_code": plan_code,
+                    "source_project_revision": source["project_revision"],
+                    "current_project_revision": current_project["revision_number"],
+                },
+            )
+        cloned = self.create_plan(
+            {
+                "project_code": source["project_code"],
+                "target_live_room_id": target_live_room_id,
+                "expected_title": expected_title,
+                "primary_template_code": source["primary_template_code"],
+                "secondary_template_codes": list(source["secondary_template_codes"] or []),
+                "asset_codes": list(source["selected_asset_codes"] or []),
+                "group_codes": list(source["selected_group_codes"] or []),
+            },
+            actor_id=actor_id,
+        )
+        clone_context = {
+            "schema_version": "functional-live-room-clone.v1",
+            "source_plan_code": plan_code,
+            "source_project_revision": int(source["project_revision"]),
+            "copied_business_inputs": [
+                "content_project_revision",
+                "pinned_template_revisions",
+                "selected_asset_codes",
+                "selected_group_codes",
+            ],
+            "cleared_target_state": [
+                "target_live_room_fingerprint",
+                "authorization",
+                "execution_status",
+                "execution_evidence",
+                "release",
+                "delivery",
+                "readback",
+            ],
+        }
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                UPDATE functional_live_room_plans
+                SET cloned_from_plan_code = %s, clone_context = %s, updated_at = now()
+                WHERE plan_code = %s
+                RETURNING *
+                """,
+                (plan_code, Jsonb(clone_context), cloned["plan_code"]),
+            )
+            row = cursor.fetchone()
+        self.connection.commit()
+        return self._with_release(self._serialize(row))
+
     def _releaseable_plan(self, plan_code: str) -> dict[str, Any] | None:
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(

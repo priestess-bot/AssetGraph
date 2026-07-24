@@ -28,6 +28,11 @@ class FunctionalLiveRoomExecutionConfirm(BaseModel):
     confirmed: bool
 
 
+class FunctionalLiveRoomPlanClone(BaseModel):
+    target_live_room_id: str = Field(min_length=1, max_length=128)
+    expected_title: str = Field(min_length=1, max_length=255)
+
+
 class FunctionalLiveRoomReleaseRead(BaseModel):
     release_code: str
     status: str
@@ -55,6 +60,8 @@ class FunctionalLiveRoomPlanRead(BaseModel):
     blocked_reasons: list[str]
     execution_status: str
     execution_evidence: dict[str, Any]
+    cloned_from_plan_code: str | None = None
+    clone_context: dict[str, Any] = Field(default_factory=dict)
     release_code: str | None = None
     release_snapshot_artifact_code: str | None = None
     release_manifest_fingerprint: str | None = None

@@ -10,6 +10,7 @@ from app.domain.errors import DomainValidationError
 from app.schemas.functional_live_rooms import (
     FunctionalLiveRoomExecutionConfirm,
     FunctionalLiveRoomPlanCreate,
+    FunctionalLiveRoomPlanClone,
     FunctionalLiveRoomPlanRead,
 )
 from app.services.functional_live_rooms import FunctionalLiveRoomService
@@ -75,3 +76,17 @@ def create_live_room_release_candidate(
     except DomainValidationError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=exc.message) from exc
     return plan
+
+
+@router.post("/{plan_code}/clone", response_model=FunctionalLiveRoomPlanRead, status_code=status.HTTP_201_CREATED)
+def clone_live_room_plan(
+    plan_code: str,
+    payload: FunctionalLiveRoomPlanClone,
+    service: Annotated[FunctionalLiveRoomService, Depends(get_service)],
+) -> dict:
+    try:
+        return service.clone_plan(plan_code, payload.model_dump(mode="json"), actor_id="functional-operator")
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Live-room plan not found") from exc
+    except DomainValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=exc.message) from exc

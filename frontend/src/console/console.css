@@ -203,6 +203,8 @@
 .live-request-action { display: flex; flex: 0 0 210px; flex-direction: column; align-items: end; gap: 7px; }
 .live-request-action label { display: flex; align-items: flex-start; gap: 5px; color: var(--wb-muted); font-size: 8px; line-height: 1.35; }
 .live-request-action input { margin: 1px 0 0; }
+.live-clone-fields { display: grid; min-width: 0; grid-template-columns: minmax(140px, 1fr) minmax(140px, 1fr); gap: 8px; }
+.live-clone-fields .wb-field { min-width: 0; }
 
 .video-plan-layout { display: grid; grid-template-columns: minmax(275px, .72fr) minmax(0, 1.28fr); gap: 16px; }
 .video-plan-rail { position: sticky; top: 84px; align-self: start; max-height: calc(100vh - 105px); overflow-y: auto; }
@@ -395,6 +397,7 @@
   .live-request-panel { align-items: stretch; flex-direction: column; }
   .live-request-action { flex-basis: auto; align-items: stretch; }
   .live-request-action .wb-button { justify-content: center; }
+  .live-clone-fields { grid-template-columns: 1fr; width: 100%; }
 }
 
 @media (max-width: 420px) {

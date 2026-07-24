@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CircleAlert, FileCheck2, MonitorUp, Send, WandSparkles } from "lucide-react";
+import { CircleAlert, Copy, FileCheck2, MonitorUp, Send, WandSparkles } from "lucide-react";
 import { assetLibraryApi } from "../assets/api";
 import { contentProjectsApi } from "../content/api";
 import { EmptyBlock, InlineNotice, LoadingBlock, SectionHeader, StatusBadge } from "../workbench/components";
@@ -30,8 +30,12 @@ function gateTone(status: string): "success" | "warning" | "danger" | "info" | "
 function PlanDetail({ plan }: { plan: FunctionalLiveRoomPlan }) {
   const queryClient = useQueryClient();
   const [confirmed, setConfirmed] = useState(false);
+  const [cloneOpen, setCloneOpen] = useState(false);
+  const [cloneRoomId, setCloneRoomId] = useState("");
+  const [cloneTitle, setCloneTitle] = useState("");
   const request = useMutation({ mutationFn: () => functionalLiveRoomsApi.confirmExecution(plan.planCode), onSuccess: (next) => { queryClient.setQueryData(["functional-live-room-plan", plan.planCode], next); void queryClient.invalidateQueries({ queryKey: ["functional-live-room-plans"] }); } });
   const release = useMutation({ mutationFn: () => functionalLiveRoomsApi.createReleaseCandidate(plan.planCode), onSuccess: (next) => { queryClient.setQueryData(["functional-live-room-plan", plan.planCode], next); void queryClient.invalidateQueries({ queryKey: ["functional-live-room-plans"] }); } });
+  const clone = useMutation({ mutationFn: () => functionalLiveRoomsApi.clone(plan.planCode, { target_live_room_id: cloneRoomId, expected_title: cloneTitle }), onSuccess: (next) => { setCloneOpen(false); setCloneRoomId(""); setCloneTitle(""); queryClient.setQueryData(["functional-live-room-plan", next.planCode], next); void queryClient.invalidateQueries({ queryKey: ["functional-live-room-plans"] }); } });
   return <div className="live-plan-detail">
     <section className="wb-section"><SectionHeader kicker={plan.planCode} title={plan.expectedTitle} actions={<div className="live-plan-badges"><StatusBadge label={label(plan.status)} tone={tone(plan.status)} /><StatusBadge label={label(plan.executionStatus)} tone={tone(plan.executionStatus)} /></div>} />
       <div className="live-plan-summary"><div><span>目标直播间</span><strong>{plan.targetLiveRoomId}</strong></div><div><span>生产变体</span><code>{plan.variantCode}</code></div><div><span>直播间配置</span><code>{plan.configurationCode}</code></div><div><span>开播动作</span><strong>已关闭</strong></div></div>
@@ -46,6 +50,9 @@ function PlanDetail({ plan }: { plan: FunctionalLiveRoomPlan }) {
     </section>
     <section className="live-request-panel"><div><span>发布候选</span><strong>{plan.release ? `${plan.release.releaseCode} · ${plan.release.status}` : "尚未创建"}</strong><small>{plan.release ? `Manifest ${plan.release.manifestCode}；仍待权利、执行授权和现场回读。` : "创建后固定内容链、素材快照、Blueprint、BuildPlan 和当前质量结果。"}</small></div>{plan.release ? <div className="live-plan-badges"><StatusBadge label={plan.release.status} tone="warning" /><code>{plan.release.snapshotArtifactCode}</code></div> : <button type="button" className="wb-button wb-button-secondary" disabled={plan.status !== "ready" || release.isPending} onClick={() => release.mutate()}><FileCheck2 size={15} aria-hidden="true" />创建发布候选</button>}</section>
     {release.error ? <InlineNotice tone="danger" title="发布候选未创建">{message(release.error)}</InlineNotice> : null}
+    <section className="live-request-panel"><div><span>克隆到新草稿房间</span><strong>{plan.clonedFromPlanCode ? `来自 ${plan.clonedFromPlanCode}` : "复制业务输入，重新编译"}</strong><small>不会复制旧房间的现场、授权、执行、发布或交付状态。</small></div><button type="button" className="wb-button wb-button-secondary" onClick={() => setCloneOpen((open) => !open)}><Copy size={15} aria-hidden="true" />克隆</button></section>
+    {cloneOpen ? <section className="live-request-panel"><div className="live-clone-fields"><label className="wb-field"><span>新直播间 ID</span><input className="wb-input" value={cloneRoomId} onChange={(event) => setCloneRoomId(event.target.value)} /></label><label className="wb-field"><span>新直播间标题</span><input className="wb-input" value={cloneTitle} onChange={(event) => setCloneTitle(event.target.value)} /></label></div><button type="button" className="wb-button wb-button-primary" disabled={clone.isPending || !cloneRoomId.trim() || !cloneTitle.trim()} onClick={() => clone.mutate()}><Copy size={15} aria-hidden="true" />创建新计划</button></section> : null}
+    {clone.error ? <InlineNotice tone="danger" title="克隆计划未创建">{message(clone.error)}</InlineNotice> : null}
     <section className="live-request-panel"><div><span>人工确认后的 Worker 请求</span><strong>{plan.executionStatus === "requested" ? "已提交，等待麦兔 Worker 回读" : "尚未请求"}</strong><small>{typeof plan.executionEvidence.message === "string" ? plan.executionEvidence.message : "仅在指定空白、未开播草稿中执行。"}</small></div>{plan.executionStatus === "not_requested" ? <div className="live-request-action"><label><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />我已确认该目标是指定的空白未开播草稿</label><button type="button" className="wb-button wb-button-primary" disabled={!confirmed || request.isPending || plan.status !== "ready"} onClick={() => request.mutate()}><Send size={15} aria-hidden="true" />请求写入草稿</button></div> : null}</section>
     {request.error ? <InlineNotice tone="danger" title="草稿请求未提交">{message(request.error)}</InlineNotice> : null}
   </div>;
