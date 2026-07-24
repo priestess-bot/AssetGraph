@@ -83,7 +83,10 @@ def test_operations_import_descriptive_report_and_planning_conflicts() -> None:
             "release_bound_exposure_count": 0,
             "evidence_level": "descriptive",
             "metric_definition_state": "metric_unpinned",
+            "scene_allocation_method": "proportional_by_active_observed_exposure_duration",
+            "scene_allocation_count": 0,
         }
+        assert report["results"]["scene_allocations"] == []
         assert {
             result["average"] for result in report["results"]["groups"].values()
         } == {100.0, 200.0}

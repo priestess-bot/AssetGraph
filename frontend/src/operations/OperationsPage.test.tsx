@@ -145,6 +145,36 @@ describe("OperationsPage", () => {
     });
   });
 
+  it("renders scene estimates as duration-proportional descriptive allocations", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/data-governance/metrics") return response(metricCatalog);
+      if (url === "/api/functional-operations/sessions" || url === "/api/functional-operations/exposures" || url === "/api/functional-operations/schedule-plans" || url === "/api/functional-live-room-plans") return response([]);
+      if (url === "/api/functional-operations/attribution-reports") return response([{
+        report_code: "ATTR-ALLOC-001", metric_key: "watchers", evidence_level: "descriptive", session_codes: ["OPS-001"],
+        results: {
+          groups: {},
+          scene_allocations: [{
+            scope_type: "observed_scene_duration_allocation", plan_code: "PLAN-001", scene_code: "SCENE-001",
+            estimated_metric_value: 6, observed_duration_seconds: 30, source_session_codes: ["OPS-001"], source_session_count: 1,
+            source_kind_counts: { recording_match: 1 }, release_codes: ["REL-001"], average_confidence: .9,
+            allocation_basis: "active_observed_exposure_duration_within_each_session", limitations: ["descriptive only"],
+          }],
+          metadata: { method: "session_metric_grouped_by_source_backed_exposure", metric_grain: "operation_session", selected_session_count: 1, observed_session_count: 1, session_only_count: 0, source_kind_counts: { recording_match: 1 }, release_bound_exposure_count: 1, metric_definition_state: "metric_unpinned", scene_allocation_method: "proportional_by_active_observed_exposure_duration", scene_allocation_count: 1 },
+        },
+        created_at: "2026-07-20T15:02:00Z",
+      }]);
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+
+    renderPage("attribution");
+
+    expect(await screen.findByText("场景级估算（观察时长比例）")).toBeInTheDocument();
+    expect(screen.getByText("SCENE-001")).toBeInTheDocument();
+    expect(screen.getByText("6.00")).toBeInTheDocument();
+    expect(screen.getByText(/不代表场景真实归因或因果效果/)).toBeInTheDocument();
+  });
+
   it("labels a session as observed only when it has an active exposure", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);

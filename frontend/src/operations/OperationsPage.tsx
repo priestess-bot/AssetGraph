@@ -1416,7 +1416,7 @@ export function OperationsPage({ view }: { view: "sessions" | "attribution" }) {
           <div className="operations-list">
             {reports.data?.map((report) => (
               <div key={report.reportCode}>
-                <span>
+                <div className="operations-list-content">
                   <strong>
                     {report.metricKey} · {report.evidenceLevel}
                   </strong>
@@ -1442,7 +1442,23 @@ export function OperationsPage({ view }: { view: "sessions" | "attribution" }) {
                       ? `指标定义快照：${report.metricDefinitionRef.name ?? report.metricDefinitionRef.metricCode} · ${report.metricDefinitionRef.metricCode} r${report.metricDefinitionRef.revisionNumber}`
                       : "指标定义快照：未绑定（手工或跨修订指标）"}
                   </small>
-                </span>
+                  {report.sceneAllocations.length ? (
+                    <div className="operations-scene-allocations">
+                      <header>
+                        <strong>场景级估算（观察时长比例）</strong>
+                        <small>会话级指标按已观察的实际展示时长分摊，不代表场景真实归因或因果效果。</small>
+                      </header>
+                      <ol>
+                        {report.sceneAllocations.map((allocation) => (
+                          <li key={`${allocation.planCode}:${allocation.sceneCode}`}>
+                            <span><code>{allocation.sceneCode}</code><small>{allocation.planCode} · 已观察 {allocation.observedDurationSeconds.toFixed(1)} 秒 · {allocation.sourceSessionCount} 场</small></span>
+                            <strong>{allocation.estimatedMetricValue.toFixed(2)}</strong>
+                          </li>
+                        ))}
+                      </ol>
+                    </div>
+                  ) : null}
+                </div>
                 <StatusBadge
                   label={
                     report.metadata.observedSessionCount

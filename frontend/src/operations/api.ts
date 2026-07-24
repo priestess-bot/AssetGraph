@@ -170,6 +170,20 @@ export interface AttributionReport {
   sessionCodes: string[];
   metricDefinitionRef?: MetricDefinitionRef;
   groups: AttributionGroup[];
+  sceneAllocations: Array<{
+    scopeType: string;
+    planCode: string;
+    sceneCode: string;
+    estimatedMetricValue: number;
+    observedDurationSeconds: number;
+    sourceSessionCodes: string[];
+    sourceSessionCount: number;
+    sourceKindCounts: Record<string, number>;
+    releaseCodes: string[];
+    averageConfidence?: number;
+    allocationBasis: string;
+    limitations: string[];
+  }>;
   metadata: {
     method: string;
     metricGrain: string;
@@ -179,6 +193,8 @@ export interface AttributionReport {
     sourceKindCounts: Record<string, number>;
     releaseBoundExposureCount: number;
     metricDefinitionState: string;
+    sceneAllocationMethod: string;
+    sceneAllocationCount: number;
   };
   createdAt: string;
 }
@@ -463,6 +479,26 @@ function report(value: unknown): AttributionReport {
         },
       ];
     }),
+    sceneAllocations: asArray(raw.scene_allocations).flatMap((item) => {
+      if (!isRecord(item)) return [];
+      const planCode = asString(item.plan_code);
+      const sceneCode = asString(item.scene_code);
+      if (!planCode || !sceneCode) return [];
+      return [{
+        scopeType: asString(item.scope_type, "observed_scene_duration_allocation"),
+        planCode,
+        sceneCode,
+        estimatedMetricValue: asNumber(item.estimated_metric_value),
+        observedDurationSeconds: asNumber(item.observed_duration_seconds),
+        sourceSessionCodes: strings(item.source_session_codes),
+        sourceSessionCount: asNumber(item.source_session_count),
+        sourceKindCounts: counts(item.source_kind_counts),
+        releaseCodes: strings(item.release_codes),
+        averageConfidence: typeof item.average_confidence === "number" ? item.average_confidence : undefined,
+        allocationBasis: asString(item.allocation_basis),
+        limitations: strings(item.limitations),
+      }];
+    }),
     metadata: {
       method: asString(metadata.method, "legacy_session_summary"),
       metricGrain: asString(metadata.metric_grain, "operation_session"),
@@ -480,6 +516,8 @@ function report(value: unknown): AttributionReport {
         metadata.metric_definition_state,
         "metric_unpinned",
       ),
+      sceneAllocationMethod: asString(metadata.scene_allocation_method),
+      sceneAllocationCount: asNumber(metadata.scene_allocation_count),
     },
     createdAt: asString(value.created_at),
   };

@@ -805,9 +805,15 @@ class FunctionalOperationsService:
                         "This descriptive result does not establish causality.",
                     ],
                 }
+            scene_allocations = self._scene_allocations(
+                rows,
+                exposures_by_session,
+                metric_key=payload["metric_key"],
+            )
             results = {
                 "schema_version": "functional-attribution-report.v2",
                 "groups": materialized_groups,
+                "scene_allocations": scene_allocations,
                 "metadata": {
                     "method": "session_metric_grouped_by_source_backed_exposure",
                     "metric_grain": "operation_session",
@@ -818,6 +824,8 @@ class FunctionalOperationsService:
                     "release_bound_exposure_count": release_bound_exposures,
                     "evidence_level": "descriptive",
                     "metric_definition_state": metric_definition_state,
+                    "scene_allocation_method": "proportional_by_active_observed_exposure_duration",
+                    "scene_allocation_count": len(scene_allocations),
                 },
             }
             code = self._next(cursor, "ATTR", "functional_attribution_report")
@@ -836,6 +844,92 @@ class FunctionalOperationsService:
             row = cursor.fetchone()
         self.connection.commit()
         return dict(row)
+
+    @staticmethod
+    def _scene_allocations(
+        sessions: list[dict[str, Any]],
+        exposures_by_session: dict[str, list[dict[str, Any]]],
+        *,
+        metric_key: str,
+    ) -> list[dict[str, Any]]:
+        """Allocate session-grain metrics over observed active exposure duration only.
+
+        This is an explicit descriptive aid for inspecting a recorded session, not a
+        measured scene-level metric or a causal effect estimate.
+        """
+        grouped: dict[str, dict[str, Any]] = {}
+        for session in sessions:
+            session_code = str(session["session_code"])
+            exposures = exposures_by_session.get(session_code, [])
+            timed_exposures = [
+                (
+                    exposure,
+                    max(0.0, (exposure["ended_at"] - exposure["started_at"]).total_seconds()),
+                )
+                for exposure in exposures
+            ]
+            observed_seconds = sum(duration for _exposure, duration in timed_exposures)
+            if observed_seconds <= 0:
+                continue
+            metric_value = float((session.get("metrics") or {}).get(metric_key, 0))
+            for exposure, duration_seconds in timed_exposures:
+                if duration_seconds <= 0:
+                    continue
+                plan_code = str(exposure["plan_code"])
+                scene_code = str(exposure["scene_code"])
+                key = f"{plan_code}:{scene_code}"
+                allocation_ratio = duration_seconds / observed_seconds
+                item = grouped.setdefault(
+                    key,
+                    {
+                        "scope_type": "observed_scene_duration_allocation",
+                        "plan_code": plan_code,
+                        "scene_code": scene_code,
+                        "estimated_metric_value": 0.0,
+                        "observed_duration_seconds": 0.0,
+                        "source_session_codes": [],
+                        "source_kind_counts": {},
+                        "release_codes": [],
+                        "weighted_confidence_sum": 0.0,
+                    },
+                )
+                item["estimated_metric_value"] += metric_value * allocation_ratio
+                item["observed_duration_seconds"] += duration_seconds
+                if session_code not in item["source_session_codes"]:
+                    item["source_session_codes"].append(session_code)
+                source_kind = str(exposure["source_kind"])
+                item["source_kind_counts"][source_kind] = (
+                    item["source_kind_counts"].get(source_kind, 0) + 1
+                )
+                release_code = exposure.get("release_code")
+                if release_code and release_code not in item["release_codes"]:
+                    item["release_codes"].append(release_code)
+                item["weighted_confidence_sum"] += float(exposure["confidence"]) * duration_seconds
+
+        materialized: list[dict[str, Any]] = []
+        for item in grouped.values():
+            duration_seconds = float(item.pop("observed_duration_seconds"))
+            weighted_confidence_sum = float(item.pop("weighted_confidence_sum"))
+            materialized.append(
+                {
+                    **item,
+                    "estimated_metric_value": round(float(item["estimated_metric_value"]), 6),
+                    "observed_duration_seconds": round(duration_seconds, 3),
+                    "source_session_count": len(item["source_session_codes"]),
+                    "average_confidence": round(weighted_confidence_sum / duration_seconds, 6)
+                    if duration_seconds
+                    else None,
+                    "allocation_basis": "active_observed_exposure_duration_within_each_session",
+                    "limitations": [
+                        "This proportionally distributes a session-grain metric by observed duration.",
+                        "It is descriptive only and is not a measured scene metric or causal effect.",
+                    ],
+                }
+            )
+        return sorted(
+            materialized,
+            key=lambda item: (-float(item["estimated_metric_value"]), item["plan_code"], item["scene_code"]),
+        )
 
     def list_reports(self) -> list[dict[str, Any]]:
         with self.connection.cursor(row_factory=dict_row) as cursor:
