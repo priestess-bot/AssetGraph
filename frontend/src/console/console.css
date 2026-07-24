@@ -398,6 +398,7 @@
 .video-timeline-history li > span { display: grid; min-width: 0; gap: 2px; }
 .video-timeline-history li strong { color: var(--console-cyan); font-size: 8px; }
 .video-timeline-history li small { color: var(--wb-muted); font-size: 7px; overflow-wrap: anywhere; }
+.video-timeline-history-actions { display: flex !important; align-items: center; gap: 5px; }
 .video-workflow, .video-quality-checks { display: grid; margin: 0; padding: 0; list-style: none; }
 .video-workflow li { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; align-items: center; gap: 9px; min-height: 48px; padding: 7px 13px; border-top: 1px solid var(--wb-line); }
 .video-workflow li > span { display: grid; width: 20px; height: 20px; place-items: center; background: var(--wb-subtle); color: var(--wb-muted); font-size: 8px; font-weight: 800; }

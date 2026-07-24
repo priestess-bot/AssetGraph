@@ -83,6 +83,16 @@ def test_functional_video_plan_seeds_content_stages_and_queues_renderer() -> Non
         assert stale.value.code == "VIDEO_TIMELINE_REVISION_CONFLICT"
         connection.rollback()
 
+        restored = FunctionalVideoService(connection).restore_timeline_revision(
+            plan["plan_code"],
+            1,
+            expected_revision=2,
+            actor_id="test-operator",
+        )
+        assert restored is not None
+        assert restored["timeline_revision"] == 3
+        assert restored["production_timeline"]["tracks"][0]["clips"][0]["transition"] == clips[0]["transition"]
+
         with connection.cursor() as cursor:
             cursor.execute(
                 "SELECT status FROM video_production_stages WHERE job_code = %s ORDER BY stage_order",
@@ -95,4 +105,4 @@ def test_functional_video_plan_seeds_content_stages_and_queues_renderer() -> Non
             )
             assert cursor.fetchone()[0] is True
             cursor.execute("SELECT count(*) FROM functional_video_timeline_revisions WHERE plan_id = (SELECT id FROM functional_video_plans WHERE plan_code = %s)", (plan["plan_code"],))
-            assert cursor.fetchone()[0] == 2
+            assert cursor.fetchone()[0] == 3

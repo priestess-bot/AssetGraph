@@ -99,6 +99,39 @@ class FunctionalVideoService:
             )
             return [dict(row) for row in cursor.fetchall()]
 
+    def restore_timeline_revision(
+        self,
+        plan_code: str,
+        source_revision: int,
+        *,
+        expected_revision: int,
+        actor_id: str,
+    ) -> dict[str, Any] | None:
+        """Restore a historical editable timeline by creating, never mutating, a new revision."""
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """SELECT r.production_timeline
+                   FROM functional_video_timeline_revisions r
+                   JOIN functional_video_plans p ON p.id = r.plan_id
+                   WHERE p.plan_code = %s AND r.revision_number = %s""",
+                (plan_code, source_revision),
+            )
+            source = cursor.fetchone()
+        if source is None:
+            if self.get_plan(plan_code) is None:
+                return None
+            raise DomainValidationError(
+                "VIDEO_TIMELINE_REVISION_NOT_FOUND",
+                "The requested timeline revision does not belong to this video plan",
+                details={"source_revision": source_revision},
+            )
+        video_clips = self._timeline_video_updates(dict(source["production_timeline"] or {}))
+        return self.update_timeline(
+            plan_code,
+            {"expected_revision": expected_revision, "video_clips": video_clips},
+            actor_id=actor_id,
+        )
+
     def retry(self, plan_code: str) -> dict[str, Any] | None:
         plan = self.get_plan(plan_code)
         if plan is None:
@@ -203,6 +236,23 @@ class FunctionalVideoService:
             for artifact in job.get("artifacts") or []
         ]
         return plan
+
+    @staticmethod
+    def _timeline_video_updates(timeline: dict[str, Any]) -> list[dict[str, Any]]:
+        video = next((track for track in timeline.get("tracks") or [] if track.get("track_kind") == "video"), None)
+        if not isinstance(video, dict):
+            raise DomainValidationError("VIDEO_TIMELINE_VIDEO_TRACK_MISSING", "Timeline has no editable video track")
+        updates: list[dict[str, Any]] = []
+        for clip in video.get("clips") or []:
+            timeline_range = clip.get("timeline_range") or {}
+            updates.append(
+                {
+                    "clip_code": str(clip.get("clip_code") or ""),
+                    "duration_ms": int(timeline_range.get("duration_ms") or 0),
+                    "transition": str(clip.get("transition") or "cut"),
+                }
+            )
+        return updates
 
     @staticmethod
     def _apply_timeline_update(timeline: dict[str, Any], updates: list[dict[str, Any]]) -> dict[str, Any]:

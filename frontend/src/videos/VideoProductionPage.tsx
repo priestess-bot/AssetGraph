@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, CheckCircle2, CircleX, Download, Film, RefreshCw, Send } from "lucide-react";
+import { ArrowDown, ArrowUp, CheckCircle2, CircleX, Download, Film, RefreshCw, RotateCcw, Send } from "lucide-react";
 import { contentProjectsApi } from "../content/api";
 import { EmptyBlock, InlineNotice, LoadingBlock, SectionHeader, StatusBadge } from "../workbench/components";
 import { functionalVideosApi, type FunctionalVideoPlan, type VideoTimelineRevision } from "./api";
@@ -23,13 +23,15 @@ function timelineDiff(current: FunctionalVideoPlan["productionTimeline"], previo
 }
 
 function TimelineRevisionHistory({ plan }: { plan: FunctionalVideoPlan }) {
+  const queryClient = useQueryClient();
   const revisions = useQuery({ queryKey: ["functional-video", plan.planCode, "timeline-revisions"], queryFn: () => functionalVideosApi.listTimelineRevisions(plan.planCode) });
+  const restore = useMutation({ mutationFn: (sourceRevision: number) => functionalVideosApi.restoreTimelineRevision(plan.planCode, sourceRevision, plan.timelineRevision), onSuccess: (next) => { queryClient.setQueryData(["functional-video", plan.planCode], next); void queryClient.invalidateQueries({ queryKey: ["functional-videos"] }); void queryClient.invalidateQueries({ queryKey: ["functional-video", plan.planCode, "timeline-revisions"] }); } });
   if (revisions.isLoading) return <div className="video-timeline-history"><small>正在读取修订历史</small></div>;
   if (revisions.error) return <div className="video-timeline-history"><InlineNotice tone="warning" title="时间轴历史不可用">{text(revisions.error)}</InlineNotice></div>;
   const history = revisions.data ?? [];
   const current = history.find((revision) => revision.revisionNumber === plan.timelineRevision);
   const previous = history.find((revision) => revision.revisionNumber === plan.timelineRevision - 1);
-  return <div className="video-timeline-history"><div><strong>修订历史</strong><small>{timelineDiff(plan.productionTimeline, previous?.productionTimeline).join(" · ")}</small></div><ol>{history.map((revision) => <li key={revision.revisionNumber}><span><strong>r{revision.revisionNumber}</strong><small>{timelineClips(revision.productionTimeline).map((clip) => clip.clip_code).join(" / ")} · {(revision.productionTimeline.global_end_ms / 1000).toFixed(1)} 秒</small></span><StatusBadge label={revision.revisionNumber === current?.revisionNumber ? "当前" : revision.actorId} tone={revision.revisionNumber === current?.revisionNumber ? "info" : "neutral"} /></li>)}</ol></div>;
+  return <div className="video-timeline-history"><div><strong>修订历史</strong><small>{timelineDiff(plan.productionTimeline, previous?.productionTimeline).join(" · ")}</small></div><ol>{history.map((revision) => <li key={revision.revisionNumber}><span><strong>r{revision.revisionNumber}</strong><small>{timelineClips(revision.productionTimeline).map((clip) => clip.clip_code).join(" / ")} · {(revision.productionTimeline.global_end_ms / 1000).toFixed(1)} 秒</small></span><span className="video-timeline-history-actions"><StatusBadge label={revision.revisionNumber === current?.revisionNumber ? "当前" : revision.actorId} tone={revision.revisionNumber === current?.revisionNumber ? "info" : "neutral"} />{plan.jobStatus === "queued" && revision.revisionNumber !== current?.revisionNumber ? <button type="button" className="wb-icon-button" title={`恢复 r${revision.revisionNumber} 为新修订`} aria-label={`恢复 r${revision.revisionNumber}`} disabled={restore.isPending} onClick={() => restore.mutate(revision.revisionNumber)}><RotateCcw size={14} aria-hidden="true" /></button> : null}</span></li>)}</ol>{restore.error ? <InlineNotice tone="danger" title="时间轴恢复失败">{text(restore.error)}</InlineNotice> : null}</div>;
 }
 
 function TimelineEditor({ plan }: { plan: FunctionalVideoPlan }) {

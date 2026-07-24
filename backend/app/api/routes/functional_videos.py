@@ -8,7 +8,13 @@ from psycopg import Connection
 from app.core.database import get_db
 from app.domain.errors import DomainValidationError
 from app.repositories.video_productions import VideoProductionRetryConflictError
-from app.schemas.functional_videos import FunctionalVideoPlanCreate, FunctionalVideoPlanRead, FunctionalVideoTimelineRevisionRead, FunctionalVideoTimelineUpdate
+from app.schemas.functional_videos import (
+    FunctionalVideoPlanCreate,
+    FunctionalVideoPlanRead,
+    FunctionalVideoTimelineRestore,
+    FunctionalVideoTimelineRevisionRead,
+    FunctionalVideoTimelineUpdate,
+)
 from app.services.functional_videos import FunctionalVideoService
 
 
@@ -63,6 +69,28 @@ def update_video_timeline(
         plan = service.update_timeline(plan_code, payload.model_dump(mode="json"), actor_id="functional-operator")
     except DomainValidationError as exc:
         raise HTTPException(status_code=422, detail=exc.message) from exc
+    if plan is None:
+        raise HTTPException(status_code=404, detail="Video plan not found")
+    return plan
+
+
+@router.post("/{plan_code}/timeline-revisions/{source_revision}/restore", response_model=FunctionalVideoPlanRead)
+def restore_video_timeline_revision(
+    plan_code: str,
+    source_revision: int,
+    payload: FunctionalVideoTimelineRestore,
+    service: Annotated[FunctionalVideoService, Depends(get_service)],
+) -> dict:
+    try:
+        plan = service.restore_timeline_revision(
+            plan_code,
+            source_revision,
+            expected_revision=payload.expected_revision,
+            actor_id="functional-operator",
+        )
+    except DomainValidationError as exc:
+        status_code = status.HTTP_409_CONFLICT if exc.code == "VIDEO_TIMELINE_REVISION_CONFLICT" else status.HTTP_422_UNPROCESSABLE_CONTENT
+        raise HTTPException(status_code=status_code, detail=exc.message) from exc
     if plan is None:
         raise HTTPException(status_code=404, detail="Video plan not found")
     return plan

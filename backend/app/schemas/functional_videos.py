@@ -31,6 +31,10 @@ class FunctionalVideoTimelineUpdate(BaseModel):
         return value
 
 
+class FunctionalVideoTimelineRestore(BaseModel):
+    expected_revision: int = Field(ge=1)
+
+
 class FunctionalVideoTimelineRevisionRead(BaseModel):
     revision_number: int
     production_timeline: dict[str, Any]
