@@ -31,6 +31,14 @@ def test_functional_video_plan_seeds_content_stages_and_queues_renderer() -> Non
             },
             actor_id="test-operator",
         )
+        content.confirm_project(project["project_code"], expected_revision=1, actor_id="test-operator")
+        content.parse_design_brief(
+            project["project_code"],
+            expected_revision=1,
+            raw_input="Create the project baseline before the rendered-video branch.",
+            actor_id="test-operator",
+        )
+        content.confirm_design_brief(project["project_code"], expected_revision=1, actor_id="test-operator")
         generated = content.generate_chain(project["project_code"], actor_id="test-operator")
         plan = FunctionalVideoService(connection).create_plan(
             {"project_code": generated["project_code"], "target_duration_seconds": 55},

@@ -11,6 +11,7 @@ from psycopg.types.json import Jsonb
 from app.domain.contracts import canonical_fingerprint
 from app.repositories.content_core import ContentCoreRepository
 from app.repositories.content_production import ContentProductionRepository
+from app.repositories.live_observations import LiveObservationRepository
 from app.repositories.maitu_workbench import MaituWorkbenchRepository
 from app.domain.errors import DomainConflictError, DomainValidationError
 
@@ -23,10 +24,12 @@ class FunctionalContentService:
         self.core = ContentCoreRepository(connection)
         self.production = ContentProductionRepository(connection)
         self.facts = MaituWorkbenchRepository(connection)
+        self.templates = LiveObservationRepository(connection)
 
     def create_project(self, payload: dict[str, Any], *, actor_id: str) -> dict[str, Any]:
         document = self._document(payload)
         self._pin_fact_cards(document)
+        self._pin_template_refs(document)
         created = self.core.create_project(
             title=payload["title"],
             generation_goal=payload["generation_goal"],
@@ -59,6 +62,7 @@ class FunctionalContentService:
             document.pop("fact_card_refs", None)
         document.update(updates)
         self._pin_fact_cards(document)
+        self._pin_template_refs(document)
         revision = self.core.create_project_revision(
             project_code,
             expected_revision=expected_revision,
@@ -97,6 +101,7 @@ class FunctionalContentService:
             )
         document = dict(current["content"] or {})
         self._pin_fact_cards(document, require_existing_pins=True)
+        self._pin_template_refs(document, require_existing_pins=True)
         if document != current["content"]:
             revision = self.core.create_project_revision(
                 project_code,
@@ -362,7 +367,9 @@ class FunctionalContentService:
         if current is None:
             raise KeyError(project_code)
         project_revision = int(current["revision_number"])
-        self._pin_fact_cards(dict(current["content"] or {}), require_existing_pins=True)
+        frozen_inputs = dict(current["content"] or {})
+        self._pin_fact_cards(frozen_inputs, require_existing_pins=True)
+        self._pin_template_refs(frozen_inputs, require_existing_pins=True)
         if current["status"] != "confirmed":
             raise DomainConflictError(
                 "CONTENT_PROJECT_CONFIRM_REQUIRED",
@@ -374,7 +381,7 @@ class FunctionalContentService:
                 "DESIGN_BRIEF_CONFIRM_REQUIRED",
                 "Confirm a DesignBrief for the current content-project revision before generation",
             )
-        content = current["content"]
+        content = frozen_inputs
         design_ref = f"{design_brief['design_brief_code']}:r{design_brief['revision_number']}"
         generation_context = self._generation_context(current, design_brief, content)
         story = self.production.create_story_brief_revision(
@@ -391,7 +398,7 @@ class FunctionalContentService:
         story = self.production.confirm_story_brief_revision(
             story["story_brief_code"], revision_number=int(story["revision_number"]), actor_id=actor_id
         )
-        blocks = self._script_blocks(current["generation_goal"], content)
+        blocks = self._script_blocks(current["generation_goal"], content, generation_context["approved_facts"])
         self._validate_fact_citations(blocks, generation_context["approved_facts"])
         script_draft = self.production.create_script_revision(
             story_brief_code=story["story_brief_code"],
@@ -447,7 +454,8 @@ class FunctionalContentService:
             "target_duration_seconds", "product_order", "must_include", "must_avoid",
             "interaction_requirements", "conversion_requirements", "staging_requirements",
             "visual_requirements", "audio_requirements", "fact_card_codes", "fact_card_refs",
-            "primary_template_code", "secondary_template_codes",
+            "primary_template_code", "secondary_template_codes", "primary_template_ref",
+            "secondary_template_refs", "template_contribution_decisions",
         )
         document = {field: payload.get(field) for field in fields if include_defaults or field in payload}
         if include_defaults:
@@ -455,6 +463,7 @@ class FunctionalContentService:
                 "product_order", "must_include", "must_avoid", "interaction_requirements",
                 "conversion_requirements", "staging_requirements", "visual_requirements",
                 "audio_requirements", "fact_card_codes", "fact_card_refs", "secondary_template_codes",
+                "secondary_template_refs", "template_contribution_decisions",
             ):
                 document[field] = document.get(field) or []
         document["generation_mode"] = "deterministic_demo"
@@ -508,6 +517,79 @@ class FunctionalContentService:
             )
         document["fact_card_refs"] = pinned
         document["fact_card_codes"] = [ref["fact_card_code"] for ref in pinned]
+
+    def _pin_template_refs(self, document: dict[str, Any], *, require_existing_pins: bool = False) -> None:
+        """Resolve template selections to immutable published revisions.
+
+        Template text/layout can change after a project has been drafted.  The
+        ContentProject therefore owns revision references and contribution
+        decisions, while the bare codes are retained solely for form
+        compatibility and filtering.
+        """
+        primary_code = str(document.get("primary_template_code") or "").strip() or None
+        secondary_codes = [str(code).strip() for code in document.get("secondary_template_codes") or [] if str(code).strip()]
+        all_codes = [*([primary_code] if primary_code else []), *secondary_codes]
+        if len(all_codes) != len(set(all_codes)):
+            raise DomainValidationError("TEMPLATE_REFERENCE_DUPLICATE", "A template can only be selected once")
+
+        existing_primary = document.get("primary_template_ref")
+        existing_secondary = document.get("secondary_template_refs") or []
+        existing_by_code: dict[str, dict[str, Any]] = {}
+        for item in [existing_primary, *existing_secondary]:
+            if isinstance(item, dict) and str(item.get("template_code") or "").strip():
+                existing_by_code[str(item["template_code"]).strip()] = item
+
+        pinned: list[dict[str, Any]] = []
+        for index, code in enumerate(all_codes):
+            previous = existing_by_code.get(code)
+            if require_existing_pins and previous is None:
+                raise DomainValidationError(
+                    "TEMPLATE_VERSION_PIN_REQUIRED",
+                    "A content project must pin selected template revisions before confirmation or generation",
+                    details={"template_code": code},
+                )
+            if previous is not None:
+                revision_number = previous.get("revision")
+                if not isinstance(revision_number, int) or revision_number < 1:
+                    raise DomainValidationError("TEMPLATE_REFERENCE_INVALID", "Pinned template revision is invalid", details={"template_code": code})
+                template = self.templates.get_room_template(code, include_revisions=True)
+                if template is None or not any(int(row["revision_number"]) == revision_number for row in template.get("revisions") or []):
+                    raise DomainValidationError("TEMPLATE_REVISION_NOT_FOUND", "Pinned template revision is unavailable", details={"template_code": code, "revision": revision_number})
+                pinned.append(dict(previous))
+                continue
+
+            template = self.templates.get_room_template(code, include_revisions=False)
+            published_revision = template.get("published_revision_number") if template else None
+            if template is None or template.get("status") != "published" or not isinstance(published_revision, int):
+                raise DomainValidationError(
+                    "TEMPLATE_NOT_PUBLISHED",
+                    "Selected content templates must have a published revision",
+                    details={"template_code": code},
+                )
+            pinned.append(
+                {
+                    "template_code": code,
+                    "revision": int(published_revision),
+                    "contribution": "primary_structure" if index == 0 and primary_code else "secondary_supplement",
+                    "selection_role": "primary" if index == 0 and primary_code else "secondary",
+                    "contract_version": "content-strategy-reference.v1",
+                }
+            )
+
+        document["primary_template_ref"] = next((item for item in pinned if item["selection_role"] == "primary"), None)
+        document["secondary_template_refs"] = [item for item in pinned if item["selection_role"] == "secondary"]
+        document["primary_template_code"] = primary_code
+        document["secondary_template_codes"] = secondary_codes
+        document["template_contribution_decisions"] = [
+            {
+                "template_code": item["template_code"],
+                "revision": item["revision"],
+                "selection_role": item["selection_role"],
+                "contribution": item["contribution"],
+                "accepted_modules": [],
+            }
+            for item in pinned
+        ]
 
     @staticmethod
     def _validate_fact_scope(
@@ -686,16 +768,44 @@ class FunctionalContentService:
 
     @staticmethod
     def _validate_fact_citations(blocks: list[dict[str, Any]], approved_facts: list[dict[str, Any]]) -> None:
-        fact_codes = {str(fact["fact_card_code"]) for fact in approved_facts}
+        fact_versions = {
+            (str(fact["fact_card_code"]), int(fact["version_number"]))
+            for fact in approved_facts
+        }
+        fact_codes = {code for code, _ in fact_versions}
         restricted_markers = (
             "价格", "优惠", "促销", "库存", "赠品", "功效", "¥", "￥",
             "price", "discount", "inventory", "free gift", "benefit",
         )
         for block in blocks:
             text = str(block.get("content") or "").lower()
+            citations = block.get("fact_citations") or []
+            for citation in citations:
+                if not isinstance(citation, dict):
+                    raise DomainValidationError(
+                        "FACT_CITATION_INVALID",
+                        "Fact citations must be structured objects",
+                        details={"module_type": block.get("module_type")},
+                    )
+                code = str(citation.get("fact_card_code") or "")
+                version = citation.get("version_number")
+                if not code or not isinstance(version, int) or (code, version) not in fact_versions:
+                    raise DomainValidationError(
+                        "FACT_CITATION_NOT_APPROVED",
+                        "A fact citation must point to an approved pinned fact-card revision",
+                        details={"module_type": block.get("module_type"), "fact_card_code": code, "version_number": version},
+                    )
+                claim = citation.get("claim_text")
+                start = citation.get("start_offset")
+                end = citation.get("end_offset")
+                if claim is not None and (not isinstance(start, int) or not isinstance(end, int) or start < 0 or end <= start or end > len(str(block.get("content") or ""))):
+                    raise DomainValidationError(
+                        "FACT_CITATION_SPAN_INVALID",
+                        "Fact citation claim spans must stay within the ScriptBlock text",
+                        details={"module_type": block.get("module_type"), "fact_card_code": code},
+                    )
             if not any(marker.lower() in text for marker in restricted_markers):
                 continue
-            citations = block.get("fact_citations") or []
             cited_codes = {
                 str(citation.get("fact_card_code"))
                 for citation in citations
@@ -732,27 +842,99 @@ class FunctionalContentService:
 
     @staticmethod
     def _template_refs(content: dict[str, Any]) -> list[dict[str, Any]]:
-        codes = [code for code in [content.get("primary_template_code"), *(content.get("secondary_template_codes") or [])] if code]
-        return [{"template_code": code, "revision": "selected", "contribution": "content_reference"} for code in codes]
-
-    @staticmethod
-    def _script_blocks(goal: str, content: dict[str, Any]) -> list[dict[str, Any]]:
-        theme = content.get("theme") or goal
-        story = content.get("story") or "从真实使用场景出发，给出容易理解的选择建议。"
+        refs = [content.get("primary_template_ref"), *(content.get("secondary_template_refs") or [])]
         return [
-            {"module_type": "opening", "content": f"今天我们围绕{theme}展开，目标是{goal}。", "estimated_duration_ms": 45_000},
-            {"module_type": "story", "content": story, "estimated_duration_ms": 90_000},
-            {"module_type": "conversion", "content": "结合你的实际需求选择合适方案，欢迎在互动区留下你的使用场景。", "estimated_duration_ms": 45_000, "cta_intent": {"type": "comment"}},
+            {
+                "template_code": ref["template_code"],
+                "revision": ref["revision"],
+                "contribution": ref.get("contribution", "content_reference"),
+                "selection_role": ref.get("selection_role"),
+            }
+            for ref in refs
+            if isinstance(ref, dict) and ref.get("template_code") and isinstance(ref.get("revision"), int)
         ]
 
     @staticmethod
+    def _script_blocks(
+        goal: str,
+        content: dict[str, Any],
+        approved_facts: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        theme = content.get("theme") or goal
+        story = content.get("story") or "从真实使用场景出发，给出容易理解的选择建议。"
+        primary_sources = [
+            ref for ref in FunctionalContentService._template_refs(content)
+            if ref.get("selection_role") == "primary"
+        ]
+        secondary_sources = [
+            ref for ref in FunctionalContentService._template_refs(content)
+            if ref.get("selection_role") == "secondary"
+        ]
+        blocks = [
+            {
+                "module_type": "opening",
+                "content": f"今天我们围绕{theme}展开，目标是{goal}。",
+                "estimated_duration_ms": 45_000,
+                "template_sources": primary_sources,
+            },
+            {
+                "module_type": "story",
+                "content": story,
+                "estimated_duration_ms": 90_000,
+                "template_sources": primary_sources,
+            },
+        ]
+        for fact in approved_facts:
+            fact_content = fact.get("content") or {}
+            verified_facts = fact_content.get("verified_facts") or []
+            if not isinstance(verified_facts, list):
+                continue
+            for fact_index, raw_fact in enumerate(verified_facts[:3]):
+                claim = str(raw_fact).strip()
+                if not claim:
+                    continue
+                blocks.append(
+                    {
+                        "module_type": "product_fact",
+                        "content": claim,
+                        "estimated_duration_ms": 30_000,
+                        "template_sources": primary_sources,
+                        "fact_citations": [
+                            {
+                                "fact_card_code": fact["fact_card_code"],
+                                "version_number": fact["version_number"],
+                                "field_path": f"verified_facts[{fact_index}]",
+                                "claim_text": claim,
+                                "start_offset": 0,
+                                "end_offset": len(claim),
+                            }
+                        ],
+                    }
+                )
+        blocks.append(
+            {
+                "module_type": "conversion",
+                "content": "结合你的实际需求选择合适方案，欢迎在互动区留下你的使用场景。",
+                "estimated_duration_ms": 45_000,
+                "template_sources": secondary_sources or primary_sources,
+                "cta_intent": {"type": "comment"},
+            },
+        )
+        return blocks
+
+    @staticmethod
     def _segments(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        phases = ("opening", "body", "conversion")
-        goals = ("建立主题和观看预期", "解释核心故事与选择理由", "引导互动与下一步")
+        phase_by_module = {"opening": "opening", "story": "body", "product_fact": "body", "conversion": "conversion"}
+        goal_by_module = {
+            "opening": "建立主题和观看预期",
+            "story": "解释核心故事与选择理由",
+            "product_fact": "说明已批准的产品事实",
+            "conversion": "引导互动与下一步",
+        }
         return [
             {
-                "semantic_goal": goals[index],
-                "program_phase": phases[index],
+                "semantic_goal": goal_by_module.get(str(block.get("module_type")), "传达内容模块"),
+                "program_phase": phase_by_module.get(str(block.get("module_type")), "body"),
                 "estimated_duration_ms": block.get("estimated_duration_ms"),
                 "script_block_adoptions": [{"block_code": block["block_code"], "content_action": "deliver"}],
             }
@@ -767,7 +949,9 @@ class FunctionalContentService:
                 "program_segment_code": segment["segment_code"],
                 "shot_goal": segment["semantic_goal"],
                 "composition_intent": {"style": "talking_head", "focus": "host" if index == 0 else "product_or_message"},
-                "material_role_requirements": default_roles if index < 2 else ["digital_human", "promotion_text"],
+                "material_role_requirements": FunctionalContentService._shot_material_roles(
+                    blocks[index].get("module_type"), default_roles
+                ),
                 "audio_actions": [],
                 "continuity": {"from_previous": index > 0},
                 "acceptance_criteria": ["script_visible", "required_materials_present"],
@@ -778,6 +962,14 @@ class FunctionalContentService:
             }
             for index, segment in enumerate(segments)
         ]
+
+    @staticmethod
+    def _shot_material_roles(module_type: Any, default_roles: list[str]) -> list[str]:
+        if module_type in {"opening", "story"}:
+            return default_roles
+        if module_type == "product_fact":
+            return ["digital_human", "product_image"]
+        return ["digital_human", "promotion_text"]
 
     @staticmethod
     def _summary(row: dict[str, Any]) -> dict[str, Any]:
@@ -797,7 +989,7 @@ class FunctionalContentService:
     def _script_view(cursor: Any, row: dict[str, Any] | None) -> dict[str, Any] | None:
         if row is None:
             return None
-        cursor.execute("SELECT block_code, module_type, content, estimated_duration_ms FROM content_script_blocks WHERE script_revision_id = %s ORDER BY sort_order", (row["id"],))
+        cursor.execute("SELECT block_code, module_type, content, estimated_duration_ms, fact_citations, template_sources, interaction_intent, cta_intent FROM content_script_blocks WHERE script_revision_id = %s ORDER BY sort_order", (row["id"],))
         return {"script_revision_code": row["script_revision_code"], "revision_number": row["revision_number"], "title": row["title"], "blocks": cursor.fetchall()}
 
     @staticmethod

@@ -10,7 +10,9 @@ import pytest
 
 from app.services.functional_content import FunctionalContentService
 from app.domain.errors import DomainConflictError, DomainValidationError
+from app.repositories.live_observations import LiveObservationRepository
 from app.repositories.maitu_workbench import MaituWorkbenchRepository
+from app.services.live_observations import build_template_projection
 
 
 DATABASE_URL = os.getenv("ASSETGRAPH_TEST_DATABASE_URL")
@@ -85,8 +87,8 @@ def test_fact_citation_guard_blocks_restricted_claim_without_approved_source() -
     assert invalid.value.code == "FACT_CITATION_REQUIRED"
 
     FunctionalContentService._validate_fact_citations(
-        [{"module_type": "conversion", "content": "当前价格以批准事实为准。", "fact_citations": [{"fact_card_code": "MT-FACT-001"}]}],
-        [{"fact_card_code": "MT-FACT-001"}],
+        [{"module_type": "conversion", "content": "当前价格以批准事实为准。", "fact_citations": [{"fact_card_code": "MT-FACT-001", "version_number": 1}]}],
+        [{"fact_card_code": "MT-FACT-001", "version_number": 1}],
     )
 
 
@@ -175,6 +177,112 @@ def test_content_project_pins_and_revalidates_approved_fact_version() -> None:
         with pytest.raises(DomainValidationError) as invalid:
             service.generate_chain(created["project_code"], actor_id="test-operator")
         assert invalid.value.code == "FACT_CARD_NOT_APPROVED"
+
+
+def test_generated_fact_sentence_has_pinned_fact_citation() -> None:
+    with psycopg.connect(DATABASE_URL) as connection:
+        facts = MaituWorkbenchRepository(connection)
+        fact_content = {
+            "product_name": "Verified product",
+            "verified_facts": ["库存充足，适合本周活动。"],
+            "applicable_platforms": ["douyin"],
+        }
+        fact = facts.create_product_fact_card(
+            {
+                "title": f"Citation fact {uuid4().hex}",
+                "content": fact_content,
+                "approve": True,
+                "approved_by": "test-reviewer",
+            },
+            content_sha256=sha256(json.dumps(fact_content, sort_keys=True).encode()).hexdigest(),
+        )
+        service = FunctionalContentService(connection)
+        created = service.create_project(
+            {
+                "title": f"Citation project {uuid4().hex}",
+                "generation_goal": "Explain an approved product fact",
+                "platform": "douyin",
+                "fact_card_refs": [{"fact_card_code": fact["fact_card_code"], "version_number": 1}],
+            },
+            actor_id="test-operator",
+        )
+        service.confirm_project(created["project_code"], expected_revision=1, actor_id="test-operator")
+        service.parse_design_brief(created["project_code"], expected_revision=1, raw_input="Use approved facts only.", actor_id="test-operator")
+        service.confirm_design_brief(created["project_code"], expected_revision=1, actor_id="test-operator")
+        generated = service.generate_chain(created["project_code"], actor_id="test-operator")
+
+        fact_block = next(block for block in generated["script"]["blocks"] if block["module_type"] == "product_fact")
+        citation = fact_block["fact_citations"][0]
+        assert fact_block["content"] == "库存充足，适合本周活动。"
+        assert citation["fact_card_code"] == fact["fact_card_code"]
+        assert citation["version_number"] == 1
+        assert citation["claim_text"] == fact_block["content"]
+        assert citation["start_offset"] == 0
+        assert citation["end_offset"] == len(fact_block["content"])
+
+
+def test_content_project_pins_published_template_revision() -> None:
+    with psycopg.connect(DATABASE_URL) as connection:
+        live = LiveObservationRepository(connection)
+        template = live.create_room_template({"name": f"Content reference {uuid4().hex}", "description": None})
+        revision_payload = {
+            "source_session_code": None,
+            "contract_version": "content-strategy.v2",
+            "canvas": {"width": 1080, "height": 1920},
+            "scenes": [{"scene_key": "opening"}],
+            "components": [],
+            "audio_policy": {},
+            "provenance": {"source_session_codes": ["TEST-SESSION-1"]},
+            "confidence": 0.8,
+            "created_by": "test-operator",
+            "content_fingerprint": sha256(uuid4().hex.encode()).hexdigest(),
+        }
+        first = live.create_room_template_revision(template["template_code"], revision_payload)
+        published = live.publish_room_template_revision(
+            template["template_code"],
+            first["revision_number"],
+            {"reviewed_by": "test-reviewer", "review_notes": "reviewed", "published_by": "test-reviewer"},
+            build_template_projection(template, first),
+        )
+        assert published["revision_number"] == 1
+
+        service = FunctionalContentService(connection)
+        project = service.create_project(
+            {
+                "title": f"Template pin {uuid4().hex}",
+                "generation_goal": "Use a stable content rhythm",
+                "primary_template_code": template["template_code"],
+            },
+            actor_id="test-operator",
+        )
+        assert project["project_code"]
+        detail = service.get_detail(project["project_code"])
+        assert detail is not None
+        assert detail["content"]["primary_template_ref"]["revision"] == 1
+
+        second = live.create_room_template_revision(
+            template["template_code"],
+            {**revision_payload, "content_fingerprint": sha256(uuid4().hex.encode()).hexdigest()},
+        )
+        live.publish_room_template_revision(
+            template["template_code"],
+            second["revision_number"],
+            {"reviewed_by": "test-reviewer", "review_notes": "updated", "published_by": "test-reviewer"},
+            build_template_projection(template, second),
+        )
+        confirmed = service.confirm_project(project["project_code"], expected_revision=1, actor_id="test-operator")
+        assert confirmed["content"]["primary_template_ref"]["revision"] == 1
+        service.parse_design_brief(project["project_code"], expected_revision=1, raw_input="Keep the selected template version.", actor_id="test-operator")
+        service.confirm_design_brief(project["project_code"], expected_revision=1, actor_id="test-operator")
+        generated = service.generate_chain(project["project_code"], actor_id="test-operator")
+        assert generated["script"]["blocks"][0]["template_sources"] == [
+            {
+                "template_code": template["template_code"],
+                "revision": 1,
+                "contribution": "primary_structure",
+                "selection_role": "primary",
+            }
+        ]
 
 
 def test_design_brief_parse_is_bounded_and_requires_explicit_confirmation() -> None:

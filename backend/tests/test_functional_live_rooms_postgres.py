@@ -6,6 +6,7 @@ from uuid import uuid4
 import psycopg
 import pytest
 
+from app.domain.errors import DomainValidationError
 from app.repositories.assets import AssetRepository
 from app.services.functional_content import FunctionalContentService
 from app.services.functional_live_rooms import FunctionalLiveRoomService
@@ -43,6 +44,14 @@ def _generated_project(connection: psycopg.Connection, suffix: str) -> dict:
         },
         actor_id="test-operator",
     )
+    content.confirm_project(project["project_code"], expected_revision=1, actor_id="test-operator")
+    content.parse_design_brief(
+        project["project_code"],
+        expected_revision=1,
+        raw_input="Create the project baseline before the live-room branch.",
+        actor_id="test-operator",
+    )
+    content.confirm_design_brief(project["project_code"], expected_revision=1, actor_id="test-operator")
     return content.generate_chain(project["project_code"], actor_id="test-operator")
 
 
@@ -62,8 +71,6 @@ def test_functional_live_room_plan_compiles_and_only_requests_maitu_execution() 
                 "project_code": project["project_code"],
                 "target_live_room_id": f"empty-draft-{suffix}",
                 "expected_title": "Product launch draft",
-                "primary_template_code": "TPL-PRIMARY",
-                "secondary_template_codes": ["TPL-SECONDARY"],
                 "asset_codes": [item["asset_code"] for item in selected],
                 "group_codes": [],
             },
@@ -109,3 +116,28 @@ def test_functional_live_room_plan_blocks_unbound_required_material() -> None:
         blocked = service.confirm_execution(plan["plan_code"], confirmed=True)
         assert blocked is not None
         assert blocked["execution_status"] == "blocked"
+
+
+def test_live_room_plan_rejects_template_not_pinned_by_content_project() -> None:
+    suffix = uuid4().hex
+    with psycopg.connect(DATABASE_URL) as connection:
+        assets = AssetRepository(connection)
+        project = _generated_project(connection, suffix)
+        selected = [
+            _asset(assets, suffix, "digital_human"),
+            _asset(assets, suffix, "background"),
+            _asset(assets, suffix, "promotion_text"),
+        ]
+        with pytest.raises(DomainValidationError) as invalid:
+            FunctionalLiveRoomService(connection).create_plan(
+                {
+                    "project_code": project["project_code"],
+                    "target_live_room_id": f"empty-draft-{suffix}",
+                    "expected_title": "Template mismatch",
+                    "primary_template_code": "LR-TPL-NOT-PINNED",
+                    "asset_codes": [item["asset_code"] for item in selected],
+                    "group_codes": [],
+                },
+                actor_id="test-operator",
+            )
+        assert invalid.value.code == "LIVE_ROOM_TEMPLATE_SELECTION_MISMATCH"

@@ -11,7 +11,7 @@ class FunctionalLiveRoomPlanCreate(BaseModel):
     target_live_room_id: str = Field(min_length=1, max_length=128)
     expected_title: str = Field(min_length=1, max_length=255)
     primary_template_code: str | None = Field(default=None, max_length=80)
-    secondary_template_codes: list[str] = Field(default_factory=list, max_length=3)
+    secondary_template_codes: list[str] = Field(default_factory=list)
     asset_codes: list[str] = Field(default_factory=list)
     group_codes: list[str] = Field(default_factory=list)
 

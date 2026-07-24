@@ -33,7 +33,9 @@ class ContentProjectCreate(BaseModel):
     fact_card_codes: list[str] = Field(default_factory=list)
     fact_card_refs: list[FactCardReference] = Field(default_factory=list)
     primary_template_code: str | None = Field(default=None, max_length=80)
-    secondary_template_codes: list[str] = Field(default_factory=list, max_length=3)
+    # Secondary templates are narrowed by the context compiler, not by a UI
+    # cardinality cap. The project must retain the complete selected set.
+    secondary_template_codes: list[str] = Field(default_factory=list)
 
     @field_validator("secondary_template_codes")
     @classmethod
@@ -76,7 +78,7 @@ class ContentProjectUpdate(BaseModel):
     fact_card_codes: list[str] | None = None
     fact_card_refs: list[FactCardReference] | None = None
     primary_template_code: str | None = Field(default=None, max_length=80)
-    secondary_template_codes: list[str] | None = Field(default=None, max_length=3)
+    secondary_template_codes: list[str] | None = None
 
     @model_validator(mode="after")
     def validate_template_and_fact_selection(self) -> "ContentProjectUpdate":

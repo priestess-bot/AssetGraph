@@ -44,10 +44,7 @@ class FunctionalLiveRoomService:
                 for asset in selected_assets
             ],
         }
-        templates = {
-            "primary_template_code": payload.get("primary_template_code"),
-            "secondary_template_codes": payload.get("secondary_template_codes") or [],
-        }
+        templates = self._project_template_selection(detail, payload)
         variant = self.production.create_production_variant(
             project_code=detail["project_code"],
             project_revision=int(detail["revision_number"]),
@@ -100,8 +97,8 @@ class FunctionalLiveRoomService:
                 """,
                 (
                     code, detail["project_code"], variant["variant_code"], configuration["configuration_code"],
-                    payload["target_live_room_id"], payload["expected_title"], payload.get("primary_template_code"),
-                    Jsonb(payload.get("secondary_template_codes") or []), Jsonb(snapshot["asset_codes"]),
+                    payload["target_live_room_id"], payload["expected_title"], templates["primary_template_code"],
+                    Jsonb(templates["secondary_template_codes"]), Jsonb(snapshot["asset_codes"]),
                     Jsonb(payload.get("group_codes") or []), Jsonb(blueprint), Jsonb(build_plan), status, Jsonb(blocked_reasons),
                 ),
             )
@@ -183,6 +180,45 @@ class FunctionalLiveRoomService:
         if missing:
             raise DomainValidationError("LIVE_ROOM_ASSET_NOT_FOUND", "Selected assets no longer exist", details={"asset_codes": missing})
         return [by_code[code] for code in codes]
+
+    @staticmethod
+    def _project_template_selection(detail: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+        """Keep the live-room branch bound to the ContentProject's inputs.
+
+        A downstream plan cannot silently swap a content template because the
+        project confirmation is the point that freezes its published revision
+        and contribution decision.  The optional request fields remain for
+        compatibility, but may only repeat the already pinned selection.
+        """
+        content = detail.get("content") or {}
+        primary_ref = content.get("primary_template_ref")
+        secondary_refs = content.get("secondary_template_refs") or []
+        primary_code = primary_ref.get("template_code") if isinstance(primary_ref, dict) else None
+        secondary_codes = [
+            str(ref["template_code"])
+            for ref in secondary_refs
+            if isinstance(ref, dict) and ref.get("template_code")
+        ]
+        requested_primary = str(payload.get("primary_template_code") or "").strip() or None
+        requested_secondary = [str(code).strip() for code in payload.get("secondary_template_codes") or [] if str(code).strip()]
+        if requested_primary is not None and requested_primary != primary_code:
+            raise DomainValidationError(
+                "LIVE_ROOM_TEMPLATE_SELECTION_MISMATCH",
+                "Live-room plans must use the ContentProject primary template revision",
+                details={"requested": requested_primary, "project_template": primary_code},
+            )
+        if requested_secondary and requested_secondary != secondary_codes:
+            raise DomainValidationError(
+                "LIVE_ROOM_TEMPLATE_SELECTION_MISMATCH",
+                "Live-room plans must use the ContentProject secondary template revisions",
+                details={"requested": requested_secondary, "project_templates": secondary_codes},
+            )
+        return {
+            "primary_template_code": primary_code,
+            "secondary_template_codes": secondary_codes,
+            "primary_template_ref": primary_ref if isinstance(primary_ref, dict) else None,
+            "secondary_template_refs": [ref for ref in secondary_refs if isinstance(ref, dict)],
+        }
 
     @staticmethod
     def _compile(detail: dict[str, Any], assets: list[dict[str, Any]], payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
