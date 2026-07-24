@@ -72,6 +72,22 @@ describe("operations api", () => {
       unobserved_seconds: 480,
       status: "resolved",
       missing_plan_codes: [],
+      alignment_coverage_ratio: 0.2,
+      time_mapping: {
+        mapping_code: "TIME-MAP-001",
+        session_code: "OPS-001",
+        revision_number: 2,
+        status: "active",
+        source_clock: "recording_elapsed_ms",
+        source_kind: "recording_anchor",
+        source_offset_ms: 120,
+        drift_ppm: 5,
+        coverage_start_ms: 0,
+        coverage_end_ms: 120000,
+        evidence_note: "matched recording anchors",
+        actor: "operator",
+        created_at: "2026-07-25T12:11:00Z",
+      },
       spans: [{
         exposure_code: "EXPOSURE-001",
         plan_code: "PLAN-001",
@@ -89,6 +105,9 @@ describe("operations api", () => {
           script_blocks: [{ block_code: "BLOCK-001", module_type: "conversion", product_ref: "PROD-001", template_modules: [{ template_code: "TEMPLATE-001", revision: 2, module_key: "conversion" }], cta_intent: { type: "comment" } }],
         },
         layers: [],
+        source_start_ms: 120,
+        source_end_ms: 120121,
+        alignment_status: "aligned",
       }],
     })));
 
@@ -99,5 +118,55 @@ describe("operations api", () => {
       programSegment: { segmentCode: "SEGMENT-001", programPhase: "conversion", semanticGoal: "引导互动", productRefs: ["PROD-001"], ctaActions: [{ type: "comment" }] },
       scriptBlocks: [{ blockCode: "BLOCK-001", moduleType: "conversion", productRef: "PROD-001", templateModules: [{ templateCode: "TEMPLATE-001", revision: 2, moduleKey: "conversion" }], ctaIntent: { type: "comment" } }],
     });
+    expect(timeline.timeMapping).toMatchObject({
+      mappingCode: "TIME-MAP-001",
+      revisionNumber: 2,
+      sourceOffsetMs: 120,
+    });
+    expect(timeline.spans[0]).toMatchObject({
+      sourceStartMs: 120,
+      sourceEndMs: 120121,
+      alignmentStatus: "aligned",
+    });
+  });
+
+  it("creates a revisioned session time mapping", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      response({
+        mapping_code: "TIME-MAP-001",
+        session_code: "OPS-001",
+        revision_number: 1,
+        status: "active",
+        source_clock: "recording_elapsed_ms",
+        source_kind: "recording_anchor",
+        source_offset_ms: 0,
+        drift_ppm: 0,
+        coverage_start_ms: 0,
+        coverage_end_ms: 600000,
+        evidence_note: "opening anchor",
+        actor: "operator",
+        created_at: "2026-07-25T12:11:00Z",
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const payload = {
+      expected_revision: 0,
+      source_clock: "recording_elapsed_ms",
+      source_kind: "recording_anchor",
+      source_offset_ms: 0,
+      drift_ppm: 0,
+      coverage_start_ms: 0,
+      coverage_end_ms: 600000,
+      evidence_note: "opening anchor",
+      actor: "operator",
+    };
+
+    const mapping = await operationsApi.createTimeMapping("OPS-001", payload);
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
+      "/api/functional-operations/sessions/OPS-001/time-mappings",
+    );
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual(payload);
+    expect(mapping).toMatchObject({ mappingCode: "TIME-MAP-001", revisionNumber: 1 });
   });
 });

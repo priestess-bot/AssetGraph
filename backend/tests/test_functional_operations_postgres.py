@@ -228,3 +228,85 @@ def test_operations_pin_active_metric_definition_revisions_in_session_and_report
             "fingerprint_sha256"
         ]
         assert report["results"]["metadata"]["metric_definition_state"] == "resolved"
+
+
+def test_session_time_mapping_is_revisioned_and_bounded_by_session_duration() -> None:
+    suffix = uuid4().hex
+    start = datetime.now(UTC).replace(microsecond=0)
+    with psycopg.connect(DATABASE_URL) as connection:
+        operations = FunctionalOperationsService(connection)
+        session = operations.import_session(
+            {
+                "title": f"Aligned session {suffix}",
+                "platform": "douyin",
+                "started_at": start,
+                "ended_at": start + timedelta(minutes=10),
+                "metrics": {},
+            }
+        )
+        first = operations.create_time_mapping(
+            session["session_code"],
+            {
+                "expected_revision": 0,
+                "source_clock": "recording_elapsed_ms",
+                "source_kind": "recording_anchor",
+                "source_offset_ms": 120,
+                "drift_ppm": 3.5,
+                "coverage_start_ms": 0,
+                "coverage_end_ms": 300_000,
+                "evidence_note": "Matched the first product scene to the recording.",
+                "actor": "operator",
+            },
+        )
+        second = operations.create_time_mapping(
+            session["session_code"],
+            {
+                "expected_revision": 1,
+                "source_clock": "recording_elapsed_ms",
+                "source_kind": "recording_anchor",
+                "source_offset_ms": 150,
+                "drift_ppm": 4,
+                "coverage_start_ms": 0,
+                "coverage_end_ms": 600_000,
+                "evidence_note": "Matched opening and closing anchors.",
+                "actor": "operator",
+            },
+        )
+        history = operations.list_time_mappings(session["session_code"])
+        assert second["revision_number"] == 2
+        assert [item["status"] for item in history] == ["active", "superseded"]
+        assert history[1]["mapping_code"] == first["mapping_code"]
+
+        with pytest.raises(DomainValidationError) as stale:
+            operations.create_time_mapping(
+                session["session_code"],
+                {
+                    "expected_revision": 1,
+                    "source_clock": "recording_elapsed_ms",
+                    "source_kind": "manual_calibration",
+                    "source_offset_ms": 0,
+                    "drift_ppm": 0,
+                    "coverage_start_ms": 0,
+                    "coverage_end_ms": 600_000,
+                    "evidence_note": "Stale edit.",
+                    "actor": "operator",
+                },
+            )
+        assert stale.value.code == "TIME_MAPPING_REVISION_CONFLICT"
+
+        with pytest.raises(DomainValidationError) as outside:
+            operations.create_time_mapping(
+                session["session_code"],
+                {
+                    "expected_revision": 2,
+                    "source_clock": "recording_elapsed_ms",
+                    "source_kind": "manual_calibration",
+                    "source_offset_ms": 0,
+                    "drift_ppm": 0,
+                    "coverage_start_ms": 0,
+                    "coverage_end_ms": 600_001,
+                    "evidence_note": "Outside the session.",
+                    "actor": "operator",
+                },
+            )
+        assert outside.value.code == "TIME_MAPPING_COVERAGE_OUTSIDE_SESSION"

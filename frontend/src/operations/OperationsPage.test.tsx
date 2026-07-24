@@ -47,6 +47,8 @@ describe("OperationsPage", () => {
       if (url === "/api/functional-operations/sessions") return response([]);
       if (url === "/api/functional-operations/exposures" || url === "/api/functional-operations/attribution-reports" || url === "/api/functional-operations/schedule-plans" || url === "/api/functional-live-room-plans") return response([]);
       if (url === "/api/functional-operations/sessions/OPS-001/content-timeline") return response({ session_code: "OPS-001", started_at: "2026-07-20T12:00:00Z", ended_at: "2026-07-20T13:30:00Z", total_seconds: 5400, observed_seconds: 0, coverage_ratio: 0, unobserved_seconds: 5400, status: "resolved", missing_plan_codes: [], spans: [] });
+      if (url === "/api/functional-operations/sessions/OPS-001/time-mappings" && init?.method === "POST") return response({ mapping_code: "TIME-MAP-001", session_code: "OPS-001", revision_number: 1, status: "active", source_clock: "recording_elapsed_ms", source_kind: "manual_calibration", source_offset_ms: 0, drift_ppm: 0, coverage_start_ms: 0, coverage_end_ms: 5400000, evidence_note: "开场锚点", actor: "functional-operator", created_at: "2026-07-20T13:31:00Z" });
+      if (url === "/api/functional-operations/sessions/OPS-001/time-mappings") return response([]);
       throw new Error(`Unexpected request: ${url}`);
     }));
     const user = userEvent.setup();
@@ -67,6 +69,19 @@ describe("OperationsPage", () => {
     expect(body.started_at).toBe(new Date("2026-07-20T20:00").toISOString());
     expect(body.ended_at).toBe(new Date("2026-07-20T21:30").toISOString());
     expect(body.metrics).toEqual({ watchers: 120, orders: 8 });
+
+    await screen.findByText("尚未校准来源时钟");
+    await user.type(screen.getByLabelText("校准证据"), "开场锚点");
+    await user.click(screen.getByRole("button", { name: "保存时间对齐" }));
+    await waitFor(() => expect(requests.some((item) => item.url === "/api/functional-operations/sessions/OPS-001/time-mappings" && item.init?.method === "POST")).toBe(true));
+    const mappingRequest = requests.find((item) => item.url === "/api/functional-operations/sessions/OPS-001/time-mappings" && item.init?.method === "POST");
+    expect(JSON.parse(String(mappingRequest?.init?.body))).toMatchObject({
+      expected_revision: 0,
+      source_clock: "recording_elapsed_ms",
+      coverage_start_ms: 0,
+      coverage_end_ms: 5400000,
+      evidence_note: "开场锚点",
+    });
   });
 
   it("pins a selected metric catalog revision with the submitted session value", async () => {
@@ -78,6 +93,7 @@ describe("OperationsPage", () => {
       if (url === "/api/functional-operations/sessions") return response([]);
       if (url === "/api/functional-operations/exposures" || url === "/api/functional-operations/attribution-reports" || url === "/api/functional-operations/schedule-plans" || url === "/api/functional-live-room-plans") return response([]);
       if (url === "/api/functional-operations/sessions/OPS-002/content-timeline") return response({ session_code: "OPS-002", started_at: "2026-07-20T12:00:00Z", ended_at: "2026-07-20T13:00:00Z", total_seconds: 3600, observed_seconds: 0, coverage_ratio: 0, unobserved_seconds: 3600, status: "resolved", missing_plan_codes: [], spans: [] });
+      if (url === "/api/functional-operations/sessions/OPS-002/time-mappings") return response([]);
       throw new Error(`Unexpected request: ${url}`);
     }));
     const user = userEvent.setup();
@@ -126,6 +142,8 @@ describe("OperationsPage", () => {
       if (url === "/api/functional-live-room-plans") return response([{ plan_code: "PLAN-001", expected_title: "晚场计划", blueprint: { schema_version: "maitu.v1", scenes: [{ scene_code: "SCENE-001", shot_code: "SHOT-001", title: "商品展示", script: "", layers: [] }] }, build_plan: { schema_version: "build.v1", target_live_room_id: "ROOM-001", operations: [] }, status: "ready", execution_status: "planned", updated_at: "2026-07-20T13:00:00Z" }]);
       if (url === "/api/functional-operations/exposure-corrections" && init?.method === "POST") return response({ exposure_code: "EXP-002", session_code: "OPS-001", plan_code: "PLAN-001", variant_code: "VAR-001", scene_code: "SCENE-001", started_at: "2026-07-20T12:05:00Z", ended_at: "2026-07-20T12:10:00Z", source_kind: "manual_observation", evidence_note: "现场记录", confidence: .8, status: "active", supersedes_exposure_code: "EXP-001", correction_reason: "录屏复核后更正", created_at: "2026-07-20T13:02:00Z" });
       if (url === "/api/functional-operations/attribution-reports" || url === "/api/functional-operations/schedule-plans") return response([]);
+      if (url === "/api/functional-operations/sessions/OPS-001/content-timeline") return response({ session_code: "OPS-001", started_at: "2026-07-20T12:00:00Z", ended_at: "2026-07-20T13:00:00Z", total_seconds: 3600, observed_seconds: 300, coverage_ratio: 1 / 12, unobserved_seconds: 3300, status: "resolved", missing_plan_codes: [], spans: [] });
+      if (url === "/api/functional-operations/sessions/OPS-001/time-mappings") return response([]);
       throw new Error(`Unexpected request: ${url}`);
     }));
     const user = userEvent.setup();

@@ -373,6 +373,95 @@ class FunctionalOperationsService:
             )
             return [dict(row) for row in cursor.fetchall()]
 
+    def create_time_mapping(self, session_code: str, payload: dict[str, Any]) -> dict[str, Any]:
+        try:
+            with self.connection.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    "SELECT * FROM functional_operation_sessions WHERE session_code = %s FOR UPDATE",
+                    (session_code,),
+                )
+                session = cursor.fetchone()
+                if session is None:
+                    raise DomainValidationError(
+                        "TIME_MAPPING_SESSION_NOT_FOUND",
+                        "The operation session does not exist",
+                    )
+                session_duration_ms = round(
+                    (session["ended_at"] - session["started_at"]).total_seconds() * 1000
+                )
+                if payload["coverage_end_ms"] > session_duration_ms:
+                    raise DomainValidationError(
+                        "TIME_MAPPING_COVERAGE_OUTSIDE_SESSION",
+                        "Time mapping coverage must be contained by the operation session",
+                        details={
+                            "coverage_end_ms": payload["coverage_end_ms"],
+                            "session_duration_ms": session_duration_ms,
+                        },
+                    )
+                cursor.execute(
+                    """SELECT * FROM functional_session_time_mappings
+                       WHERE session_id = %s
+                       ORDER BY revision_number DESC LIMIT 1 FOR UPDATE""",
+                    (session["id"],),
+                )
+                current = cursor.fetchone()
+                current_revision = int(current["revision_number"]) if current else 0
+                if payload["expected_revision"] != current_revision:
+                    raise DomainValidationError(
+                        "TIME_MAPPING_REVISION_CONFLICT",
+                        "The time mapping changed since it was loaded",
+                        details={
+                            "expected_revision": payload["expected_revision"],
+                            "actual_revision": current_revision,
+                        },
+                    )
+                if current is not None and current["status"] == "active":
+                    cursor.execute(
+                        "UPDATE functional_session_time_mappings SET status = 'superseded' WHERE id = %s",
+                        (current["id"],),
+                    )
+                mapping_code = self._next(
+                    cursor, "TIME-MAP", "functional_session_time_mapping"
+                )
+                cursor.execute(
+                    """INSERT INTO functional_session_time_mappings
+                       (mapping_code,session_id,session_code,revision_number,status,source_clock,
+                        source_kind,source_offset_ms,drift_ppm,coverage_start_ms,coverage_end_ms,
+                        evidence_note,actor)
+                       VALUES (%s,%s,%s,%s,'active',%s,%s,%s,%s,%s,%s,%s,%s)
+                       RETURNING *""",
+                    (
+                        mapping_code,
+                        session["id"],
+                        session["session_code"],
+                        current_revision + 1,
+                        payload["source_clock"].strip(),
+                        payload["source_kind"],
+                        payload["source_offset_ms"],
+                        payload["drift_ppm"],
+                        payload["coverage_start_ms"],
+                        payload["coverage_end_ms"],
+                        payload["evidence_note"].strip(),
+                        payload["actor"].strip(),
+                    ),
+                )
+                row = cursor.fetchone()
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+        return dict(row)
+
+    def list_time_mappings(self, session_code: str) -> list[dict[str, Any]]:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """SELECT * FROM functional_session_time_mappings
+                   WHERE session_code = %s
+                   ORDER BY revision_number DESC""",
+                (session_code,),
+            )
+            return [dict(row) for row in cursor.fetchall()]
+
     @staticmethod
     def _timeline_content_projections(
         cursor: Any, variant_codes: list[str]
@@ -450,6 +539,13 @@ class FunctionalOperationsService:
                     "The operation session does not exist",
                 )
             cursor.execute(
+                """SELECT * FROM functional_session_time_mappings
+                   WHERE session_code = %s AND status = 'active'
+                   ORDER BY revision_number DESC LIMIT 1""",
+                (session_code,),
+            )
+            time_mapping = cursor.fetchone()
+            cursor.execute(
                 """SELECT exposure_code, plan_code, variant_code, release_code, scene_code,
                           started_at, ended_at, source_kind, confidence
                    FROM functional_content_exposures
@@ -475,6 +571,7 @@ class FunctionalOperationsService:
             )
 
         total_seconds = (session["ended_at"] - session["started_at"]).total_seconds()
+        total_milliseconds = round(total_seconds * 1000)
         observed_seconds = 0.0
         missing_plan_codes: list[str] = []
         spans: list[dict[str, Any]] = []
@@ -544,6 +641,27 @@ class FunctionalOperationsService:
                 }
             )
         observed_seconds = min(total_seconds, observed_seconds)
+        mapped_duration_ms = 0
+        mapping = dict(time_mapping) if time_mapping is not None else None
+        for span in spans:
+            if mapping is None:
+                span["alignment_status"] = "unmapped"
+                continue
+            start_ms = round((span["started_at"] - session["started_at"]).total_seconds() * 1000)
+            end_ms = round((span["ended_at"] - session["started_at"]).total_seconds() * 1000)
+            scale = 1 + float(mapping["drift_ppm"]) / 1_000_000
+            span["source_start_ms"] = round(int(mapping["source_offset_ms"]) + start_ms * scale)
+            span["source_end_ms"] = round(int(mapping["source_offset_ms"]) + end_ms * scale)
+            coverage_start = int(mapping["coverage_start_ms"])
+            coverage_end = int(mapping["coverage_end_ms"])
+            overlap_ms = max(0, min(end_ms, coverage_end) - max(start_ms, coverage_start))
+            mapped_duration_ms += overlap_ms
+            if overlap_ms == end_ms - start_ms:
+                span["alignment_status"] = "aligned"
+            elif overlap_ms:
+                span["alignment_status"] = "partially_aligned"
+            else:
+                span["alignment_status"] = "outside_coverage"
         return {
             "session_code": session_code,
             "started_at": session["started_at"],
@@ -557,6 +675,10 @@ class FunctionalOperationsService:
             "status": "partial" if missing_plan_codes else "resolved",
             "missing_plan_codes": missing_plan_codes,
             "spans": spans,
+            "time_mapping": mapping,
+            "alignment_coverage_ratio": min(1.0, mapped_duration_ms / total_milliseconds)
+            if total_milliseconds
+            else 0.0,
         }
 
     def create_report(self, payload: dict[str, Any]) -> dict[str, Any]:

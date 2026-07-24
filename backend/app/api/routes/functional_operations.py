@@ -15,6 +15,8 @@ from app.schemas.functional_operations import (
     OperationSessionRead,
     SchedulePlanCreate,
     SchedulePlanRead,
+    TimeMappingCreate,
+    TimeMappingRead,
 )
 from app.services.functional_operations import FunctionalOperationsService
 
@@ -61,6 +63,29 @@ def get_content_timeline(
     instance: Annotated[FunctionalOperationsService, Depends(service)],
 ) -> dict:
     return call(instance.get_content_timeline, session_code)
+
+
+@router.get(
+    "/sessions/{session_code}/time-mappings", response_model=list[TimeMappingRead]
+)
+def list_time_mappings(
+    session_code: str,
+    instance: Annotated[FunctionalOperationsService, Depends(service)],
+) -> list[dict]:
+    return instance.list_time_mappings(session_code)
+
+
+@router.post(
+    "/sessions/{session_code}/time-mappings",
+    response_model=TimeMappingRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_time_mapping(
+    session_code: str,
+    payload: TimeMappingCreate,
+    instance: Annotated[FunctionalOperationsService, Depends(service)],
+) -> dict:
+    return call(instance.create_time_mapping, session_code, payload.model_dump())
 
 
 @router.post(

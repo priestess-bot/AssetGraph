@@ -5,7 +5,11 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from pydantic import ValidationError
 
-from app.schemas.functional_operations import ContentExposureCorrection, OperationSessionCreate
+from app.schemas.functional_operations import (
+    ContentExposureCorrection,
+    OperationSessionCreate,
+    TimeMappingCreate,
+)
 from app.services.functional_operations import FunctionalOperationsService
 
 
@@ -107,6 +111,29 @@ def test_operation_session_metric_definition_pins_require_a_unique_existing_metr
             metrics={"orders": float("inf")},
         )
 
+
+def test_time_mapping_requires_a_nonempty_half_open_coverage_interval() -> None:
+    mapping = TimeMappingCreate(
+        expected_revision=0,
+        source_clock="recording_elapsed_ms",
+        source_kind="recording_anchor",
+        source_offset_ms=120,
+        coverage_start_ms=0,
+        coverage_end_ms=60_000,
+        evidence_note="Matched the opening product scene to the recording.",
+    )
+    assert mapping.drift_ppm == 0
+
+    with pytest.raises(ValidationError, match="must be after"):
+        TimeMappingCreate(
+            expected_revision=0,
+            source_clock="recording_elapsed_ms",
+            source_kind="recording_anchor",
+            source_offset_ms=0,
+            coverage_start_ms=60_000,
+            coverage_end_ms=60_000,
+            evidence_note="Invalid interval.",
+        )
 
 def test_timeline_content_projection_uses_the_fixed_variant_chain() -> None:
     class ProjectionCursor:

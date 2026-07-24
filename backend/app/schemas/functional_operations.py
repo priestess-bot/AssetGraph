@@ -119,6 +119,42 @@ class ContentExposureCorrection(BaseModel):
         return self
 
 
+class TimeMappingCreate(BaseModel):
+    expected_revision: int = Field(ge=0)
+    source_clock: str = Field(min_length=1, max_length=128)
+    source_kind: str = Field(
+        pattern="^(manual_calibration|recording_anchor|platform_anchor)$"
+    )
+    source_offset_ms: int
+    drift_ppm: float = Field(default=0, ge=-100_000, le=100_000)
+    coverage_start_ms: int = Field(ge=0)
+    coverage_end_ms: int = Field(ge=1)
+    evidence_note: str = Field(min_length=1, max_length=4000)
+    actor: str = Field(default="functional-operator", min_length=1, max_length=128)
+
+    @model_validator(mode="after")
+    def validate_coverage(self) -> "TimeMappingCreate":
+        if self.coverage_end_ms <= self.coverage_start_ms:
+            raise ValueError("time mapping coverage_end_ms must be after coverage_start_ms")
+        return self
+
+
+class TimeMappingRead(BaseModel):
+    mapping_code: str
+    session_code: str
+    revision_number: int
+    status: str
+    source_clock: str
+    source_kind: str
+    source_offset_ms: int
+    drift_ppm: float
+    coverage_start_ms: int
+    coverage_end_ms: int
+    evidence_note: str
+    actor: str
+    created_at: datetime
+
+
 class ContentTimelineSpanRead(BaseModel):
     exposure_code: str
     plan_code: str
@@ -133,6 +169,9 @@ class ContentTimelineSpanRead(BaseModel):
     scene: dict[str, Any]
     content: dict[str, Any]
     layers: list[dict[str, Any]]
+    source_start_ms: int | None = None
+    source_end_ms: int | None = None
+    alignment_status: str = "unmapped"
 
 
 class ContentTimelineRead(BaseModel):
@@ -146,6 +185,8 @@ class ContentTimelineRead(BaseModel):
     status: str
     missing_plan_codes: list[str]
     spans: list[ContentTimelineSpanRead]
+    time_mapping: TimeMappingRead | None = None
+    alignment_coverage_ratio: float = 0
 
 
 class AttributionReportCreate(BaseModel):

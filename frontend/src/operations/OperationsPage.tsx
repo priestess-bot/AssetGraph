@@ -24,6 +24,7 @@ import {
   type ContentExposure,
   type ContentProjection,
   type ContentTimeline,
+  type TimeMapping,
 } from "./api";
 import { dataGovernanceApi, type MetricRevision } from "../governance/dataApi";
 
@@ -122,10 +123,18 @@ function TimelinePanel({
   timeline,
   loading,
   error,
+  mappingHistory,
+  savingMapping,
+  mappingError,
+  onCreateMapping,
 }: {
   timeline?: ContentTimeline;
   loading: boolean;
   error: unknown;
+  mappingHistory: TimeMapping[];
+  savingMapping: boolean;
+  mappingError: unknown;
+  onCreateMapping: (payload: Record<string, unknown>) => void;
 }) {
   if (loading)
     return (
@@ -167,7 +176,19 @@ function TimelinePanel({
           <span>未识别</span>
           <strong>{timeline.unobservedSeconds.toFixed(0)} 秒</strong>
         </div>
+        <div>
+          <span>已校准</span>
+          <strong>{Math.round(timeline.alignmentCoverageRatio * 100)}%</strong>
+        </div>
       </div>
+      <TimeMappingPanel
+        key={`${timeline.sessionCode}:${timeline.timeMapping?.revisionNumber ?? 0}`}
+        timeline={timeline}
+        history={mappingHistory}
+        saving={savingMapping}
+        error={mappingError}
+        onCreate={onCreateMapping}
+      />
       {timeline.missingPlanCodes.length ? (
         <InlineNotice tone="warning" title="计划投影缺失">
           {timeline.missingPlanCodes.join("、")}
@@ -188,6 +209,17 @@ function TimelinePanel({
                   {span.planCode} · {span.exposureCode}
                 </code>
                 <small>{contentProjectionSummary(span.content)}</small>
+                <small>
+                  {span.alignmentStatus === "aligned" &&
+                  span.sourceStartMs !== undefined &&
+                  span.sourceEndMs !== undefined
+                    ? `已校准来源区间 ${span.sourceStartMs}-${span.sourceEndMs} ms`
+                    : span.alignmentStatus === "partially_aligned"
+                      ? "仅部分落在校准覆盖区间"
+                      : span.alignmentStatus === "outside_coverage"
+                        ? "不在校准覆盖区间"
+                        : "尚未建立时间对齐"}
+                </small>
               </div>
               <div>
                 {span.layers.length ? (
@@ -216,6 +248,182 @@ function TimelinePanel({
         )}
       </div>
     </div>
+  );
+}
+
+function TimeMappingPanel({
+  timeline,
+  history,
+  saving,
+  error,
+  onCreate,
+}: {
+  timeline: ContentTimeline;
+  history: TimeMapping[];
+  saving: boolean;
+  error: unknown;
+  onCreate: (payload: Record<string, unknown>) => void;
+}) {
+  const current = timeline.timeMapping;
+  const durationMs = Math.max(1, Math.round(timeline.totalSeconds * 1000));
+  const [sourceClock, setSourceClock] = useState(
+    current?.sourceClock ?? "recording_elapsed_ms",
+  );
+  const [sourceKind, setSourceKind] = useState(
+    current?.sourceKind ?? "manual_calibration",
+  );
+  const [offsetMs, setOffsetMs] = useState(current?.sourceOffsetMs ?? 0);
+  const [driftPpm, setDriftPpm] = useState(current?.driftPpm ?? 0);
+  const [coverageStartMs, setCoverageStartMs] = useState(
+    current?.coverageStartMs ?? 0,
+  );
+  const [coverageEndMs, setCoverageEndMs] = useState(
+    current?.coverageEndMs ?? durationMs,
+  );
+  const [evidenceNote, setEvidenceNote] = useState(current?.evidenceNote ?? "");
+  const mappingIssue =
+    !sourceClock.trim()
+      ? "请填写来源时钟名称。"
+      : !evidenceNote.trim()
+        ? "请记录校准证据。"
+        : coverageEndMs <= coverageStartMs || coverageEndMs > durationMs
+          ? "覆盖区间必须在场次范围内，且结束大于开始。"
+          : undefined;
+  return (
+    <section className="operations-time-mapping">
+      <div className="operations-time-mapping-heading">
+        <div>
+          <span>TIME MAPPING</span>
+          <strong>
+            {current
+              ? `${current.sourceClock} · r${current.revisionNumber}`
+              : "尚未校准来源时钟"}
+          </strong>
+        </div>
+        <StatusBadge
+          label={current ? current.status : "unmapped"}
+          tone={current ? "info" : "warning"}
+        />
+      </div>
+      <form
+        className="operations-time-mapping-form"
+        onSubmit={(event: FormEvent) => {
+          event.preventDefault();
+          if (mappingIssue) return;
+          onCreate({
+            expected_revision: current?.revisionNumber ?? 0,
+            source_clock: sourceClock.trim(),
+            source_kind: sourceKind,
+            source_offset_ms: offsetMs,
+            drift_ppm: driftPpm,
+            coverage_start_ms: coverageStartMs,
+            coverage_end_ms: coverageEndMs,
+            evidence_note: evidenceNote.trim(),
+            actor: "functional-operator",
+          });
+        }}
+      >
+        <label className="wb-field">
+          <span>来源时钟</span>
+          <input
+            className="wb-input"
+            value={sourceClock}
+            onChange={(event) => setSourceClock(event.target.value)}
+            required
+          />
+        </label>
+        <label className="wb-field">
+          <span>校准来源</span>
+          <select
+            className="wb-input"
+            value={sourceKind}
+            onChange={(event) => setSourceKind(event.target.value)}
+          >
+            <option value="manual_calibration">人工校准</option>
+            <option value="recording_anchor">录屏锚点</option>
+            <option value="platform_anchor">平台锚点</option>
+          </select>
+        </label>
+        <label className="wb-field">
+          <span>来源偏移 (ms)</span>
+          <input
+            className="wb-input"
+            type="number"
+            value={offsetMs}
+            onChange={(event) => setOffsetMs(Number(event.target.value))}
+            required
+          />
+        </label>
+        <label className="wb-field">
+          <span>漂移 (ppm)</span>
+          <input
+            className="wb-input"
+            type="number"
+            value={driftPpm}
+            onChange={(event) => setDriftPpm(Number(event.target.value))}
+            required
+          />
+        </label>
+        <label className="wb-field">
+          <span>覆盖开始 (ms)</span>
+          <input
+            className="wb-input"
+            type="number"
+            min="0"
+            value={coverageStartMs}
+            onChange={(event) => setCoverageStartMs(Number(event.target.value))}
+            required
+          />
+        </label>
+        <label className="wb-field">
+          <span>覆盖结束 (ms)</span>
+          <input
+            className="wb-input"
+            type="number"
+            min="1"
+            max={durationMs}
+            value={coverageEndMs}
+            onChange={(event) => setCoverageEndMs(Number(event.target.value))}
+            required
+          />
+        </label>
+        <label className="wb-field wide">
+          <span>校准证据</span>
+          <textarea
+            className="wb-textarea"
+            value={evidenceNote}
+            onChange={(event) => setEvidenceNote(event.target.value)}
+            required
+          />
+        </label>
+        <button
+          className="wb-button"
+          disabled={saving || Boolean(mappingIssue)}
+        >
+          <CalendarClock size={15} aria-hidden="true" />
+          {current ? "保存新校准修订" : "保存时间对齐"}
+        </button>
+      </form>
+      {mappingIssue ? (
+        <InlineNotice tone="warning" title="时间对齐待修正">
+          {mappingIssue}
+        </InlineNotice>
+      ) : null}
+      {error ? (
+        <InlineNotice tone="danger" title="时间对齐保存失败">
+          {errorText(error)}
+        </InlineNotice>
+      ) : null}
+      {history.length ? (
+        <div className="operations-time-mapping-history">
+          {history.map((mapping) => (
+            <small key={mapping.mappingCode}>
+              r{mapping.revisionNumber} · {mapping.status} · {mapping.sourceKind} · {mapping.coverageStartMs}-{mapping.coverageEndMs} ms
+            </small>
+          ))}
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -457,9 +665,26 @@ export function OperationsPage({ view }: { view: "sessions" | "attribution" }) {
         queryKey: ["operations", "schedules"],
       }),
   });
+  const createTimeMapping = useMutation({
+    mutationFn: (payload: Record<string, unknown>) =>
+      operationsApi.createTimeMapping(timelineSession, payload),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["operations", "content-timeline", timelineSession],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["operations", "time-mappings", timelineSession],
+      });
+    },
+  });
   const contentTimeline = useQuery({
     queryKey: ["operations", "content-timeline", timelineSession],
     queryFn: () => operationsApi.getContentTimeline(timelineSession),
+    enabled: view === "sessions" && Boolean(timelineSession),
+  });
+  const timeMappings = useQuery({
+    queryKey: ["operations", "time-mappings", timelineSession],
+    queryFn: () => operationsApi.listTimeMappings(timelineSession),
     enabled: view === "sessions" && Boolean(timelineSession),
   });
   const error =
@@ -467,7 +692,8 @@ export function OperationsPage({ view }: { view: "sessions" | "attribution" }) {
     createExposure.error ??
     correctExposure.error ??
     createReport.error ??
-    createSchedule.error;
+    createSchedule.error ??
+    createTimeMapping.error;
   if (
     sessions.isLoading ||
     exposures.isLoading ||
@@ -1112,6 +1338,10 @@ export function OperationsPage({ view }: { view: "sessions" | "attribution" }) {
                 timeline={contentTimeline.data}
                 loading={contentTimeline.isLoading}
                 error={contentTimeline.error}
+                mappingHistory={timeMappings.data ?? []}
+                savingMapping={createTimeMapping.isPending}
+                mappingError={createTimeMapping.error}
+                onCreateMapping={(payload) => createTimeMapping.mutate(payload)}
               />
             ) : null}
           </>

@@ -86,6 +86,22 @@ export interface ContentProjection {
   }>;
 }
 
+export interface TimeMapping {
+  mappingCode: string;
+  sessionCode: string;
+  revisionNumber: number;
+  status: string;
+  sourceClock: string;
+  sourceKind: string;
+  sourceOffsetMs: number;
+  driftPpm: number;
+  coverageStartMs: number;
+  coverageEndMs: number;
+  evidenceNote: string;
+  actor: string;
+  createdAt: string;
+}
+
 export interface ContentTimeline {
   sessionCode: string;
   startedAt: string;
@@ -96,6 +112,8 @@ export interface ContentTimeline {
   unobservedSeconds: number;
   status: string;
   missingPlanCodes: string[];
+  timeMapping?: TimeMapping;
+  alignmentCoverageRatio: number;
   spans: Array<{
     exposureCode: string;
     planCode: string;
@@ -120,6 +138,9 @@ export interface ContentTimeline {
       assetCode?: string;
       executionCapability?: string;
     }>;
+    sourceStartMs?: number;
+    sourceEndMs?: number;
+    alignmentStatus: string;
   }>;
 }
 
@@ -299,6 +320,29 @@ function contentProjection(value: unknown): ContentProjection {
   };
 }
 
+function timeMapping(value: unknown): TimeMapping | undefined {
+  if (!isRecord(value)) return undefined;
+  const mappingCode = asString(value.mapping_code);
+  const sessionCode = asString(value.session_code);
+  const revisionNumber = asNumber(value.revision_number);
+  if (!mappingCode || !sessionCode || !revisionNumber) return undefined;
+  return {
+    mappingCode,
+    sessionCode,
+    revisionNumber,
+    status: asString(value.status),
+    sourceClock: asString(value.source_clock),
+    sourceKind: asString(value.source_kind),
+    sourceOffsetMs: asNumber(value.source_offset_ms),
+    driftPpm: asNumber(value.drift_ppm),
+    coverageStartMs: asNumber(value.coverage_start_ms),
+    coverageEndMs: asNumber(value.coverage_end_ms),
+    evidenceNote: asString(value.evidence_note),
+    actor: asString(value.actor),
+    createdAt: asString(value.created_at),
+  };
+}
+
 function timeline(value: unknown): ContentTimeline {
   if (!isRecord(value)) throw new Error("内容时间线响应无效");
   return {
@@ -311,6 +355,8 @@ function timeline(value: unknown): ContentTimeline {
     unobservedSeconds: asNumber(value.unobserved_seconds),
     status: asString(value.status),
     missingPlanCodes: strings(value.missing_plan_codes),
+    timeMapping: timeMapping(value.time_mapping),
+    alignmentCoverageRatio: asNumber(value.alignment_coverage_ratio),
     spans: asArray(value.spans).flatMap((span) => {
       if (!isRecord(span)) return [];
       const scene = isRecord(span.scene) ? span.scene : {};
@@ -349,6 +395,15 @@ function timeline(value: unknown): ContentTimeline {
                 ]
               : [],
           ),
+          sourceStartMs:
+            typeof span.source_start_ms === "number"
+              ? span.source_start_ms
+              : undefined,
+          sourceEndMs:
+            typeof span.source_end_ms === "number"
+              ? span.source_end_ms
+              : undefined,
+          alignmentStatus: asString(span.alignment_status, "unmapped"),
         },
       ];
     }),
@@ -442,6 +497,15 @@ export const operationsApi = {
   listSessions: () => requestJson<unknown[]>(`${ROOT}/sessions`).then((rows) => rows.map(session)),
   createSession: (payload: Record<string, unknown>) => postJson<unknown>(`${ROOT}/sessions`, payload).then(session),
   getContentTimeline: (sessionCode: string) => requestJson<unknown>(`${ROOT}/sessions/${encodeURIComponent(sessionCode)}/content-timeline`).then(timeline),
+  listTimeMappings: (sessionCode: string) => requestJson<unknown[]>(`${ROOT}/sessions/${encodeURIComponent(sessionCode)}/time-mappings`).then((rows) => rows.flatMap((row) => {
+    const parsed = timeMapping(row);
+    return parsed ? [parsed] : [];
+  })),
+  createTimeMapping: (sessionCode: string, payload: Record<string, unknown>) => postJson<unknown>(`${ROOT}/sessions/${encodeURIComponent(sessionCode)}/time-mappings`, payload).then((row) => {
+    const parsed = timeMapping(row);
+    if (!parsed) throw new Error("时间对齐响应无效");
+    return parsed;
+  }),
   listExposures: () => requestJson<unknown[]>(`${ROOT}/exposures`).then((rows) => rows.map(exposure)),
   createExposure: (payload: Record<string, unknown>) => postJson<unknown>(`${ROOT}/exposures`, payload).then(exposure),
   correctExposure: (payload: Record<string, unknown>) => postJson<unknown>(`${ROOT}/exposure-corrections`, payload).then(exposure),
