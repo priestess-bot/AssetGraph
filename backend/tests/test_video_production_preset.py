@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from app.schemas.video_productions import VideoProductionArtifactRegistration
 from app.services.video_production_models import ArtifactStore, VideoProductionError
-from app.services.video_production_pipeline import build_render_manifest
+from app.services.video_production_pipeline import VideoProductionPipeline, build_render_manifest
 from app.services.video_production_preset import (
     DEFAULT_TOPIC,
     PRODUCT_FACTS,
@@ -151,6 +152,7 @@ def test_render_manifest_fixes_input_and_output_checksums_without_local_paths(tm
         video_path=video,
         poster_path=poster,
         command_log=commands,
+        toolchain={"ffmpeg": "ffmpeg version fixture", "ffprobe": "ffprobe version fixture"},
         store=store,
     )
 
@@ -158,6 +160,7 @@ def test_render_manifest_fixes_input_and_output_checksums_without_local_paths(tm
     assert manifest["timeline"]["fingerprint_sha256"]
     assert manifest["inputs"]["assets"][0]["checksum_sha256"] == "a" * 64
     assert manifest["outputs"]["video"]["relative_path"].startswith("VIDJOB-000001/")
+    assert manifest["toolchain"]["ffmpeg"] == "ffmpeg version fixture"
     assert str(tmp_path) not in str(manifest)
     assert VideoProductionArtifactRegistration(
         artifact_key="render_manifest",
@@ -166,3 +169,29 @@ def test_render_manifest_fixes_input_and_output_checksums_without_local_paths(tm
         file_size=1,
         checksum_sha256="c" * 64,
     ).artifact_key == "render_manifest"
+
+
+def test_render_pipeline_caches_its_local_tool_versions(tmp_path: Path) -> None:
+    class VersionRunner:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def run(self, args, **_kwargs):  # type: ignore[no-untyped-def]
+            tool = str(args[0])
+            self.calls.append(tool)
+            return SimpleNamespace(stdout=f"{tool} version fixture\n")
+
+    runner = VersionRunner()
+    pipeline = VideoProductionPipeline(
+        assets_root=tmp_path / "materials",
+        output_root=tmp_path / "outputs",
+        tts=object(),  # type: ignore[arg-type]
+        runner=runner,  # type: ignore[arg-type]
+    )
+
+    assert pipeline._tool_versions() == {
+        "ffmpeg": "ffmpeg version fixture",
+        "ffprobe": "ffprobe version fixture",
+    }
+    assert pipeline._tool_versions()["ffmpeg"] == "ffmpeg version fixture"
+    assert runner.calls == ["ffmpeg", "ffprobe"]

@@ -205,6 +205,7 @@ class VideoProductionPipeline:
         self.output_root.mkdir(parents=True, exist_ok=True)
         self.tts = tts
         self.runner = runner or SubprocessRunner()
+        self._tool_versions_cache: dict[str, str] | None = None
         self.asset_selector = AssetSelector(self.assets_root, self.runner)
         self.audio_processor = AudioProcessor(self.runner)
         self.renderer = FFmpegRenderer(self.assets_root, self.runner)
@@ -394,6 +395,7 @@ class VideoProductionPipeline:
             video_path=video_path,
             poster_path=poster_path,
             command_log=command_log,
+            toolchain=self._tool_versions(),
             store=store,
         )
         render_manifest = store.write_json(
@@ -446,6 +448,29 @@ class VideoProductionPipeline:
         finally:
             temporary.unlink(missing_ok=True)
         return destination
+
+    def _tool_versions(self) -> dict[str, str]:
+        if self._tool_versions_cache is not None:
+            return dict(self._tool_versions_cache)
+        versions: dict[str, str] = {}
+        for tool in ("ffmpeg", "ffprobe"):
+            result = self.runner.run(
+                [tool, "-version"],
+                timeout_seconds=30,
+                error_code="RENDER_TOOL_VERSION_UNAVAILABLE",
+            )
+            first_line = next(
+                (line.strip() for line in result.stdout.splitlines() if line.strip()),
+                "",
+            )
+            if not first_line:
+                raise VideoProductionError(
+                    "RENDER_TOOL_VERSION_UNAVAILABLE",
+                    f"{tool} did not return a version identifier",
+                )
+            versions[tool] = first_line
+        self._tool_versions_cache = versions
+        return dict(versions)
 
     def _quality_check(self, context: dict[str, Any]) -> StageExecutionResult:
         job = context["job"]
@@ -703,6 +728,7 @@ def build_render_manifest(
     video_path: Path,
     poster_path: Path,
     command_log: Artifact,
+    toolchain: dict[str, str],
     store: ArtifactStore,
 ) -> dict[str, Any]:
     """Freeze the local render inputs and outputs without machine-local path identities."""
@@ -748,6 +774,7 @@ def build_render_manifest(
             "relative_path": command_log.relative_path,
             "checksum_sha256": command_log.checksum_sha256,
         },
+        "toolchain": dict(toolchain),
         "outputs": {
             "video": {
                 "relative_path": store.relative_to_output_root(video_path),
