@@ -30,6 +30,8 @@ import { ContentProjectsPage } from "../content/ContentProjectsPage";
 import { LiveRoomPlannerPage } from "../live-rooms/LiveRoomPlannerPage";
 import { VideoProductionPage } from "../videos/VideoProductionPage";
 import { OperationsPage } from "../operations/OperationsPage";
+import { LearningPage } from "../learning/LearningPage";
+import { KnowledgePage } from "../knowledge/KnowledgePage";
 import { SessionsPage } from "../live-research/SessionsPage";
 import { TemplatesPage } from "../live-research/TemplatesPage";
 import { WatchPage } from "../live-research/WatchPage";
@@ -261,13 +263,13 @@ export function Workspace({ pathname, search, tasks, notifications, loading }: {
     return <LiveRoomPlannerPage />;
   }
   if (pathname.startsWith("/governance/runs")) return <div className="console-band console-governance"><header><div><span>CONTROL PLANE</span><h2>任务与运行</h2></div></header><TaskRows tasks={tasks} /><NotificationRows notifications={notifications} /></div>;
-  if (pathname.startsWith("/knowledge")) return <EmptyWorkspace icon={BookOpen} title="已批准知识" entity="事实卡、内容知识与来源证据" />;
+  if (pathname.startsWith("/knowledge")) return <KnowledgePage />;
   if (pathname.startsWith("/content/projects")) return <ContentProjectsPage />;
   if (pathname.startsWith("/production/videos")) return <VideoProductionPage />;
   if (pathname.startsWith("/production/releases")) return <EmptyWorkspace icon={PackageCheck} title="发布记录" entity="ReleaseManifest" />;
   if (pathname.startsWith("/operations/live-sessions")) return <OperationsPage view="sessions" />;
   if (pathname.startsWith("/operations/attribution")) return <OperationsPage view="attribution" />;
-  if (pathname.startsWith("/learning")) return <EmptyWorkspace icon={BrainCircuit} title="效果估计" entity="经审核的效果证据" />;
+  if (pathname.startsWith("/learning")) return <LearningPage />;
   return <section className="console-empty-workspace"><EmptyBlock icon={AlertTriangle} title="路由不存在" detail={pathname} /></section>;
 }
 

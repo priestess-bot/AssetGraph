@@ -18,7 +18,7 @@
 - [x] `FT-1104` 素材包、直接/分组条目和解析预览。关联：`CHK-2182`-`CHK-2189`。
 - [x] `FT-1105` 素材缺口创建、列表与处理状态。关联：`CHK-2206`-`CHK-2209`。
 - [x] `FT-1106` `/assets/library` 完整工作区与 API 交互。关联：`CHK-2108`、`CHK-2190`、`CHK-7240`。
-- [ ] `FT-1110` 单来源录屏内容模板、主次模板选择与生产交接。关联：`CHK-2260`-`CHK-2293`。
+- [x] `FT-1110` 单来源录屏内容模板、主次模板选择与生产交接。关联：`CHK-2260`-`CHK-2293`。
 
 ## F2 内容与草稿
 
@@ -39,14 +39,14 @@
 
 ## F5-F6 学习与实验
 
-- [ ] `FT-5101` DecisionLog、表现卡片和效果驱动再生产建议。关联：`CHK-5120`-`CHK-5188`。
-- [ ] `FT-6101` 内容/策略 A/B 定义、稳定分配、曝光回填和对比报告。关联：`CHK-6101`-`CHK-6145`。
+- [x] `FT-5101` DecisionLog、表现卡片和效果驱动再生产建议。关联：`CHK-5120`-`CHK-5188`。
+- [x] `FT-6101` 内容/策略 A/B 定义、稳定分配、曝光回填和对比报告。关联：`CHK-6101`-`CHK-6145`。
 
 ## F7 知识与产品壳
 
-- [ ] `FT-7101` 知识事实、来源、搜索和关系下钻。关联：`CHK-7101`-`CHK-7105`。
-- [ ] `FT-7102` 关系查询/向量检索投影与影响分析，不引入 Neo4j。关联：`CHK-7120`-`CHK-7128`。
-- [ ] `FT-7103` 稳定路由、全局搜索、任务深链与旧入口渐进迁移。关联：`CHK-7240`-`CHK-7248`。
+- [x] `FT-7101` 知识事实、来源、搜索和关系下钻。关联：`CHK-7101`-`CHK-7105`。
+- [x] `FT-7102` 关系查询/向量检索投影与影响分析，不引入 Neo4j。关联：`CHK-7120`-`CHK-7128`。
+- [x] `FT-7103` 稳定路由、全局搜索、任务深链与旧入口渐进迁移。关联：`CHK-7240`-`CHK-7248`。
 
 ## 执行日志
 
@@ -54,7 +54,10 @@
 | --- | --- | --- | --- | --- |
 | `FT-0001`-`FT-0003` | done | pending implementation batch | 本文件 | 快线执行规则 |
 | `FT-1101`-`FT-1106` | done | pending implementation batch | migration `045_functional_fast_track_assets.sql`; `backend/tests/test_material_library_postgres.py` (`2 passed`); Console API schema smoke; `npm run build:console`; focused Ruff | `CHK-2101`-`CHK-2109`、`CHK-2140`-`CHK-2149`、`CHK-2180`-`CHK-2209`、`CHK-7240`；生产化退出门禁仍未勾选 |
+| `FT-1110` | done | existing + functional handoff batch | `test_live_observation_repository_postgres.py`、`test_live_observation_contracts.py`、`test_console_static_routes.py`; published template projection link now pre-fills `reference_template_code` in `/production/live-rooms` | `CHK-2260`-`CHK-2293`；外部录屏模板持续为 `reference_only`，主/次选择在内容项目和直播间配置中固定为编码快照。 |
 | `FT-2101` | done | pending implementation batch | `backend/tests/test_functional_content_postgres.py` plus `test_content_core_postgres.py` (`3 passed`); ContentProject OpenAPI smoke; `npm run build:console`; focused Ruff | `CHK-1101`-`CHK-1149`；当前生成策略明确为 `deterministic_demo`，不替代后续 provider 生产策略 |
 | `FT-2102` | done | pending implementation batch | migration `046_functional_live_room_plans.sql`; `test_material_library_postgres.py`、`test_content_core_postgres.py`、`test_functional_content_postgres.py`、`test_functional_live_rooms_postgres.py` (`7 passed`); migration/closed-loop parsing (`24 passed`); Functional API OpenAPI smoke; `npm run typecheck`; `npm run build:console`; focused Ruff | `CHK-1160`-`CHK-1188`；BuildPlan 明确 `go_live=false`。确认仅创建 `awaiting_maitu_worker` 请求，未宣称或模拟平台写入。 |
 | `FT-3101`-`FT-3102` | done | pending implementation batch | migration `047_functional_video_plans.sql`; `test_functional_videos_postgres.py`; functional suite (`8 passed`); Functional Video OpenAPI smoke; `npm run typecheck`; `npm run build:console`; focused Ruff | `CHK-3101`-`CHK-3249`；内容项目文本会预置为渲染任务的前三阶段输入，Worker 从素材选择继续。视觉源目前明确为已验证的基线素材；实际产物仅在 Worker 成功后显示预览和下载。 |
 | `FT-4101`-`FT-4103` | done | pending implementation batch | migration `048_functional_operations.sql`; `test_functional_operations_postgres.py` (`1 passed`); Functional Operations OpenAPI smoke; `npm run typecheck`; `npm run build:console`; focused Ruff | `CHK-4101`-`CHK-4167`、`CHK-7140`-`CHK-7144`；归因固定为 `descriptive`，排播仅保存计划与冲突，不创建开播命令。 |
+| `FT-5101`、`FT-6101` | done | pending implementation batch | migration `049_functional_learning_experiments.sql`; `test_functional_learning_postgres.py` (`1 passed`); Functional Learning OpenAPI smoke; `npm run typecheck`; `npm run build:console`; focused Ruff | `CHK-5120`-`CHK-5188`、`CHK-6101`-`CHK-6145`；建议由人工记录，A/B 用稳定哈希分配并只报告样本均值，不宣称因果效果。 |
+| `FT-7101`-`FT-7103` | done | pending implementation batch | migration `050_functional_knowledge.sql`; `test_functional_knowledge_postgres.py` (`1 passed`); Functional Knowledge OpenAPI smoke; `npm run typecheck`; `npm run build:console`; focused Ruff | `CHK-7101`-`CHK-7128`、`CHK-7240`-`CHK-7248`；关系通过 PostgreSQL JSON 投影查询，无 Neo4j 依赖；Console 保持已有全局搜索、任务深链和稳定工作台路由。 |

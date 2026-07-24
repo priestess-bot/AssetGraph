@@ -43,7 +43,7 @@ function PlanDetail({ plan }: { plan: FunctionalLiveRoomPlan }) {
 
 export function LiveRoomPlannerPage() {
   const queryClient = useQueryClient();
-  const [selectedPlan, setSelectedPlan] = useState(""); const [projectCode, setProjectCode] = useState(""); const [roomId, setRoomId] = useState(""); const [title, setTitle] = useState(""); const [primaryTemplate, setPrimaryTemplate] = useState(""); const [secondaryTemplates, setSecondaryTemplates] = useState(""); const [assetCodes, setAssetCodes] = useState<string[]>([]); const [groupCodes, setGroupCodes] = useState<string[]>([]);
+  const [selectedPlan, setSelectedPlan] = useState(""); const [projectCode, setProjectCode] = useState(""); const [roomId, setRoomId] = useState(""); const [title, setTitle] = useState(""); const [primaryTemplate, setPrimaryTemplate] = useState(() => new URLSearchParams(window.location.search).get("reference_template_code")?.trim() ?? ""); const [secondaryTemplates, setSecondaryTemplates] = useState(""); const [assetCodes, setAssetCodes] = useState<string[]>([]); const [groupCodes, setGroupCodes] = useState<string[]>([]);
   const projects = useQuery({ queryKey: ["content-projects"], queryFn: contentProjectsApi.list });
   const assets = useQuery({ queryKey: ["assets", "library"], queryFn: assetLibraryApi.listAssets });
   const groups = useQuery({ queryKey: ["assets", "groups"], queryFn: assetLibraryApi.listGroups });

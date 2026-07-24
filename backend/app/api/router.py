@@ -6,6 +6,8 @@ from app.api.routes import (
     functional_live_rooms,
     functional_videos,
     functional_operations,
+    functional_learning,
+    functional_knowledge,
     assets,
     console,
     control_plane,
@@ -33,6 +35,8 @@ api_router.include_router(content_projects.router)
 api_router.include_router(functional_live_rooms.router)
 api_router.include_router(functional_videos.router)
 api_router.include_router(functional_operations.router)
+api_router.include_router(functional_learning.router)
+api_router.include_router(functional_knowledge.router)
 api_router.include_router(lives.router)
 api_router.include_router(digital_humans.router)
 api_router.include_router(voice_profiles.router)
