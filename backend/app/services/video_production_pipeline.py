@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
+from app.domain.contracts import canonical_fingerprint
 from app.repositories.assets import AssetRepository
 from app.services.video_production_media import (
     AssetSelector,
@@ -24,6 +25,7 @@ from app.services.video_production_models import (
     VIDEO_PRODUCTION_STAGES,
     VideoProductionError,
     VideoProductionStage,
+    sha256_file,
 )
 from app.services.video_production_preset import (
     generate_commercial_script,
@@ -359,18 +361,15 @@ class VideoProductionPipeline:
 
     def _rendering(self, context: dict[str, Any]) -> StageExecutionResult:
         store: ArtifactStore = context["store"]
-        video_path, manifest = self.renderer.render(
+        video_path, render_result = self.renderer.render(
             shot_list=context["shot_list"],
             asset_plan=context["asset_plan"],
             voice_manifest=context["voice_manifest"],
             subtitles_path=context["subtitles_path"],
             store=store,
         )
-        context["video_path"] = video_path
-        context["render_manifest"] = manifest
-        store.write_json("render_log", "render/manifest.json", manifest)
         poster_path = self._poster(video_path, store)
-        render_log = store.write_json(
+        command_log = store.write_json(
             "render_log",
             "render/commands.json",
             {
@@ -385,6 +384,26 @@ class VideoProductionPipeline:
                 ],
             },
         )
+        manifest = build_render_manifest(
+            render_result=render_result,
+            shot_list=context["shot_list"],
+            asset_plan=context["asset_plan"],
+            voice_manifest=context["voice_manifest"],
+            subtitle_manifest=context.get("subtitle_manifest") or {},
+            subtitles_path=context["subtitles_path"],
+            video_path=video_path,
+            poster_path=poster_path,
+            command_log=command_log,
+            store=store,
+        )
+        render_manifest = store.write_json(
+            "render_manifest",
+            "render/manifest.json",
+            manifest,
+            metadata={"manifest_fingerprint": manifest["manifest_fingerprint"]},
+        )
+        context["video_path"] = video_path
+        context["render_manifest"] = manifest
         video_artifact = store.describe(
             "video",
             video_path,
@@ -393,7 +412,10 @@ class VideoProductionPipeline:
         )
         poster_artifact = store.describe("poster", poster_path, mime_type="image/jpeg", metadata={"at_seconds": 2})
         context["video_artifact"] = video_artifact
-        return StageExecutionResult(manifest, [video_artifact, poster_artifact, render_log])
+        return StageExecutionResult(
+            manifest,
+            [video_artifact, poster_artifact, command_log, render_manifest],
+        )
 
     def _poster(self, video: Path, store: ArtifactStore) -> Path:
         destination = store.path("poster.jpg")
@@ -668,3 +690,77 @@ def _public_command_record(
         return value
 
     return {key: redact(value) for key, value in record.items()}
+
+
+def build_render_manifest(
+    *,
+    render_result: dict[str, Any],
+    shot_list: dict[str, Any],
+    asset_plan: dict[str, Any],
+    voice_manifest: dict[str, Any],
+    subtitle_manifest: dict[str, Any],
+    subtitles_path: Path,
+    video_path: Path,
+    poster_path: Path,
+    command_log: Artifact,
+    store: ArtifactStore,
+) -> dict[str, Any]:
+    """Freeze the local render inputs and outputs without machine-local path identities."""
+    assets = [
+        {
+            "asset_code": str(asset.get("asset_code") or ""),
+            "relative_path": str(asset.get("relative_path") or ""),
+            "checksum_sha256": str(asset.get("checksum_sha256") or ""),
+        }
+        for asset in asset_plan.get("assets") or []
+        if isinstance(asset, dict)
+    ]
+    voice_segments = [
+        {
+            "shot_index": int(segment.get("shot_index") or 0),
+            "relative_path": str(segment.get("relative_path") or ""),
+            "checksum_sha256": str(segment.get("checksum_sha256") or ""),
+        }
+        for segment in voice_manifest.get("segments") or []
+        if isinstance(segment, dict)
+    ]
+    manifest = {
+        "schema_version": "render-manifest.v1",
+        "renderer": {"source": str(render_result.get("source") or "ffmpeg_render_v1")},
+        "timeline": {
+            "source": "worker_shot_list",
+            "shot_count": len(shot_list.get("shots") or []),
+            "duration_seconds": float(shot_list.get("duration_seconds") or 0),
+            "fingerprint_sha256": canonical_fingerprint(shot_list),
+        },
+        "inputs": {
+            "asset_plan_fingerprint_sha256": canonical_fingerprint(asset_plan),
+            "assets": assets,
+            "voice_manifest_fingerprint_sha256": canonical_fingerprint(voice_manifest),
+            "voice_segments": voice_segments,
+            "subtitles": {
+                "relative_path": store.relative_to_output_root(subtitles_path),
+                "checksum_sha256": sha256_file(subtitles_path),
+                "manifest_fingerprint_sha256": canonical_fingerprint(subtitle_manifest),
+            },
+        },
+        "commands": {
+            "relative_path": command_log.relative_path,
+            "checksum_sha256": command_log.checksum_sha256,
+        },
+        "outputs": {
+            "video": {
+                "relative_path": store.relative_to_output_root(video_path),
+                "checksum_sha256": sha256_file(video_path),
+                **dict(render_result.get("video") or {}),
+            },
+            "poster": {
+                "relative_path": store.relative_to_output_root(poster_path),
+                "checksum_sha256": sha256_file(poster_path),
+            },
+        },
+        "video": dict(render_result.get("video") or {}),
+        "encoding": dict(render_result.get("encoding") or {}),
+    }
+    manifest["manifest_fingerprint"] = canonical_fingerprint(manifest)
+    return manifest

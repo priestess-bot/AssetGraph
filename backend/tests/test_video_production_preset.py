@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 import pytest
 
-from app.services.video_production_models import VideoProductionError
+from app.schemas.video_productions import VideoProductionArtifactRegistration
+from app.services.video_production_models import ArtifactStore, VideoProductionError
+from app.services.video_production_pipeline import build_render_manifest
 from app.services.video_production_preset import (
     DEFAULT_TOPIC,
     PRODUCT_FACTS,
@@ -124,3 +127,42 @@ def test_ass_subtitles_stop_at_real_speech_duration() -> None:
             if event["kind"] == "caption" and event["shot_index"] == shot["shot_index"]
         ]
         assert captions[-1]["end_seconds"] == pytest.approx(shot["start_seconds"] + 4.25, abs=0.001)
+
+
+def test_render_manifest_fixes_input_and_output_checksums_without_local_paths(tmp_path: Path) -> None:
+    store = ArtifactStore(tmp_path / "output", "VIDJOB-000001", 1)
+    store.write_text("subtitles", "subtitles/subtitles.ass", "[Events]\n", mime_type="text/x-ssa")
+    commands = store.write_json("render_log", "render/commands.json", {"commands": []})
+    video = store.path("final.mp4")
+    poster = store.path("poster.jpg")
+    video.write_bytes(b"video")
+    poster.write_bytes(b"poster")
+    shot_list = {"duration_seconds": 55, "shots": [{"shot_code": "SHOT-01"}]}
+    asset_plan = {"assets": [{"asset_code": "ASSET-01", "relative_path": "videos/a.mp4", "checksum_sha256": "a" * 64}]}
+    voice_manifest = {"segments": [{"shot_index": 0, "relative_path": "VIDJOB-000001/attempt-1/voice/1.wav", "checksum_sha256": "b" * 64}]}
+
+    manifest = build_render_manifest(
+        render_result={"source": "ffmpeg_render_v1", "video": {"codec_name": "h264"}, "encoding": {"audio_codec": "aac"}},
+        shot_list=shot_list,
+        asset_plan=asset_plan,
+        voice_manifest=voice_manifest,
+        subtitle_manifest={"font": "Noto Sans CJK SC"},
+        subtitles_path=store.job_root / "subtitles/subtitles.ass",
+        video_path=video,
+        poster_path=poster,
+        command_log=commands,
+        store=store,
+    )
+
+    assert manifest["schema_version"] == "render-manifest.v1"
+    assert manifest["timeline"]["fingerprint_sha256"]
+    assert manifest["inputs"]["assets"][0]["checksum_sha256"] == "a" * 64
+    assert manifest["outputs"]["video"]["relative_path"].startswith("VIDJOB-000001/")
+    assert str(tmp_path) not in str(manifest)
+    assert VideoProductionArtifactRegistration(
+        artifact_key="render_manifest",
+        relative_path="VIDJOB-000001/attempt-1/render/manifest.json",
+        mime_type="application/json",
+        file_size=1,
+        checksum_sha256="c" * 64,
+    ).artifact_key == "render_manifest"

@@ -270,6 +270,7 @@ def test_migration_discovery_is_contiguous() -> None:
                 "functional_session_time_mappings.sql",
                 "functional_effect_estimates.sql",
                 "functional_video_release_candidates.sql",
+                "video_render_manifest_artifact.sql",
             ],
             start=1,
         )
