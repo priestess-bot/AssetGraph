@@ -100,6 +100,21 @@ def test_source_range_filter_crops_before_looping_only_the_selected_window() -> 
     assert error.value.error_code == "SOURCE_RANGE_INVALID"
 
 
+def test_source_range_filter_applies_playback_rate_after_looping_only_the_selected_window() -> None:
+    assert _source_range_filter(3, 5, 2) == (
+        "fps=30,trim=duration=3.000,setpts=PTS-STARTPTS,"
+        "loop=loop=-1:size=90:start=0,trim=duration=10.000,"
+        "setpts=PTS/2.000000,fps=30,trim=duration=5.000,setpts=PTS-STARTPTS,setsar=1"
+    )
+    assert _source_range_filter(5, 5, 0.5) == (
+        "fps=30,trim=duration=5.000,setpts=PTS-STARTPTS,trim=duration=2.500,"
+        "setpts=PTS/0.500000,fps=30,trim=duration=5.000,setpts=PTS-STARTPTS,setsar=1"
+    )
+    with pytest.raises(VideoProductionError) as error:
+        _source_range_filter(3, 5, 2.1)
+    assert error.value.error_code == "PLAYBACK_RATE_INVALID"
+
+
 def test_shot_render_command_honors_source_end_instead_of_looping_the_full_file(tmp_path: Path) -> None:
     class RecordingRunner:
         def __init__(self) -> None:

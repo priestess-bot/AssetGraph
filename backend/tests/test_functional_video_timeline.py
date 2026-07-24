@@ -38,7 +38,7 @@ def test_timeline_update_preserves_requested_clip_order_across_tracks_and_shots(
     updated = FunctionalVideoService._apply_timeline_update(
         _timeline(),
         [
-            {"clip_code": "SHOT-02", "duration_ms": 35_000, "transition": "fade", "source_start_seconds": 12, "source_end_seconds": 45, "fit": "cover", "crop_x": 0.2, "crop_y": 0.8},
+            {"clip_code": "SHOT-02", "duration_ms": 35_000, "transition": "fade", "source_start_seconds": 12, "source_end_seconds": 45, "fit": "cover", "crop_x": 0.2, "crop_y": 0.8, "playback_rate": 1.5},
             {"clip_code": "SHOT-01", "duration_ms": 25_000, "transition": "fade_out"},
         ],
     )
@@ -58,6 +58,7 @@ def test_timeline_update_preserves_requested_clip_order_across_tracks_and_shots(
     assert video_track["clips"][0]["fit"] == "cover"
     assert video_track["clips"][0]["crop_x"] == 0.2
     assert video_track["clips"][0]["crop_y"] == 0.8
+    assert video_track["clips"][0]["playback_rate"] == 1.5
     assert [clip["clip_code"] for clip in subtitle_track["clips"]] == ["SUBTITLE-SHOT-02", "SUBTITLE-SHOT-01"]
     assert [clip["timeline_range"] for clip in subtitle_track["clips"]] == [
         {"start_ms": 0, "duration_ms": 35_000},
@@ -77,6 +78,7 @@ def test_timeline_update_preserves_requested_clip_order_across_tracks_and_shots(
     assert rendered_input["shots"][0]["fit"] == "cover"
     assert rendered_input["shots"][0]["crop_x"] == 0.2
     assert rendered_input["shots"][0]["crop_y"] == 0.8
+    assert rendered_input["shots"][0]["playback_rate"] == 1.5
     assert rendered_input["shots"][0]["subtitle_text"] == "第二段字幕"
     assert rendered_input["shots"][0]["screen_text"] == "第二段标题"
     assert rendered_input["shots"][0]["voice_gain_db"] == 0.0
@@ -240,6 +242,25 @@ def test_timeline_crop_position_requires_a_complete_normalized_cover_pair() -> N
         assert exc.code == "VIDEO_TIMELINE_CROP_POSITION_UNSUPPORTED"
     else:
         raise AssertionError("contain must not accept crop focus")
+
+
+def test_timeline_playback_rate_is_bounded() -> None:
+    from app.domain.errors import DomainValidationError
+
+    updates = [
+        {"clip_code": "SHOT-01", "duration_ms": 30_000, "transition": "cut", "playback_rate": 0.5},
+        {"clip_code": "SHOT-02", "duration_ms": 30_000, "transition": "cut", "playback_rate": 2},
+    ]
+    updated = FunctionalVideoService._apply_timeline_update(_timeline(), updates)
+    assert [clip["playback_rate"] for clip in updated["tracks"][0]["clips"]] == [0.5, 2.0]
+
+    updates[0]["playback_rate"] = 2.5
+    try:
+        FunctionalVideoService._apply_timeline_update(_timeline(), updates)
+    except DomainValidationError as exc:
+        assert exc.code == "VIDEO_TIMELINE_PLAYBACK_RATE_INVALID"
+    else:
+        raise AssertionError("playback rate must remain in the bounded range")
 
 
 def test_release_subject_refs_pin_every_required_content_revision() -> None:

@@ -133,10 +133,16 @@ class AssetSelector:
             duration = float(source.get("duration_seconds") or 0)
             source_start = float(shot["source_start_seconds"])
             source_end = float(shot["source_end_seconds"])
+            playback_rate = float(shot.get("playback_rate", 1.0))
             if source_start < 0 or source_end <= source_start:
                 raise VideoProductionError(
                     "SOURCE_RANGE_INVALID",
                     f"{shot['shot_code']} has an invalid source range",
+                )
+            if not math.isfinite(playback_rate) or not 0.5 <= playback_rate <= 2:
+                raise VideoProductionError(
+                    "PLAYBACK_RATE_INVALID",
+                    f"{shot['shot_code']} has an invalid playback rate",
                 )
             if source_end > duration + 0.15:
                 raise VideoProductionError(
@@ -156,6 +162,9 @@ class AssetSelector:
                     "source_start_seconds": shot["source_start_seconds"],
                     "source_end_seconds": shot["source_end_seconds"],
                     "fit": shot["fit"],
+                    "crop_x": shot.get("crop_x", 0.5),
+                    "crop_y": shot.get("crop_y", 0.5),
+                    "playback_rate": playback_rate,
                     "selection_reason": f"preset role: {shot['visual_role']}",
                 }
                 for shot in shot_list.get("shots") or []
@@ -294,21 +303,33 @@ def _atempo_filters(factor: float) -> list[str]:
     return filters
 
 
-def _source_range_filter(source_window_seconds: float, output_duration_seconds: float) -> str:
+def _source_range_filter(
+    source_window_seconds: float,
+    output_duration_seconds: float,
+    playback_rate: float = 1.0,
+) -> str:
     """Constrain a source window and loop only that selected window when needed."""
     if not math.isfinite(source_window_seconds) or source_window_seconds <= 0:
         raise VideoProductionError("SOURCE_RANGE_INVALID", "source range duration must be positive")
     if not math.isfinite(output_duration_seconds) or output_duration_seconds <= 0:
         raise VideoProductionError("SHOT_DURATION_INVALID", "rendered shot duration must be positive")
+    if not math.isfinite(playback_rate) or not 0.5 <= playback_rate <= 2:
+        raise VideoProductionError("PLAYBACK_RATE_INVALID", "playback rate must be between 0.5 and 2")
+    required_source_duration = output_duration_seconds * playback_rate
     selected = f"fps=30,trim=duration={source_window_seconds:.3f},setpts=PTS-STARTPTS"
-    if output_duration_seconds > source_window_seconds + 0.01:
+    if required_source_duration > source_window_seconds + 0.01:
         frame_count = max(1, round(source_window_seconds * 30))
         selected = (
             f"{selected},loop=loop=-1:size={frame_count}:start=0,"
-            f"trim=duration={output_duration_seconds:.3f}"
+            f"trim=duration={required_source_duration:.3f}"
         )
     else:
-        selected = f"{selected},trim=duration={output_duration_seconds:.3f}"
+        selected = f"{selected},trim=duration={required_source_duration:.3f}"
+    if playback_rate != 1:
+        return (
+            f"{selected},setpts=PTS/{playback_rate:.6f},fps=30,"
+            f"trim=duration={output_duration_seconds:.3f},setpts=PTS-STARTPTS,setsar=1"
+        )
     return f"{selected},setpts=PTS-STARTPTS,setsar=1"
 
 
@@ -409,7 +430,7 @@ class FFmpegRenderer:
         if has_logo:
             args.extend(["-loop", "1", "-framerate", "30", "-i", logo])
 
-        source_filter = _source_range_filter(source_window, duration)
+        source_filter = _source_range_filter(source_window, duration, float(shot.get("playback_rate", 1.0)))
         filter_parts: list[str] = []
         if (shot.get("fit") or "cover") == "contain":
             filter_parts.extend(
