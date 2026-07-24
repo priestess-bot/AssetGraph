@@ -14,6 +14,7 @@ export interface ContentProjectSummary {
 export interface ContentProjectDetail extends ContentProjectSummary {
   content: Record<string, unknown>;
   factCards: Array<{ fact_card_code: string; version_number: number; version_code: string; content_sha256: string }>;
+  designBrief?: { design_brief_code: string; revision_number: number; status: string; raw_input: string; parsed_brief: Record<string, unknown>; open_questions: Array<{ field: string; question: string; recommended_answer: string; blocking: boolean }> };
   generated: boolean;
   generationMode?: string;
   storyBrief?: { story_brief_code: string; revision_number: number; content: Record<string, unknown> };
@@ -40,7 +41,8 @@ function detail(value: unknown): ContentProjectDetail {
   const shotList = isRecord(value.shot_list) ? { shot_list_revision_code: asString(value.shot_list.shot_list_revision_code), revision_number: asNumber(value.shot_list.revision_number), shots: asArray(value.shot_list.shots).flatMap((item) => isRecord(item) ? [{ shot_code: asString(item.shot_code), shot_goal: asString(item.shot_goal), material_role_requirements: asArray(item.material_role_requirements).flatMap((role) => typeof role === "string" ? [role] : []), estimated_duration_ms: typeof item.estimated_duration_ms === "number" ? item.estimated_duration_ms : undefined }] : []) } : undefined;
   const storyBrief = isRecord(value.story_brief) ? { story_brief_code: asString(value.story_brief.story_brief_code), revision_number: asNumber(value.story_brief.revision_number), content: isRecord(value.story_brief.content) ? value.story_brief.content : {} } : undefined;
   const factCards = asArray(value.fact_cards).flatMap((item) => isRecord(item) ? [{ fact_card_code: asString(item.fact_card_code), version_number: asNumber(item.version_number), version_code: asString(item.version_code), content_sha256: asString(item.content_sha256) }] : []).filter((item) => Boolean(item.fact_card_code && item.version_number));
-  return { ...base, content: isRecord(value.content) ? value.content : {}, factCards, generated: value.generated === true, generationMode: asOptionalString(value.generation_mode), storyBrief, script, program, shotList };
+  const designBrief = isRecord(value.design_brief) ? { design_brief_code: asString(value.design_brief.design_brief_code), revision_number: asNumber(value.design_brief.revision_number), status: asString(value.design_brief.status), raw_input: asString(value.design_brief.raw_input), parsed_brief: isRecord(value.design_brief.parsed_brief) ? value.design_brief.parsed_brief : {}, open_questions: asArray(value.design_brief.open_questions).flatMap((item) => isRecord(item) ? [{ field: asString(item.field), question: asString(item.question), recommended_answer: asString(item.recommended_answer), blocking: item.blocking === true }] : []) } : undefined;
+  return { ...base, content: isRecord(value.content) ? value.content : {}, factCards, designBrief, generated: value.generated === true, generationMode: asOptionalString(value.generation_mode), storyBrief, script, program, shotList };
 }
 
 export const contentProjectsApi = {
@@ -53,5 +55,7 @@ export const contentProjectsApi = {
   }),
   update: (projectCode: string, payload: Record<string, unknown>) => patchJson<unknown>(`${ROOT}/${projectCode}`, payload).then(detail),
   confirm: (projectCode: string, expectedRevision: number) => postJson<unknown>(`${ROOT}/${projectCode}/confirm`, { expected_revision: expectedRevision }).then(detail),
+  parseBrief: (projectCode: string, expectedRevision: number, rawInput: string) => postJson<unknown>(`${ROOT}/${projectCode}/parse-brief`, { expected_revision: expectedRevision, raw_input: rawInput }).then(detail),
+  confirmBrief: (projectCode: string, expectedRevision: number) => postJson<unknown>(`${ROOT}/${projectCode}/design-brief/confirm`, { expected_revision: expectedRevision }).then(detail),
   generate: (projectCode: string) => postJson<unknown>(`${ROOT}/${projectCode}/generate`).then(detail),
 };

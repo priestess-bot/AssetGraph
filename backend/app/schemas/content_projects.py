@@ -93,6 +93,15 @@ class ContentProjectConfirm(BaseModel):
     expected_revision: int = Field(ge=1)
 
 
+class DesignBriefParse(BaseModel):
+    expected_revision: int = Field(ge=1)
+    raw_input: str = Field(min_length=1, max_length=8000)
+
+
+class DesignBriefConfirm(BaseModel):
+    expected_revision: int = Field(ge=1)
+
+
 class ContentProjectSummary(BaseModel):
     project_code: str
     title: str
@@ -106,6 +115,7 @@ class ContentProjectSummary(BaseModel):
 class ContentProjectDetail(ContentProjectSummary):
     content: dict[str, Any]
     fact_cards: list[dict[str, Any]] = Field(default_factory=list)
+    design_brief: dict[str, Any] | None = None
     generated: bool
     generation_mode: str | None = None
     story_brief: dict[str, Any] | None = None

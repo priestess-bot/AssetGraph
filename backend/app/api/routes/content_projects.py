@@ -13,6 +13,8 @@ from app.schemas.content_projects import (
     ContentProjectDetail,
     ContentProjectSummary,
     ContentProjectUpdate,
+    DesignBriefConfirm,
+    DesignBriefParse,
 )
 from app.services.functional_content import FunctionalContentService
 
@@ -83,6 +85,45 @@ def confirm_content_project(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.as_dict()) from exc
     except DomainValidationError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=exc.as_dict()) from exc
+
+
+@router.post("/{project_code}/parse-brief", response_model=ContentProjectDetail)
+def parse_design_brief(
+    project_code: str,
+    payload: DesignBriefParse,
+    service: Annotated[FunctionalContentService, Depends(get_service)],
+) -> dict:
+    try:
+        return service.parse_design_brief(
+            project_code,
+            expected_revision=payload.expected_revision,
+            raw_input=payload.raw_input,
+            actor_id="functional-operator",
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Content project not found") from exc
+    except DomainConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.as_dict()) from exc
+    except DomainValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=exc.as_dict()) from exc
+
+
+@router.post("/{project_code}/design-brief/confirm", response_model=ContentProjectDetail)
+def confirm_design_brief(
+    project_code: str,
+    payload: DesignBriefConfirm,
+    service: Annotated[FunctionalContentService, Depends(get_service)],
+) -> dict:
+    try:
+        return service.confirm_design_brief(
+            project_code,
+            expected_revision=payload.expected_revision,
+            actor_id="functional-operator",
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Content project or design brief not found") from exc
+    except DomainConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.as_dict()) from exc
 
 
 @router.post("/{project_code}/generate", response_model=ContentProjectDetail)

@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import Any
+from uuid import uuid4
 
 from psycopg import Connection
 from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 
+from app.domain.contracts import canonical_fingerprint
 from app.repositories.content_core import ContentCoreRepository
 from app.repositories.content_production import ContentProductionRepository
 from app.repositories.maitu_workbench import MaituWorkbenchRepository
@@ -113,6 +116,145 @@ class FunctionalContentService:
         )
         return self.get_detail(project_code) or {}
 
+    def parse_design_brief(
+        self,
+        project_code: str,
+        *,
+        expected_revision: int,
+        raw_input: str,
+        actor_id: str,
+    ) -> dict[str, Any]:
+        current = self.core.get_project(project_code)
+        if current is None:
+            raise KeyError(project_code)
+        if int(current["revision_number"]) != expected_revision:
+            raise DomainConflictError(
+                "REVISION_CONFLICT",
+                "Content project changed since it was loaded",
+                details={"expected_revision": expected_revision, "actual_revision": current["revision_number"]},
+            )
+        # The raw brief is retained as untrusted user input. Only project fields
+        # and the bounded deterministic compiler below can affect parsed output.
+        parsed, questions = self._compile_design_brief(current, raw_input)
+        fingerprint = canonical_fingerprint(
+            {
+                "project_code": project_code,
+                "project_revision": expected_revision,
+                "raw_input": raw_input,
+                "parsed": parsed,
+                "questions": questions,
+                "parser_strategy_ref": "local-deterministic-design-brief.v1",
+            }
+        )
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT COALESCE(MAX(revision_number), 0) + 1 AS next_revision
+                FROM functional_design_briefs
+                WHERE project_id = %s
+                """,
+                (current["project_id"],),
+            )
+            next_revision = int(cursor.fetchone()["next_revision"])
+            cursor.execute(
+                """
+                SELECT id FROM content_project_revisions
+                WHERE project_id = %s AND revision_number = %s
+                """,
+                (current["project_id"], expected_revision),
+            )
+            project_revision = cursor.fetchone()
+            if project_revision is None:
+                self.connection.rollback()
+                raise DomainConflictError(
+                    "CONTENT_PROJECT_REVISION_MISSING",
+                    "The current content project revision no longer exists",
+                )
+            cursor.execute(
+                """
+                INSERT INTO functional_design_briefs (
+                    design_brief_code, project_id, source_project_revision_id,
+                    source_project_revision_number, revision_number, raw_input,
+                    parsed_brief, open_questions, user_overrides, parser_strategy_ref,
+                    prompt_revision, response_fingerprint_sha256, created_by
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, '{}'::jsonb, %s, %s, %s, %s)
+                """,
+                (
+                    f"DBR-{uuid4().hex[:12].upper()}",
+                    current["project_id"],
+                    project_revision["id"],
+                    expected_revision,
+                    next_revision,
+                    raw_input.strip(),
+                    Jsonb(parsed),
+                    Jsonb(questions),
+                    "local-deterministic-design-brief.v1",
+                    "design-brief-local-prompt.v1",
+                    fingerprint,
+                    actor_id,
+                ),
+            )
+        self.connection.commit()
+        return self.get_detail(project_code) or {}
+
+    def confirm_design_brief(
+        self,
+        project_code: str,
+        *,
+        expected_revision: int,
+        actor_id: str,
+    ) -> dict[str, Any]:
+        current = self.core.get_project(project_code)
+        if current is None:
+            raise KeyError(project_code)
+        if int(current["revision_number"]) != expected_revision:
+            raise DomainConflictError(
+                "REVISION_CONFLICT",
+                "Content project changed since it was loaded",
+                details={"expected_revision": expected_revision, "actual_revision": current["revision_number"]},
+            )
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT * FROM functional_design_briefs
+                WHERE project_id = %s AND source_project_revision_number = %s
+                ORDER BY revision_number DESC LIMIT 1 FOR UPDATE
+                """,
+                (current["project_id"], expected_revision),
+            )
+            brief = cursor.fetchone()
+            if brief is None:
+                self.connection.rollback()
+                raise KeyError(f"{project_code}@{expected_revision}:design_brief")
+            if brief["status"] == "confirmed":
+                self.connection.rollback()
+                return self.get_detail(project_code) or {}
+            if brief["status"] != "draft":
+                self.connection.rollback()
+                raise DomainConflictError(
+                    "DESIGN_BRIEF_CONFIRM_NOT_ALLOWED",
+                    "Only a draft DesignBrief can be confirmed",
+                    details={"status": brief["status"]},
+                )
+            cursor.execute(
+                """
+                UPDATE functional_design_briefs
+                SET status = 'superseded', superseded_at = now(), updated_at = now()
+                WHERE project_id = %s AND status = 'confirmed'
+                """,
+                (current["project_id"],),
+            )
+            cursor.execute(
+                """
+                UPDATE functional_design_briefs
+                SET status = 'confirmed', confirmed_by = %s, confirmed_at = now(), updated_at = now()
+                WHERE id = %s
+                """,
+                (actor_id, brief["id"]),
+            )
+        self.connection.commit()
+        return self.get_detail(project_code) or {}
+
     def list_projects(self) -> list[dict[str, Any]]:
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
@@ -133,7 +275,7 @@ class FunctionalContentService:
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
                 """
-                SELECT p.id AS project_id, p.project_code, p.title, r.revision_number, r.status,
+                SELECT p.id AS project_id, r.id AS project_revision_id, p.project_code, p.title, r.revision_number, r.status,
                        r.generation_goal, r.content, r.created_at, r.updated_at
                 FROM content_projects p
                 JOIN content_project_revisions r
@@ -145,6 +287,17 @@ class FunctionalContentService:
             project = cursor.fetchone()
             if project is None:
                 return None
+            cursor.execute(
+                """
+                SELECT design_brief_code, revision_number, status, parsed_brief, open_questions,
+                       raw_input, parser_strategy_ref, prompt_revision, created_at
+                FROM functional_design_briefs
+                WHERE project_id = %s AND source_project_revision_id = %s
+                ORDER BY revision_number DESC LIMIT 1
+                """,
+                (project["project_id"], project["project_revision_id"]),
+            )
+            design_brief = cursor.fetchone()
             cursor.execute(
                 """
                 SELECT * FROM story_brief_revisions
@@ -194,6 +347,7 @@ class FunctionalContentService:
                 **self._summary(project),
                 "content": content,
                 "fact_cards": self._fact_card_views(content),
+                "design_brief": self._design_brief_view(design_brief),
                 "generated": shot_list is not None,
                 "generation_mode": content.get("generation_mode"),
                 "story_brief": self._story_view(story),
@@ -398,6 +552,56 @@ class FunctionalContentService:
             for ref in content.get("fact_card_refs") or []
             if isinstance(ref, dict)
         ]
+
+    @staticmethod
+    def _compile_design_brief(current: dict[str, Any], raw_input: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        content = current.get("content") or {}
+        parsed = {
+            "objective": current["generation_goal"],
+            "theme": content.get("theme"),
+            "story": content.get("story"),
+            "audience": content.get("audience"),
+            "priorities": content.get("must_include") or [],
+            "persona": content.get("persona"),
+            "tone": content.get("tone"),
+            "duration_seconds": content.get("target_duration_seconds"),
+            "must_include": content.get("must_include") or [],
+            "must_avoid": content.get("must_avoid") or [],
+            "staging": content.get("staging_requirements") or [],
+            "interaction": content.get("interaction_requirements") or [],
+            "conversion": content.get("conversion_requirements") or [],
+            "visual": content.get("visual_requirements") or [],
+            "audio": content.get("audio_requirements") or [],
+            "platform": content.get("platform"),
+            "raw_input_sha256": canonical_fingerprint({"raw_input": raw_input.strip()}),
+        }
+        candidates = (
+            ("audience", "目标受众会改变信息密度和表达方式。", "使用当前常见购买者作为暂定受众"),
+            ("target_duration_seconds", "目标时长会影响节目段与镜头节奏。", "先以 180 秒作为可编辑基线"),
+            ("platform", "平台决定互动和合规表达边界。", "使用当前默认直播平台"),
+        )
+        questions = [
+            {"field": field, "question": question, "recommended_answer": recommendation, "blocking": False}
+            for field, question, recommendation in candidates
+            if not content.get(field)
+        ][:3]
+        return parsed, questions
+
+    @staticmethod
+    def _design_brief_view(row: dict[str, Any] | None) -> dict[str, Any] | None:
+        if row is None:
+            return None
+        return {
+            "design_brief_code": row["design_brief_code"],
+            "revision_number": row["revision_number"],
+            "status": row["status"],
+            "parsed_brief": row["parsed_brief"],
+            "open_questions": row["open_questions"],
+            "raw_input": row["raw_input"],
+            "parser_strategy_ref": row["parser_strategy_ref"],
+            "prompt_revision": row["prompt_revision"],
+            "created_at": row["created_at"],
+        }
 
     def _current_story_revision(self, project_id: str) -> int:
         with self.connection.cursor(row_factory=dict_row) as cursor:
