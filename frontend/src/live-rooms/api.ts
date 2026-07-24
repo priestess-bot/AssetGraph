@@ -1,4 +1,4 @@
-import { asArray, asOptionalString, asString, isRecord, postJson, requestJson } from "../workbench/api";
+import { asArray, asNumber, asOptionalString, asString, isRecord, postJson, requestJson } from "../workbench/api";
 
 const ROOT = "/api/functional-live-room-plans";
 
@@ -14,6 +14,18 @@ export interface FunctionalLiveRoomPlan {
   selectedAssetCodes: string[];
   selectedGroupCodes: string[];
   selectedMaterialPackCodes: string[];
+  materialSnapshot: {
+    assetCodes: string[];
+    assets: Array<{
+      assetCode: string;
+      mediaKind?: string;
+      materialRoles: string[];
+      executionCapability: string;
+      constraintProfile?: { profileCode: string; revision: number; fingerprint: string };
+      selectionSources: Array<{ kind: string; code: string }>;
+    }>;
+    materialPackRefs: Array<{ packCode: string; revisionNumber: number; fingerprint: string; role: string }>;
+  };
   blueprint: { schema_version: string; scenes: Array<{ scene_code: string; shot_code: string; title: string; layers: Array<{ role: string; asset_code: string; execution_capability: string; z_order: number }>; script: string }> };
   buildPlan: { schema_version: string; build_plan_code?: string; target_live_room_id: string; go_live: boolean; operations: Array<{ kind: string; scene_code?: string; asset_code?: string; role?: string; script_block_code?: string }> };
   gateResults: Array<{ gate: string; status: string; ruleCode: string; remediation?: string }>;
@@ -60,6 +72,7 @@ function plan(value: unknown): FunctionalLiveRoomPlan {
   if (!planCode) throw new Error("直播间计划缺少编码");
   const blueprint = isRecord(value.blueprint) ? value.blueprint : {};
   const buildPlan = isRecord(value.build_plan) ? value.build_plan : {};
+  const inventorySnapshot = isRecord(buildPlan.inventory_snapshot) ? buildPlan.inventory_snapshot : {};
   return {
     planCode,
     projectCode: asString(value.project_code),
@@ -72,6 +85,15 @@ function plan(value: unknown): FunctionalLiveRoomPlan {
     selectedAssetCodes: strings(value.selected_asset_codes),
     selectedGroupCodes: strings(value.selected_group_codes),
     selectedMaterialPackCodes: strings(value.selected_material_pack_codes),
+    materialSnapshot: {
+      assetCodes: strings(inventorySnapshot.asset_codes),
+      assets: asArray(inventorySnapshot.assets).flatMap((asset) => isRecord(asset) && asString(asset.asset_code) ? [{
+        assetCode: asString(asset.asset_code), mediaKind: asOptionalString(asset.media_kind), materialRoles: strings(asset.material_roles), executionCapability: asString(asset.execution_capability),
+        constraintProfile: isRecord(asset.constraint_profile_ref) && asString(asset.constraint_profile_ref.profile_code) ? { profileCode: asString(asset.constraint_profile_ref.profile_code), revision: asNumber(asset.constraint_profile_ref.revision), fingerprint: asString(asset.constraint_profile_ref.fingerprint) } : undefined,
+        selectionSources: asArray(asset.selection_sources).flatMap((source) => isRecord(source) && asString(source.kind) && asString(source.code) ? [{ kind: asString(source.kind), code: asString(source.code) }] : []),
+      }] : []),
+      materialPackRefs: asArray(inventorySnapshot.material_pack_refs).flatMap((pack) => isRecord(pack) && asString(pack.pack_code) ? [{ packCode: asString(pack.pack_code), revisionNumber: asNumber(pack.revision_number), fingerprint: asString(pack.fingerprint_sha256), role: asString(pack.role) }] : []),
+    },
     blueprint: {
       schema_version: asString(blueprint.schema_version),
       scenes: asArray(blueprint.scenes).flatMap((scene) => isRecord(scene) ? [{

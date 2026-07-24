@@ -179,6 +179,14 @@
 .live-plan-summary span { color: var(--wb-muted); font-size: 8px; }
 .live-plan-summary strong, .live-plan-summary code { overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .live-plan-summary code { color: var(--console-cyan); }
+.live-material-snapshot { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid var(--wb-line); }
+.live-material-snapshot article { display: grid; min-width: 0; gap: 6px; padding: 10px 12px; border-right: 1px solid var(--wb-line); border-bottom: 1px solid var(--wb-line); }
+.live-material-snapshot article header { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 6px; }
+.live-material-snapshot article header code { overflow: hidden; color: var(--console-cyan); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.live-material-snapshot small { color: var(--wb-muted); font-size: 8px; overflow-wrap: anywhere; }
+.live-material-snapshot article > div { display: flex; flex-wrap: wrap; gap: 4px; }
+.live-material-snapshot article > div > span, .live-material-pack-refs > span { padding: 3px 5px; border: 1px solid var(--wb-line); color: var(--wb-muted); font-size: 7px; }
+.live-material-pack-refs { display: flex; flex-wrap: wrap; gap: 5px; padding: 10px 12px; }
 .live-plan-detail .wb-notice { margin: 11px 13px 0; }
 .live-scene-list { display: grid; }
 .live-scene-list article { padding: 11px 13px; border-top: 1px solid var(--wb-line); }
@@ -386,7 +394,7 @@
   .console-entity-inspector { width: min(560px, 100vw); }
   .content-project-layout, .live-room-layout, .video-plan-layout, .operations-layout { grid-template-columns: 1fr; }
   .content-project-rail, .live-plan-rail, .video-plan-rail { position: static; max-height: none; }
-  .live-plan-summary, .video-plan-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .live-plan-summary, .video-plan-summary, .live-material-snapshot { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 640px) {
@@ -408,6 +416,7 @@
   .live-request-action { flex-basis: auto; align-items: stretch; }
   .live-request-action .wb-button { justify-content: center; }
   .live-clone-fields { grid-template-columns: 1fr; width: 100%; }
+  .live-material-snapshot { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 420px) {

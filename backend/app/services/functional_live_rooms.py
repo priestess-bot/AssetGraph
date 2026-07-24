@@ -55,6 +55,11 @@ class FunctionalLiveRoomService:
         )
         if not selected_assets:
             raise DomainValidationError("LIVE_ROOM_ASSETS_REQUIRED", "Select at least one asset or group before planning")
+        selection_sources = self._material_selection_sources(
+            asset_codes=payload.get("asset_codes") or [],
+            group_codes=payload.get("group_codes") or [],
+            material_pack_refs=material_pack_refs,
+        )
         story = detail["story_brief"]
         script = detail["script"]
         shot_list = detail["shot_list"]
@@ -67,6 +72,7 @@ class FunctionalLiveRoomService:
                     "asset_code": asset["asset_code"], "media_kind": asset["media_kind"],
                     "material_roles": asset["material_roles"], "execution_capability": asset["execution_capability"],
                     "constraint_profile_ref": asset["constraint_profile_ref"],
+                    "selection_sources": selection_sources.get(asset["asset_code"], []),
                 }
                 for asset in selected_assets
             ],
@@ -970,6 +976,43 @@ class FunctionalLiveRoomService:
         if missing:
             raise DomainValidationError("LIVE_ROOM_ASSET_NOT_FOUND", "Selected assets no longer exist", details={"asset_codes": missing})
         return [by_code[code] for code in codes]
+
+    def _material_selection_sources(
+        self,
+        *,
+        asset_codes: list[str],
+        group_codes: list[str],
+        material_pack_refs: list[dict[str, Any]],
+    ) -> dict[str, list[dict[str, str]]]:
+        """Record the requested source without retaining dynamic group expansion."""
+        sources: dict[str, list[dict[str, str]]] = {}
+
+        def add(asset_code: str, kind: str, code: str) -> None:
+            entry = {"kind": kind, "code": code}
+            if entry not in sources.setdefault(asset_code, []):
+                sources[asset_code].append(entry)
+
+        for asset_code in dict.fromkeys(str(code).strip() for code in asset_codes if str(code).strip()):
+            add(asset_code, "loose_asset", asset_code)
+        for pack in material_pack_refs:
+            pack_code = str(pack.get("pack_code") or "")
+            for asset_code in pack.get("resolved_asset_codes") or []:
+                add(str(asset_code), "material_pack", pack_code)
+        codes = list(dict.fromkeys(str(code).strip() for code in group_codes if str(code).strip()))
+        if not codes:
+            return sources
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """SELECT g.group_code, a.asset_code
+                   FROM asset_group_members gm
+                   JOIN asset_groups g ON g.id = gm.group_id
+                   JOIN assets a ON a.id = gm.asset_id AND a.deleted_at IS NULL
+                   WHERE g.group_code = ANY(%s)""",
+                (codes,),
+            )
+            for row in cursor.fetchall():
+                add(str(row["asset_code"]), "asset_group", str(row["group_code"]))
+        return sources
 
     @staticmethod
     def _project_template_selection(detail: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:

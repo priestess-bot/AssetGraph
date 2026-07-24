@@ -265,6 +265,10 @@ def test_live_room_plan_selects_only_published_material_pack_and_freezes_resolve
             "fingerprint_sha256": published_pack["fingerprint_sha256"], "role": "background",
             "entries": published_pack["entries"], "resolved_asset_codes": published_pack["resolved_asset_codes"],
         }]
+        assert all(
+            {"kind": "material_pack", "code": published_pack["pack_code"]} in asset["selection_sources"]
+            for asset in snapshot["assets"]
+        )
 
         library.replace_group_members(group["group_code"], [selected[0]["asset_code"]])
         assert plan["build_plan"]["inventory_snapshot"]["asset_codes"] == [asset["asset_code"] for asset in selected]
