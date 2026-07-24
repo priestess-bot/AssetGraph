@@ -13,20 +13,36 @@ class FunctionalLearningService:
         self.connection = connection
 
     def create_decision(self, p: dict[str, Any]) -> dict[str, Any]:
-        with self.connection.cursor(row_factory=dict_row) as c:
-            code = self._next(c, "DEC", "functional_decision_log")
-            c.execute(
-                "INSERT INTO functional_decision_logs (decision_code,project_code,attribution_report_code,observation,recommendation) VALUES (%s,%s,%s,%s,%s) RETURNING *",
-                (
-                    code,
-                    p.get("project_code"),
-                    p.get("attribution_report_code"),
-                    p["observation"],
-                    p["recommendation"],
-                ),
-            )
-            row = c.fetchone()
-        self.connection.commit()
+        try:
+            with self.connection.cursor(row_factory=dict_row) as c:
+                report_code = p.get("attribution_report_code")
+                if report_code:
+                    c.execute(
+                        "SELECT report_code FROM functional_attribution_reports WHERE report_code = %s",
+                        (report_code,),
+                    )
+                    if c.fetchone() is None:
+                        raise DomainValidationError(
+                            "LEARNING_ATTRIBUTION_REPORT_NOT_FOUND",
+                            "The selected attribution report does not exist",
+                            details={"attribution_report_code": report_code},
+                        )
+                code = self._next(c, "DEC", "functional_decision_log")
+                c.execute(
+                    "INSERT INTO functional_decision_logs (decision_code,project_code,attribution_report_code,observation,recommendation) VALUES (%s,%s,%s,%s,%s) RETURNING *",
+                    (
+                        code,
+                        p.get("project_code"),
+                        report_code,
+                        p["observation"],
+                        p["recommendation"],
+                    ),
+                )
+                row = c.fetchone()
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
         return dict(row)
 
     def list_decisions(self) -> list[dict[str, Any]]:

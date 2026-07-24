@@ -26,7 +26,10 @@ def service(c: Annotated[Connection, Depends(get_db)]) -> FunctionalLearningServ
 def create_decision(
     p: DecisionCreate, s: Annotated[FunctionalLearningService, Depends(service)]
 ) -> dict:
-    return s.create_decision(p.model_dump())
+    try:
+        return s.create_decision(p.model_dump())
+    except DomainValidationError as e:
+        raise HTTPException(status_code=422, detail=e.message) from e
 
 
 @router.get("/decisions", response_model=list[DecisionRead])

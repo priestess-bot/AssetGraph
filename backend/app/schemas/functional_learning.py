@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 class DecisionCreate(BaseModel):
     project_code: str | None = None
-    attribution_report_code: str | None = None
+    attribution_report_code: str | None = Field(default=None, min_length=1, max_length=64)
     observation: str = Field(min_length=1)
     recommendation: str = Field(min_length=1)
 
