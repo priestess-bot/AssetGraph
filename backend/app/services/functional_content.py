@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 from psycopg import Connection
@@ -7,6 +8,8 @@ from psycopg.rows import dict_row
 
 from app.repositories.content_core import ContentCoreRepository
 from app.repositories.content_production import ContentProductionRepository
+from app.repositories.maitu_workbench import MaituWorkbenchRepository
+from app.domain.errors import DomainConflictError, DomainValidationError
 
 
 class FunctionalContentService:
@@ -16,17 +19,99 @@ class FunctionalContentService:
         self.connection = connection
         self.core = ContentCoreRepository(connection)
         self.production = ContentProductionRepository(connection)
+        self.facts = MaituWorkbenchRepository(connection)
 
     def create_project(self, payload: dict[str, Any], *, actor_id: str) -> dict[str, Any]:
         document = self._document(payload)
+        self._pin_fact_cards(document)
         created = self.core.create_project(
             title=payload["title"],
             generation_goal=payload["generation_goal"],
             content=document,
             actor_id=actor_id,
             producer_strategy_revision="functional-input.v1",
+            source_revision_refs=self._source_refs(document),
         )
         return self._summary(created)
+
+    def update_project(
+        self,
+        project_code: str,
+        payload: dict[str, Any],
+        *,
+        actor_id: str,
+    ) -> dict[str, Any]:
+        expected_revision = payload.pop("expected_revision", None)
+        if not isinstance(expected_revision, int):
+            raise DomainValidationError(
+                "CONTENT_PROJECT_EXPECTED_REVISION_REQUIRED",
+                "Updating a content project requires expected_revision",
+            )
+        current = self.core.get_project(project_code)
+        if current is None:
+            raise KeyError(project_code)
+        document = dict(current["content"] or {})
+        updates = self._document(payload, include_defaults=False)
+        if "fact_card_codes" in updates and "fact_card_refs" not in updates:
+            document.pop("fact_card_refs", None)
+        document.update(updates)
+        self._pin_fact_cards(document)
+        revision = self.core.create_project_revision(
+            project_code,
+            expected_revision=expected_revision,
+            title=str(payload.get("title") or current["title"]),
+            generation_goal=str(payload.get("generation_goal") or current["generation_goal"]),
+            content=document,
+            source_revision_refs=self._source_refs(document),
+            actor_id=actor_id,
+            producer_strategy_revision="functional-input.v1",
+        )
+        detail = self.get_detail(project_code)
+        if detail is None:
+            raise KeyError(project_code)
+        if int(detail["revision_number"]) != int(revision["revision_number"]):
+            raise DomainConflictError(
+                "CONTENT_PROJECT_UPDATE_NOT_CURRENT",
+                "Content project update did not become the current revision",
+            )
+        return detail
+
+    def confirm_project(
+        self,
+        project_code: str,
+        *,
+        expected_revision: int,
+        actor_id: str,
+    ) -> dict[str, Any]:
+        current = self.core.get_project(project_code)
+        if current is None:
+            raise KeyError(project_code)
+        if int(current["revision_number"]) != expected_revision:
+            raise DomainConflictError(
+                "REVISION_CONFLICT",
+                "Content project changed since it was loaded",
+                details={"expected_revision": expected_revision, "actual_revision": current["revision_number"]},
+            )
+        document = dict(current["content"] or {})
+        self._pin_fact_cards(document, require_existing_pins=True)
+        if document != current["content"]:
+            revision = self.core.create_project_revision(
+                project_code,
+                expected_revision=expected_revision,
+                title=current["title"],
+                generation_goal=current["generation_goal"],
+                content=document,
+                source_revision_refs=self._source_refs(document),
+                actor_id=actor_id,
+                producer_strategy_revision="functional-input.v1",
+            )
+            expected_revision = int(revision["revision_number"])
+        self.core.confirm_project_revision(
+            project_code,
+            revision_number=expected_revision,
+            actor_id=actor_id,
+        )
+        return self.get_detail(project_code) or {}
 
     def list_projects(self) -> list[dict[str, Any]]:
         with self.connection.cursor(row_factory=dict_row) as cursor:
@@ -104,11 +189,13 @@ class FunctionalContentService:
                     (program["id"],),
                 )
                 shot_list = cursor.fetchone()
+            content = project["content"] or {}
             detail = {
                 **self._summary(project),
-                "content": project["content"],
+                "content": content,
+                "fact_cards": self._fact_card_views(content),
                 "generated": shot_list is not None,
-                "generation_mode": (project["content"] or {}).get("generation_mode"),
+                "generation_mode": content.get("generation_mode"),
                 "story_brief": self._story_view(story),
                 "script": self._script_view(cursor, script),
                 "program": self._program_view(cursor, program),
@@ -121,6 +208,7 @@ class FunctionalContentService:
         if current is None:
             raise KeyError(project_code)
         project_revision = int(current["revision_number"])
+        self._pin_fact_cards(dict(current["content"] or {}), require_existing_pins=True)
         if current["status"] != "confirmed":
             current = self.core.confirm_project_revision(project_code, revision_number=project_revision, actor_id=actor_id)
         content = current["content"]
@@ -131,7 +219,7 @@ class FunctionalContentService:
             expected_revision=self._current_story_revision(current["project_id"]),
             source_design_brief_revision=design_ref,
             content=self._story_content(current["generation_goal"], content),
-            fact_revision_refs=[{"fact_card_code": code, "revision": "selected"} for code in content.get("fact_card_codes", [])],
+            fact_revision_refs=self._fact_revision_refs(content),
             template_revision_refs=self._template_refs(content),
             actor_id=actor_id,
             producer_strategy_revision="functional-deterministic.v1",
@@ -182,12 +270,134 @@ class FunctionalContentService:
         return self.get_detail(project_code) or {}
 
     @staticmethod
-    def _document(payload: dict[str, Any]) -> dict[str, Any]:
+    def _document(payload: dict[str, Any], *, include_defaults: bool = True) -> dict[str, Any]:
         fields = (
-            "theme", "story", "detailed_design", "audience", "tone", "target_duration_seconds",
-            "must_include", "must_avoid", "fact_card_codes", "primary_template_code", "secondary_template_codes",
+            "theme", "story", "detailed_design", "audience", "platform", "persona", "tone",
+            "target_duration_seconds", "product_order", "must_include", "must_avoid",
+            "interaction_requirements", "conversion_requirements", "staging_requirements",
+            "visual_requirements", "audio_requirements", "fact_card_codes", "fact_card_refs",
+            "primary_template_code", "secondary_template_codes",
         )
-        return {**{field: payload.get(field) for field in fields}, "generation_mode": "deterministic_demo"}
+        document = {field: payload.get(field) for field in fields if include_defaults or field in payload}
+        if include_defaults:
+            for field in (
+                "product_order", "must_include", "must_avoid", "interaction_requirements",
+                "conversion_requirements", "staging_requirements", "visual_requirements",
+                "audio_requirements", "fact_card_codes", "fact_card_refs", "secondary_template_codes",
+            ):
+                document[field] = document.get(field) or []
+        document["generation_mode"] = "deterministic_demo"
+        return document
+
+    def _pin_fact_cards(self, document: dict[str, Any], *, require_existing_pins: bool = False) -> None:
+        raw_refs = document.get("fact_card_refs") or []
+        raw_codes = document.get("fact_card_codes") or []
+        if require_existing_pins and raw_codes and not raw_refs:
+            raise DomainValidationError(
+                "FACT_CARD_VERSION_PIN_REQUIRED",
+                "A content project must pin a fact card version before confirmation or generation",
+            )
+        requested: list[tuple[str, int | None]] = []
+        if raw_refs:
+            for value in raw_refs:
+                if not isinstance(value, dict):
+                    raise DomainValidationError("FACT_CARD_REFERENCE_INVALID", "Fact card references must be objects")
+                code = str(value.get("fact_card_code") or "").strip()
+                version = value.get("version_number")
+                if not code or (version is not None and (not isinstance(version, int) or version < 1)):
+                    raise DomainValidationError("FACT_CARD_REFERENCE_INVALID", "Fact card code and version are invalid")
+                if require_existing_pins and version is None:
+                    raise DomainValidationError("FACT_CARD_VERSION_PIN_REQUIRED", "Fact card version is required")
+                requested.append((code, version))
+        else:
+            requested = [(str(code).strip(), None) for code in raw_codes if str(code).strip()]
+        codes = [code for code, _ in requested]
+        if len(codes) != len(set(codes)):
+            raise DomainValidationError("FACT_CARD_REFERENCE_DUPLICATE", "A fact card can only be selected once")
+
+        platform = str(document.get("platform") or "").strip()
+        pinned: list[dict[str, Any]] = []
+        for code, version in requested:
+            resolved = self.facts.resolve_product_fact_card_version(code, version, require_approved=True)
+            if resolved is None:
+                raise DomainValidationError(
+                    "FACT_CARD_NOT_APPROVED",
+                    "The selected fact card version is unavailable or not approved",
+                    details={"fact_card_code": code, "version_number": version},
+                )
+            fact_content = resolved.get("content") or {}
+            self._validate_fact_scope(code, int(resolved["version_number"]), fact_content, platform)
+            pinned.append(
+                {
+                    "fact_card_code": code,
+                    "version_number": int(resolved["version_number"]),
+                    "version_code": resolved["version_code"],
+                    "content_sha256": resolved["content_sha256"],
+                }
+            )
+        document["fact_card_refs"] = pinned
+        document["fact_card_codes"] = [ref["fact_card_code"] for ref in pinned]
+
+    @staticmethod
+    def _validate_fact_scope(
+        code: str,
+        version: int,
+        content: dict[str, Any],
+        platform: str,
+    ) -> None:
+        now = datetime.now(UTC)
+        valid_from = FunctionalContentService._parse_fact_time(content.get("valid_from"), code, version)
+        valid_until = FunctionalContentService._parse_fact_time(content.get("valid_until"), code, version)
+        if valid_from and now < valid_from:
+            raise DomainValidationError("FACT_CARD_NOT_YET_VALID", "Fact card version is not effective yet", details={"fact_card_code": code, "version_number": version})
+        if valid_until and now >= valid_until:
+            raise DomainValidationError("FACT_CARD_EXPIRED", "Fact card version has expired", details={"fact_card_code": code, "version_number": version})
+        applicable = content.get("applicable_platforms")
+        if applicable is not None:
+            if not isinstance(applicable, list) or not all(isinstance(value, str) for value in applicable):
+                raise DomainValidationError("FACT_CARD_SCOPE_INVALID", "Fact card applicable_platforms must be a string array", details={"fact_card_code": code, "version_number": version})
+            normalized = {value.strip().lower() for value in applicable if value.strip()}
+            if platform and normalized and "all" not in normalized and platform.lower() not in normalized:
+                raise DomainValidationError("FACT_CARD_SCOPE_MISMATCH", "Fact card version does not apply to the selected platform", details={"fact_card_code": code, "version_number": version, "platform": platform})
+
+    @staticmethod
+    def _parse_fact_time(value: Any, code: str, version: int) -> datetime | None:
+        if value in (None, ""):
+            return None
+        if not isinstance(value, str):
+            raise DomainValidationError("FACT_CARD_VALIDITY_INVALID", "Fact card validity must be an ISO-8601 timestamp", details={"fact_card_code": code, "version_number": version})
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise DomainValidationError("FACT_CARD_VALIDITY_INVALID", "Fact card validity must be an ISO-8601 timestamp", details={"fact_card_code": code, "version_number": version}) from exc
+        if parsed.tzinfo is None:
+            raise DomainValidationError("FACT_CARD_VALIDITY_INVALID", "Fact card validity must include a timezone", details={"fact_card_code": code, "version_number": version})
+        return parsed.astimezone(UTC)
+
+    @staticmethod
+    def _source_refs(document: dict[str, Any]) -> list[dict[str, Any]]:
+        return [
+            {"object_type": "fact_card", **ref, "relation_type": "approved_fact"}
+            for ref in document.get("fact_card_refs") or []
+        ] + [
+            {"object_type": "live_room_template", "template_code": ref["template_code"], "revision": ref["revision"], "relation_type": "reference_template"}
+            for ref in FunctionalContentService._template_refs(document)
+        ]
+
+    @staticmethod
+    def _fact_revision_refs(content: dict[str, Any]) -> list[dict[str, Any]]:
+        return [
+            {"fact_card_code": ref["fact_card_code"], "revision": ref["version_number"], "version_code": ref["version_code"], "content_sha256": ref["content_sha256"]}
+            for ref in content.get("fact_card_refs") or []
+        ]
+
+    @staticmethod
+    def _fact_card_views(content: dict[str, Any]) -> list[dict[str, Any]]:
+        return [
+            {"fact_card_code": ref.get("fact_card_code"), "version_number": ref.get("version_number"), "version_code": ref.get("version_code"), "content_sha256": ref.get("content_sha256")}
+            for ref in content.get("fact_card_refs") or []
+            if isinstance(ref, dict)
+        ]
 
     def _current_story_revision(self, project_id: str) -> int:
         with self.connection.cursor(row_factory=dict_row) as cursor:

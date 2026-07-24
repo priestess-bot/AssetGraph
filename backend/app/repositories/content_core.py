@@ -26,6 +26,7 @@ class ContentCoreRepository:
         content: dict[str, Any],
         actor_id: str,
         producer_strategy_revision: str = "human_input.v1",
+        source_revision_refs: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         if not title.strip() or not generation_goal.strip():
             raise DomainValidationError(
@@ -62,7 +63,7 @@ class ContentCoreRepository:
                     producer_strategy_revision, fingerprint_sha256,
                     expected_parent_revision, created_by
                 )
-                VALUES (%s, %s, 1, %s, %s, '[]'::jsonb, 'human_business', %s, %s, 0, %s)
+                VALUES (%s, %s, 1, %s, %s, %s, 'human_business', %s, %s, 0, %s)
                 RETURNING *
                 """,
                 (
@@ -70,6 +71,7 @@ class ContentCoreRepository:
                     project_code,
                     generation_goal.strip(),
                     Jsonb(content),
+                    Jsonb(source_revision_refs or []),
                     producer_strategy_revision,
                     fingerprint,
                     actor_id,

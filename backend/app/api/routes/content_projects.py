@@ -7,7 +7,13 @@ from psycopg import Connection
 
 from app.core.database import get_db
 from app.domain.errors import DomainConflictError, DomainValidationError
-from app.schemas.content_projects import ContentProjectCreate, ContentProjectDetail, ContentProjectSummary
+from app.schemas.content_projects import (
+    ContentProjectConfirm,
+    ContentProjectCreate,
+    ContentProjectDetail,
+    ContentProjectSummary,
+    ContentProjectUpdate,
+)
 from app.services.functional_content import FunctionalContentService
 
 
@@ -37,6 +43,46 @@ def get_content_project(project_code: str, service: Annotated[FunctionalContentS
     if detail is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Content project not found")
     return detail
+
+
+@router.patch("/{project_code}", response_model=ContentProjectDetail)
+def update_content_project(
+    project_code: str,
+    payload: ContentProjectUpdate,
+    service: Annotated[FunctionalContentService, Depends(get_service)],
+) -> dict:
+    try:
+        return service.update_project(
+            project_code,
+            payload.model_dump(mode="json", exclude_unset=True),
+            actor_id="functional-operator",
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Content project not found") from exc
+    except DomainConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.as_dict()) from exc
+    except DomainValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=exc.as_dict()) from exc
+
+
+@router.post("/{project_code}/confirm", response_model=ContentProjectDetail)
+def confirm_content_project(
+    project_code: str,
+    payload: ContentProjectConfirm,
+    service: Annotated[FunctionalContentService, Depends(get_service)],
+) -> dict:
+    try:
+        return service.confirm_project(
+            project_code,
+            expected_revision=payload.expected_revision,
+            actor_id="functional-operator",
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Content project not found") from exc
+    except DomainConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.as_dict()) from exc
+    except DomainValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=exc.as_dict()) from exc
 
 
 @router.post("/{project_code}/generate", response_model=ContentProjectDetail)
