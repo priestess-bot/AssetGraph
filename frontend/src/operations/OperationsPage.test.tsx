@@ -31,12 +31,17 @@ describe("OperationsPage", () => {
     await user.type(screen.getByLabelText("场次名称"), "晚场");
     fireEvent.change(screen.getByLabelText("场次开始"), { target: { value: "2026-07-20T20:00" } });
     fireEvent.change(screen.getByLabelText("场次结束"), { target: { value: "2026-07-20T21:30" } });
+    fireEvent.change(screen.getByLabelText("指标数值 1"), { target: { value: "120" } });
+    await user.click(screen.getByRole("button", { name: "添加指标" }));
+    await user.type(screen.getByLabelText("指标名称 2"), "orders");
+    fireEvent.change(screen.getByLabelText("指标数值 2"), { target: { value: "8" } });
     await user.click(screen.getByRole("button", { name: "登记场次" }));
 
     const request = requests.find((item) => item.url === "/api/functional-operations/sessions" && item.init?.method === "POST");
     const body = JSON.parse(String(request?.init?.body));
     expect(body.started_at).toBe(new Date("2026-07-20T20:00").toISOString());
     expect(body.ended_at).toBe(new Date("2026-07-20T21:30").toISOString());
+    expect(body.metrics).toEqual({ watchers: 120, orders: 8 });
   });
 
   it("labels a session as observed only when it has an active exposure", async () => {

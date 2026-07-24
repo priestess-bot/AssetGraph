@@ -396,6 +396,9 @@
 .operations-form { display: grid; gap: 9px; padding: 13px; border-bottom: 1px solid var(--wb-line); }
 .operations-form .wb-button { width: 100%; justify-content: center; }
 .operations-form-stack { display: grid; }
+.operations-metric-fields { display: grid; gap: 7px; }
+.operations-metric-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(90px, .55fr) 28px; align-items: end; gap: 7px; }
+.operations-metric-row .wb-icon-button { width: 28px; height: 28px; }
 .operations-list { display: grid; }
 .operations-list > div { display: grid; min-height: 64px; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 9px 12px; border-top: 1px solid var(--wb-line); }
 .operations-list span { display: flex; min-width: 0; flex-direction: column; }
