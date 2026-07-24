@@ -20,6 +20,7 @@ describe("LiveRoomPlannerPage", () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input); requests.push({ url, init });
       if (url === "/api/content-projects") return response([{ project_code: "CONTENT-001", title: "缺口测试内容", revision_number: 1, status: "draft", generation_goal: "测试", updated_at: "2026-07-25T00:00:00Z" }]);
+      if (url === "/api/content-projects/CONTENT-001") return response({ project_code: "CONTENT-001", title: "缺口测试内容", revision_number: 1, status: "draft", generation_goal: "测试", updated_at: "2026-07-25T00:00:00Z", content: { template_contribution_decisions: [{ template_code: "TPL-PRIMARY", revision: 3, selection_role: "primary", accepted_modules: ["opening", "close"], rejected_modules: [], available_modules: ["opening", "close"], material_cues: [] }, { template_code: "TPL-SECONDARY", revision: 2, selection_role: "secondary", accepted_modules: ["interaction"], rejected_modules: [], available_modules: ["interaction"], material_cues: [] }] } });
       if (url === "/api/assets") return response([{ asset_code: "AG-IMG-001", title: "背景素材", original_filename: "background.png", asset_type: "IMG", material_roles: ["background"], execution_capability: "maitu_bound" }]);
       if (url === "/api/assets/groups" || url === "/api/assets/material-packs") return response([]);
       if (url === "/api/assets/gaps") return response([{ gap_code: "AG-GAP-001", title: "需要审核的背景", role: "background", severity: "high", status: "open", gap_type: "rights_pending", alternative_asset_codes: [], resolution_snapshot: {}, events: [] }]);
@@ -31,7 +32,9 @@ describe("LiveRoomPlannerPage", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await screen.findByText("关联素材缺口");
+    await screen.findByText("主参考模板");
+    expect(screen.getByText("TPL-PRIMARY · r3")).toBeInTheDocument();
+    expect(screen.getByText("TPL-SECONDARY · r2")).toBeInTheDocument();
     await user.type(screen.getByLabelText("直播间 ID"), "room-001");
     await user.type(screen.getByLabelText("直播间标题"), "缺口计划");
     await user.click(screen.getByRole("checkbox", { name: /背景素材/ }));
@@ -39,6 +42,6 @@ describe("LiveRoomPlannerPage", () => {
     await user.click(screen.getByRole("button", { name: "生成场景与 BuildPlan" }));
 
     const request = requests.find((item) => item.url === "/api/functional-live-room-plans" && item.init?.method === "POST");
-    expect(JSON.parse(String(request?.init?.body))).toMatchObject({ asset_gap_codes: ["AG-GAP-001"], asset_codes: ["AG-IMG-001"] });
+    expect(JSON.parse(String(request?.init?.body))).toMatchObject({ primary_template_code: "TPL-PRIMARY", secondary_template_codes: ["TPL-SECONDARY"], asset_gap_codes: ["AG-GAP-001"], asset_codes: ["AG-IMG-001"] });
   });
 });

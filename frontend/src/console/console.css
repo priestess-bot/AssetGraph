@@ -312,6 +312,13 @@
 .live-plan-rail { position: sticky; top: 84px; align-self: start; max-height: calc(100vh - 105px); overflow-y: auto; }
 .live-plan-form { display: grid; gap: 10px; padding: 12px; border-bottom: 1px solid var(--wb-line); }
 .live-plan-form > .wb-button { width: 100%; justify-content: center; }
+.live-template-selection { display: grid; gap: 5px; padding: 8px; border: 1px solid #9bbcad; border-radius: 4px; background: var(--wb-accent-soft); }
+.live-template-selection > span { color: var(--wb-accent-dark); font-size: 8px; font-weight: 900; }
+.live-template-selection article { display: grid; gap: 2px; padding: 6px 0; border-top: 1px solid rgb(109 147 127 / 35%); }
+.live-template-selection article > div { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 6px; }
+.live-template-selection strong { font-size: 8px; }
+.live-template-selection code { overflow-wrap: anywhere; color: var(--console-cyan); font-size: 8px; text-align: right; }
+.live-template-selection small { color: var(--wb-muted); font-size: 7px; line-height: 1.4; overflow-wrap: anywhere; }
 .live-selection { display: grid; gap: 4px; padding: 8px; border: 1px solid var(--wb-line); border-radius: 4px; background: var(--wb-subtle); }
 .live-selection > span { color: var(--wb-muted); font-size: 8px; font-weight: 900; }
 .live-selection > label { display: grid; grid-template-columns: 14px minmax(0, 1fr); align-items: start; gap: 6px; padding: 4px 0; border-bottom: 1px solid rgb(196 205 198 / 60%); cursor: pointer; }
