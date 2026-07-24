@@ -156,8 +156,34 @@ class FunctionalVideoService:
         job = self.videos.get_by_code(plan["video_job_code"])
         if job is None:
             raise RuntimeError("functional video plan refers to a missing job")
-        plan.update({"job_status": job["status"], "current_stage": job.get("current_stage"), "progress_percent": job["progress_percent"], "error_message": job.get("error_message")})
-        plan["artifacts"] = [{**artifact, "download_url": f"/api/video-productions/{job['job_code']}/artifacts/{artifact['artifact_key']}"} for artifact in job.get("artifacts") or []]
+        plan.update(
+            {
+                "job_status": job["status"],
+                "current_stage": job.get("current_stage"),
+                "progress_percent": job["progress_percent"],
+                "error_message": job.get("error_message"),
+                "final_asset_id": job.get("final_asset_id"),
+                "quality_report": dict(job.get("quality_report") or {}),
+                "workflow_stages": [
+                    {
+                        "stage_name": stage.get("stage_name"),
+                        "stage_order": stage.get("stage_order"),
+                        "status": stage.get("status"),
+                        "attempt": stage.get("attempt"),
+                        "error_code": stage.get("error_code"),
+                        "error_message": stage.get("error_message"),
+                    }
+                    for stage in job.get("stages") or []
+                ],
+            }
+        )
+        plan["artifacts"] = [
+            {
+                **artifact,
+                "download_url": f"/api/video-productions/{job['job_code']}/artifacts/{artifact['artifact_key']}",
+            }
+            for artifact in job.get("artifacts") or []
+        ]
         return plan
 
     @staticmethod

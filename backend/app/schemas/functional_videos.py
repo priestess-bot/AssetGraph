@@ -44,6 +44,9 @@ class FunctionalVideoPlanRead(BaseModel):
     current_stage: str | None = None
     progress_percent: int
     error_message: str | None = None
+    final_asset_id: str | None = None
+    quality_report: dict[str, Any] = Field(default_factory=dict)
+    workflow_stages: list[dict[str, Any]] = Field(default_factory=list)
     artifacts: list[dict[str, Any]] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime

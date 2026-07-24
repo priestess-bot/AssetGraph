@@ -13,7 +13,8 @@ const plan = {
     ] },
     { track_kind: "audio", clips: [] },
   ] },
-  render_profile: { canvas: { width: 1080, height: 1920, fps: 30 } }, job_status: "queued", current_stage: "asset_selection", progress_percent: 37, error_message: null, artifacts: [], created_at: "2026-07-25T00:00:00Z", updated_at: "2026-07-25T00:00:00Z",
+  render_profile: { canvas: { width: 1080, height: 1920, fps: 30 } }, job_status: "queued", current_stage: "asset_selection", progress_percent: 37, error_message: null,
+  workflow_stages: [{ stage_name: "asset_selection", stage_order: 4, status: "succeeded", attempt: 1 }, { stage_name: "quality_check", stage_order: 8, status: "pending", attempt: 1 }], quality_report: { passed: true, checks: { video_stream: true, subtitle_text_complete: true } }, artifacts: [], created_at: "2026-07-25T00:00:00Z", updated_at: "2026-07-25T00:00:00Z",
 };
 
 function renderPage() {
@@ -36,6 +37,9 @@ describe("VideoProductionPage", () => {
     renderPage();
 
     await screen.findByRole("heading", { name: "镜头重排" });
+    expect(screen.getByRole("heading", { name: "生产阶段" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "质量检查" })).toBeInTheDocument();
+    expect(screen.getByText("subtitle_text_complete")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "上移 SHOT-02" }));
     await user.click(screen.getByRole("button", { name: "保存时间轴修订" }));
 
