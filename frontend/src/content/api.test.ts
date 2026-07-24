@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { contentProjectsApi } from "./api";
+import { recommendContentTemplates } from "./ContentProjectsPage";
+import type { RoomTemplate } from "../live-research/types";
 
 function response(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -23,5 +25,17 @@ describe("content projects api", () => {
     expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "PATCH" });
     expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({ expected_revision: 1, title: "修订后的直播", generation_goal: "更新后的目标", must_include: ["真实场景"], visual_requirements: ["产品置于桌面"] });
     expect(detail).toMatchObject({ revisionNumber: 2, status: "draft", generationGoal: "更新后的目标" });
+  });
+
+  it("ranks content strategies only from explicit category, module, and compatibility matches", () => {
+    const template = (code: string, category: string, title: string, compatibilityTags: string[]): RoomTemplate => ({
+      template_code: code, title: code, source_session_code: "CAP-001", source_type: "external_flat_video", templateKind: "content_strategy", latest_revision: 1, published_revision: 1, status: "published", layout_fidelity: "none", buildability: "reference_only", contentReadiness: "ready", scenes: [],
+      contentStrategy: { targetCategory: category, compatibilityTags, programOutline: [{ moduleKey: "opening", title, purpose: "建立选择目标", startMs: 0, endMs: 30_000 }], materialCues: [], reviewedExamples: [] },
+    });
+
+    const recommendations = recommendContentTemplates([template("TPL-WINE", "葡萄酒", "聚会开场", ["聚会"]), template("TPL-CARE", "护肤", "日常护理", ["护肤"])], "为聚会挑选葡萄酒，并用聚会开场建立目标");
+
+    expect(recommendations[0]).toMatchObject({ templateCode: "TPL-WINE", score: 132, signals: ["品类：葡萄酒", "模块：聚会开场", "标签：聚会"] });
+    expect(recommendations).toHaveLength(1);
   });
 });
