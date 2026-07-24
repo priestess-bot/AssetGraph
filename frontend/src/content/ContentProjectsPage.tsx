@@ -50,6 +50,74 @@ function lines(value: unknown): string {
         .join("\n")
     : "";
 }
+function actionLines(value: Array<Record<string, unknown>>): string {
+  return value
+    .map((action) => {
+      const code =
+        typeof action.action === "string"
+          ? action.action
+          : typeof action.type === "string"
+            ? action.type
+            : typeof action.name === "string"
+              ? action.name
+              : "";
+      const detail =
+        typeof action.detail === "string"
+          ? action.detail
+          : typeof action.value === "string"
+            ? action.value
+            : "";
+      return code ? (detail ? `${code} | ${detail}` : code) : "";
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+function actions(value: string): Array<Record<string, string | undefined>> {
+  return list(value).map((entry) => {
+    const [action, ...detail] = entry.split("|").map((part) => part.trim());
+    return detail.length ? { action, detail: detail.join(" | ") } : { action };
+  });
+}
+function recordText(value: Record<string, unknown>, key: string): string {
+  return typeof value[key] === "string" ? value[key] : "";
+}
+function toggleBranch(
+  value: string[],
+  branch: "live_room" | "rendered_video",
+): string[] {
+  return value.includes(branch)
+    ? value.filter((item) => item !== branch)
+    : [...value, branch];
+}
+function BranchApplicabilityField({
+  value,
+  onChange,
+}: {
+  value: string[];
+  onChange: (next: string[]) => void;
+}) {
+  return (
+    <fieldset className="content-branch-field">
+      <legend>适用分支</legend>
+      <label>
+        <input
+          type="checkbox"
+          checked={value.includes("live_room")}
+          onChange={() => onChange(toggleBranch(value, "live_room"))}
+        />
+        直播间
+      </label>
+      <label>
+        <input
+          type="checkbox"
+          checked={value.includes("rendered_video")}
+          onChange={() => onChange(toggleBranch(value, "rendered_video"))}
+        />
+        成片
+      </label>
+    </fieldset>
+  );
+}
 
 type ScriptBlock = NonNullable<
   ContentProjectDetail["script"]
@@ -2413,6 +2481,38 @@ function ProgramShotRevisionEditor({
                     }
                   />
                 </label>
+                <label className="wb-field">
+                  <span>互动动作</span>
+                  <textarea
+                    className="wb-textarea"
+                    value={actionLines(segment.interaction_actions)}
+                    onChange={(event) =>
+                      updateSegment(index, {
+                        interaction_actions: actions(event.target.value),
+                      })
+                    }
+                    placeholder="动作 | 补充说明，每行一项"
+                  />
+                </label>
+                <label className="wb-field">
+                  <span>CTA 动作</span>
+                  <textarea
+                    className="wb-textarea"
+                    value={actionLines(segment.cta_actions)}
+                    onChange={(event) =>
+                      updateSegment(index, {
+                        cta_actions: actions(event.target.value),
+                      })
+                    }
+                    placeholder="动作 | 补充说明，每行一项"
+                  />
+                </label>
+                <BranchApplicabilityField
+                  value={segment.branch_applicability}
+                  onChange={(branch_applicability) =>
+                    updateSegment(index, { branch_applicability })
+                  }
+                />
                 <div className="wb-field wide">
                   <span>采纳剧本段</span>
                   <div className="content-template-options">
@@ -2522,6 +2622,103 @@ function ProgramShotRevisionEditor({
                       }
                     />
                   </label>
+                  <label className="wb-field">
+                    <span>构图风格</span>
+                    <input
+                      className="wb-input"
+                      value={recordText(shot.composition_intent, "style")}
+                      onChange={(event) =>
+                        updateShot(index, {
+                          composition_intent: {
+                            ...shot.composition_intent,
+                            style: event.target.value,
+                          },
+                        })
+                      }
+                      placeholder="例如 product_close_up"
+                    />
+                  </label>
+                  <label className="wb-field">
+                    <span>画面焦点</span>
+                    <input
+                      className="wb-input"
+                      value={recordText(shot.composition_intent, "focus")}
+                      onChange={(event) =>
+                        updateShot(index, {
+                          composition_intent: {
+                            ...shot.composition_intent,
+                            focus: event.target.value,
+                          },
+                        })
+                      }
+                      placeholder="例如 product"
+                    />
+                  </label>
+                  <label className="wb-field">
+                    <span>音频动作</span>
+                    <textarea
+                      className="wb-textarea"
+                      value={actionLines(shot.audio_actions)}
+                      onChange={(event) =>
+                        updateShot(index, {
+                          audio_actions: actions(event.target.value),
+                        })
+                      }
+                      placeholder="动作 | 补充说明，每行一项"
+                    />
+                  </label>
+                  <label className="wb-field">
+                    <span>验收条件</span>
+                    <textarea
+                      className="wb-textarea"
+                      value={shot.acceptance_criteria.join("\n")}
+                      onChange={(event) =>
+                        updateShot(index, {
+                          acceptance_criteria: list(event.target.value),
+                        })
+                      }
+                      placeholder="每行一项"
+                    />
+                  </label>
+                  <div className="content-continuity-field">
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={shot.continuity.from_previous === true}
+                        onChange={(event) =>
+                          updateShot(index, {
+                            continuity: {
+                              ...shot.continuity,
+                              from_previous: event.target.checked,
+                            },
+                          })
+                        }
+                      />
+                      与前一镜头连续
+                    </label>
+                    <label className="wb-field">
+                      <span>转场提示</span>
+                      <input
+                        className="wb-input"
+                        value={recordText(shot.continuity, "transition_cue")}
+                        onChange={(event) =>
+                          updateShot(index, {
+                            continuity: {
+                              ...shot.continuity,
+                              transition_cue: event.target.value,
+                            },
+                          })
+                        }
+                        placeholder="例如保持商品位置"
+                      />
+                    </label>
+                  </div>
+                  <BranchApplicabilityField
+                    value={shot.branch_applicability}
+                    onChange={(branch_applicability) =>
+                      updateShot(index, { branch_applicability })
+                    }
+                  />
                   <div className="wb-field wide">
                     <span>镜头来源剧本段</span>
                     <div className="content-template-options">

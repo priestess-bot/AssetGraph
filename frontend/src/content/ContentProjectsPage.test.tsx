@@ -167,6 +167,13 @@ describe("ContentProjectsPage", () => {
     fireEvent.change(screen.getAllByLabelText("关联商品")[2], {
       target: { value: "PRODUCT-001, PRODUCT-002" },
     });
+    fireEvent.change(screen.getAllByLabelText("互动动作")[2], {
+      target: { value: "邀请留言 | 说明使用场景" },
+    });
+    fireEvent.change(screen.getAllByLabelText("CTA 动作")[2], {
+      target: { value: "展示商品卡 | 引导点击" },
+    });
+    fireEvent.click(screen.getAllByLabelText("成片")[2]);
     fireEvent.change(screen.getAllByLabelText("镜头目标")[2], {
       target: { value: "收束互动镜头" },
     });
@@ -175,6 +182,22 @@ describe("ContentProjectsPage", () => {
     });
     fireEvent.change(screen.getAllByLabelText("必须避免")[2], {
       target: { value: "遮挡商品" },
+    });
+    fireEvent.change(screen.getAllByLabelText("构图风格")[2], {
+      target: { value: "product_close_up" },
+    });
+    fireEvent.change(screen.getAllByLabelText("画面焦点")[2], {
+      target: { value: "product" },
+    });
+    fireEvent.change(screen.getAllByLabelText("音频动作")[2], {
+      target: { value: "降低背景音乐 | 商品讲解" },
+    });
+    fireEvent.change(screen.getAllByLabelText("验收条件")[2], {
+      target: { value: "商品完整可见\nCTA 可读" },
+    });
+    fireEvent.click(screen.getAllByLabelText("与前一镜头连续")[2]);
+    fireEvent.change(screen.getAllByLabelText("转场提示")[2], {
+      target: { value: "保持商品位置" },
     });
     await user.click(screen.getByRole("button", { name: "上移节目段 3" }));
     await user.click(screen.getByRole("button", { name: "上移镜头 3" }));
@@ -203,6 +226,9 @@ describe("ContentProjectsPage", () => {
       entry_condition: "完成产品讲解",
       exit_condition: "完成留言引导",
       product_refs: ["PRODUCT-001", "PRODUCT-002"],
+      interaction_actions: [{ action: "邀请留言", detail: "说明使用场景" }],
+      cta_actions: [{ action: "展示商品卡", detail: "引导点击" }],
+      branch_applicability: ["live_room"],
     });
     expect(payload.shots[1]).toMatchObject(
       expect.objectContaining({
@@ -211,6 +237,11 @@ describe("ContentProjectsPage", () => {
         script_block_codes: ["BLOCK-001"],
         must_include: ["商品正面", "CTA 文案"],
         must_avoid: ["遮挡商品"],
+        composition_intent: { style: "product_close_up", focus: "product" },
+        audio_actions: [{ action: "降低背景音乐", detail: "商品讲解" }],
+        continuity: { from_previous: true, transition_cue: "保持商品位置" },
+        acceptance_criteria: ["商品完整可见", "CTA 可读"],
+        branch_applicability: ["live_room", "rendered_video"],
       }),
     );
   });

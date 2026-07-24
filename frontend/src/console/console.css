@@ -157,6 +157,11 @@
 .asset-entry-list button { border: 0; background: transparent; color: var(--wb-red); font-size: 8px; cursor: pointer; }
 
 .content-project-layout { display: grid; grid-template-columns: minmax(270px, .72fr) minmax(0, 1.28fr); gap: 16px; }
+.content-branch-field, .content-continuity-field { display: flex; min-width: 0; align-items: flex-start; flex-wrap: wrap; gap: 8px 12px; margin: 0; padding: 8px 9px; border: 1px solid var(--wb-line); border-radius: 4px; background: var(--wb-subtle); }
+.content-branch-field legend { padding: 0 3px; color: var(--wb-muted); font-size: 8px; font-weight: 800; }
+.content-branch-field label, .content-continuity-field > label:first-child { display: inline-flex; align-items: center; gap: 5px; color: var(--wb-text); font-size: 9px; cursor: pointer; }
+.content-branch-field input, .content-continuity-field input[type="checkbox"] { margin: 0; }
+.content-continuity-field > .wb-field { width: min(100%, 280px); }
 .governance-layout { display: grid; grid-template-columns: minmax(260px, .7fr) minmax(0, 1.55fr); align-items: start; gap: 16px; }
 .governance-catalog { position: sticky; top: 84px; max-height: calc(100vh - 105px); overflow-y: auto; }
 .governance-catalog-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--wb-line); }
