@@ -38,7 +38,7 @@ def test_timeline_update_preserves_requested_clip_order_across_tracks_and_shots(
     updated = FunctionalVideoService._apply_timeline_update(
         _timeline(),
         [
-            {"clip_code": "SHOT-02", "duration_ms": 35_000, "transition": "fade", "source_start_seconds": 12, "source_end_seconds": 45},
+            {"clip_code": "SHOT-02", "duration_ms": 35_000, "transition": "fade", "source_start_seconds": 12, "source_end_seconds": 45, "fit": "contain"},
             {"clip_code": "SHOT-01", "duration_ms": 25_000, "transition": "fade_out"},
         ],
     )
@@ -55,6 +55,7 @@ def test_timeline_update_preserves_requested_clip_order_across_tracks_and_shots(
     ]
     assert video_track["clips"][0]["source_range"]["start_seconds"] == 12
     assert video_track["clips"][0]["source_range"]["end_seconds"] == 45
+    assert video_track["clips"][0]["fit"] == "contain"
     assert [clip["clip_code"] for clip in subtitle_track["clips"]] == ["SUBTITLE-SHOT-02", "SUBTITLE-SHOT-01"]
     assert [clip["timeline_range"] for clip in subtitle_track["clips"]] == [
         {"start_ms": 0, "duration_ms": 35_000},
@@ -71,6 +72,7 @@ def test_timeline_update_preserves_requested_clip_order_across_tracks_and_shots(
     assert [shot["shot_code"] for shot in rendered_input["shots"]] == ["SHOT-02", "SHOT-01"]
     assert [shot["start_seconds"] for shot in rendered_input["shots"]] == [0.0, 35.0]
     assert rendered_input["shots"][0]["source_start_seconds"] == 12.0
+    assert rendered_input["shots"][0]["fit"] == "contain"
     assert rendered_input["shots"][0]["subtitle_text"] == "第二段字幕"
     assert rendered_input["shots"][0]["screen_text"] == "第二段标题"
     assert rendered_input["shots"][0]["voice_gain_db"] == 0.0

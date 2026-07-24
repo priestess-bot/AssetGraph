@@ -29,6 +29,7 @@ class FunctionalVideoTimelineClipUpdate(BaseModel):
     transition: str = Field(default="cut", pattern="^(cut|fade|fade_out)$")
     source_start_seconds: float | None = Field(default=None, ge=0)
     source_end_seconds: float | None = Field(default=None, gt=0)
+    fit: str | None = Field(default=None, pattern="^(cover|contain)$")
 
     @model_validator(mode="after")
     def source_range_is_complete_and_ordered(self) -> "FunctionalVideoTimelineClipUpdate":

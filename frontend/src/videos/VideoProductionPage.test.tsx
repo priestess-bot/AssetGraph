@@ -56,6 +56,7 @@ describe("VideoProductionPage", () => {
     await user.click(screen.getByRole("button", { name: "上移 SHOT-02" }));
     await user.clear(screen.getByRole("spinbutton", { name: "素材入点 SHOT-02" }));
     await user.type(screen.getByRole("spinbutton", { name: "素材入点 SHOT-02" }), "12");
+    await user.selectOptions(screen.getByRole("combobox", { name: "画面适配 SHOT-02" }), "contain");
     await user.clear(screen.getByRole("textbox", { name: "字幕文本 SHOT-02" }));
     await user.type(screen.getByRole("textbox", { name: "字幕文本 SHOT-02" }), "更新后的第二段字幕");
     fireEvent.change(screen.getByRole("slider", { name: "配音增益 SHOT-02" }), { target: { value: "1" } });
@@ -63,7 +64,7 @@ describe("VideoProductionPage", () => {
 
     const request = requests.find((item) => item.url.endsWith("/timeline") && item.init?.method === "PUT");
     expect(request?.init?.body).toBe(JSON.stringify({ expected_revision: 1, video_clips: [
-      { clip_code: "SHOT-02", duration_ms: 30_000, transition: "cut", source_start_seconds: 12, source_end_seconds: 50 },
+      { clip_code: "SHOT-02", duration_ms: 30_000, transition: "cut", source_start_seconds: 12, source_end_seconds: 50, fit: "contain" },
       { clip_code: "SHOT-01", duration_ms: 30_000, transition: "cut", source_start_seconds: 0, source_end_seconds: 40 },
     ], subtitle_clips: [
       { clip_code: "SUBTITLE-SHOT-01", subtitle_text: "第一段字幕", headline_text: "第一段标题" },
