@@ -32,9 +32,9 @@ const metricCatalog = [
   },
 ];
 
-function renderPage() {
+function renderPage(view: "sessions" | "attribution" = "sessions") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-  return render(<QueryClientProvider client={client}><OperationsPage view="sessions" /></QueryClientProvider>);
+  return render(<QueryClientProvider client={client}><OperationsPage view={view} /></QueryClientProvider>);
 }
 
 describe("OperationsPage", () => {
@@ -113,6 +113,35 @@ describe("OperationsPage", () => {
       metric_definition_refs: [
         { metric_key: "orders", metric_code: "orders", revision_number: 2 },
       ],
+    });
+  });
+
+  it("creates descriptive attribution from an explicit session selection", async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); requests.push({ url, init });
+      if (url === "/api/data-governance/metrics") return response(metricCatalog);
+      if (url === "/api/functional-operations/sessions") return response([
+        { session_code: "OPS-001", title: "早场", platform: "douyin", source_timezone: "Asia/Shanghai", source_evidence: {}, started_at: "2026-07-20T12:00:00Z", ended_at: "2026-07-20T13:00:00Z", metrics: { watchers: 12 }, source_kind: "manual_import", import_version: 1, created_at: "2026-07-20T13:01:00Z" },
+        { session_code: "OPS-002", title: "晚场", platform: "douyin", source_timezone: "Asia/Shanghai", source_evidence: {}, started_at: "2026-07-20T14:00:00Z", ended_at: "2026-07-20T15:00:00Z", metrics: { watchers: 24 }, source_kind: "manual_import", import_version: 1, created_at: "2026-07-20T15:01:00Z" },
+      ]);
+      if (url === "/api/functional-operations/attribution-reports" && init?.method === "POST") return response({ report_code: "ATTR-001", metric_key: "watchers", evidence_level: "descriptive", session_codes: ["OPS-001"], results: { groups: {}, metadata: { method: "session_metric_grouped_by_source_backed_exposure", metric_grain: "operation_session", selected_session_count: 1, observed_session_count: 0, session_only_count: 1, source_kind_counts: {}, release_bound_exposure_count: 0, metric_definition_state: "metric_unpinned" } }, created_at: "2026-07-20T15:02:00Z" });
+      if (url === "/api/functional-operations/exposures" || url === "/api/functional-operations/attribution-reports" || url === "/api/functional-operations/schedule-plans" || url === "/api/functional-live-room-plans") return response([]);
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    const user = userEvent.setup();
+    renderPage("attribution");
+
+    await screen.findByRole("heading", { name: "归因与排播" });
+    await screen.findByLabelText("归因场次 OPS-002");
+    await user.click(screen.getByLabelText("归因场次 OPS-002"));
+    await user.click(screen.getByRole("button", { name: "生成描述性归因" }));
+
+    await waitFor(() => expect(requests.some((item) => item.url === "/api/functional-operations/attribution-reports" && item.init?.method === "POST")).toBe(true));
+    const request = requests.find((item) => item.url === "/api/functional-operations/attribution-reports" && item.init?.method === "POST");
+    expect(JSON.parse(String(request?.init?.body))).toEqual({
+      metric_key: "watchers",
+      session_codes: ["OPS-001"],
     });
   });
 

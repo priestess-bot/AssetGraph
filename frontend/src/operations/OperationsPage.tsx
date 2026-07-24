@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CalendarClock,
@@ -465,6 +465,8 @@ export function OperationsPage({ view }: { view: "sessions" | "attribution" }) {
     () => [newMetricDraft("watchers")],
   );
   const [attributionMetric, setAttributionMetric] = useState("watchers");
+  const [attributionSessionCodes, setAttributionSessionCodes] = useState<string[]>([]);
+  const attributionSelectionInitialized = useRef(false);
   const [sessionStartsAt, setSessionStartsAt] = useState(localTime(new Date()));
   const [sessionEndsAt, setSessionEndsAt] = useState(
     localTime(new Date(Date.now() + 60 * 60 * 1000)),
@@ -502,6 +504,18 @@ export function OperationsPage({ view }: { view: "sessions" | "attribution" }) {
     else if (!exposurePlan && plans.data?.[0])
       setExposurePlan(plans.data[0].planCode);
   }, [exposurePlan, exposureSession, plans.data, sessions.data]);
+  useEffect(() => {
+    if (!sessions.data) return;
+    const available = new Set(sessions.data.map((session) => session.sessionCode));
+    if (!attributionSelectionInitialized.current) {
+      setAttributionSessionCodes(sessions.data.map((session) => session.sessionCode));
+      attributionSelectionInitialized.current = true;
+      return;
+    }
+    setAttributionSessionCodes((current) =>
+      current.filter((sessionCode) => available.has(sessionCode)),
+    );
+  }, [sessions.data]);
   const exposurePlanDetail = useMemo(
     () => plans.data?.find((plan) => plan.planCode === exposurePlan),
     [exposurePlan, plans.data],
@@ -541,6 +555,20 @@ export function OperationsPage({ view }: { view: "sessions" | "attribution" }) {
         ]),
       ).sort(),
     [metricCatalog.data, sessions.data],
+  );
+  const attributionSessions = useMemo(
+    () =>
+      (sessions.data ?? []).filter((session) =>
+        attributionSessionCodes.includes(session.sessionCode),
+      ),
+    [attributionSessionCodes, sessions.data],
+  );
+  const missingAttributionMetricSessions = useMemo(
+    () =>
+      attributionSessions.filter(
+        (session) => !(attributionMetric.trim() in session.metrics),
+      ),
+    [attributionMetric, attributionSessions],
   );
   useEffect(() => {
     const firstScene = exposurePlanDetail?.blueprint.scenes[0]?.scene_code;
@@ -644,8 +672,7 @@ export function OperationsPage({ view }: { view: "sessions" | "attribution" }) {
     mutationFn: () =>
       operationsApi.createReport({
         metric_key: attributionMetric,
-        session_codes:
-          sessions.data?.map((session) => session.sessionCode) ?? [],
+        session_codes: attributionSessionCodes,
       }),
     onSuccess: () =>
       void queryClient.invalidateQueries({
@@ -1169,11 +1196,51 @@ export function OperationsPage({ view }: { view: "sessions" | "attribution" }) {
                   ))}
                 </datalist>
               </label>
+              <div className="wb-field wide">
+                <span>纳入场次</span>
+                <div className="operations-attribution-session-picker">
+                  {sessions.data?.map((session) => (
+                    <label key={session.sessionCode}>
+                      <input
+                        type="checkbox"
+                        aria-label={`归因场次 ${session.sessionCode}`}
+                        checked={attributionSessionCodes.includes(
+                          session.sessionCode,
+                        )}
+                        onChange={(event) =>
+                          setAttributionSessionCodes((current) =>
+                            event.target.checked
+                              ? [...new Set([...current, session.sessionCode])]
+                              : current.filter(
+                                  (sessionCode) =>
+                                    sessionCode !== session.sessionCode,
+                                ),
+                          )
+                        }
+                      />
+                      <span>
+                        <strong>{session.title}</strong>
+                        <small>
+                          {session.sessionCode} · {session.platform} · {session.metrics[attributionMetric.trim()] ?? "无此指标"}
+                        </small>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              {missingAttributionMetricSessions.length ? (
+                <InlineNotice tone="warning" title="部分场次未记录该指标">
+                  {missingAttributionMetricSessions
+                    .map((session) => session.sessionCode)
+                    .join("、")}
+                  。报告会保留描述性结果，并标记指标定义无法完全对齐。
+                </InlineNotice>
+              ) : null}
               <button
                 type="button"
                 className="wb-button wb-button-primary"
                 disabled={
-                  !sessions.data?.length ||
+                  !attributionSessionCodes.length ||
                   createReport.isPending ||
                   !attributionMetric.trim()
                 }
@@ -1361,6 +1428,9 @@ export function OperationsPage({ view }: { view: "sessions" | "attribution" }) {
                           `${group.displayLabel}: ${group.average.toFixed(2)} (${group.sampleSize}) · ${group.sourceEvidence.exposureCount ? `实际展示 ${group.sourceEvidence.exposureCount} 段` : "仅会话指标"}`,
                       )
                       .join(" / ")}
+                  </small>
+                  <small>
+                    指标定义状态：{report.metadata.metricDefinitionState}
                   </small>
                   <small>
                     实际展示场次 {report.metadata.observedSessionCount}/

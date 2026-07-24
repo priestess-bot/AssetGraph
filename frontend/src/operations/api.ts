@@ -178,6 +178,7 @@ export interface AttributionReport {
     sessionOnlyCount: number;
     sourceKindCounts: Record<string, number>;
     releaseBoundExposureCount: number;
+    metricDefinitionState: string;
   };
   createdAt: string;
 }
@@ -474,6 +475,10 @@ function report(value: unknown): AttributionReport {
       sourceKindCounts: counts(metadata.source_kind_counts),
       releaseBoundExposureCount: asNumber(
         metadata.release_bound_exposure_count,
+      ),
+      metricDefinitionState: asString(
+        metadata.metric_definition_state,
+        "metric_unpinned",
       ),
     },
     createdAt: asString(value.created_at),

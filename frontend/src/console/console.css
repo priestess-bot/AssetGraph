@@ -515,6 +515,13 @@
 .operations-time-mapping-form .wb-button { align-self: end; }
 .operations-time-mapping-history { display: flex; flex-wrap: wrap; gap: 5px 9px; }
 .operations-time-mapping-history small { color: var(--wb-muted); font-size: 8px; }
+.operations-attribution-session-picker { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
+.operations-attribution-session-picker label { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 6px; padding: 6px; border: 1px solid var(--wb-line); background: var(--wb-subtle); cursor: pointer; }
+.operations-attribution-session-picker input { margin: 2px 0 0; accent-color: var(--console-cyan); }
+.operations-attribution-session-picker span { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.operations-attribution-session-picker strong, .operations-attribution-session-picker small { overflow-wrap: anywhere; }
+.operations-attribution-session-picker strong { font-size: 9px; }
+.operations-attribution-session-picker small { color: var(--wb-muted); font-size: 8px; }
 
 .console-entity-inspector { min-width: 0; max-height: calc(100vh - 84px); border: 1px solid var(--wb-line-strong); border-radius: 6px; background: #fff; box-shadow: 0 12px 28px rgb(24 32 26 / 10%); overflow-y: auto; }
 .console-entity-inspector > header { position: sticky; z-index: 3; top: 0; display: flex; min-height: 76px; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--wb-line); background: rgb(255 255 255 / 97%); }
@@ -662,6 +669,7 @@
   .operations-timeline-spans article { grid-template-columns: 1fr; }
   .operations-timeline-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .operations-time-mapping-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .operations-attribution-session-picker { grid-template-columns: 1fr; }
   .content-project-rail, .knowledge-rail, .live-plan-rail, .video-plan-rail, .governance-catalog { position: static; max-height: none; }
   .live-plan-summary, .video-plan-summary, .live-material-snapshot { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
