@@ -27,6 +27,20 @@ describe("content projects api", () => {
     expect(detail).toMatchObject({ revisionNumber: 2, status: "draft", generationGoal: "更新后的目标" });
   });
 
+  it("updates fact card selections in their own revision patch", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response({
+      project_code: "CONTENT-001", title: "选酒直播", revision_number: 3, status: "draft", generation_goal: "帮助观众选酒",
+      updated_at: "2026-07-25T00:00:00Z", content: { fact_card_codes: ["FACT-WINE"] }, generated: false,
+      fact_cards: [{ fact_card_code: "FACT-WINE", version_number: 4, version_code: "FACT-WINE-V4", content_sha256: "sha256" }],
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const detail = await contentProjectsApi.update("CONTENT-001", { expected_revision: 2, fact_card_codes: ["FACT-WINE"] });
+
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({ expected_revision: 2, fact_card_codes: ["FACT-WINE"] });
+    expect(detail.factCards).toEqual([{ fact_card_code: "FACT-WINE", version_number: 4, version_code: "FACT-WINE-V4", content_sha256: "sha256" }]);
+  });
+
   it("ranks content strategies only from explicit category, module, and compatibility matches", () => {
     const template = (code: string, category: string, title: string, compatibilityTags: string[]): RoomTemplate => ({
       template_code: code, title: code, source_session_code: "CAP-001", source_type: "external_flat_video", templateKind: "content_strategy", latest_revision: 1, published_revision: 1, status: "published", layout_fidelity: "none", buildability: "reference_only", contentReadiness: "ready", scenes: [],
