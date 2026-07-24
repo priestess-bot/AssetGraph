@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import psycopg
 import pytest
+from psycopg.types.json import Jsonb
 
 from app.domain.errors import DomainValidationError
 from app.services.functional_content import FunctionalContentService
@@ -117,3 +118,68 @@ def test_functional_video_plan_seeds_content_stages_and_queues_renderer() -> Non
             assert cursor.fetchone()[0] is True
             cursor.execute("SELECT count(*) FROM functional_video_timeline_revisions WHERE plan_id = (SELECT id FROM functional_video_plans WHERE plan_code = %s)", (plan["plan_code"],))
             assert cursor.fetchone()[0] == 3
+
+
+def test_functional_video_release_candidate_freezes_a_qc_passed_plan() -> None:
+    suffix = uuid4().hex
+    with psycopg.connect(DATABASE_URL) as connection:
+        content = FunctionalContentService(connection)
+        project = content.create_project(
+            {
+                "title": f"Release video {suffix}",
+                "generation_goal": "Explain a product choice in a short vertical video",
+                "theme": "Release candidate",
+                "story": "Show the verified rendered output.",
+                "must_include": [],
+                "must_avoid": [],
+                "fact_card_codes": [],
+                "secondary_template_codes": [],
+            },
+            actor_id="test-operator",
+        )
+        content.confirm_project(project["project_code"], expected_revision=1, actor_id="test-operator")
+        content.parse_design_brief(project["project_code"], expected_revision=1, raw_input="Create a release fixture.", actor_id="test-operator")
+        content.confirm_design_brief(project["project_code"], expected_revision=1, actor_id="test-operator")
+        generated = content.generate_chain(project["project_code"], actor_id="test-operator")
+        service = FunctionalVideoService(connection, release_signing_key=b"test-release-key", release_signing_key_id="test-key")
+        plan = service.create_plan({"project_code": generated["project_code"], "target_duration_seconds": 55}, actor_id="test-operator")
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """UPDATE video_production_jobs
+                   SET status = 'succeeded', current_stage = 'quality_check', progress_percent = 100,
+                       quality_report = %s, completed_at = now()
+                   WHERE job_code = %s""",
+                (Jsonb({"passed": True, "checks": {"video_stream": True}}), plan["video_job_code"]),
+            )
+            cursor.execute(
+                """UPDATE video_production_stages
+                   SET status = 'succeeded', completed_at = now()
+                   WHERE job_code = %s""",
+                (plan["video_job_code"],),
+            )
+            cursor.execute(
+                "SELECT id FROM video_production_stages WHERE job_code = %s AND stage_name = 'rendering'",
+                (plan["video_job_code"],),
+            )
+            rendering_stage_id = cursor.fetchone()[0]
+            cursor.execute(
+                """INSERT INTO video_production_artifacts
+                   (job_id, stage_id, job_code, artifact_key, relative_path, mime_type, file_size, checksum_sha256)
+                   SELECT id, %s, job_code, 'video', 'fixture/attempt-1/video.mp4', 'video/mp4', 128, %s
+                   FROM video_production_jobs WHERE job_code = %s""",
+                (rendering_stage_id, "b" * 64, plan["video_job_code"]),
+            )
+        connection.commit()
+
+        released = service.create_release_candidate(plan["plan_code"], actor_id="test-operator")
+
+        assert released["release"] is not None
+        assert released["release"]["status"] == "candidate"
+        assert released["release_snapshot_artifact_code"]
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT count(*) FROM functional_video_plan_release_snapshots WHERE plan_id = (SELECT id FROM functional_video_plans WHERE plan_code = %s)",
+                (plan["plan_code"],),
+            )
+            assert cursor.fetchone()[0] == 1

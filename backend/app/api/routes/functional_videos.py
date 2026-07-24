@@ -64,6 +64,19 @@ def branch_video_plan(
     return plan
 
 
+@router.post("/{plan_code}/release-candidate", response_model=FunctionalVideoPlanRead)
+def create_video_release_candidate(
+    plan_code: str,
+    service: Annotated[FunctionalVideoService, Depends(get_service)],
+) -> dict:
+    try:
+        return service.create_release_candidate(plan_code, actor_id="functional-operator")
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Video plan not found") from exc
+    except DomainValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=exc.message) from exc
+
+
 @router.get("/{plan_code}/timeline-revisions", response_model=list[FunctionalVideoTimelineRevisionRead])
 def list_video_timeline_revisions(
     plan_code: str,

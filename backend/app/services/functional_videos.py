@@ -8,20 +8,32 @@ from psycopg import Connection
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
+from app.core.config import settings
+from app.domain.contracts import canonical_fingerprint, canonical_json_bytes
 from app.domain.errors import DomainValidationError
 from app.repositories.content_production import ContentProductionRepository
+from app.repositories.releases import ReleaseRepository
 from app.repositories.video_productions import VideoProductionRepository
 from app.services.functional_content import FunctionalContentService
+from app.services.releases import ReleaseService
 
 
 class FunctionalVideoService:
     """Creates a rendered-video variant whose queued worker job consumes ContentProject text."""
 
-    def __init__(self, connection: Connection):
+    def __init__(
+        self,
+        connection: Connection,
+        *,
+        release_signing_key: bytes | None = None,
+        release_signing_key_id: str | None = None,
+    ):
         self.connection = connection
         self.content = FunctionalContentService(connection)
         self.production = ContentProductionRepository(connection)
         self.videos = VideoProductionRepository(connection)
+        self._release_signing_key = release_signing_key
+        self._release_signing_key_id = release_signing_key_id
 
     def create_plan(self, payload: dict[str, Any], *, actor_id: str) -> dict[str, Any]:
         detail = self.content.get_detail(payload["project_code"])
@@ -210,6 +222,109 @@ class FunctionalVideoService:
             raise
         return self._enrich(row)
 
+    def create_release_candidate(self, plan_code: str, *, actor_id: str) -> dict[str, Any]:
+        """Freeze a QC-passed rendered-video plan for review, never delivery."""
+        source = self._branch_source(plan_code)
+        if source is None:
+            if self.get_plan(plan_code) is None:
+                raise KeyError(plan_code)
+            raise DomainValidationError("VIDEO_RELEASE_SOURCE_INVALID", "The fixed content source for this video plan is unavailable")
+        if source.get("release_code"):
+            existing = self.get_plan(plan_code)
+            if existing is None:
+                raise KeyError(plan_code)
+            return existing
+        job = self.videos.get_by_code(str(source["video_job_code"]))
+        if job is None:
+            raise DomainValidationError("VIDEO_RELEASE_JOB_MISSING", "The associated rendered-video job no longer exists")
+        quality_report = dict(job.get("quality_report") or {})
+        if job["status"] != "succeeded" or quality_report.get("passed") is not True:
+            raise DomainValidationError(
+                "VIDEO_RELEASE_QC_REQUIRED",
+                "Only a successfully rendered video with a passing quality report can create a release candidate",
+                details={"job_status": job["status"], "quality_passed": quality_report.get("passed")},
+            )
+        video_artifact = next(
+            (artifact for artifact in job.get("artifacts") or [] if artifact.get("artifact_key") == "video"),
+            None,
+        )
+        if not video_artifact or not video_artifact.get("checksum_sha256"):
+            raise DomainValidationError("VIDEO_RELEASE_ARTIFACT_MISSING", "The QC-passed video artifact is required for release")
+        subject_refs = self._release_subject_refs(source)
+        snapshot_artifact = self._get_or_create_release_snapshot(source, job, subject_refs)
+        release = self._release_service().create_candidate(
+            subject_type="production_variant",
+            subject_code=str(source["variant_code"]),
+            subject_revision=int(source["variant_revision"]),
+            carrier_kind="rendered_video",
+            subject_refs=subject_refs,
+            artifact_refs=[
+                {
+                    "artifact_code": snapshot_artifact["artifact_code"],
+                    "checksum_sha256": snapshot_artifact["checksum_sha256"],
+                    "role": "rendered_video_release_snapshot",
+                }
+            ],
+            rights_snapshot={
+                "status": "pending_evidence",
+                "asset_codes": [str(shot.get("asset_code")) for shot in job.get("shot_list", {}).get("shots") or []],
+                "reason": "Rendered source asset rights and delivery authorization have not been collected.",
+            },
+            quality_snapshot={
+                "schema_version": "functional-video-release-quality.v1",
+                "gates": [
+                    {"code": "GATE_VIDEO_QC", "status": "pass", "blocking": True},
+                    {"code": "GATE_RELEASE_RIGHTS_EVIDENCE_PENDING", "status": "pending", "blocking": True},
+                    {"code": "GATE_RELEASE_AUTHORIZATION_PENDING", "status": "pending", "blocking": True},
+                ],
+                "quality_report": quality_report,
+            },
+            lineage_snapshot={
+                "complete": True,
+                "schema_version": "functional-video-lineage.v1",
+                "coverage": {
+                    "content_chain": "fixed",
+                    "production_timeline": "fixed",
+                    "render_artifact": "fixed",
+                    "rights_and_delivery": "pending",
+                },
+            },
+            carrier_facet={
+                "video_job": {"code": job["job_code"], "attempt": job["attempt"]},
+                "production_timeline_ref": {
+                    "revision": int(source["timeline_revision"]),
+                    "fingerprint": canonical_fingerprint(source["production_timeline"]),
+                },
+                "render_profile": source["render_profile"],
+                "video_artifact": {
+                    "relative_path": video_artifact.get("relative_path"),
+                    "checksum_sha256": video_artifact["checksum_sha256"],
+                },
+                "delivery": {"status": "not_authorized"},
+            },
+            created_by=actor_id,
+        )
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """UPDATE functional_video_plans
+                   SET release_code = %s, release_snapshot_artifact_code = %s,
+                       release_manifest_fingerprint = %s, updated_at = now()
+                   WHERE id = %s AND release_code IS NULL
+                   RETURNING *""",
+                (
+                    release["release_code"],
+                    snapshot_artifact["artifact_code"],
+                    release["manifest"]["manifest_fingerprint"],
+                    source["id"],
+                ),
+            )
+            updated = cursor.fetchone()
+            if updated is None:
+                cursor.execute("SELECT * FROM functional_video_plans WHERE id = %s", (source["id"],))
+                updated = cursor.fetchone()
+        self.connection.commit()
+        return self._enrich(updated)
+
     def retry(self, plan_code: str) -> dict[str, Any] | None:
         plan = self.get_plan(plan_code)
         if plan is None:
@@ -226,7 +341,10 @@ class FunctionalVideoService:
                           project.project_code AS source_project_code,
                           project.revision_number AS source_project_revision,
                           story.story_brief_code, story.revision_number AS story_brief_revision,
-                          script.script_revision_code, shots.shot_list_revision_code,
+                          script.script_revision_code, script.revision_number AS script_revision,
+                          shots.shot_list_revision_code, shots.revision_number AS shot_list_revision,
+                          program.program_revision_code, program.revision_number AS program_revision,
+                          variant.revision_number AS variant_revision,
                           variant.configuration AS variant_configuration,
                           variant.branch_target AS variant_branch_target,
                           variant.material_snapshot_ref, variant.constraint_snapshot_ref
@@ -238,6 +356,7 @@ class FunctionalVideoService:
                    JOIN story_brief_revisions AS story ON story.id = variant.source_story_brief_revision_id
                    JOIN content_script_revisions AS script ON script.id = variant.source_script_revision_id
                    JOIN shot_list_revisions AS shots ON shots.id = variant.source_shot_list_revision_id
+                   JOIN content_program_revisions AS program ON program.id = shots.source_program_revision_id
                    WHERE plan.plan_code = %s
                    ORDER BY variant.revision_number DESC
                    LIMIT 1""",
@@ -250,6 +369,138 @@ class FunctionalVideoService:
             if int(source[revision_key]) < 1:
                 raise DomainValidationError("VIDEO_BRANCH_SOURCE_INVALID", "The source content revisions are invalid")
         return source
+
+    @staticmethod
+    def _release_subject_refs(source: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "content_project_revision": {"code": source["source_project_code"], "revision": int(source["source_project_revision"])},
+            "production_variant_revision": {"code": source["variant_code"], "revision": int(source["variant_revision"])},
+            "story_brief_revision": {"code": source["story_brief_code"], "revision": int(source["story_brief_revision"])},
+            "script_revision": {"code": source["script_revision_code"], "revision": int(source["script_revision"])},
+            "program_revision": {"code": source["program_revision_code"], "revision": int(source["program_revision"])},
+            "shot_list_revision": {"code": source["shot_list_revision_code"], "revision": int(source["shot_list_revision"])},
+        }
+
+    def _get_or_create_release_snapshot(
+        self,
+        source: dict[str, Any],
+        job: dict[str, Any],
+        subject_refs: dict[str, Any],
+    ) -> dict[str, Any]:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """SELECT artifact.artifact_code, artifact.checksum_sha256, artifact.byte_size
+                   FROM functional_video_plan_release_snapshots AS snapshot
+                   JOIN artifact_refs AS artifact ON artifact.id = snapshot.artifact_id
+                   WHERE snapshot.plan_id = %s""",
+                (source["id"],),
+            )
+            existing = cursor.fetchone()
+            if existing is not None:
+                return existing
+            snapshot = {
+                "schema_version": "functional-video-release-snapshot.v1",
+                "plan": {
+                    "plan_code": source["plan_code"],
+                    "title": source["title"],
+                    "timeline_revision": source["timeline_revision"],
+                },
+                "subject_refs": subject_refs,
+                "production_timeline": source["production_timeline"],
+                "render_profile": source["render_profile"],
+                "video_job": {
+                    "job_code": job["job_code"],
+                    "attempt": job["attempt"],
+                    "quality_report": job["quality_report"],
+                    "artifacts": [
+                        {
+                            "artifact_key": artifact.get("artifact_key"),
+                            "stage_name": artifact.get("stage_name"),
+                            "relative_path": artifact.get("relative_path"),
+                            "checksum_sha256": artifact.get("checksum_sha256"),
+                            "file_size": artifact.get("file_size"),
+                        }
+                        for artifact in job.get("artifacts") or []
+                    ],
+                },
+            }
+            snapshot_bytes = canonical_json_bytes(snapshot)
+            fingerprint = canonical_fingerprint(snapshot)
+            cursor.execute(
+                """SELECT * FROM artifact_refs
+                   WHERE checksum_sha256 = %s AND byte_size = %s AND media_type = 'application/json'
+                     AND content_addressed = true""",
+                (fingerprint, len(snapshot_bytes)),
+            )
+            artifact = cursor.fetchone()
+            if artifact is None:
+                artifact_code = self._next_release_snapshot_artifact_code(cursor)
+                cursor.execute(
+                    """INSERT INTO artifact_refs (
+                         artifact_code, artifact_kind, media_type, schema_version,
+                         storage_uri, checksum_sha256, byte_size, producer_type,
+                         producer_code, producer_revision, sensitivity,
+                         retention_policy_code, metadata
+                       ) VALUES (%s, 'rendered_video_release_snapshot', 'application/json',
+                                 'functional-video-release-snapshot.v1', %s, %s, %s,
+                                 'functional_video_plan', %s, %s, 'internal',
+                                 'release-candidate', %s) RETURNING *""",
+                    (
+                        artifact_code,
+                        f"assetgraph://functional-video-release-snapshots/{fingerprint}",
+                        fingerprint,
+                        len(snapshot_bytes),
+                        source["plan_code"],
+                        int(source["timeline_revision"]),
+                        Jsonb({"plan_code": source["plan_code"], "snapshot_fingerprint": fingerprint, "storage_backend": "postgresql"}),
+                    ),
+                )
+                artifact = cursor.fetchone()
+            cursor.execute(
+                """INSERT INTO functional_video_plan_release_snapshots
+                   (plan_id, artifact_id, artifact_code, snapshot_fingerprint_sha256, snapshot)
+                   VALUES (%s, %s, %s, %s, %s)""",
+                (source["id"], artifact["id"], artifact["artifact_code"], fingerprint, Jsonb(snapshot)),
+            )
+        self.connection.commit()
+        return {
+            "artifact_code": artifact["artifact_code"],
+            "checksum_sha256": artifact["checksum_sha256"],
+            "byte_size": artifact["byte_size"],
+        }
+
+    def _release_service(self) -> ReleaseService:
+        if self._release_signing_key is not None:
+            key = self._release_signing_key
+            key_id = self._release_signing_key_id or "functional-video-test-key"
+        elif settings.manifest_signing_key is not None and settings.manifest_signing_key.get_secret_value().strip():
+            key = settings.manifest_signing_key.get_secret_value().encode("utf-8")
+            key_id = settings.manifest_signing_key_id
+        elif settings.app_env == "local":
+            key = b"assetgraph-local-functional-video-release-key-v1"
+            key_id = "local-functional-video-release-key-v1"
+        else:
+            raise DomainValidationError("RELEASE_SIGNING_KEY_MISSING", "A release signing key is required outside the local environment")
+        return ReleaseService(ReleaseRepository(self.connection), signing_key=key, signing_key_id=key_id)
+
+    def _with_release(self, plan: dict[str, Any]) -> dict[str, Any]:
+        release_code = plan.get("release_code")
+        if not release_code:
+            plan["release"] = None
+            return plan
+        release = ReleaseRepository(self.connection).get_release(str(release_code))
+        if release is None:
+            plan["release"] = None
+            return plan
+        manifest = release["manifest"]
+        plan["release"] = {
+            "release_code": release["release_code"],
+            "status": release["status"],
+            "manifest_code": manifest["manifest_code"],
+            "manifest_fingerprint": manifest["manifest_fingerprint"],
+            "snapshot_artifact_code": plan.get("release_snapshot_artifact_code") or "",
+        }
+        return plan
 
     def update_timeline(self, plan_code: str, payload: dict[str, Any], *, actor_id: str) -> dict[str, Any] | None:
         """Apply a constrained edit and update the queued worker input atomically."""
@@ -347,7 +598,7 @@ class FunctionalVideoService:
             }
             for artifact in job.get("artifacts") or []
         ]
-        return plan
+        return self._with_release(plan)
 
     @staticmethod
     def _timeline_video_updates(timeline: dict[str, Any]) -> list[dict[str, Any]]:
@@ -546,3 +797,16 @@ class FunctionalVideoService:
         date = datetime.now(UTC).date()
         cursor.execute("""INSERT INTO domain_sequences (sequence_date, object_type, current_value) VALUES (%s, 'functional_video_plan', 1) ON CONFLICT (sequence_date, object_type) DO UPDATE SET current_value = domain_sequences.current_value + 1, updated_at = now() RETURNING current_value""", (date,))
         return f"VIDPLAN-{date:%Y%m%d}-{int(cursor.fetchone()['current_value']):06d}"
+
+    @staticmethod
+    def _next_release_snapshot_artifact_code(cursor: Any) -> str:
+        date = datetime.now(UTC).date()
+        cursor.execute(
+            """INSERT INTO domain_sequences (sequence_date, object_type, current_value)
+               VALUES (%s, 'functional_video_release_snapshot', 1)
+               ON CONFLICT (sequence_date, object_type)
+               DO UPDATE SET current_value = domain_sequences.current_value + 1, updated_at = now()
+               RETURNING current_value""",
+            (date,),
+        )
+        return f"ART-{date:%Y%m%d}-{int(cursor.fetchone()['current_value']):06d}"

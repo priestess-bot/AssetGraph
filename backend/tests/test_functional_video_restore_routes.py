@@ -35,6 +35,23 @@ class FakeFunctionalVideoService:
     def __init__(self) -> None:
         self.calls: list[tuple[str, int, int, str]] = []
         self.branch_calls: list[tuple[str, dict, str]] = []
+        self.release_calls: list[tuple[str, str]] = []
+
+    def create_release_candidate(self, plan_code: str, *, actor_id: str) -> dict:
+        self.release_calls.append((plan_code, actor_id))
+        return {
+            **plan(),
+            "release_code": "RELEASE-001",
+            "release_snapshot_artifact_code": "ART-001",
+            "release_manifest_fingerprint": "a" * 64,
+            "release": {
+                "release_code": "RELEASE-001",
+                "status": "candidate",
+                "manifest_code": "RELEASE-001-M001",
+                "manifest_fingerprint": "a" * 64,
+                "snapshot_artifact_code": "ART-001",
+            },
+        }
 
     def branch_plan(self, plan_code: str, payload: dict, *, actor_id: str) -> dict | None:
         if plan_code == "VIDPLAN-MISSING":
@@ -99,3 +116,13 @@ def test_branch_video_plan_creates_a_new_queued_plan(client: tuple[TestClient, F
     assert response.status_code == 201
     assert response.json()["plan_code"] == "VIDPLAN-002"
     assert service.branch_calls == [("VIDPLAN-001", {"title": "剪辑调整"}, "functional-operator")]
+
+
+def test_create_video_release_candidate(client: tuple[TestClient, FakeFunctionalVideoService]) -> None:
+    test_client, service = client
+
+    response = test_client.post("/api/functional-video-plans/VIDPLAN-001/release-candidate")
+
+    assert response.status_code == 200
+    assert response.json()["release"]["manifest_code"] == "RELEASE-001-M001"
+    assert service.release_calls == [("VIDPLAN-001", "functional-operator")]

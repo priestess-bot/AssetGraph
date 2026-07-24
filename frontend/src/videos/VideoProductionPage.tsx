@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, CheckCircle2, CircleX, Download, Film, GitFork, RefreshCw, RotateCcw, Send } from "lucide-react";
+import { ArrowDown, ArrowUp, CheckCircle2, CircleX, Download, FileCheck2, Film, GitFork, RefreshCw, RotateCcw, Send } from "lucide-react";
 import { contentProjectsApi } from "../content/api";
 import { EmptyBlock, InlineNotice, LoadingBlock, SectionHeader, StatusBadge } from "../workbench/components";
 import { functionalVideosApi, type FunctionalVideoPlan, type VideoTimelineRevision } from "./api";
@@ -103,11 +103,17 @@ function WorkflowPanel({ plan }: { plan: FunctionalVideoPlan }) {
   return <section className="wb-section"><SectionHeader kicker="WORKFLOW RUN" title="生产阶段" actions={<StatusBadge label={`${plan.workflowStages.filter((stage) => stage.status === "succeeded").length}/${plan.workflowStages.length}`} tone="info" />} /><ol className="video-workflow">{plan.workflowStages.map((stage) => <li key={`${stage.stageOrder}:${stage.stageName}`}><span>{stage.stageOrder}</span><div><strong>{stageLabel(stage.stageName)}</strong><small>attempt {stage.attempt}{stage.errorCode ? ` · ${stage.errorCode}` : ""}</small>{stage.errorMessage ? <small className="video-stage-error">{stage.errorMessage}</small> : null}</div><StatusBadge label={stage.status} tone={stageTone(stage.status)} /></li>)}</ol></section>;
 }
 
+function ReleaseCandidatePanel({ plan }: { plan: FunctionalVideoPlan }) {
+  const queryClient = useQueryClient();
+  const create = useMutation({ mutationFn: () => functionalVideosApi.createReleaseCandidate(plan.planCode), onSuccess: (next) => { queryClient.setQueryData(["functional-video", plan.planCode], next); void queryClient.invalidateQueries({ queryKey: ["functional-videos"] }); } });
+  const eligible = plan.jobStatus === "succeeded" && plan.qualityReport.passed === true;
+  return <section className="wb-section"><SectionHeader kicker="RELEASE CANDIDATE" title="发布候选" actions={plan.release ? <StatusBadge label={plan.release.status} tone="warning" /> : undefined} /><div className="video-release-candidate">{plan.release ? <><span><strong>{plan.release.releaseCode}</strong><small>{plan.release.manifestCode} · {plan.release.manifestFingerprint.slice(0, 12)}</small></span><a className="wb-button wb-button-secondary" href={`/production/releases?release=${encodeURIComponent(plan.release.releaseCode)}`}>查看 Manifest</a></> : <><span><strong>{eligible ? "可创建候选" : "等待渲染和 QC 通过"}</strong><small>候选会固定时间轴、渲染配置、质量报告和成片校验和；不会批准或交付。</small></span><button type="button" className="wb-button wb-button-secondary" disabled={!eligible || create.isPending} onClick={() => create.mutate()}><FileCheck2 size={15} aria-hidden="true" />创建发布候选</button></>}</div>{create.error ? <InlineNotice tone="danger" title="发布候选未创建">{text(create.error)}</InlineNotice> : null}</section>;
+}
+
 function QualityPanel({ plan }: { plan: FunctionalVideoPlan }) {
   const checks = Object.entries(plan.qualityReport.checks);
-  if (!checks.length) return null;
   const passed = plan.qualityReport.passed === true;
-  return <section className="wb-section"><SectionHeader kicker="QC REPORT" title="质量检查" actions={<StatusBadge label={passed ? "通过" : "未通过"} tone={passed ? "success" : "danger"} />} /><ul className="video-quality-checks">{checks.map(([key, passedCheck]) => <li key={key}>{passedCheck ? <CheckCircle2 size={15} aria-hidden="true" /> : <CircleX size={15} aria-hidden="true" />}<code>{key}</code><StatusBadge label={passedCheck ? "pass" : "blocked"} tone={passedCheck ? "success" : "danger"} /></li>)}</ul></section>;
+  return <>{checks.length ? <section className="wb-section"><SectionHeader kicker="QC REPORT" title="质量检查" actions={<StatusBadge label={passed ? "通过" : "未通过"} tone={passed ? "success" : "danger"} />} /><ul className="video-quality-checks">{checks.map(([key, passedCheck]) => <li key={key}>{passedCheck ? <CheckCircle2 size={15} aria-hidden="true" /> : <CircleX size={15} aria-hidden="true" />}<code>{key}</code><StatusBadge label={passedCheck ? "pass" : "blocked"} tone={passedCheck ? "success" : "danger"} /></li>)}</ul></section> : null}<ReleaseCandidatePanel plan={plan} /></>;
 }
 
 function Detail({ plan, onBranchCreated }: { plan: FunctionalVideoPlan; onBranchCreated: (plan: FunctionalVideoPlan) => void }) {

@@ -60,6 +60,14 @@ class FunctionalVideoTimelineRevisionRead(BaseModel):
     created_at: datetime
 
 
+class FunctionalVideoReleaseRead(BaseModel):
+    release_code: str
+    status: str
+    manifest_code: str
+    manifest_fingerprint: str
+    snapshot_artifact_code: str
+
+
 class FunctionalVideoPlanRead(BaseModel):
     plan_code: str
     project_code: str
@@ -77,5 +85,9 @@ class FunctionalVideoPlanRead(BaseModel):
     quality_report: dict[str, Any] = Field(default_factory=dict)
     workflow_stages: list[dict[str, Any]] = Field(default_factory=list)
     artifacts: list[dict[str, Any]] = Field(default_factory=list)
+    release_code: str | None = None
+    release_snapshot_artifact_code: str | None = None
+    release_manifest_fingerprint: str | None = None
+    release: FunctionalVideoReleaseRead | None = None
     created_at: datetime
     updated_at: datetime

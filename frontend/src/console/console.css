@@ -449,6 +449,10 @@
 .video-render-preview { display: block; width: min(100%, 440px); max-height: 680px; margin: 13px auto; background: #101310; }
 .video-branch-form { display: flex; align-items: end; gap: 8px; padding: 13px; }
 .video-branch-form .wb-field { flex: 1; }
+.video-release-candidate { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 13px; }
+.video-release-candidate > span { display: grid; min-width: 0; gap: 4px; }
+.video-release-candidate strong { font-size: 10px; }
+.video-release-candidate small { color: var(--wb-muted); font-size: 8px; overflow-wrap: anywhere; }
 .release-workspace { display: grid; grid-template-columns: minmax(285px, .72fr) minmax(0, 1.28fr); gap: 16px; }
 .release-rail { position: sticky; top: 84px; align-self: start; max-height: calc(100vh - 105px); overflow-y: auto; }
 .release-list { display: grid; }
@@ -720,6 +724,8 @@
   .video-timeline-editor > div > .video-source-range { grid-column: 1 / -1; }
   .video-branch-form { align-items: stretch; flex-direction: column; }
   .video-branch-form .wb-button { justify-content: center; }
+  .video-release-candidate { align-items: stretch; flex-direction: column; }
+  .video-release-candidate .wb-button { justify-content: center; }
 }
 
 @media (max-width: 420px) {

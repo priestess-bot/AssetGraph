@@ -76,3 +76,26 @@ def test_timeline_source_range_cannot_escape_its_fixed_available_range() -> None
         assert exc.code == "VIDEO_TIMELINE_SOURCE_RANGE_INVALID"
     else:
         raise AssertionError("source ranges outside the fixed evidence range must be rejected")
+
+
+def test_release_subject_refs_pin_every_required_content_revision() -> None:
+    refs = FunctionalVideoService._release_subject_refs(
+        {
+            "source_project_code": "CONTENT-001",
+            "source_project_revision": 3,
+            "variant_code": "VARIANT-001",
+            "variant_revision": 1,
+            "story_brief_code": "STORY-001",
+            "story_brief_revision": 3,
+            "script_revision_code": "SCRIPT-003",
+            "script_revision": 3,
+            "program_revision_code": "PROGRAM-003",
+            "program_revision": 3,
+            "shot_list_revision_code": "SHOTLIST-003",
+            "shot_list_revision": 3,
+        }
+    )
+
+    assert refs["content_project_revision"] == {"code": "CONTENT-001", "revision": 3}
+    assert refs["production_variant_revision"] == {"code": "VARIANT-001", "revision": 1}
+    assert refs["shot_list_revision"] == {"code": "SHOTLIST-003", "revision": 3}
