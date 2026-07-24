@@ -173,6 +173,47 @@ def test_human_script_revision_rebuilds_program_and_shot_list() -> None:
         assert len(revised["program"]["segments"]) == len(blocks)
         assert len(revised["shot_list"]["shots"]) == len(blocks)
 
+        script_blocks = revised["script"]["blocks"]
+        directed = service.revise_program_and_shots(
+            created["project_code"],
+            expected_revision=1,
+            segments=[
+                {
+                    "semantic_goal": "先完成场景化铺垫",
+                    "program_phase": "opening",
+                    "estimated_duration_ms": 55_000,
+                    "script_block_codes": [script_blocks[0]["block_code"], script_blocks[1]["block_code"]],
+                },
+                {
+                    "semantic_goal": "完成后续说明与互动",
+                    "program_phase": "conversion",
+                    "estimated_duration_ms": 65_000,
+                    "script_block_codes": [block["block_code"] for block in script_blocks[2:]],
+                },
+            ],
+            shots=[
+                {
+                    "program_segment_index": 0,
+                    "shot_goal": "以主播解释聚会场景",
+                    "material_role_requirements": ["digital_human", "background"],
+                    "script_block_codes": [script_blocks[0]["block_code"], script_blocks[1]["block_code"]],
+                },
+                {
+                    "program_segment_index": 1,
+                    "shot_goal": "展示互动与下一步行动",
+                    "material_role_requirements": ["digital_human", "promotion_text"],
+                    "script_block_codes": [block["block_code"] for block in script_blocks[2:]],
+                },
+            ],
+            actor_id="test-operator",
+        )
+
+        assert directed["program"]["revision_number"] == 3
+        assert directed["program"]["segments"][0]["script_block_codes"] == [script_blocks[0]["block_code"], script_blocks[1]["block_code"]]
+        assert directed["shot_list"]["revision_number"] == 3
+        assert directed["shot_list"]["shots"][0]["program_segment_code"] == directed["program"]["segments"][0]["segment_code"]
+        assert directed["shot_list"]["shots"][0]["script_block_codes"] == [script_blocks[0]["block_code"], script_blocks[1]["block_code"]]
+
 
 def test_fact_citation_guard_blocks_restricted_claim_without_approved_source() -> None:
     with pytest.raises(DomainValidationError) as invalid:

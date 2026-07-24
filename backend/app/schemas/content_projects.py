@@ -6,6 +6,15 @@ from typing import Any
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
+def _valid_branch_applicability(value: list[str]) -> list[str]:
+    normalized = list(dict.fromkeys(item.strip() for item in value if item.strip()))
+    if len(normalized) != len(value):
+        raise ValueError("branch applicability values must be unique and non-empty")
+    if normalized and not set(normalized).issubset({"live_room", "rendered_video"}):
+        raise ValueError("branch applicability contains an unsupported branch")
+    return normalized
+
+
 class FactCardReference(BaseModel):
     fact_card_code: str = Field(min_length=1, max_length=64)
     version_number: int | None = Field(default=None, ge=1)
@@ -167,6 +176,77 @@ class ScriptBlockRevisionInput(BaseModel):
 class ScriptRevisionCreate(BaseModel):
     expected_revision: int = Field(ge=1)
     blocks: list[ScriptBlockRevisionInput] = Field(min_length=1, max_length=50)
+
+
+class ProgramSegmentRevisionInput(BaseModel):
+    semantic_goal: str = Field(min_length=1, max_length=2000)
+    program_phase: str = Field(default="body", min_length=1, max_length=64)
+    estimated_duration_ms: int | None = Field(default=None, ge=0, le=3_600_000)
+    entry_condition: str | None = Field(default=None, max_length=2000)
+    exit_condition: str | None = Field(default=None, max_length=2000)
+    product_refs: list[str] = Field(default_factory=list, max_length=100)
+    interaction_actions: list[dict[str, Any]] = Field(default_factory=list, max_length=100)
+    cta_actions: list[dict[str, Any]] = Field(default_factory=list, max_length=100)
+    branch_applicability: list[str] = Field(default_factory=list, max_length=32)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    script_block_codes: list[str] = Field(min_length=1, max_length=50)
+
+    @field_validator("script_block_codes")
+    @classmethod
+    def unique_script_block_codes(cls, value: list[str]) -> list[str]:
+        normalized = [item.strip() for item in value if item.strip()]
+        if len(normalized) != len(value) or len(set(normalized)) != len(normalized):
+            raise ValueError("script block codes must be unique and non-empty")
+        return normalized
+
+    @field_validator("branch_applicability")
+    @classmethod
+    def valid_branch_applicability(cls, value: list[str]) -> list[str]:
+        return _valid_branch_applicability(value)
+
+
+class ShotRevisionInput(BaseModel):
+    program_segment_index: int = Field(ge=0)
+    shot_goal: str = Field(min_length=1, max_length=2000)
+    estimated_duration_ms: int | None = Field(default=None, ge=0, le=3_600_000)
+    composition_intent: dict[str, Any] = Field(default_factory=dict)
+    material_role_requirements: list[str] = Field(default_factory=list, max_length=32)
+    audio_actions: list[dict[str, Any]] = Field(default_factory=list, max_length=100)
+    continuity: dict[str, Any] = Field(default_factory=dict)
+    acceptance_criteria: list[str] = Field(default_factory=list, max_length=100)
+    branch_applicability: list[str] = Field(default_factory=list, max_length=32)
+    must_include: list[str] = Field(default_factory=list, max_length=100)
+    must_avoid: list[str] = Field(default_factory=list, max_length=100)
+    script_block_codes: list[str] = Field(min_length=1, max_length=50)
+
+    @field_validator("script_block_codes")
+    @classmethod
+    def unique_script_block_codes(cls, value: list[str]) -> list[str]:
+        normalized = [item.strip() for item in value if item.strip()]
+        if len(normalized) != len(value) or len(set(normalized)) != len(normalized):
+            raise ValueError("script block codes must be unique and non-empty")
+        return normalized
+
+    @field_validator("branch_applicability")
+    @classmethod
+    def valid_branch_applicability(cls, value: list[str]) -> list[str]:
+        return _valid_branch_applicability(value)
+
+
+class ProgramShotRevisionCreate(BaseModel):
+    expected_revision: int = Field(ge=1)
+    segments: list[ProgramSegmentRevisionInput] = Field(min_length=1, max_length=50)
+    shots: list[ShotRevisionInput] = Field(min_length=1, max_length=100)
+
+    @model_validator(mode="after")
+    def shot_segments_must_exist(self) -> "ProgramShotRevisionCreate":
+        if any(shot.program_segment_index >= len(self.segments) for shot in self.shots):
+            raise ValueError("shot program segment index is outside submitted segments")
+        referenced = {shot.program_segment_index for shot in self.shots}
+        missing = [index for index in range(len(self.segments)) if index not in referenced]
+        if missing:
+            raise ValueError("every submitted ProgramSegment requires at least one Shot")
+        return self
 
 
 class ContentProjectSummary(BaseModel):

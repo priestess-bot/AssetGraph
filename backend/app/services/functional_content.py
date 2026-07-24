@@ -447,6 +447,158 @@ class FunctionalContentService:
         )
         return self.get_detail(project_code) or {}
 
+    def revise_program_and_shots(
+        self,
+        project_code: str,
+        *,
+        expected_revision: int,
+        segments: list[dict[str, Any]],
+        shots: list[dict[str, Any]],
+        actor_id: str,
+    ) -> dict[str, Any]:
+        current = self.core.get_project(project_code)
+        if current is None:
+            raise KeyError(project_code)
+        if int(current["revision_number"]) != expected_revision:
+            raise DomainConflictError(
+                "REVISION_CONFLICT",
+                "Content project changed since it was loaded",
+                details={"expected_revision": expected_revision, "actual_revision": current["revision_number"]},
+            )
+        if current["status"] != "confirmed":
+            raise DomainConflictError("CONTENT_PROJECT_CONFIRM_REQUIRED", "Confirm the content project before revising its program")
+        design_brief = self._confirmed_design_brief(current["project_id"], expected_revision)
+        if design_brief is None:
+            raise DomainConflictError("DESIGN_BRIEF_CONFIRM_REQUIRED", "Confirm a DesignBrief before revising its program")
+        self.production._reject_shot_runtime_locators(shots)
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT script.*
+                FROM content_script_revisions AS script
+                JOIN story_brief_revisions AS story ON story.id = script.source_story_brief_revision_id
+                JOIN content_project_revisions AS project_revision ON project_revision.id = story.source_project_revision_id
+                WHERE script.project_id = %s
+                  AND script.status = 'confirmed'
+                  AND story.status = 'confirmed'
+                  AND project_revision.revision_number = %s
+                  AND story.source_design_brief_revision = %s
+                ORDER BY script.revision_number DESC
+                LIMIT 1
+                """,
+                (
+                    current["project_id"],
+                    expected_revision,
+                    f"{design_brief['design_brief_code']}:r{design_brief['revision_number']}",
+                ),
+            )
+            script = cursor.fetchone()
+            if script is None:
+                raise KeyError(f"{project_code}@{expected_revision}:script")
+            cursor.execute(
+                "SELECT block_code FROM content_script_blocks WHERE script_revision_id = %s ORDER BY sort_order",
+                (script["id"],),
+            )
+            script_block_codes = {row["block_code"] for row in cursor.fetchall()}
+        program_segments: list[dict[str, Any]] = []
+        segment_source_codes: list[set[str]] = []
+        for index, segment in enumerate(segments):
+            block_codes = [str(code) for code in segment.get("script_block_codes") or []]
+            unknown_codes = sorted(set(block_codes) - script_block_codes)
+            if unknown_codes:
+                raise DomainValidationError(
+                    "PROGRAM_SEGMENT_BLOCK_INVALID",
+                    "ProgramSegment references a ScriptBlock outside the current confirmed script",
+                    details={"segment_index": index, "block_codes": unknown_codes},
+                )
+            segment_source_codes.append(set(block_codes))
+            program_segments.append(
+                {
+                    "semantic_goal": segment.get("semantic_goal"),
+                    "program_phase": segment.get("program_phase", "body"),
+                    "estimated_duration_ms": segment.get("estimated_duration_ms"),
+                    "entry_condition": segment.get("entry_condition"),
+                    "exit_condition": segment.get("exit_condition"),
+                    "product_refs": segment.get("product_refs") or [],
+                    "interaction_actions": segment.get("interaction_actions") or [],
+                    "cta_actions": segment.get("cta_actions") or [],
+                    "branch_applicability": segment.get("branch_applicability") or [],
+                    "metadata": segment.get("metadata") or {},
+                    "script_block_adoptions": [{"block_code": code, "content_action": "deliver"} for code in block_codes],
+                }
+            )
+        prepared_shot_sources: list[list[str]] = []
+        covered_segments: set[int] = set()
+        for index, shot in enumerate(shots):
+            segment_index = int(shot.get("program_segment_index", -1))
+            if segment_index < 0 or segment_index >= len(program_segments):
+                raise DomainValidationError(
+                    "SHOT_SEGMENT_INVALID",
+                    "Shot references a ProgramSegment outside the submitted program",
+                    details={"shot_index": index, "program_segment_index": segment_index},
+                )
+            source_codes = [str(code) for code in shot.get("script_block_codes") or []]
+            missing_sources = sorted(set(source_codes) - segment_source_codes[segment_index])
+            if missing_sources:
+                raise DomainValidationError(
+                    "SHOT_SCRIPT_SOURCE_INVALID",
+                    "Shot ScriptBlock sources must be adopted by its ProgramSegment",
+                    details={"shot_index": index, "block_codes": missing_sources},
+                )
+            covered_segments.add(segment_index)
+            prepared_shot_sources.append(source_codes)
+        missing_segment_shots = sorted(set(range(len(program_segments))) - covered_segments)
+        if missing_segment_shots:
+            raise DomainValidationError(
+                "PROGRAM_SEGMENT_SHOT_REQUIRED",
+                "Every submitted ProgramSegment requires at least one Shot",
+                details={"segment_indexes": missing_segment_shots},
+            )
+        program_draft = self.production.create_program_revision(
+            script_revision_code=script["script_revision_code"],
+            expected_revision=self._current_project_revision("content_program_revisions", current["project_id"]),
+            segments=program_segments,
+            producer_strategy_revision="human-program-shot-editor.v1",
+            actor_id=actor_id,
+            producer_role="human_editor",
+        )
+        program = self.production.confirm_program_revision(
+            program_draft["program_revision_code"], revision_number=int(program_draft["revision_number"]), actor_id=actor_id
+        )
+        content = dict(current["content"] or {})
+        program_shots: list[dict[str, Any]] = []
+        for index, shot in enumerate(shots):
+            segment_index = int(shot.get("program_segment_index", -1))
+            source_codes = prepared_shot_sources[index]
+            program_shots.append(
+                {
+                    "program_segment_code": program_draft["segments"][segment_index]["segment_code"],
+                    "shot_goal": shot.get("shot_goal"),
+                    "composition_intent": shot.get("composition_intent") or {},
+                    "material_role_requirements": shot.get("material_role_requirements") or [],
+                    "audio_actions": shot.get("audio_actions") or [],
+                    "continuity": shot.get("continuity") or {},
+                    "acceptance_criteria": shot.get("acceptance_criteria") or [],
+                    "estimated_duration_ms": shot.get("estimated_duration_ms"),
+                    "branch_applicability": shot.get("branch_applicability") or [],
+                    "must_include": shot.get("must_include") or content.get("must_include") or [],
+                    "must_avoid": shot.get("must_avoid") or content.get("must_avoid") or [],
+                    "script_block_sources": [{"block_code": code, "relation_type": "derived_from"} for code in source_codes],
+                }
+            )
+        shot_list = self.production.create_shot_list_revision(
+            program_revision_code=program["program_revision_code"],
+            expected_revision=self._current_project_revision("shot_list_revisions", current["project_id"]),
+            shots=program_shots,
+            producer_strategy_revision="human-program-shot-editor.v1",
+            actor_id=actor_id,
+            producer_role="human_editor",
+        )
+        self.production.confirm_shot_list_revision(
+            shot_list["shot_list_revision_code"], revision_number=int(shot_list["revision_number"]), actor_id=actor_id
+        )
+        return self.get_detail(project_code) or {}
+
     def list_projects(self) -> list[dict[str, Any]]:
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
@@ -1424,12 +1576,79 @@ class FunctionalContentService:
     def _program_view(cursor: Any, row: dict[str, Any] | None) -> dict[str, Any] | None:
         if row is None:
             return None
-        cursor.execute("SELECT segment_code, semantic_goal, program_phase, estimated_duration_ms FROM program_segments WHERE program_revision_id = %s ORDER BY sort_order", (row["id"],))
-        return {"program_revision_code": row["program_revision_code"], "revision_number": row["revision_number"], "segments": cursor.fetchall()}
+        cursor.execute(
+            """
+            SELECT id, segment_code, semantic_goal, program_phase, estimated_duration_ms,
+                   entry_condition, exit_condition, product_refs, interaction_actions,
+                   cta_actions, branch_applicability, metadata
+            FROM program_segments WHERE program_revision_id = %s ORDER BY sort_order
+            """,
+            (row["id"],),
+        )
+        segments = cursor.fetchall()
+        if not segments:
+            return {"program_revision_code": row["program_revision_code"], "revision_number": row["revision_number"], "segments": []}
+        cursor.execute(
+            """
+            SELECT adoption.segment_id, block.block_code
+            FROM program_segment_script_block_adoptions AS adoption
+            JOIN content_script_blocks AS block ON block.id = adoption.script_block_id
+            WHERE adoption.segment_id = ANY(%s)
+            ORDER BY adoption.segment_id, adoption.adoption_order
+            """,
+            ([segment["id"] for segment in segments],),
+        )
+        adopted_codes: dict[Any, list[str]] = {}
+        for adoption in cursor.fetchall():
+            adopted_codes.setdefault(adoption["segment_id"], []).append(adoption["block_code"])
+        return {
+            "program_revision_code": row["program_revision_code"],
+            "revision_number": row["revision_number"],
+            "segments": [
+                {key: value for key, value in segment.items() if key != "id"}
+                | {"script_block_codes": adopted_codes.get(segment["id"], [])}
+                for segment in segments
+            ],
+        }
 
     @staticmethod
     def _shot_list_view(cursor: Any, row: dict[str, Any] | None) -> dict[str, Any] | None:
         if row is None:
             return None
-        cursor.execute("SELECT shot_code, shot_goal, composition_intent, material_role_requirements, estimated_duration_ms FROM shots WHERE shot_list_revision_id = %s ORDER BY sort_order", (row["id"],))
-        return {"shot_list_revision_code": row["shot_list_revision_code"], "revision_number": row["revision_number"], "shots": cursor.fetchall()}
+        cursor.execute(
+            """
+            SELECT shot.id, shot.shot_code, shot.shot_goal, segment.segment_code AS program_segment_code,
+                   shot.composition_intent, shot.material_role_requirements, shot.audio_actions,
+                   shot.continuity, shot.acceptance_criteria, shot.estimated_duration_ms,
+                   shot.branch_applicability, shot.must_include, shot.must_avoid
+            FROM shots AS shot
+            JOIN program_segments AS segment ON segment.id = shot.program_segment_id
+            WHERE shot.shot_list_revision_id = %s ORDER BY shot.sort_order
+            """,
+            (row["id"],),
+        )
+        shots = cursor.fetchall()
+        if not shots:
+            return {"shot_list_revision_code": row["shot_list_revision_code"], "revision_number": row["revision_number"], "shots": []}
+        cursor.execute(
+            """
+            SELECT source.shot_id, block.block_code
+            FROM shot_script_block_sources AS source
+            JOIN content_script_blocks AS block ON block.id = source.script_block_id
+            WHERE source.shot_id = ANY(%s)
+            ORDER BY source.shot_id, source.source_order
+            """,
+            ([shot["id"] for shot in shots],),
+        )
+        source_codes: dict[Any, list[str]] = {}
+        for source in cursor.fetchall():
+            source_codes.setdefault(source["shot_id"], []).append(source["block_code"])
+        return {
+            "shot_list_revision_code": row["shot_list_revision_code"],
+            "revision_number": row["revision_number"],
+            "shots": [
+                {key: value for key, value in shot.items() if key != "id"}
+                | {"script_block_codes": source_codes.get(shot["id"], [])}
+                for shot in shots
+            ],
+        }

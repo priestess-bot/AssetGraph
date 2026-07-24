@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from app.schemas.content_projects import DesignBriefUpdate, ScriptRevisionCreate
+from app.schemas.content_projects import DesignBriefUpdate, ProgramShotRevisionCreate, ScriptRevisionCreate
 
 
 def test_design_brief_update_accepts_only_structured_override_fields() -> None:
@@ -30,3 +30,26 @@ def test_human_script_revision_requires_bounded_nonempty_blocks() -> None:
 
     with pytest.raises(ValidationError):
         ScriptRevisionCreate(expected_revision=3, blocks=[])
+
+
+def test_program_shot_revision_requires_sources_and_a_shot_per_segment() -> None:
+    revision = ProgramShotRevisionCreate(
+        expected_revision=3,
+        segments=[{"semantic_goal": "解释选择依据", "script_block_codes": ["BLOCK-001"]}],
+        shots=[{"program_segment_index": 0, "shot_goal": "展示讲解主体", "script_block_codes": ["BLOCK-001"]}],
+    )
+    assert revision.segments[0].script_block_codes == ["BLOCK-001"]
+
+    with pytest.raises(ValidationError, match="outside submitted segments"):
+        ProgramShotRevisionCreate(
+            expected_revision=3,
+            segments=[{"semantic_goal": "解释选择依据", "script_block_codes": ["BLOCK-001"]}],
+            shots=[{"program_segment_index": 1, "shot_goal": "展示讲解主体", "script_block_codes": ["BLOCK-001"]}],
+        )
+
+    with pytest.raises(ValidationError, match="unique and non-empty"):
+        ProgramShotRevisionCreate(
+            expected_revision=3,
+            segments=[{"semantic_goal": "解释选择依据", "script_block_codes": ["BLOCK-001", "BLOCK-001"]}],
+            shots=[{"program_segment_index": 0, "shot_goal": "展示讲解主体", "script_block_codes": ["BLOCK-001"]}],
+        )

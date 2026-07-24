@@ -109,6 +109,21 @@ describe("content projects api", () => {
     ] });
   });
 
+  it("submits a coupled Program and ShotList revision with explicit block mappings", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response({
+      project_code: "CONTENT-001", title: "选酒直播", revision_number: 1, status: "confirmed", generation_goal: "帮助观众选酒",
+      updated_at: "2026-07-25T00:00:00Z", content: {}, generated: true,
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const segments = [{ semantic_goal: "说明选择依据", program_phase: "body", script_block_codes: ["BLOCK-001"] }];
+    const shots = [{ program_segment_index: 0, shot_goal: "主播解释选择依据", material_role_requirements: ["digital_human", "background"], script_block_codes: ["BLOCK-001"] }];
+
+    await contentProjectsApi.reviseProgramAndShots("CONTENT-001", 1, segments, shots);
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/api/content-projects/CONTENT-001/program-shot-revision");
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({ expected_revision: 1, segments, shots });
+  });
+
   it("retains fact citation character ranges while reading script blocks", async () => {
     const fetchMock = vi.fn().mockResolvedValue(response({
       project_code: "CONTENT-001", title: "选酒直播", revision_number: 1, status: "confirmed", generation_goal: "帮助观众选酒",
