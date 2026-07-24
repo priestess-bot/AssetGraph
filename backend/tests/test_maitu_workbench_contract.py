@@ -93,10 +93,20 @@ def test_strict_fact_and_material_decision_contracts_reject_unsafe_shapes() -> N
             "product_name": " Demo Wine ",
             "positioning": " Verified positioning ",
             "verified_facts": [" fact one ", "fact one", " fact two "],
+            "valid_from": "2026-07-25T00:00:00Z",
+            "valid_until": "2026-12-31T23:59:59Z",
+            "applicable_platforms": [" douyin ", "douyin"],
         }
     )
     assert facts.product_name == "Demo Wine"
     assert facts.verified_facts == ["fact one", "fact two"]
+    assert facts.applicable_platforms == ["douyin"]
+    assert facts.model_dump(mode="json")["valid_until"] == "2026-12-31T23:59:59Z"
+
+    with pytest.raises(ValueError, match="valid_from must include a timezone"):
+        ProductFactCardContent.model_validate(
+            {"product_name": "Demo Wine", "positioning": "Verified", "verified_facts": ["fact"], "valid_from": "2026-07-25T00:00:00"}
+        )
 
     try:
         MaterialDecisionCreate.model_validate(

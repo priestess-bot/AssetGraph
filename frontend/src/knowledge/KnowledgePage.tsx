@@ -16,12 +16,15 @@ interface FactEditorValues {
   assetKeywords: string;
   complianceNotes: string;
   sourceUrl: string;
+  validFrom: string;
+  validUntil: string;
+  applicablePlatforms: string;
   changeReason: string;
   author: string;
 }
 
 const EMPTY_EDITOR: FactEditorValues = {
-  title: "", productName: "", productCode: "", brand: "", category: "", positioning: "", verifiedFacts: "", scenarios: "", assetKeywords: "", complianceNotes: "", sourceUrl: "", changeReason: "", author: "console_operator",
+  title: "", productName: "", productCode: "", brand: "", category: "", positioning: "", verifiedFacts: "", scenarios: "", assetKeywords: "", complianceNotes: "", sourceUrl: "", validFrom: "", validUntil: "", applicablePlatforms: "", changeReason: "", author: "console_operator",
 };
 
 function lines(value: string): string[] {
@@ -58,6 +61,9 @@ function editorFrom(card: ProductFactCard): FactEditorValues {
     assetKeywords: joined(content.asset_keywords),
     complianceNotes: joined(content.compliance_notes),
     sourceUrl: typeof sourceReference.url === "string" ? sourceReference.url : "",
+    validFrom: stringValue(content, "valid_from"),
+    validUntil: stringValue(content, "valid_until"),
+    applicablePlatforms: joined(content.applicable_platforms),
     changeReason: "补充已核验事实",
     author: "console_operator",
   };
@@ -75,6 +81,9 @@ function contentInput(values: FactEditorValues): ProductFactCardContentInput {
     asset_keywords: lines(values.assetKeywords),
     compliance_notes: lines(values.complianceNotes),
     source_references: values.sourceUrl.trim() ? [{ kind: "url", url: values.sourceUrl.trim() }] : [],
+    valid_from: values.validFrom.trim() || undefined,
+    valid_until: values.validUntil.trim() || undefined,
+    applicable_platforms: lines(values.applicablePlatforms),
   };
 }
 
@@ -111,6 +120,9 @@ function FactEditor({ values, setValues, includeTitle, submitLabel, pending, onS
       <label className="wb-field"><span>素材关键词</span><textarea className="wb-textarea" value={values.assetKeywords} onChange={(event) => update("assetKeywords", event.target.value)} placeholder="每行一项" /></label>
       <label className="wb-field"><span>合规备注</span><textarea className="wb-textarea" value={values.complianceNotes} onChange={(event) => update("complianceNotes", event.target.value)} placeholder="每行一项" /></label>
       <label className="wb-field"><span>来源 URL</span><input className="wb-input" type="url" value={values.sourceUrl} onChange={(event) => update("sourceUrl", event.target.value)} /></label>
+      <label className="wb-field"><span>有效起始时间</span><input className="wb-input" value={values.validFrom} onChange={(event) => update("validFrom", event.target.value)} placeholder="2026-07-25T00:00:00Z" /></label>
+      <label className="wb-field"><span>有效结束时间</span><input className="wb-input" value={values.validUntil} onChange={(event) => update("validUntil", event.target.value)} placeholder="2026-12-31T23:59:59Z" /></label>
+      <label className="wb-field"><span>适用平台</span><textarea className="wb-textarea" value={values.applicablePlatforms} onChange={(event) => update("applicablePlatforms", event.target.value)} placeholder="每行一项；留空表示不限制" /></label>
       <label className="wb-field"><span>变更说明</span><input className="wb-input" value={values.changeReason} onChange={(event) => update("changeReason", event.target.value)} required={!includeTitle} /></label>
       <label className="wb-field"><span>登记人</span><input className="wb-input" value={values.author} onChange={(event) => update("author", event.target.value)} required /></label>
     </div>
@@ -182,7 +194,7 @@ export function KnowledgePage() {
       </section>
       <section className="wb-section"><SectionHeader kicker="VERSIONS" title="版本与批准" />
         <VersionList card={selected} activeVersion={activeVersion?.versionNumber} onSelect={setSelectedVersion} />
-        {activeVersion ? <div className="knowledge-version-detail"><div className="knowledge-version-heading"><div><span>{activeVersion.versionCode}</span><h3>v{activeVersion.versionNumber} 内容</h3></div><StatusBadge label={activeVersion.status} tone={versionTone(activeVersion.status)} /></div><dl><div><dt>已核验事实</dt><dd>{joined(activeVersion.content.verified_facts) || "未填写"}</dd></div><div><dt>适用场景</dt><dd>{joined(activeVersion.content.scenarios) || "未填写"}</dd></div><div><dt>合规备注</dt><dd>{joined(activeVersion.content.compliance_notes) || "未填写"}</dd></div><div><dt>来源</dt><dd>{Array.isArray(activeVersion.content.source_references) && activeVersion.content.source_references.length ? JSON.stringify(activeVersion.content.source_references) : "未填写"}</dd></div></dl>{activeVersion.status === "draft" ? <div className="knowledge-review"><label className="wb-field"><span>审批人</span><input className="wb-input" value={reviewer} onChange={(event) => setReviewer(event.target.value)} required /></label><label className="wb-field"><span>驳回原因</span><input className="wb-input" value={rejectionReason} onChange={(event) => setRejectionReason(event.target.value)} /></label><div className="wb-form-actions"><button type="button" className="wb-button wb-button-primary" disabled={approve.isPending || !reviewer.trim()} onClick={() => approve.mutate()}><CheckCircle2 size={15} aria-hidden="true" />批准版本</button><button type="button" className="wb-button" disabled={reject.isPending || !reviewer.trim() || !rejectionReason.trim()} onClick={() => reject.mutate()}><XCircle size={15} aria-hidden="true" />驳回版本</button></div>{approve.error || reject.error ? <InlineNotice tone="danger" title="版本状态更新失败">{errorMessage(approve.error ?? reject.error)}</InlineNotice> : null}</div> : null}</div> : null}
+        {activeVersion ? <div className="knowledge-version-detail"><div className="knowledge-version-heading"><div><span>{activeVersion.versionCode}</span><h3>v{activeVersion.versionNumber} 内容</h3></div><StatusBadge label={activeVersion.status} tone={versionTone(activeVersion.status)} /></div><dl><div><dt>已核验事实</dt><dd>{joined(activeVersion.content.verified_facts) || "未填写"}</dd></div><div><dt>适用场景</dt><dd>{joined(activeVersion.content.scenarios) || "未填写"}</dd></div><div><dt>适用平台</dt><dd>{joined(activeVersion.content.applicable_platforms) || "不限制"}</dd></div><div><dt>有效期</dt><dd>{stringValue(activeVersion.content, "valid_from") || "未限制"} 至 {stringValue(activeVersion.content, "valid_until") || "未限制"}</dd></div><div><dt>合规备注</dt><dd>{joined(activeVersion.content.compliance_notes) || "未填写"}</dd></div><div><dt>来源</dt><dd>{Array.isArray(activeVersion.content.source_references) && activeVersion.content.source_references.length ? JSON.stringify(activeVersion.content.source_references) : "未填写"}</dd></div></dl>{activeVersion.status === "draft" ? <div className="knowledge-review"><label className="wb-field"><span>审批人</span><input className="wb-input" value={reviewer} onChange={(event) => setReviewer(event.target.value)} required /></label><label className="wb-field"><span>驳回原因</span><input className="wb-input" value={rejectionReason} onChange={(event) => setRejectionReason(event.target.value)} /></label><div className="wb-form-actions"><button type="button" className="wb-button wb-button-primary" disabled={approve.isPending || !reviewer.trim()} onClick={() => approve.mutate()}><CheckCircle2 size={15} aria-hidden="true" />批准版本</button><button type="button" className="wb-button" disabled={reject.isPending || !reviewer.trim() || !rejectionReason.trim()} onClick={() => reject.mutate()}><XCircle size={15} aria-hidden="true" />驳回版本</button></div>{approve.error || reject.error ? <InlineNotice tone="danger" title="版本状态更新失败">{errorMessage(approve.error ?? reject.error)}</InlineNotice> : null}</div> : null}</div> : null}
       </section>
     </> : <EmptyBlock icon={BookOpen} title="选择事实卡" />}</main>
   </div>;

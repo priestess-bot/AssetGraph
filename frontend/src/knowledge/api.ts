@@ -43,6 +43,9 @@ export interface ProductFactCardContentInput {
   unverified_promotion_claims?: string[];
   compliance_notes?: string[];
   source_references?: Array<Record<string, unknown>>;
+  valid_from?: string;
+  valid_until?: string;
+  applicable_platforms?: string[];
 }
 
 export interface ProductFactCardCreateInput {

@@ -48,6 +48,9 @@ class ProductFactCardContent(StrictModel):
     unverified_promotion_claims: list[str] = Field(default_factory=list, max_length=100)
     compliance_notes: list[str] = Field(default_factory=list, max_length=100)
     source_references: list[dict[str, Any]] = Field(default_factory=list, max_length=100)
+    valid_from: datetime | None = None
+    valid_until: datetime | None = None
+    applicable_platforms: list[str] = Field(default_factory=list, max_length=50)
 
     @field_validator(
         "verified_facts",
@@ -57,6 +60,7 @@ class ProductFactCardContent(StrictModel):
         "verified_promotion_claims",
         "unverified_promotion_claims",
         "compliance_notes",
+        "applicable_platforms",
     )
     @classmethod
     def normalize_string_list(cls, value: list[str]) -> list[str]:
@@ -70,6 +74,16 @@ class ProductFactCardContent(StrictModel):
         if not result and value:
             raise ValueError("list must contain at least one non-empty value")
         return result
+
+    @model_validator(mode="after")
+    def validate_scope(self) -> "ProductFactCardContent":
+        if self.valid_from is not None and self.valid_from.tzinfo is None:
+            raise ValueError("valid_from must include a timezone")
+        if self.valid_until is not None and self.valid_until.tzinfo is None:
+            raise ValueError("valid_until must include a timezone")
+        if self.valid_from is not None and self.valid_until is not None and self.valid_until <= self.valid_from:
+            raise ValueError("valid_until must be later than valid_from")
+        return self
 
 
 class ProductFactCardCreate(StrictModel):
