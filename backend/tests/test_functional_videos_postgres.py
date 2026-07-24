@@ -6,6 +6,7 @@ from uuid import uuid4
 import psycopg
 import pytest
 
+from app.domain.errors import DomainValidationError
 from app.services.functional_content import FunctionalContentService
 from app.services.functional_videos import FunctionalVideoService
 
@@ -52,6 +53,36 @@ def test_functional_video_plan_seeds_content_stages_and_queues_renderer() -> Non
         assert len(plan["production_timeline"]["tracks"][0]["clips"]) == 6
         assert plan["render_profile"]["visual_asset_mode"] == "baseline_verified_video_assets"
 
+        clips = plan["production_timeline"]["tracks"][0]["clips"]
+        durations = [8_000, 9_000, 9_000, 10_000, 9_000, 10_000]
+        updated = FunctionalVideoService(connection).update_timeline(
+            plan["plan_code"],
+            {
+                "expected_revision": 1,
+                "video_clips": [
+                    {
+                        "clip_code": clip["clip_code"],
+                        "duration_ms": duration,
+                        "transition": "fade" if index == 0 else "fade_out" if index == 5 else "cut",
+                    }
+                    for index, (clip, duration) in enumerate(zip(clips, durations, strict=True))
+                ],
+            },
+            actor_id="test-operator",
+        )
+        assert updated is not None
+        assert updated["timeline_revision"] == 2
+        assert updated["production_timeline"]["global_end_ms"] == 55_000
+        assert updated["production_timeline"]["tracks"][0]["clips"][0]["transition"] == "fade"
+        with pytest.raises(DomainValidationError) as stale:
+            FunctionalVideoService(connection).update_timeline(
+                plan["plan_code"],
+                {"expected_revision": 1, "video_clips": [{"clip_code": clip["clip_code"], "duration_ms": 9_000} for clip in clips]},
+                actor_id="test-operator",
+            )
+        assert stale.value.code == "VIDEO_TIMELINE_REVISION_CONFLICT"
+        connection.rollback()
+
         with connection.cursor() as cursor:
             cursor.execute(
                 "SELECT status FROM video_production_stages WHERE job_code = %s ORDER BY stage_order",
@@ -63,3 +94,5 @@ def test_functional_video_plan_seeds_content_stages_and_queues_renderer() -> Non
                 (plan["video_job_code"],),
             )
             assert cursor.fetchone()[0] is True
+            cursor.execute("SELECT count(*) FROM functional_video_timeline_revisions WHERE plan_id = (SELECT id FROM functional_video_plans WHERE plan_code = %s)", (plan["plan_code"],))
+            assert cursor.fetchone()[0] == 2

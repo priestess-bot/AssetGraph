@@ -3,13 +3,32 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class FunctionalVideoPlanCreate(BaseModel):
     project_code: str = Field(min_length=1, max_length=64)
     title: str | None = Field(default=None, max_length=255)
     target_duration_seconds: int = Field(default=55, ge=30, le=120)
+
+
+class FunctionalVideoTimelineClipUpdate(BaseModel):
+    clip_code: str = Field(min_length=1, max_length=80)
+    duration_ms: int = Field(ge=250, le=120_000)
+    transition: str = Field(default="cut", pattern="^(cut|fade|fade_out)$")
+
+
+class FunctionalVideoTimelineUpdate(BaseModel):
+    expected_revision: int = Field(ge=1)
+    video_clips: list[FunctionalVideoTimelineClipUpdate] = Field(min_length=1, max_length=100)
+
+    @field_validator("video_clips")
+    @classmethod
+    def unique_clip_codes(cls, value: list[FunctionalVideoTimelineClipUpdate]) -> list[FunctionalVideoTimelineClipUpdate]:
+        codes = [clip.clip_code for clip in value]
+        if len(codes) != len(set(codes)):
+            raise ValueError("video clip codes must be unique")
+        return value
 
 
 class FunctionalVideoPlanRead(BaseModel):
@@ -19,6 +38,7 @@ class FunctionalVideoPlanRead(BaseModel):
     video_job_code: str
     title: str
     production_timeline: dict[str, Any]
+    timeline_revision: int
     render_profile: dict[str, Any]
     job_status: str
     current_stage: str | None = None

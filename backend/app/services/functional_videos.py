@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import UTC, datetime
 from typing import Any
 
@@ -59,6 +60,12 @@ class FunctionalVideoService:
                 (code, detail["project_code"], variant["variant_code"], job["job_code"], payload.get("title") or detail["title"], Jsonb(timeline), Jsonb(render_profile)),
             )
             row = cursor.fetchone()
+            cursor.execute(
+                """INSERT INTO functional_video_timeline_revisions
+                   (plan_id, revision_number, production_timeline, actor_id)
+                   VALUES (%s, %s, %s, %s)""",
+                (row["id"], int(row["timeline_revision"]), Jsonb(timeline), actor_id),
+            )
         self.connection.commit()
         return self._enrich(row)
 
@@ -81,6 +88,69 @@ class FunctionalVideoService:
         self.videos.retry(plan["video_job_code"])
         return self.get_plan(plan_code)
 
+    def update_timeline(self, plan_code: str, payload: dict[str, Any], *, actor_id: str) -> dict[str, Any] | None:
+        """Apply a constrained edit and update the queued worker input atomically."""
+        try:
+            with self.connection.cursor(row_factory=dict_row) as cursor:
+                cursor.execute("SELECT * FROM functional_video_plans WHERE plan_code = %s FOR UPDATE", (plan_code,))
+                plan = cursor.fetchone()
+                if plan is None:
+                    self.connection.rollback()
+                    return None
+                expected_revision = int(payload["expected_revision"])
+                actual_revision = int(plan["timeline_revision"])
+                if expected_revision != actual_revision:
+                    raise DomainValidationError(
+                        "VIDEO_TIMELINE_REVISION_CONFLICT",
+                        "Timeline changed since it was loaded",
+                        details={"expected_revision": expected_revision, "actual_revision": actual_revision},
+                    )
+                cursor.execute("SELECT * FROM video_production_jobs WHERE job_code = %s FOR UPDATE", (plan["video_job_code"],))
+                job = cursor.fetchone()
+                if job is None:
+                    raise DomainValidationError("VIDEO_TIMELINE_JOB_MISSING", "The associated render job no longer exists")
+                if job["status"] != "queued" or job["claimed_by"] is not None:
+                    raise DomainValidationError(
+                        "VIDEO_TIMELINE_EDIT_NOT_ALLOWED",
+                        "Only an unclaimed queued render plan can be edited; create a new branch after rendering begins",
+                        details={"job_status": job["status"]},
+                    )
+                timeline = self._apply_timeline_update(dict(plan["production_timeline"] or {}), payload["video_clips"])
+                shot_list = self._timeline_shot_list(dict(job["shot_list"] or {}), timeline)
+                total_seconds = timeline["global_end_ms"] / 1000
+                profile = deepcopy(dict(plan["render_profile"] or {}))
+                profile["target_duration_seconds"] = total_seconds
+                next_revision = actual_revision + 1
+                cursor.execute(
+                    """UPDATE functional_video_plans
+                       SET production_timeline = %s, render_profile = %s, timeline_revision = %s, updated_at = now()
+                       WHERE id = %s""",
+                    (Jsonb(timeline), Jsonb(profile), next_revision, plan["id"]),
+                )
+                cursor.execute(
+                    """INSERT INTO functional_video_timeline_revisions
+                       (plan_id, revision_number, production_timeline, actor_id)
+                       VALUES (%s, %s, %s, %s)""",
+                    (plan["id"], next_revision, Jsonb(timeline), actor_id),
+                )
+                cursor.execute(
+                    """UPDATE video_production_jobs
+                       SET shot_list = %s, target_duration_seconds = %s, updated_at = now()
+                       WHERE id = %s""",
+                    (Jsonb(shot_list), round(total_seconds), job["id"]),
+                )
+                cursor.execute(
+                    """UPDATE video_production_stages
+                       SET output_payload = %s, updated_at = now()
+                       WHERE job_id = %s AND stage_name = 'shot_planning'""",
+                    (Jsonb(shot_list), job["id"]),
+                )
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+        return self.get_plan(plan_code)
+
     def _enrich(self, row: dict[str, Any]) -> dict[str, Any]:
         plan = dict(row)
         job = self.videos.get_by_code(plan["video_job_code"])
@@ -89,6 +159,76 @@ class FunctionalVideoService:
         plan.update({"job_status": job["status"], "current_stage": job.get("current_stage"), "progress_percent": job["progress_percent"], "error_message": job.get("error_message")})
         plan["artifacts"] = [{**artifact, "download_url": f"/api/video-productions/{job['job_code']}/artifacts/{artifact['artifact_key']}"} for artifact in job.get("artifacts") or []]
         return plan
+
+    @staticmethod
+    def _apply_timeline_update(timeline: dict[str, Any], updates: list[dict[str, Any]]) -> dict[str, Any]:
+        result = deepcopy(timeline)
+        tracks = result.get("tracks") or []
+        video = next((track for track in tracks if track.get("track_kind") == "video"), None)
+        if not isinstance(video, dict):
+            raise DomainValidationError("VIDEO_TIMELINE_VIDEO_TRACK_MISSING", "Timeline has no editable video track")
+        clips = list(video.get("clips") or [])
+        current_codes = [str(clip.get("clip_code") or "") for clip in clips]
+        update_codes = [str(update.get("clip_code") or "") for update in updates]
+        if set(current_codes) != set(update_codes) or len(current_codes) != len(update_codes):
+            raise DomainValidationError(
+                "VIDEO_TIMELINE_CLIP_SET_MISMATCH",
+                "Timeline edits must retain the complete current video clip set",
+                details={"expected_clip_codes": current_codes},
+            )
+        by_code = {str(update["clip_code"]): update for update in updates}
+        cursor = 0
+        for clip in clips:
+            update = by_code[str(clip["clip_code"])]
+            duration = int(update["duration_ms"])
+            transition = str(update.get("transition") or "cut")
+            if duration < 250 or duration > 120_000 or transition not in {"cut", "fade", "fade_out"}:
+                raise DomainValidationError("VIDEO_TIMELINE_INVALID_CLIP", "Timeline clip duration or transition is invalid")
+            clip["timeline_range"] = {"start_ms": cursor, "duration_ms": duration}
+            clip["transition"] = transition
+            cursor += duration
+        if not 30_000 <= cursor <= 120_000:
+            raise DomainValidationError(
+                "VIDEO_TIMELINE_DURATION_OUT_OF_RANGE",
+                "Edited timeline duration must remain between 30 and 120 seconds",
+                details={"duration_ms": cursor},
+            )
+        result["global_start_ms"] = 0
+        result["global_end_ms"] = cursor
+        for track in tracks:
+            if track.get("track_kind") != "audio":
+                continue
+            for clip in track.get("clips") or []:
+                video_code = str(clip.get("clip_code") or "").removeprefix("VOICE-")
+                update = by_code.get(video_code)
+                if update is None:
+                    continue
+                video_clip = next(item for item in clips if item["clip_code"] == video_code)
+                clip["timeline_range"] = dict(video_clip["timeline_range"])
+        return result
+
+    @staticmethod
+    def _timeline_shot_list(shot_list: dict[str, Any], timeline: dict[str, Any]) -> dict[str, Any]:
+        result = deepcopy(shot_list)
+        video_track = next((track for track in timeline.get("tracks") or [] if track.get("track_kind") == "video"), None)
+        if not isinstance(video_track, dict):
+            raise DomainValidationError("VIDEO_TIMELINE_VIDEO_TRACK_MISSING", "Timeline has no editable video track")
+        clips = {str(clip["clip_code"]): clip for clip in video_track.get("clips") or []}
+        shots = list(result.get("shots") or [])
+        if {str(shot.get("shot_code") or "") for shot in shots} != set(clips):
+            raise DomainValidationError("VIDEO_TIMELINE_SHOT_MAPPING_INVALID", "Timeline clips no longer match the fixed ShotList")
+        for shot in shots:
+            clip = clips[str(shot["shot_code"])]
+            timing = clip["timeline_range"]
+            start = int(timing["start_ms"]) / 1000
+            duration = int(timing["duration_ms"]) / 1000
+            shot["start_seconds"] = start
+            shot["end_seconds"] = start + duration
+            shot["duration_seconds"] = duration
+            shot["transition"] = clip.get("transition") or "cut"
+        result["duration_seconds"] = timeline["global_end_ms"] / 1000
+        result["timeline_revision"] = timeline.get("timeline_revision")
+        return result
 
     @staticmethod
     def _compile_content(detail: dict[str, Any], duration: int) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
