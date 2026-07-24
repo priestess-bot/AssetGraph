@@ -1,9 +1,33 @@
 from __future__ import annotations
 
+import math
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+
+class OperationMetricDefinitionPin(BaseModel):
+    """The immutable catalog revision an operator selected for one session metric."""
+
+    metric_key: str = Field(min_length=1, max_length=80)
+    metric_code: str = Field(min_length=1, max_length=80)
+    revision_number: int = Field(ge=1)
+
+
+class OperationMetricDefinitionRef(OperationMetricDefinitionPin):
+    """A resolved catalog pin, including the minimum displayable historical snapshot."""
+
+    name: str | None = None
+    grain: str | None = None
+    unit: str | None = None
+    currency: str | None = None
+    value_type: str | None = None
+    aggregation: str | None = None
+    event_time_field: str | None = None
+    timezone: str | None = None
+    business_day_boundary: str | None = None
+    fingerprint_sha256: str | None = None
 
 
 class OperationSessionCreate(BaseModel):
@@ -19,6 +43,32 @@ class OperationSessionCreate(BaseModel):
     started_at: datetime
     ended_at: datetime
     metrics: dict[str, float] = Field(default_factory=dict)
+    metric_definition_refs: list[OperationMetricDefinitionPin] = Field(default_factory=list)
+
+    @field_validator("metrics")
+    @classmethod
+    def validate_metric_values(cls, metrics: dict[str, float]) -> dict[str, float]:
+        for key, value in metrics.items():
+            if not key.strip() or len(key) > 80:
+                raise ValueError("metric keys must be non-empty and at most 80 characters")
+            if not math.isfinite(value):
+                raise ValueError(f"metric {key} must be finite")
+        return metrics
+
+    @model_validator(mode="after")
+    def validate_metric_definition_refs(self) -> "OperationSessionCreate":
+        seen: set[str] = set()
+        for reference in self.metric_definition_refs:
+            if reference.metric_key in seen:
+                raise ValueError(
+                    f"metric definition reference for {reference.metric_key} is duplicated"
+                )
+            if reference.metric_key not in self.metrics:
+                raise ValueError(
+                    f"metric definition reference for {reference.metric_key} has no metric value"
+                )
+            seen.add(reference.metric_key)
+        return self
 
 
 class OperationSessionRead(OperationSessionCreate):
@@ -26,6 +76,7 @@ class OperationSessionRead(OperationSessionCreate):
     source_kind: str
     import_version: int
     created_at: datetime
+    metric_definition_refs: list[OperationMetricDefinitionRef] = Field(default_factory=list)
 
 
 class ContentExposureCreate(BaseModel):
@@ -108,6 +159,7 @@ class AttributionReportRead(BaseModel):
     evidence_level: str
     session_codes: list[str]
     results: dict[str, Any]
+    metric_definition_ref: OperationMetricDefinitionRef | None = None
     created_at: datetime
 
 

@@ -25,6 +25,7 @@ import {
   type ContentProjection,
   type ContentTimeline,
 } from "./api";
+import { dataGovernanceApi, type MetricRevision } from "../governance/dataApi";
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : "请求失败";
@@ -48,10 +49,26 @@ function sessionEvidenceState(
   return "仅计划";
 }
 
-type SessionMetricDraft = { id: string; key: string; value: number };
+type SessionMetricDraft = {
+  id: string;
+  key: string;
+  value: number;
+  metricCode?: string;
+  revisionNumber?: number;
+};
 let metricDraftSequence = 1;
-function newMetricDraft(key = "", value = 0): SessionMetricDraft {
-  return { id: `session-metric-${metricDraftSequence++}`, key, value };
+function newMetricDraft(
+  key = "",
+  value = 0,
+  metric?: MetricRevision,
+): SessionMetricDraft {
+  return {
+    id: `session-metric-${metricDraftSequence++}`,
+    key,
+    value,
+    metricCode: metric?.metricCode,
+    revisionNumber: metric?.revisionNumber,
+  };
 }
 
 function metricValidation(metrics: SessionMetricDraft[]): string | undefined {
@@ -60,10 +77,20 @@ function metricValidation(metrics: SessionMetricDraft[]): string | undefined {
     const key = metric.key.trim();
     if (!key) return "每条指标都需要填写名称，或删除该指标行。";
     if (!Number.isFinite(metric.value)) return `指标 ${key} 的数值无效。`;
+    if (
+      (metric.metricCode && !metric.revisionNumber) ||
+      (!metric.metricCode && metric.revisionNumber)
+    )
+      return `指标 ${key} 的目录修订不完整。`;
     if (seen.has(key)) return `指标 ${key} 重复，请合并为一条。`;
     seen.add(key);
   }
   return undefined;
+}
+
+function metricCatalogLabel(metric: MetricRevision): string {
+  const unit = metric.currency ? `${metric.unit} ${metric.currency}` : metric.unit;
+  return `${metric.name} · ${metric.metricCode} r${metric.revisionNumber} · ${unit}`;
 }
 
 function contentProjectionSummary(content: ContentProjection): string {
@@ -214,6 +241,10 @@ export function OperationsPage({ view }: { view: "sessions" | "attribution" }) {
     queryKey: ["functional-live-room-plans"],
     queryFn: functionalLiveRoomsApi.list,
   });
+  const metricCatalog = useQuery({
+    queryKey: ["data-governance", "metrics"],
+    queryFn: dataGovernanceApi.listMetrics,
+  });
   const [title, setTitle] = useState("");
   const [platform, setPlatform] = useState("douyin");
   const [externalSessionId, setExternalSessionId] = useState("");
@@ -278,6 +309,31 @@ export function OperationsPage({ view }: { view: "sessions" | "attribution" }) {
       ),
     [sessionMetrics],
   );
+  const sessionMetricDefinitionRefs = useMemo(
+    () =>
+      sessionMetrics.flatMap((metric) =>
+        metric.metricCode && metric.revisionNumber
+          ? [
+              {
+                metric_key: metric.key.trim(),
+                metric_code: metric.metricCode,
+                revision_number: metric.revisionNumber,
+              },
+            ]
+          : [],
+      ),
+    [sessionMetrics],
+  );
+  const attributionMetricOptions = useMemo(
+    () =>
+      Array.from(
+        new Set([
+          ...(sessions.data ?? []).flatMap((session) => Object.keys(session.metrics)),
+          ...(metricCatalog.data ?? []).map((metric) => metric.metricCode),
+        ]),
+      ).sort(),
+    [metricCatalog.data, sessions.data],
+  );
   useEffect(() => {
     const firstScene = exposurePlanDetail?.blueprint.scenes[0]?.scene_code;
     if (
@@ -332,6 +388,7 @@ export function OperationsPage({ view }: { view: "sessions" | "attribution" }) {
         started_at: new Date(sessionStartsAt).toISOString(),
         ended_at: new Date(sessionEndsAt).toISOString(),
         metrics: sessionMetricPayload,
+        metric_definition_refs: sessionMetricDefinitionRefs,
       }),
     onSuccess: (session) => {
       setTitle("");
@@ -534,9 +591,66 @@ export function OperationsPage({ view }: { view: "sessions" | "attribution" }) {
               </label>
               <div className="wb-field wide">
                 <span>场次指标</span>
+                {metricCatalog.error ? (
+                  <InlineNotice tone="warning" title="指标目录暂不可用">
+                    仍可登记自定义指标，但本次不会绑定指标定义修订。
+                  </InlineNotice>
+                ) : null}
                 <div className="operations-metric-fields">
                   {sessionMetrics.map((draft, index) => (
                     <div className="operations-metric-row" key={draft.id}>
+                      <label className="wb-field">
+                        <span>指标目录</span>
+                        <select
+                          aria-label={`指标目录 ${index + 1}`}
+                          className="wb-input"
+                          value={
+                            draft.metricCode && draft.revisionNumber
+                              ? `${draft.metricCode}:${draft.revisionNumber}`
+                              : ""
+                          }
+                          onChange={(event) => {
+                            const selected = metricCatalog.data?.find(
+                              (metric) =>
+                                `${metric.metricCode}:${metric.revisionNumber}` ===
+                                event.target.value,
+                            );
+                            setSessionMetrics((current) =>
+                              current.map((item) =>
+                                item.id === draft.id
+                                  ? selected
+                                    ? {
+                                        ...item,
+                                        key: selected.metricCode,
+                                        metricCode: selected.metricCode,
+                                        revisionNumber: selected.revisionNumber,
+                                      }
+                                    : {
+                                        ...item,
+                                        metricCode: undefined,
+                                        revisionNumber: undefined,
+                                      }
+                                  : item,
+                              ),
+                            );
+                          }}
+                        >
+                          <option value="">自定义指标（不绑定目录）</option>
+                          {metricCatalog.data?.map((metric) => (
+                            <option
+                              key={`${metric.metricCode}:${metric.revisionNumber}`}
+                              value={`${metric.metricCode}:${metric.revisionNumber}`}
+                            >
+                              {metricCatalogLabel(metric)}
+                            </option>
+                          ))}
+                        </select>
+                        {draft.metricCode ? (
+                          <small className="operations-metric-catalog-note">
+                            已绑定 {draft.metricCode} r{draft.revisionNumber}
+                          </small>
+                        ) : null}
+                      </label>
                       <label className="wb-field">
                         <span>指标名称</span>
                         <input
@@ -547,7 +661,18 @@ export function OperationsPage({ view }: { view: "sessions" | "attribution" }) {
                             setSessionMetrics((current) =>
                               current.map((item) =>
                                 item.id === draft.id
-                                  ? { ...item, key: event.target.value }
+                                  ? {
+                                      ...item,
+                                      key: event.target.value,
+                                      metricCode:
+                                        event.target.value === item.metricCode
+                                          ? item.metricCode
+                                          : undefined,
+                                      revisionNumber:
+                                        event.target.value === item.metricCode
+                                          ? item.revisionNumber
+                                          : undefined,
+                                    }
                                   : item,
                               ),
                             )
@@ -810,7 +935,13 @@ export function OperationsPage({ view }: { view: "sessions" | "attribution" }) {
                   className="wb-input"
                   value={attributionMetric}
                   onChange={(event) => setAttributionMetric(event.target.value)}
+                  list="operation-metric-keys"
                 />
+                <datalist id="operation-metric-keys">
+                  {attributionMetricOptions.map((metricKey) => (
+                    <option key={metricKey} value={metricKey} />
+                  ))}
+                </datalist>
               </label>
               <button
                 type="button"
@@ -901,6 +1032,17 @@ export function OperationsPage({ view }: { view: "sessions" | "attribution" }) {
                         .map(([key, value]) => `${key}: ${value}`)
                         .join(" / ")}
                     </small>
+                    {session.metricDefinitionRefs.length ? (
+                      <small>
+                        指标定义快照：{" "}
+                        {session.metricDefinitionRefs
+                          .map(
+                            (reference) =>
+                              `${reference.metricKey} -> ${reference.metricCode} r${reference.revisionNumber}${reference.unit ? ` (${reference.unit}${reference.currency ? ` ${reference.currency}` : ""})` : ""}`,
+                          )
+                          .join(" / ")}
+                      </small>
+                    ) : null}
                   </span>
                   <StatusBadge label={session.sourceKind} tone="info" />
                   <button
@@ -994,6 +1136,11 @@ export function OperationsPage({ view }: { view: "sessions" | "attribution" }) {
                     实际展示场次 {report.metadata.observedSessionCount}/
                     {report.metadata.selectedSessionCount} · 指标粒度{" "}
                     {report.metadata.metricGrain}
+                  </small>
+                  <small>
+                    {report.metricDefinitionRef
+                      ? `指标定义快照：${report.metricDefinitionRef.name ?? report.metricDefinitionRef.metricCode} · ${report.metricDefinitionRef.metricCode} r${report.metricDefinitionRef.revisionNumber}`
+                      : "指标定义快照：未绑定（手工或跨修订指标）"}
                   </small>
                 </span>
                 <StatusBadge

@@ -15,6 +15,60 @@ class FunctionalOperationsService:
     def __init__(self, connection: Connection):
         self.connection = connection
 
+    @staticmethod
+    def _resolve_metric_definition_refs(
+        cursor: Any, payload: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        """Resolve a user-facing metric pin to the immutable catalog revision."""
+
+        resolved: list[dict[str, Any]] = []
+        for reference in payload.get("metric_definition_refs") or []:
+            cursor.execute(
+                """
+                SELECT revisions.metric_code, revisions.revision_number, revisions.name,
+                       revisions.grain, revisions.unit, revisions.currency,
+                       revisions.value_type, revisions.aggregation,
+                       revisions.event_time_field, revisions.timezone,
+                       revisions.business_day_boundary, revisions.fingerprint_sha256
+                FROM metric_definition_revisions AS revisions
+                JOIN metric_definitions AS definitions ON definitions.id = revisions.metric_id
+                WHERE revisions.metric_code = %s
+                  AND revisions.revision_number = %s
+                  AND revisions.status = 'active'
+                  AND definitions.status = 'active'
+                """,
+                (reference["metric_code"], reference["revision_number"]),
+            )
+            revision = cursor.fetchone()
+            if revision is None:
+                raise DomainValidationError(
+                    "OPERATION_SESSION_METRIC_DEFINITION_NOT_ACTIVE",
+                    "The selected metric definition revision is not active",
+                    details={
+                        "metric_key": reference["metric_key"],
+                        "metric_code": reference["metric_code"],
+                        "revision_number": reference["revision_number"],
+                    },
+                )
+            resolved.append(
+                {
+                    "metric_key": reference["metric_key"],
+                    "metric_code": revision["metric_code"],
+                    "revision_number": int(revision["revision_number"]),
+                    "name": revision["name"],
+                    "grain": revision["grain"],
+                    "unit": revision["unit"],
+                    "currency": revision["currency"],
+                    "value_type": revision["value_type"],
+                    "aggregation": revision["aggregation"],
+                    "event_time_field": revision["event_time_field"],
+                    "timezone": revision["timezone"],
+                    "business_day_boundary": revision["business_day_boundary"],
+                    "fingerprint_sha256": revision["fingerprint_sha256"],
+                }
+            )
+        return resolved
+
     def import_session(self, payload: dict[str, Any]) -> dict[str, Any]:
         if payload["ended_at"] <= payload["started_at"]:
             raise DomainValidationError(
@@ -30,6 +84,19 @@ class FunctionalOperationsService:
             ) from exc
         with self.connection.cursor(row_factory=dict_row) as cursor:
             external_session_id = payload.get("external_session_id")
+            if external_session_id:
+                cursor.execute(
+                    """SELECT * FROM functional_operation_sessions
+                       WHERE platform = %s AND external_session_id = %s""",
+                    (payload["platform"], external_session_id),
+                )
+                existing = cursor.fetchone()
+                if existing is not None:
+                    # A source replay must remain idempotent even when the catalog
+                    # has moved its current metric revision since the first import.
+                    self.connection.rollback()
+                    return dict(existing)
+            metric_definition_refs = self._resolve_metric_definition_refs(cursor, payload)
             plan = None
             plan_code = payload.get("live_room_plan_code")
             if plan_code:
@@ -60,8 +127,8 @@ class FunctionalOperationsService:
             cursor.execute(
                 """INSERT INTO functional_operation_sessions
                    (session_code,title,platform,external_session_id,account_id,target_resource_id,source_timezone,source_evidence,
-                    content_project_code,live_room_plan_code,variant_code,release_code,started_at,ended_at,metrics)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    content_project_code,live_room_plan_code,variant_code,release_code,started_at,ended_at,metrics,metric_definition_refs)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                    ON CONFLICT (platform, external_session_id) WHERE external_session_id IS NOT NULL DO NOTHING
                    RETURNING *""",
                 (
@@ -83,10 +150,13 @@ class FunctionalOperationsService:
                     payload["started_at"],
                     payload["ended_at"],
                     Jsonb(payload.get("metrics") or {}),
+                    Jsonb(metric_definition_refs),
                 ),
             )
             row = cursor.fetchone()
-            if row is None:
+            if row is None and external_session_id:
+                # A concurrent adapter import may have won the external identity
+                # after the preflight lookup. Resolve that committed source row.
                 cursor.execute(
                     """SELECT * FROM functional_operation_sessions
                        WHERE platform = %s AND external_session_id = %s""",
@@ -502,6 +572,9 @@ class FunctionalOperationsService:
                     "ATTRIBUTION_SESSION_NOT_FOUND",
                     "Every selected operation session must exist",
                 )
+            metric_definition_ref, metric_definition_state = self._attribution_metric_definition_ref(
+                rows, payload["metric_key"]
+            )
             cursor.execute(
                 """SELECT exposure_code, session_code, plan_code, release_code, scene_code,
                           started_at, ended_at, source_kind, confidence
@@ -622,12 +695,21 @@ class FunctionalOperationsService:
                     "source_kind_counts": source_kind_counts,
                     "release_bound_exposure_count": release_bound_exposures,
                     "evidence_level": "descriptive",
+                    "metric_definition_state": metric_definition_state,
                 },
             }
             code = self._next(cursor, "ATTR", "functional_attribution_report")
             cursor.execute(
-                "INSERT INTO functional_attribution_reports (report_code,metric_key,session_codes,results) VALUES (%s,%s,%s,%s) RETURNING *",
-                (code, payload["metric_key"], Jsonb(codes), Jsonb(results)),
+                """INSERT INTO functional_attribution_reports
+                   (report_code,metric_key,session_codes,results,metric_definition_ref)
+                   VALUES (%s,%s,%s,%s,%s) RETURNING *""",
+                (
+                    code,
+                    payload["metric_key"],
+                    Jsonb(codes),
+                    Jsonb(results),
+                    Jsonb(metric_definition_ref) if metric_definition_ref else None,
+                ),
             )
             row = cursor.fetchone()
         self.connection.commit()
@@ -639,6 +721,41 @@ class FunctionalOperationsService:
                 "SELECT * FROM functional_attribution_reports ORDER BY created_at DESC"
             )
             return [dict(row) for row in cursor.fetchall()]
+
+    @staticmethod
+    def _attribution_metric_definition_ref(
+        sessions: list[dict[str, Any]], metric_key: str
+    ) -> tuple[dict[str, Any] | None, str]:
+        """Return a report pin only when every selected metric uses one catalog revision."""
+
+        pins: list[dict[str, Any]] = []
+        for session in sessions:
+            if metric_key not in (session.get("metrics") or {}):
+                return None, "metric_missing_in_session"
+            matching = [
+                reference
+                for reference in (session.get("metric_definition_refs") or [])
+                if reference.get("metric_key") == metric_key
+            ]
+            if len(matching) != 1:
+                return None, "metric_unpinned"
+            pins.append(matching[0])
+        if not pins:
+            return None, "metric_unpinned"
+        identity = {
+            key: pins[0].get(key)
+            for key in ("metric_code", "revision_number", "fingerprint_sha256")
+        }
+        if any(
+            {
+                key: pin.get(key)
+                for key in ("metric_code", "revision_number", "fingerprint_sha256")
+            }
+            != identity
+            for pin in pins[1:]
+        ):
+            return None, "metric_pin_mismatch"
+        return pins[0], "resolved"
 
     def create_schedule(self, payload: dict[str, Any]) -> dict[str, Any]:
         end = payload["starts_at"] + timedelta(minutes=payload["duration_minutes"])

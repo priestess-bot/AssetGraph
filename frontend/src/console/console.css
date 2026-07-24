@@ -477,8 +477,9 @@
 .operations-form .wb-button { width: 100%; justify-content: center; }
 .operations-form-stack { display: grid; }
 .operations-metric-fields { display: grid; gap: 7px; }
-.operations-metric-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(90px, .55fr) 28px; align-items: end; gap: 7px; }
+.operations-metric-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(90px, .55fr) 28px; align-items: end; gap: 7px; }
 .operations-metric-row .wb-icon-button { width: 28px; height: 28px; }
+.operations-metric-catalog-note { color: var(--wb-muted); font-size: 11px; line-height: 1.3; }
 .operations-list { display: grid; }
 .operations-list > div { display: grid; min-height: 64px; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 9px 12px; border-top: 1px solid var(--wb-line); }
 .operations-list span { display: flex; min-width: 0; flex-direction: column; }
@@ -682,6 +683,8 @@
   .asset-pack-entry .wb-button { grid-column: 1 / -1; }
   .content-program-timeline-shots header { grid-template-columns: auto minmax(0, 1fr); }
   .content-program-timeline-shots header span { grid-column: 1 / -1; }
+  .operations-metric-row { grid-template-columns: 1fr 1fr 28px; }
+  .operations-metric-row > .wb-field:first-child { grid-column: 1 / -1; }
 }
 
 @media (max-width: 420px) {

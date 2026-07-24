@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from pydantic import ValidationError
 
-from app.schemas.functional_operations import ContentExposureCorrection
+from app.schemas.functional_operations import ContentExposureCorrection, OperationSessionCreate
 from app.services.functional_operations import FunctionalOperationsService
 
 
@@ -40,6 +40,71 @@ def test_content_exposure_correction_requires_a_replacement_only_for_supersede()
             source_exposure_code="EXPOSURE-001",
             correction_kind="supersede",
             reason="No replacement.",
+        )
+
+
+def test_operation_session_metric_definition_pins_require_a_unique_existing_metric_key() -> None:
+    started_at = datetime.now(UTC)
+    session = OperationSessionCreate(
+        title="Governed metric session",
+        platform="douyin",
+        started_at=started_at,
+        ended_at=started_at + timedelta(minutes=1),
+        metrics={"orders": 4},
+        metric_definition_refs=[
+            {
+                "metric_key": "orders",
+                "metric_code": "orders-completed",
+                "revision_number": 2,
+            }
+        ],
+    )
+    assert session.metric_definition_refs[0].metric_code == "orders-completed"
+
+    with pytest.raises(ValidationError, match="has no metric value"):
+        OperationSessionCreate(
+            title="Missing metric",
+            platform="douyin",
+            started_at=started_at,
+            ended_at=started_at + timedelta(minutes=1),
+            metrics={"orders": 4},
+            metric_definition_refs=[
+                {
+                    "metric_key": "clicks",
+                    "metric_code": "clicks",
+                    "revision_number": 1,
+                }
+            ],
+        )
+
+    with pytest.raises(ValidationError, match="is duplicated"):
+        OperationSessionCreate(
+            title="Duplicate metric",
+            platform="douyin",
+            started_at=started_at,
+            ended_at=started_at + timedelta(minutes=1),
+            metrics={"orders": 4},
+            metric_definition_refs=[
+                {
+                    "metric_key": "orders",
+                    "metric_code": "orders",
+                    "revision_number": 1,
+                },
+                {
+                    "metric_key": "orders",
+                    "metric_code": "orders-v2",
+                    "revision_number": 2,
+                },
+            ],
+        )
+
+    with pytest.raises(ValidationError, match="must be finite"):
+        OperationSessionCreate(
+            title="Infinite metric",
+            platform="douyin",
+            started_at=started_at,
+            ended_at=started_at + timedelta(minutes=1),
+            metrics={"orders": float("inf")},
         )
 
 

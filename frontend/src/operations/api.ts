@@ -26,7 +26,24 @@ export interface OperationSession {
   startedAt: string;
   endedAt: string;
   metrics: Record<string, number>;
+  metricDefinitionRefs: MetricDefinitionRef[];
   sourceKind: string;
+}
+
+export interface MetricDefinitionRef {
+  metricKey: string;
+  metricCode: string;
+  revisionNumber: number;
+  name?: string;
+  grain?: string;
+  unit?: string;
+  currency?: string;
+  valueType?: string;
+  aggregation?: string;
+  eventTimeField?: string;
+  timezone?: string;
+  businessDayBoundary?: string;
+  fingerprintSha256?: string;
 }
 
 export interface ContentExposure {
@@ -130,6 +147,7 @@ export interface AttributionReport {
   metricKey: string;
   evidenceLevel: string;
   sessionCodes: string[];
+  metricDefinitionRef?: MetricDefinitionRef;
   groups: AttributionGroup[];
   metadata: {
     method: string;
@@ -141,6 +159,29 @@ export interface AttributionReport {
     releaseBoundExposureCount: number;
   };
   createdAt: string;
+}
+
+function metricDefinitionRef(value: unknown): MetricDefinitionRef | undefined {
+  if (!isRecord(value)) return undefined;
+  const metricKey = asString(value.metric_key);
+  const metricCode = asString(value.metric_code);
+  const revisionNumber = asNumber(value.revision_number);
+  if (!metricKey || !metricCode || !revisionNumber) return undefined;
+  return {
+    metricKey,
+    metricCode,
+    revisionNumber,
+    name: asOptionalString(value.name),
+    grain: asOptionalString(value.grain),
+    unit: asOptionalString(value.unit),
+    currency: asOptionalString(value.currency),
+    valueType: asOptionalString(value.value_type),
+    aggregation: asOptionalString(value.aggregation),
+    eventTimeField: asOptionalString(value.event_time_field),
+    timezone: asOptionalString(value.timezone),
+    businessDayBoundary: asOptionalString(value.business_day_boundary),
+    fingerprintSha256: asOptionalString(value.fingerprint_sha256),
+  };
 }
 
 export interface SchedulePlan {
@@ -181,6 +222,12 @@ function session(value: unknown): OperationSession {
           ]),
         )
       : {},
+    metricDefinitionRefs: asArray(value.metric_definition_refs).flatMap(
+      (reference) => {
+        const parsed = metricDefinitionRef(reference);
+        return parsed ? [parsed] : [];
+      },
+    ),
     sourceKind: asString(value.source_kind),
   };
 }
@@ -328,6 +375,7 @@ function report(value: unknown): AttributionReport {
     metricKey: asString(value.metric_key),
     evidenceLevel: asString(value.evidence_level),
     sessionCodes: strings(value.session_codes),
+    metricDefinitionRef: metricDefinitionRef(value.metric_definition_ref),
     groups: Object.entries(groupsRaw).flatMap(([key, item]) => {
       if (!isRecord(item)) return [];
       const evidence = isRecord(item.source_evidence)

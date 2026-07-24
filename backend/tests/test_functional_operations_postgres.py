@@ -8,6 +8,9 @@ import psycopg
 import pytest
 
 from app.domain.errors import DomainValidationError
+from app.repositories.data_governance import DataGovernanceRepository
+from app.schemas.data_governance import MetricRevisionDefinition
+from app.services.data_governance import DataGovernanceService
 from app.services.functional_operations import FunctionalOperationsService
 
 
@@ -79,6 +82,7 @@ def test_operations_import_descriptive_report_and_planning_conflicts() -> None:
             "source_kind_counts": {},
             "release_bound_exposure_count": 0,
             "evidence_level": "descriptive",
+            "metric_definition_state": "metric_unpinned",
         }
         assert {
             result["average"] for result in report["results"]["groups"].values()
@@ -118,3 +122,109 @@ def test_operations_import_descriptive_report_and_planning_conflicts() -> None:
         assert initial["status"] == "planned"
         assert conflict["status"] == "conflict"
         assert conflict["conflict_codes"] == [initial["schedule_code"]]
+
+
+def test_operations_pin_active_metric_definition_revisions_in_session_and_report() -> None:
+    suffix = uuid4().hex
+    start = datetime.now(UTC).replace(microsecond=0)
+    metric_code = f"orders-{suffix}"
+    with psycopg.connect(DATABASE_URL) as connection:
+        governance = DataGovernanceService(DataGovernanceRepository(connection))
+        metric = governance.put_metric_revision(
+            metric_code=metric_code,
+            expected_revision=0,
+            owner_principal="metrics-owner",
+            definition=MetricRevisionDefinition.model_validate(
+                {
+                    "name": "Completed orders",
+                    "description": "Orders after the configured refund window",
+                    "grain": "live_session",
+                    "unit": "order",
+                    "value_type": "integer",
+                    "aggregation": "count",
+                    "event_time_field": "event_time",
+                    "timezone": "Asia/Shanghai",
+                    "deduplication_keys": ["order_id"],
+                    "null_rule": {"order_id": "reject"},
+                    "outlier_rule": {},
+                    "event_contract_refs": [{"code": "commerce-orders", "revision": 1}],
+                    "schema_compatibility": {},
+                    "quality_slo": {},
+                }
+            ),
+            activate=True,
+        )
+        operations = FunctionalOperationsService(connection)
+        session = operations.import_session(
+            {
+                "title": f"Governed metrics {suffix}",
+                "platform": "douyin",
+                "external_session_id": f"external-{suffix}",
+                "started_at": start,
+                "ended_at": start + timedelta(minutes=20),
+                "metrics": {"orders": 12},
+                "metric_definition_refs": [
+                    {
+                        "metric_key": "orders",
+                        "metric_code": metric_code,
+                        "revision_number": metric["revision_number"],
+                    }
+                ],
+            }
+        )
+        reference = session["metric_definition_refs"][0]
+        assert reference["metric_code"] == metric_code
+        assert reference["revision_number"] == 1
+        assert reference["name"] == "Completed orders"
+
+        governance.put_metric_revision(
+            metric_code=metric_code,
+            expected_revision=1,
+            owner_principal="metrics-owner",
+            definition=MetricRevisionDefinition.model_validate(
+                {
+                    "name": "Completed orders v2",
+                    "description": "Orders after the configured refund window",
+                    "grain": "live_session",
+                    "unit": "order",
+                    "value_type": "integer",
+                    "aggregation": "count",
+                    "event_time_field": "event_time",
+                    "timezone": "Asia/Shanghai",
+                    "deduplication_keys": ["order_id"],
+                    "null_rule": {"order_id": "reject"},
+                    "outlier_rule": {},
+                    "event_contract_refs": [{"code": "commerce-orders", "revision": 1}],
+                    "schema_compatibility": {},
+                    "quality_slo": {},
+                }
+            ),
+            activate=True,
+        )
+        replay = operations.import_session(
+            {
+                "title": "Ignored source replay",
+                "platform": "douyin",
+                "external_session_id": f"external-{suffix}",
+                "started_at": start,
+                "ended_at": start + timedelta(minutes=20),
+                "metrics": {"orders": 99},
+                "metric_definition_refs": [
+                    {
+                        "metric_key": "orders",
+                        "metric_code": metric_code,
+                        "revision_number": 1,
+                    }
+                ],
+            }
+        )
+        assert replay["session_code"] == session["session_code"]
+        assert replay["metric_definition_refs"][0]["revision_number"] == 1
+
+        report = operations.create_report(
+            {"metric_key": "orders", "session_codes": [session["session_code"]]}
+        )
+        assert report["metric_definition_ref"]["fingerprint_sha256"] == metric[
+            "fingerprint_sha256"
+        ]
+        assert report["results"]["metadata"]["metric_definition_state"] == "resolved"
