@@ -715,6 +715,13 @@
   .console-entity-inspector { position: fixed; z-index: 50; inset: 64px 0 0 auto; width: min(560px, calc(100vw - 248px)); max-height: none; border-width: 0 0 0 1px; border-radius: 0; box-shadow: -12px 12px 28px rgb(24 32 26 / 14%); }
 }
 
+@media (max-width: 1500px) {
+  .video-timeline-editor > div { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .video-timeline-editor > div > code { grid-column: 1 / span 2; }
+  .video-timeline-editor > div > .video-clip-order { grid-column: 3; justify-self: end; }
+  .video-timeline-editor > div > .video-crop-position, .video-timeline-editor > div > .video-source-range { grid-column: 1 / -1; }
+}
+
 @media (max-width: 860px) {
   .console-sidebar { width: min(86vw, 280px); transform: translateX(-102%); transition: transform 180ms ease; }
   .console-sidebar.is-open { transform: translateX(0); }
