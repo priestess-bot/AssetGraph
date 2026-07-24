@@ -158,10 +158,26 @@ describe("ContentProjectsPage", () => {
     fireEvent.change(screen.getByLabelText("节目段 3 目标"), {
       target: { value: "收束互动行动" },
     });
+    fireEvent.change(screen.getAllByLabelText("进入条件")[2], {
+      target: { value: "完成产品讲解" },
+    });
+    fireEvent.change(screen.getAllByLabelText("退出条件")[2], {
+      target: { value: "完成留言引导" },
+    });
+    fireEvent.change(screen.getAllByLabelText("关联商品")[2], {
+      target: { value: "PRODUCT-001, PRODUCT-002" },
+    });
     fireEvent.change(screen.getAllByLabelText("镜头目标")[2], {
       target: { value: "收束互动镜头" },
     });
+    fireEvent.change(screen.getAllByLabelText("必须包含")[2], {
+      target: { value: "商品正面, CTA 文案" },
+    });
+    fireEvent.change(screen.getAllByLabelText("必须避免")[2], {
+      target: { value: "遮挡商品" },
+    });
     await user.click(screen.getByRole("button", { name: "上移节目段 3" }));
+    await user.click(screen.getByRole("button", { name: "上移镜头 3" }));
     await user.click(screen.getByRole("button", { name: "删除节目段 3" }));
     await user.click(
       screen.getByRole("button", { name: "保存节目段与镜头修订" }),
@@ -184,12 +200,17 @@ describe("ContentProjectsPage", () => {
     expect(payload.segments[1]).toMatchObject({
       semantic_goal: "收束互动行动",
       script_block_codes: ["BLOCK-001"],
+      entry_condition: "完成产品讲解",
+      exit_condition: "完成留言引导",
+      product_refs: ["PRODUCT-001", "PRODUCT-002"],
     });
-    expect(payload.shots).toContainEqual(
+    expect(payload.shots[1]).toMatchObject(
       expect.objectContaining({
         shot_goal: "收束互动镜头",
         program_segment_index: 1,
         script_block_codes: ["BLOCK-001"],
+        must_include: ["商品正面", "CTA 文案"],
+        must_avoid: ["遮挡商品"],
       }),
     );
   });

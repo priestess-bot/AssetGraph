@@ -2205,6 +2205,16 @@ function ProgramShotRevisionEditor({
       ),
     );
   };
+  const moveShot = (index: number, offset: -1 | 1) => {
+    const target = index + offset;
+    if (target < 0 || target >= shots.length) return;
+    setTouched(true);
+    setShots((current) => {
+      const next = [...current];
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  };
   const changeShotSegment = (index: number, programSegmentIndex: number) => {
     const allowed = new Set(
       segments[programSegmentIndex]?.script_block_codes ?? [],
@@ -2367,6 +2377,42 @@ function ProgramShotRevisionEditor({
                     }
                   />
                 </label>
+                <label className="wb-field">
+                  <span>进入条件</span>
+                  <input
+                    className="wb-input"
+                    value={segment.entry_condition ?? ""}
+                    onChange={(event) =>
+                      updateSegment(index, {
+                        entry_condition: event.target.value || undefined,
+                      })
+                    }
+                  />
+                </label>
+                <label className="wb-field">
+                  <span>退出条件</span>
+                  <input
+                    className="wb-input"
+                    value={segment.exit_condition ?? ""}
+                    onChange={(event) =>
+                      updateSegment(index, {
+                        exit_condition: event.target.value || undefined,
+                      })
+                    }
+                  />
+                </label>
+                <label className="wb-field wide">
+                  <span>关联商品</span>
+                  <input
+                    className="wb-input"
+                    value={segment.product_refs.join(", ")}
+                    onChange={(event) =>
+                      updateSegment(index, {
+                        product_refs: list(event.target.value),
+                      })
+                    }
+                  />
+                </label>
                 <div className="wb-field wide">
                   <span>采纳剧本段</span>
                   <div className="content-template-options">
@@ -2452,6 +2498,30 @@ function ProgramShotRevisionEditor({
                       }
                     />
                   </label>
+                  <label className="wb-field wide">
+                    <span>必须包含</span>
+                    <input
+                      className="wb-input"
+                      value={shot.must_include.join(", ")}
+                      onChange={(event) =>
+                        updateShot(index, {
+                          must_include: list(event.target.value),
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="wb-field wide">
+                    <span>必须避免</span>
+                    <input
+                      className="wb-input"
+                      value={shot.must_avoid.join(", ")}
+                      onChange={(event) =>
+                        updateShot(index, {
+                          must_avoid: list(event.target.value),
+                        })
+                      }
+                    />
+                  </label>
                   <div className="wb-field wide">
                     <span>镜头来源剧本段</span>
                     <div className="content-template-options">
@@ -2480,6 +2550,26 @@ function ProgramShotRevisionEditor({
                     </div>
                   </div>
                   <div className="wb-form-actions">
+                    <button
+                      type="button"
+                      className="wb-icon-button"
+                      aria-label={`上移镜头 ${index + 1}`}
+                      title="上移镜头"
+                      disabled={index === 0}
+                      onClick={() => moveShot(index, -1)}
+                    >
+                      <ArrowUp size={15} aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      className="wb-icon-button"
+                      aria-label={`下移镜头 ${index + 1}`}
+                      title="下移镜头"
+                      disabled={index === shots.length - 1}
+                      onClick={() => moveShot(index, 1)}
+                    >
+                      <ArrowDown size={15} aria-hidden="true" />
+                    </button>
                     <button
                       type="button"
                       className="wb-icon-button"
