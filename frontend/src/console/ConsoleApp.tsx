@@ -29,6 +29,7 @@ import { AssetLibraryPage } from "../assets/AssetLibraryPage";
 import { ContentProjectsPage } from "../content/ContentProjectsPage";
 import { LiveRoomPlannerPage } from "../live-rooms/LiveRoomPlannerPage";
 import { VideoProductionPage } from "../videos/VideoProductionPage";
+import { OperationsPage } from "../operations/OperationsPage";
 import { SessionsPage } from "../live-research/SessionsPage";
 import { TemplatesPage } from "../live-research/TemplatesPage";
 import { WatchPage } from "../live-research/WatchPage";
@@ -264,8 +265,8 @@ export function Workspace({ pathname, search, tasks, notifications, loading }: {
   if (pathname.startsWith("/content/projects")) return <ContentProjectsPage />;
   if (pathname.startsWith("/production/videos")) return <VideoProductionPage />;
   if (pathname.startsWith("/production/releases")) return <EmptyWorkspace icon={PackageCheck} title="发布记录" entity="ReleaseManifest" />;
-  if (pathname.startsWith("/operations/live-sessions")) return <EmptyWorkspace icon={Radio} title="运营场次" entity="实际直播场次" />;
-  if (pathname.startsWith("/operations/attribution")) return <EmptyWorkspace icon={ChartNoAxesCombined} title="归因结果" entity="合格归因运行" />;
+  if (pathname.startsWith("/operations/live-sessions")) return <OperationsPage view="sessions" />;
+  if (pathname.startsWith("/operations/attribution")) return <OperationsPage view="attribution" />;
   if (pathname.startsWith("/learning")) return <EmptyWorkspace icon={BrainCircuit} title="效果估计" entity="经审核的效果证据" />;
   return <section className="console-empty-workspace"><EmptyBlock icon={AlertTriangle} title="路由不存在" detail={pathname} /></section>;
 }

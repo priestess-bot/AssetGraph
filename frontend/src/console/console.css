@@ -230,6 +230,14 @@
 .video-timeline small { color: var(--wb-muted); font-size: 7px; overflow-wrap: anywhere; }
 .video-artifacts { display: flex; flex-wrap: wrap; gap: 7px; padding: 13px; }
 .video-render-preview { display: block; width: min(100%, 440px); max-height: 680px; margin: 13px auto; background: #101310; }
+.operations-layout { display: grid; grid-template-columns: minmax(280px, .8fr) minmax(0, 1.2fr); gap: 16px; }
+.operations-form { display: grid; gap: 9px; padding: 13px; border-bottom: 1px solid var(--wb-line); }
+.operations-form .wb-button { width: 100%; justify-content: center; }
+.operations-list { display: grid; }
+.operations-list > div { display: grid; min-height: 64px; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 9px 12px; border-top: 1px solid var(--wb-line); }
+.operations-list span { display: flex; min-width: 0; flex-direction: column; }
+.operations-list strong { overflow-wrap: anywhere; font-size: 10px; }
+.operations-list code, .operations-list small { margin-top: 3px; color: var(--wb-muted); font-size: 8px; overflow-wrap: anywhere; }
 
 .console-entity-inspector { min-width: 0; max-height: calc(100vh - 84px); border: 1px solid var(--wb-line-strong); border-radius: 6px; background: #fff; box-shadow: 0 12px 28px rgb(24 32 26 / 10%); overflow-y: auto; }
 .console-entity-inspector > header { position: sticky; z-index: 3; top: 0; display: flex; min-height: 76px; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--wb-line); background: rgb(255 255 255 / 97%); }
@@ -364,7 +372,7 @@
   .console-summary > div:nth-child(2) { border-right: 0; }
   .console-summary > div:nth-child(-n+2) { border-bottom: 1px solid var(--wb-line); }
   .console-entity-inspector { width: min(560px, 100vw); }
-  .content-project-layout, .live-room-layout, .video-plan-layout { grid-template-columns: 1fr; }
+  .content-project-layout, .live-room-layout, .video-plan-layout, .operations-layout { grid-template-columns: 1fr; }
   .content-project-rail, .live-plan-rail, .video-plan-rail { position: static; max-height: none; }
   .live-plan-summary, .video-plan-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
