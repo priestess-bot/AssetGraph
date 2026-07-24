@@ -87,7 +87,7 @@ export const functionalVideosApi = {
   list: () => requestJson<unknown[]>(ROOT).then((rows) => rows.map(plan)),
   get: (code: string) => requestJson<unknown>(`${ROOT}/${code}`).then(plan),
   listTimelineRevisions: (code: string) => requestJson<unknown[]>(`${ROOT}/${code}/timeline-revisions`).then((rows) => rows.map(timelineRevision)),
-  create: (payload: { project_code: string; title?: string; target_duration_seconds: number }) => postJson<unknown>(ROOT, payload).then(plan),
+  create: (payload: { project_code?: string; live_room_plan_code?: string; title?: string; target_duration_seconds: number }) => postJson<unknown>(ROOT, payload).then(plan),
   updateTimeline: (code: string, payload: { expected_revision: number; video_clips: Array<{ clip_code: string; duration_ms: number; transition: string; source_start_seconds?: number; source_end_seconds?: number }>; subtitle_clips?: Array<{ clip_code: string; subtitle_text: string; headline_text: string }> }) => requestJson<unknown>(`${ROOT}/${code}/timeline`, { method: "PUT", body: JSON.stringify(payload) }).then(plan),
   restoreTimelineRevision: (code: string, sourceRevision: number, expectedRevision: number) => postJson<unknown>(`${ROOT}/${code}/timeline-revisions/${sourceRevision}/restore`, { expected_revision: expectedRevision }).then(plan),
   branch: (code: string, payload: { title?: string }) => postJson<unknown>(`${ROOT}/${code}/branch`, payload).then(plan),

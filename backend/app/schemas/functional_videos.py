@@ -7,9 +7,16 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class FunctionalVideoPlanCreate(BaseModel):
-    project_code: str = Field(min_length=1, max_length=64)
+    project_code: str | None = Field(default=None, min_length=1, max_length=64)
+    live_room_plan_code: str | None = Field(default=None, min_length=1, max_length=64)
     title: str | None = Field(default=None, max_length=255)
     target_duration_seconds: int = Field(default=55, ge=30, le=120)
+
+    @model_validator(mode="after")
+    def exactly_one_content_source(self) -> "FunctionalVideoPlanCreate":
+        if bool(self.project_code) == bool(self.live_room_plan_code):
+            raise ValueError("supply exactly one of project_code or live_room_plan_code")
+        return self
 
 
 class FunctionalVideoPlanBranch(BaseModel):

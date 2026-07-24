@@ -8,7 +8,9 @@ import pytest
 from psycopg.types.json import Jsonb
 
 from app.domain.errors import DomainValidationError
+from app.repositories.assets import AssetRepository
 from app.services.functional_content import FunctionalContentService
+from app.services.functional_live_rooms import FunctionalLiveRoomService
 from app.services.functional_videos import FunctionalVideoService
 
 
@@ -16,32 +18,36 @@ DATABASE_URL = os.getenv("ASSETGRAPH_TEST_DATABASE_URL")
 pytestmark = pytest.mark.skipif(not DATABASE_URL, reason="ASSETGRAPH_TEST_DATABASE_URL is not configured")
 
 
+def _generated_project(connection: psycopg.Connection, suffix: str) -> dict:
+    content = FunctionalContentService(connection)
+    project = content.create_project(
+        {
+            "title": f"Video plan {suffix}",
+            "generation_goal": "Explain a product choice in a short vertical video",
+            "theme": "Summer choice",
+            "story": "Start with a real question from the audience.",
+            "must_include": [],
+            "must_avoid": [],
+            "fact_card_codes": [],
+            "secondary_template_codes": [],
+        },
+        actor_id="test-operator",
+    )
+    content.confirm_project(project["project_code"], expected_revision=1, actor_id="test-operator")
+    content.parse_design_brief(
+        project["project_code"],
+        expected_revision=1,
+        raw_input="Create the project baseline before the rendered-video branch.",
+        actor_id="test-operator",
+    )
+    content.confirm_design_brief(project["project_code"], expected_revision=1, actor_id="test-operator")
+    return content.generate_chain(project["project_code"], actor_id="test-operator")
+
+
 def test_functional_video_plan_seeds_content_stages_and_queues_renderer() -> None:
     suffix = uuid4().hex
     with psycopg.connect(DATABASE_URL) as connection:
-        content = FunctionalContentService(connection)
-        project = content.create_project(
-            {
-                "title": f"Video plan {suffix}",
-                "generation_goal": "Explain a product choice in a short vertical video",
-                "theme": "Summer choice",
-                "story": "Start with a real question from the audience.",
-                "must_include": [],
-                "must_avoid": [],
-                "fact_card_codes": [],
-                "secondary_template_codes": [],
-            },
-            actor_id="test-operator",
-        )
-        content.confirm_project(project["project_code"], expected_revision=1, actor_id="test-operator")
-        content.parse_design_brief(
-            project["project_code"],
-            expected_revision=1,
-            raw_input="Create the project baseline before the rendered-video branch.",
-            actor_id="test-operator",
-        )
-        content.confirm_design_brief(project["project_code"], expected_revision=1, actor_id="test-operator")
-        generated = content.generate_chain(project["project_code"], actor_id="test-operator")
+        generated = _generated_project(connection, suffix)
         plan = FunctionalVideoService(connection).create_plan(
             {"project_code": generated["project_code"], "target_duration_seconds": 55},
             actor_id="test-operator",
@@ -133,6 +139,36 @@ def test_functional_video_plan_seeds_content_stages_and_queues_renderer() -> Non
             assert cursor.fetchone()[0] is True
             cursor.execute("SELECT count(*) FROM functional_video_timeline_revisions WHERE plan_id = (SELECT id FROM functional_video_plans WHERE plan_code = %s)", (plan["plan_code"],))
             assert cursor.fetchone()[0] == 3
+
+
+def test_functional_video_plan_can_use_the_fixed_content_chain_of_a_live_room_plan() -> None:
+    suffix = uuid4().hex
+    with psycopg.connect(DATABASE_URL) as connection:
+        generated = _generated_project(connection, suffix)
+        assets = AssetRepository(connection)
+        selected = [
+            assets.create({"asset_type": "IMG", "title": f"{role} {suffix}", "original_filename": f"{role}-{suffix}.png", "media_kind": "image", "material_roles": [role], "execution_capability": "maitu_bound"})
+            for role in ("digital_human", "background", "promotion_text")
+        ]
+        live_room = FunctionalLiveRoomService(connection).create_plan(
+            {
+                "project_code": generated["project_code"],
+                "target_live_room_id": f"room-{suffix}",
+                "expected_title": "Fixed live-room source",
+                "asset_codes": [asset["asset_code"] for asset in selected],
+                "group_codes": [],
+            },
+            actor_id="test-operator",
+        )
+
+        video = FunctionalVideoService(connection).create_plan(
+            {"live_room_plan_code": live_room["plan_code"], "target_duration_seconds": 55},
+            actor_id="test-operator",
+        )
+
+        assert video["project_code"] == generated["project_code"]
+        assert video["job_status"] == "queued"
+        assert video["render_profile"]["source_live_room_plan_code"] == live_room["plan_code"]
 
 
 def test_functional_video_release_candidate_freezes_a_qc_passed_plan() -> None:

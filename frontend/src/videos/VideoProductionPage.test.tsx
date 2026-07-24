@@ -32,6 +32,7 @@ describe("VideoProductionPage", () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input); requests.push({ url, init });
       if (url === "/api/content-projects") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/functional-live-room-plans") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
       if (url === "/api/functional-video-plans") return new Response(JSON.stringify([plan]), { status: 200, headers: { "Content-Type": "application/json" } });
       if (url === "/api/functional-video-plans/VIDPLAN-001") return new Response(JSON.stringify(plan), { status: 200, headers: { "Content-Type": "application/json" } });
       if (url === "/api/functional-video-plans/VIDPLAN-001/timeline-revisions") return new Response(JSON.stringify([{ revision_number: 1, production_timeline: plan.production_timeline, actor_id: "operator", created_at: "2026-07-25T00:00:00Z" }]), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -72,6 +73,7 @@ describe("VideoProductionPage", () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input); requests.push({ url, init });
       if (url === "/api/content-projects") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/functional-live-room-plans") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
       if (url === "/api/functional-video-plans") return new Response(JSON.stringify([current]), { status: 200, headers: { "Content-Type": "application/json" } });
       if (url === "/api/functional-video-plans/VIDPLAN-001") return new Response(JSON.stringify(current), { status: 200, headers: { "Content-Type": "application/json" } });
       if (url === "/api/functional-video-plans/VIDPLAN-001/timeline-revisions") return new Response(JSON.stringify([{ revision_number: 2, production_timeline: current.production_timeline, actor_id: "operator", created_at: "2026-07-25T01:00:00Z" }, { revision_number: 1, production_timeline: plan.production_timeline, actor_id: "operator", created_at: "2026-07-25T00:00:00Z" }]), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -94,6 +96,7 @@ describe("VideoProductionPage", () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input); requests.push({ url, init });
       if (url === "/api/content-projects") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/functional-live-room-plans") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
       if (url === "/api/functional-video-plans") return new Response(JSON.stringify([running]), { status: 200, headers: { "Content-Type": "application/json" } });
       if (url === "/api/functional-video-plans/VIDPLAN-001") return new Response(JSON.stringify(running), { status: 200, headers: { "Content-Type": "application/json" } });
       if (url === "/api/functional-video-plans/VIDPLAN-002") return new Response(JSON.stringify({ ...plan, plan_code: "VIDPLAN-002", title: "剪辑修订" }), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -113,6 +116,31 @@ describe("VideoProductionPage", () => {
     expect(await screen.findByRole("heading", { name: "剪辑修订" })).toBeInTheDocument();
   });
 
+  it("creates a rendered-video plan from a fixed live-room plan", async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); requests.push({ url, init });
+      if (url === "/api/content-projects") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/functional-live-room-plans") return new Response(JSON.stringify([{ plan_code: "LIVEPLAN-001", expected_title: "夏日直播间" }]), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/functional-video-plans") {
+        if (init?.method === "POST") return new Response(JSON.stringify(plan), { status: 201, headers: { "Content-Type": "application/json" } });
+        return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (url === "/api/functional-video-plans/VIDPLAN-001") return new Response(JSON.stringify(plan), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/functional-video-plans/VIDPLAN-001/timeline-revisions") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.selectOptions(await screen.findByRole("combobox", { name: "内容来源" }), "live_room");
+    await user.selectOptions(screen.getByRole("combobox", { name: "直播间计划" }), "LIVEPLAN-001");
+    await user.click(screen.getByRole("button", { name: "创建渲染任务" }));
+
+    const request = requests.find((item) => item.url === "/api/functional-video-plans" && item.init?.method === "POST");
+    expect(request?.init?.body).toBe(JSON.stringify({ live_room_plan_code: "LIVEPLAN-001", target_duration_seconds: 55 }));
+  });
+
   it("creates a release candidate only from a QC-passed completed video", async () => {
     const completed = { ...plan, job_status: "succeeded", current_stage: "quality_check" };
     const released = {
@@ -126,6 +154,7 @@ describe("VideoProductionPage", () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input); requests.push({ url, init });
       if (url === "/api/content-projects") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/functional-live-room-plans") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
       if (url === "/api/functional-video-plans") return new Response(JSON.stringify([completed]), { status: 200, headers: { "Content-Type": "application/json" } });
       if (url === "/api/functional-video-plans/VIDPLAN-001") return new Response(JSON.stringify(completed), { status: 200, headers: { "Content-Type": "application/json" } });
       if (url === "/api/functional-video-plans/VIDPLAN-001/timeline-revisions") return new Response(JSON.stringify([{ revision_number: 1, production_timeline: plan.production_timeline, actor_id: "operator", created_at: "2026-07-25T00:00:00Z" }]), { status: 200, headers: { "Content-Type": "application/json" } });

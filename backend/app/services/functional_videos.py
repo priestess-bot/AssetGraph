@@ -36,9 +36,9 @@ class FunctionalVideoService:
         self._release_signing_key_id = release_signing_key_id
 
     def create_plan(self, payload: dict[str, Any], *, actor_id: str) -> dict[str, Any]:
-        detail = self.content.get_detail(payload["project_code"])
+        detail = self._source_detail(payload)
         if detail is None:
-            raise KeyError(payload["project_code"])
+            raise KeyError(payload.get("project_code") or payload.get("live_room_plan_code"))
         if not detail["generated"] or not detail["story_brief"] or not detail["script"] or not detail["shot_list"]:
             raise DomainValidationError("VIDEO_CONTENT_CHAIN_REQUIRED", "Generate the ContentProject before creating a video plan")
         duration = int(payload["target_duration_seconds"])
@@ -48,8 +48,16 @@ class FunctionalVideoService:
             story_brief_code=detail["story_brief"]["story_brief_code"], story_brief_revision=int(detail["story_brief"]["revision_number"]),
             script_revision_code=detail["script"]["script_revision_code"], shot_list_revision_code=detail["shot_list"]["shot_list_revision_code"],
             carrier_kind="rendered_video",
-            branch_target={"delivery": "local_render", "title": payload.get("title") or detail["title"]},
-            configuration={"canvas": {"width": 1080, "height": 1920, "fps": 30}, "target_duration_seconds": duration},
+            branch_target={
+                "delivery": "local_render",
+                "title": payload.get("title") or detail["title"],
+                "source_live_room_plan_code": detail.get("source_live_room_plan_code"),
+            },
+            configuration={
+                "canvas": {"width": 1080, "height": 1920, "fps": 30},
+                "target_duration_seconds": duration,
+                "source_live_room_plan_code": detail.get("source_live_room_plan_code"),
+            },
             material_snapshot_ref={"source": "baseline_verified_video_assets.v1", "asset_codes": [shot["asset_code"] for shot in shots["shots"]]},
             constraint_snapshot_ref={"source": "functional-content-timeline.v1"},
             actor_id=actor_id, producer_strategy_revision="functional-video.v1",
@@ -63,6 +71,7 @@ class FunctionalVideoService:
         render_profile = {
             "schema_version": "functional-render-profile.v1", "canvas": {"width": 1080, "height": 1920, "fps": 30},
             "subtitle": "ass", "audio": "local_tts", "visual_asset_mode": "baseline_verified_video_assets", "target_duration_seconds": duration,
+            "source_live_room_plan_code": detail.get("source_live_room_plan_code"),
         }
         with self.connection.cursor(row_factory=dict_row) as cursor:
             code = self._next_code(cursor)
@@ -80,6 +89,85 @@ class FunctionalVideoService:
             )
         self.connection.commit()
         return self._enrich(row)
+
+    def _source_detail(self, payload: dict[str, Any]) -> dict[str, Any] | None:
+        live_room_plan_code = payload.get("live_room_plan_code")
+        if live_room_plan_code:
+            return self._live_room_source_detail(str(live_room_plan_code))
+        return self.content.get_detail(str(payload["project_code"]))
+
+    def _live_room_source_detail(self, live_room_plan_code: str) -> dict[str, Any] | None:
+        """Load the exact confirmed content chain frozen by an existing live-room Variant."""
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT live.plan_code AS source_live_room_plan_code,
+                       project.project_code, project.title,
+                       project_revision.revision_number AS project_revision_number,
+                       project_revision.generation_goal,
+                       story.story_brief_code, story.revision_number AS story_revision_number,
+                       story.content AS story_content,
+                       script.id AS script_revision_id, script.script_revision_code,
+                       script.revision_number AS script_revision_number, script.title AS script_title,
+                       shots.shot_list_revision_code, shots.revision_number AS shot_list_revision_number
+                FROM functional_live_room_plans AS live
+                JOIN production_variant_revisions AS variant
+                  ON variant.variant_code = live.variant_code AND variant.status = 'confirmed'
+                JOIN content_project_revisions AS project_revision
+                  ON project_revision.id = variant.source_project_revision_id AND project_revision.status = 'confirmed'
+                JOIN content_projects AS project ON project.id = project_revision.project_id
+                JOIN story_brief_revisions AS story
+                  ON story.id = variant.source_story_brief_revision_id AND story.status = 'confirmed'
+                JOIN content_script_revisions AS script
+                  ON script.id = variant.source_script_revision_id AND script.status = 'confirmed'
+                JOIN shot_list_revisions AS shots
+                  ON shots.id = variant.source_shot_list_revision_id AND shots.status = 'confirmed'
+                WHERE live.plan_code = %s
+                """,
+                (live_room_plan_code,),
+            )
+            source = cursor.fetchone()
+            if source is None:
+                return None
+            cursor.execute(
+                """
+                SELECT block_code, module_type, content, estimated_duration_ms,
+                       fact_citations, template_sources, interaction_intent, cta_intent
+                FROM content_script_blocks
+                WHERE script_revision_id = %s
+                ORDER BY sort_order
+                """,
+                (source["script_revision_id"],),
+            )
+            blocks = cursor.fetchall()
+        if not blocks:
+            raise DomainValidationError(
+                "VIDEO_LIVE_ROOM_SOURCE_SCRIPT_EMPTY",
+                "The live-room source has no fixed script blocks to compile into a video",
+            )
+        return {
+            "project_code": source["project_code"],
+            "title": source["title"],
+            "revision_number": int(source["project_revision_number"]),
+            "generation_goal": source["generation_goal"],
+            "generated": True,
+            "source_live_room_plan_code": source["source_live_room_plan_code"],
+            "story_brief": {
+                "story_brief_code": source["story_brief_code"],
+                "revision_number": int(source["story_revision_number"]),
+                "content": source["story_content"],
+            },
+            "script": {
+                "script_revision_code": source["script_revision_code"],
+                "revision_number": int(source["script_revision_number"]),
+                "title": source["script_title"],
+                "blocks": blocks,
+            },
+            "shot_list": {
+                "shot_list_revision_code": source["shot_list_revision_code"],
+                "revision_number": int(source["shot_list_revision_number"]),
+            },
+        }
 
     def list_plans(self) -> list[dict[str, Any]]:
         with self.connection.cursor(row_factory=dict_row) as cursor:

@@ -36,6 +36,11 @@ class FakeFunctionalVideoService:
         self.calls: list[tuple[str, int, int, str]] = []
         self.branch_calls: list[tuple[str, dict, str]] = []
         self.release_calls: list[tuple[str, str]] = []
+        self.create_calls: list[dict] = []
+
+    def create_plan(self, payload: dict, *, actor_id: str) -> dict:
+        self.create_calls.append({**payload, "actor_id": actor_id})
+        return plan(1)
 
     def create_release_candidate(self, plan_code: str, *, actor_id: str) -> dict:
         self.release_calls.append((plan_code, actor_id))
@@ -126,3 +131,23 @@ def test_create_video_release_candidate(client: tuple[TestClient, FakeFunctional
     assert response.status_code == 200
     assert response.json()["release"]["manifest_code"] == "RELEASE-001-M001"
     assert service.release_calls == [("VIDPLAN-001", "functional-operator")]
+
+
+def test_create_video_plan_accepts_a_fixed_live_room_source(client: tuple[TestClient, FakeFunctionalVideoService]) -> None:
+    test_client, service = client
+
+    response = test_client.post(
+        "/api/functional-video-plans",
+        json={"live_room_plan_code": "LIVEPLAN-001", "target_duration_seconds": 55},
+    )
+
+    assert response.status_code == 201
+    assert service.create_calls == [
+        {
+            "project_code": None,
+            "live_room_plan_code": "LIVEPLAN-001",
+            "title": None,
+            "target_duration_seconds": 55,
+            "actor_id": "functional-operator",
+        }
+    ]
