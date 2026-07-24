@@ -15,6 +15,7 @@ from app.schemas.content_projects import (
     ContentProjectUpdate,
     DesignBriefConfirm,
     DesignBriefParse,
+    DesignBriefUpdate,
 )
 from app.services.functional_content import FunctionalContentService
 
@@ -102,6 +103,27 @@ def parse_design_brief(
         )
     except KeyError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Content project not found") from exc
+    except DomainConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.as_dict()) from exc
+    except DomainValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=exc.as_dict()) from exc
+
+
+@router.patch("/{project_code}/design-brief", response_model=ContentProjectDetail)
+def revise_design_brief(
+    project_code: str,
+    payload: DesignBriefUpdate,
+    service: Annotated[FunctionalContentService, Depends(get_service)],
+) -> dict:
+    try:
+        return service.revise_design_brief(
+            project_code,
+            expected_revision=payload.expected_revision,
+            overrides=payload.overrides,
+            actor_id="functional-operator",
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Content project or design brief not found") from exc
     except DomainConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.as_dict()) from exc
     except DomainValidationError as exc:

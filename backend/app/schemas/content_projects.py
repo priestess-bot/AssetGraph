@@ -122,6 +122,34 @@ class DesignBriefParse(BaseModel):
     raw_input: str = Field(min_length=1, max_length=8000)
 
 
+class DesignBriefUpdate(BaseModel):
+    expected_revision: int = Field(ge=1)
+    overrides: dict[str, Any] = Field(min_length=1, max_length=16)
+
+    @field_validator("overrides")
+    @classmethod
+    def validate_overrides(cls, value: dict[str, Any]) -> dict[str, Any]:
+        text_limits = {
+            "objective": 4000, "theme": 1000, "story": 4000, "audience": 500,
+            "persona": 500, "tone": 200, "platform": 64,
+        }
+        list_fields = {"priorities", "must_include", "must_avoid", "staging", "interaction", "conversion", "visual", "audio"}
+        allowed = set(text_limits) | list_fields | {"duration_seconds"}
+        unknown = sorted(set(value) - allowed)
+        if unknown:
+            raise ValueError(f"unknown DesignBrief override fields: {', '.join(unknown)}")
+        for key, item in value.items():
+            if key in text_limits:
+                if not isinstance(item, str) or not item.strip() or len(item) > text_limits[key]:
+                    raise ValueError(f"invalid DesignBrief text override: {key}")
+            elif key in list_fields:
+                if not isinstance(item, list) or len(item) > 100 or not all(isinstance(entry, str) and entry.strip() and len(entry) <= 1000 for entry in item):
+                    raise ValueError(f"invalid DesignBrief list override: {key}")
+            elif key == "duration_seconds" and (isinstance(item, bool) or not isinstance(item, int) or not 30 <= item <= 86_400):
+                raise ValueError("invalid DesignBrief duration_seconds override")
+        return value
+
+
 class DesignBriefConfirm(BaseModel):
     expected_revision: int = Field(ge=1)
 

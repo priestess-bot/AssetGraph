@@ -265,6 +265,98 @@ class FunctionalContentService:
         self.connection.commit()
         return self.get_detail(project_code) or {}
 
+    def revise_design_brief(
+        self,
+        project_code: str,
+        *,
+        expected_revision: int,
+        overrides: dict[str, Any],
+        actor_id: str,
+    ) -> dict[str, Any]:
+        current = self.core.get_project(project_code)
+        if current is None:
+            raise KeyError(project_code)
+        if int(current["revision_number"]) != expected_revision:
+            raise DomainConflictError(
+                "REVISION_CONFLICT",
+                "Content project changed since it was loaded",
+                details={"expected_revision": expected_revision, "actual_revision": current["revision_number"]},
+            )
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT * FROM functional_design_briefs
+                WHERE project_id = %s AND source_project_revision_number = %s
+                ORDER BY revision_number DESC LIMIT 1 FOR UPDATE
+                """,
+                (current["project_id"], expected_revision),
+            )
+            previous = cursor.fetchone()
+            if previous is None:
+                self.connection.rollback()
+                raise KeyError(f"{project_code}@{expected_revision}:design_brief")
+            if previous["status"] != "draft":
+                self.connection.rollback()
+                raise DomainConflictError(
+                    "DESIGN_BRIEF_REVISE_NOT_ALLOWED",
+                    "Only the current draft DesignBrief can be revised",
+                    details={"status": previous["status"]},
+                )
+            parsed = dict(previous["parsed_brief"] or {})
+            parsed.update(overrides)
+            prior_overrides = dict(previous["user_overrides"] or {})
+            user_overrides = {**prior_overrides, **overrides}
+            question_fields = {"duration_seconds": "target_duration_seconds"}
+            questions = [
+                question for question in previous["open_questions"] or []
+                if str(question.get("field") or "") not in {question_fields.get(key, key) for key in overrides}
+            ]
+            fingerprint = canonical_fingerprint(
+                {
+                    "project_code": project_code,
+                    "project_revision": expected_revision,
+                    "raw_input": previous["raw_input"],
+                    "parsed": parsed,
+                    "questions": questions,
+                    "user_overrides": user_overrides,
+                    "parser_strategy_ref": previous["parser_strategy_ref"],
+                }
+            )
+            cursor.execute(
+                """
+                SELECT COALESCE(MAX(revision_number), 0) + 1 AS next_revision
+                FROM functional_design_briefs
+                WHERE project_id = %s
+                """,
+                (current["project_id"],),
+            )
+            next_revision = int(cursor.fetchone()["next_revision"])
+            cursor.execute(
+                """
+                UPDATE functional_design_briefs
+                SET status = 'superseded', superseded_at = now(), updated_at = now()
+                WHERE project_id = %s AND source_project_revision_number = %s AND status = 'draft'
+                """,
+                (current["project_id"], expected_revision),
+            )
+            cursor.execute(
+                """
+                INSERT INTO functional_design_briefs (
+                    design_brief_code, project_id, source_project_revision_id,
+                    source_project_revision_number, revision_number, raw_input,
+                    parsed_brief, open_questions, user_overrides, parser_strategy_ref,
+                    prompt_revision, response_fingerprint_sha256, created_by
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    f"DBR-{uuid4().hex[:12].upper()}", current["project_id"], previous["source_project_revision_id"],
+                    expected_revision, next_revision, previous["raw_input"], Jsonb(parsed), Jsonb(questions), Jsonb(user_overrides),
+                    previous["parser_strategy_ref"], previous["prompt_revision"], fingerprint, actor_id,
+                ),
+            )
+        self.connection.commit()
+        return self.get_detail(project_code) or {}
+
     def list_projects(self) -> list[dict[str, Any]]:
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
@@ -299,7 +391,7 @@ class FunctionalContentService:
                 return None
             cursor.execute(
                 """
-                SELECT design_brief_code, revision_number, status, parsed_brief, open_questions,
+                SELECT design_brief_code, revision_number, status, parsed_brief, open_questions, user_overrides,
                        raw_input, parser_strategy_ref, prompt_revision, created_at
                 FROM functional_design_briefs
                 WHERE project_id = %s AND source_project_revision_id = %s
@@ -810,6 +902,7 @@ class FunctionalContentService:
             "status": row["status"],
             "parsed_brief": row["parsed_brief"],
             "open_questions": row["open_questions"],
+            "user_overrides": row["user_overrides"],
             "raw_input": row["raw_input"],
             "parser_strategy_ref": row["parser_strategy_ref"],
             "prompt_revision": row["prompt_revision"],

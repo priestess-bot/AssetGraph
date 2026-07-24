@@ -59,6 +59,22 @@ describe("content projects api", () => {
     });
   });
 
+  it("revises parsed DesignBrief fields without changing the source content project", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response({
+      project_code: "CONTENT-001", title: "选酒直播", revision_number: 4, status: "confirmed", generation_goal: "帮助观众选酒",
+      updated_at: "2026-07-25T00:00:00Z", content: {}, generated: false,
+      design_brief: { design_brief_code: "DBR-002", revision_number: 2, status: "draft", raw_input: "聚会场景", parsed_brief: { audience: "聚会组织者" }, user_overrides: { audience: "聚会组织者" }, open_questions: [] },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const detail = await contentProjectsApi.reviseBrief("CONTENT-001", 4, { audience: "聚会组织者" });
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/api/content-projects/CONTENT-001/design-brief");
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "PATCH" });
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({ expected_revision: 4, overrides: { audience: "聚会组织者" } });
+    expect(detail.designBrief).toMatchObject({ revision_number: 2, user_overrides: { audience: "聚会组织者" } });
+  });
+
   it("ranks content strategies only from explicit category, module, and compatibility matches", () => {
     const template = (code: string, category: string, title: string, compatibilityTags: string[]): RoomTemplate => ({
       template_code: code, title: code, source_session_code: "CAP-001", source_type: "external_flat_video", templateKind: "content_strategy", latest_revision: 1, published_revision: 1, status: "published", layout_fidelity: "none", buildability: "reference_only", contentReadiness: "ready", scenes: [],

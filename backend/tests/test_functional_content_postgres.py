@@ -80,6 +80,42 @@ def test_generation_requires_confirmed_project_and_design_brief() -> None:
         assert brief_error.value.code == "DESIGN_BRIEF_CONFIRM_REQUIRED"
 
 
+def test_design_brief_override_creates_a_new_draft_revision() -> None:
+    with psycopg.connect(DATABASE_URL) as connection:
+        service = FunctionalContentService(connection)
+        created = service.create_project(
+            {
+                "title": f"Design brief override {uuid4().hex}",
+                "generation_goal": "Help an audience make a product choice",
+            },
+            actor_id="test-operator",
+        )
+        service.parse_design_brief(
+            created["project_code"],
+            expected_revision=1,
+            raw_input="Use the structured inputs only.",
+            actor_id="test-operator",
+        )
+
+        revised = service.revise_design_brief(
+            created["project_code"],
+            expected_revision=1,
+            overrides={"audience": "聚会组织者", "duration_seconds": 180},
+            actor_id="test-operator",
+        )
+
+        assert revised["design_brief"]["revision_number"] == 2
+        assert revised["design_brief"]["status"] == "draft"
+        assert revised["design_brief"]["parsed_brief"]["audience"] == "聚会组织者"
+        assert revised["design_brief"]["user_overrides"] == {"audience": "聚会组织者", "duration_seconds": 180}
+        assert all(question["field"] != "audience" for question in revised["design_brief"]["open_questions"])
+
+        service.confirm_project(created["project_code"], expected_revision=1, actor_id="test-operator")
+        confirmed = service.confirm_design_brief(created["project_code"], expected_revision=1, actor_id="test-operator")
+        assert confirmed["design_brief"]["revision_number"] == 2
+        assert confirmed["design_brief"]["status"] == "confirmed"
+
+
 def test_fact_citation_guard_blocks_restricted_claim_without_approved_source() -> None:
     with pytest.raises(DomainValidationError) as invalid:
         FunctionalContentService._validate_fact_citations(
