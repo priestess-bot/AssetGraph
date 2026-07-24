@@ -179,6 +179,41 @@ class LiveResearchAPIClient:
             {"worker_id": worker_id, "lease_seconds": lease_seconds},
         )
 
+    def authorize_provider_strategy(
+        self,
+        *,
+        worker_id: str,
+        strategy_revision: str,
+        analysis_type: str,
+        input_fingerprint: str,
+    ) -> dict[str, Any]:
+        self._require_worker_identity(worker_id)
+        return self._request(
+            "POST",
+            "/worker/provider-strategy-authorizations",
+            {
+                "worker_id": worker_id,
+                "strategy_revision": strategy_revision,
+                "analysis_type": analysis_type,
+                "input_fingerprint": input_fingerprint,
+            },
+        )
+
+    def persist_provider_invocation_evidence(
+        self, evidence: dict[str, Any]
+    ) -> str:
+        result = self._request(
+            "POST",
+            "/worker/provider-invocation-evidence",
+            evidence,
+        )
+        artifact_code = str((result or {}).get("artifact_code") or "")
+        if not artifact_code:
+            raise LiveResearchAPIError(
+                "AssetGraph did not return a provider evidence artifact reference"
+            )
+        return artifact_code
+
     def complete_analysis_run(self, run_code: str, payload: dict[str, Any]) -> dict[str, Any]:
         self._require_worker_identity(str(payload.get("worker_id") or ""))
         return self._request("POST", f"/worker/analysis-runs/{run_code}/complete", payload)

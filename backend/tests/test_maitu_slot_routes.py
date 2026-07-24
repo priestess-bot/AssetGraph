@@ -18,6 +18,19 @@ from app.repositories.maitu import (
 )
 
 
+def assert_stale_problem(response: Any, detail: str) -> None:
+    body = response.json()
+    assert body["detail"] == detail
+    assert body["error"] | {
+        "code": "STALE_REVISION",
+        "state": "stale",
+        "retryable": False,
+    } == body["error"]
+    assert body["error"]["impact"]
+    assert body["error"]["evidence"]
+    assert body["error"]["next_step"]
+
+
 class FakeMaituMaterialSlotRepository:
     def __init__(self) -> None:
         self.rows: dict[str, dict[str, Any]] = {}
@@ -3614,9 +3627,9 @@ def test_retry_operation_checkpoint_rejects_stale_lease_and_fingerprint_drift(cl
     drift = client.post(path, json={**base_payload, "operation_fingerprint": "f" * 64})
 
     assert stale.status_code == 409
-    assert stale.json() == {"detail": "Retry lease conflict"}
+    assert_stale_problem(stale, "Retry lease conflict")
     assert drift.status_code == 409
-    assert drift.json() == {"detail": "Retry checkpoint conflict"}
+    assert_stale_problem(drift, "Retry checkpoint conflict")
 
 
 def test_active_retry_lease_freezes_slot_and_explicit_release_requires_reconciliation(client: TestClient) -> None:
@@ -3640,9 +3653,9 @@ def test_active_retry_lease_freezes_slot_and_explicit_release_requires_reconcili
     frozen_patch = client.patch(f"/api/maitu/slots/{slot_code}", json={"layer_name": "unsafe-layer"})
     frozen_delete = client.delete(f"/api/maitu/slots/{slot_code}")
     assert frozen_patch.status_code == 409
-    assert frozen_patch.json() == {"detail": "Retry lease conflict"}
+    assert_stale_problem(frozen_patch, "Retry lease conflict")
     assert frozen_delete.status_code == 409
-    assert frozen_delete.json() == {"detail": "Retry lease conflict"}
+    assert_stale_problem(frozen_delete, "Retry lease conflict")
 
     released = client.post(
         f"/api/maitu/retry-tasks/{retry_task['retry_task_code']}/release",
@@ -3837,7 +3850,7 @@ def test_retry_task_execution_result_is_owned_and_idempotent(client: TestClient)
         json=result_payload,
     )
     assert blocked_response.status_code == 409
-    assert blocked_response.json() == {"detail": "Retry checkpoint conflict"}
+    assert_stale_problem(blocked_response, "Retry checkpoint conflict")
 
     operation_plan = client.get(
         f"/api/maitu/retry-tasks/{retry_task['retry_task_code']}/browser-use-operations"

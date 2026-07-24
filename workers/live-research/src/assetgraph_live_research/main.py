@@ -360,14 +360,31 @@ def _analysis_worker(
         "DEEPSEEK_BASE_URL",
         os.environ.get("ASSETGRAPH_DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
     )
+    transcription_model = os.environ.get(
+        "ASSETGRAPH_OPENAI_TRANSCRIPTION_MODEL",
+        os.environ.get("OPENAI_TRANSCRIPTION_MODEL", "gpt-4o-transcribe-diarize"),
+    )
+    vision_model = os.environ.get(
+        "ASSETGRAPH_OPENAI_VIDEO_FRAME_MODEL",
+        os.environ.get("OPENAI_VIDEO_FRAME_MODEL", "gpt-5.6-sol"),
+    )
+    aggregation_model = os.environ.get(
+        "ASSETGRAPH_DEEPSEEK_FLASH_MODEL",
+        os.environ.get("DEEPSEEK_FLASH_MODEL", "deepseek-v4-flash"),
+    )
     transcription = (
-        OpenAITranscriptionProvider(api_key=openai_key, base_url=openai_base_url)
+        OpenAITranscriptionProvider(
+            api_key=openai_key,
+            model=transcription_model,
+            base_url=openai_base_url,
+        )
         if openai_key
         else None
     )
     vision = (
         OpenAIVisionProvider(
             api_key=openai_key,
+            model=vision_model,
             base_url=openai_base_url,
             storage=storage,
         )
@@ -375,7 +392,11 @@ def _analysis_worker(
         else None
     )
     aggregation = (
-        DeepSeekTemplateProvider(api_key=deepseek_key, base_url=deepseek_base_url)
+        DeepSeekTemplateProvider(
+            api_key=deepseek_key,
+            model=aggregation_model,
+            base_url=deepseek_base_url,
+        )
         if deepseek_key
         else None
     )

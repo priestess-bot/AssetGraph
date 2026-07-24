@@ -98,11 +98,13 @@ class VideoAnalysisRead(BaseModel):
     selected: bool
     status: VideoAnalysisStatus
     attempt: int
-    provisional_source: Literal["none", "keyframe", "gpt_5_6_sol"]
+    provisional_source: Literal["none", "keyframe", "strategy_frames"]
     provisional_summary: str | None = None
     gemini_status: GeminiStatus
     gemini_summary: str | None = None
     conflict_count: int = 0
+    analysis_strategy_revision: str
+    invocation_evidence_ref: str | None = None
     error_code: str | None = None
     error_message: str | None = None
     created_at: datetime
@@ -135,15 +137,11 @@ class VideoAnalysisComplete(BaseModel):
     technical: dict[str, Any]
     frame_manifest: dict[str, Any]
     observation: MaterialSemanticObservation
-    model_provider: str = Field(min_length=1, max_length=64)
-    model_requested: str = Field(min_length=1, max_length=128)
-    model_actual: str = Field(min_length=1, max_length=128)
-    model_prompt_version: str = Field(min_length=1, max_length=64)
-    model_request_id: str | None = Field(default=None, max_length=255)
-    model_input_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
-    model_output_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
-    model_usage: dict[str, Any] = Field(default_factory=dict)
-    model_latency_ms: int = Field(ge=0)
+    analysis_strategy_revision: str = Field(min_length=1, max_length=128)
+    invocation_evidence_ref: str = Field(min_length=1, max_length=80)
+    analysis_prompt_revision: str = Field(min_length=1, max_length=64)
+    analysis_input_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    analysis_output_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
 class VideoAnalysisFail(BaseModel):

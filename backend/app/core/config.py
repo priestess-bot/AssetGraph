@@ -13,6 +13,17 @@ class Settings(BaseSettings):
     app_name: str = "AssetGraph"
     app_env: str = "local"
     api_prefix: str = "/api"
+    otel_service_name: str = Field(
+        default="assetgraph-backend",
+        validation_alias=AliasChoices("OTEL_SERVICE_NAME", "ASSETGRAPH_OTEL_SERVICE_NAME"),
+    )
+    otel_exporter_otlp_endpoint: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "OTEL_EXPORTER_OTLP_ENDPOINT",
+            "ASSETGRAPH_OTEL_EXPORTER_OTLP_ENDPOINT",
+        ),
+    )
 
     postgres_host: str = "localhost"
     postgres_port: int = 5432
@@ -80,6 +91,34 @@ class Settings(BaseSettings):
         le=5,
         validation_alias=AliasChoices("ONLINE_MODEL_MAX_ATTEMPTS", "ASSETGRAPH_ONLINE_MODEL_MAX_ATTEMPTS"),
     )
+    deepseek_processor_code: str = Field(
+        default="deepseek-api",
+        validation_alias=AliasChoices(
+            "ASSETGRAPH_DEEPSEEK_PROCESSOR_CODE",
+            "DEEPSEEK_PROCESSOR_CODE",
+        ),
+    )
+    deepseek_processing_region: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "ASSETGRAPH_DEEPSEEK_PROCESSING_REGION",
+            "DEEPSEEK_PROCESSING_REGION",
+        ),
+    )
+    openai_processor_code: str = Field(
+        default="openai-api",
+        validation_alias=AliasChoices(
+            "ASSETGRAPH_OPENAI_PROCESSOR_CODE",
+            "OPENAI_PROCESSOR_CODE",
+        ),
+    )
+    openai_processing_region: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "ASSETGRAPH_OPENAI_PROCESSING_REGION",
+            "OPENAI_PROCESSING_REGION",
+        ),
+    )
     maitu_reconciliation_operator_token: SecretStr | None = Field(
         default=None,
         validation_alias=AliasChoices(
@@ -111,6 +150,41 @@ class Settings(BaseSettings):
     maitu_authority_token: SecretStr | None = Field(
         default=None,
         validation_alias=AliasChoices("ASSETGRAPH_MAITU_AUTHORITY_TOKEN", "MAITU_AUTHORITY_TOKEN"),
+    )
+    control_plane_worker_token: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "ASSETGRAPH_CONTROL_PLANE_WORKER_TOKEN",
+            "CONTROL_PLANE_WORKER_TOKEN",
+        ),
+    )
+    control_plane_operator_token: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "ASSETGRAPH_CONTROL_PLANE_OPERATOR_TOKEN",
+            "CONTROL_PLANE_OPERATOR_TOKEN",
+        ),
+    )
+    control_plane_operator_id: str = Field(
+        default="configured-control-plane-operator",
+        validation_alias=AliasChoices(
+            "ASSETGRAPH_CONTROL_PLANE_OPERATOR_ID",
+            "CONTROL_PLANE_OPERATOR_ID",
+        ),
+    )
+    manifest_signing_key: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "ASSETGRAPH_MANIFEST_SIGNING_KEY",
+            "MANIFEST_SIGNING_KEY",
+        ),
+    )
+    manifest_signing_key_id: str = Field(
+        default="local-manifest-key-v1",
+        validation_alias=AliasChoices(
+            "ASSETGRAPH_MANIFEST_SIGNING_KEY_ID",
+            "MANIFEST_SIGNING_KEY_ID",
+        ),
     )
     maitu_authority_base_url: str = Field(
         default="https://api.maituai.com",

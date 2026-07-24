@@ -1,0 +1,115 @@
+{
+  "schema_version": "phase0-regression-report.v1",
+  "generated_at": "2026-07-23T14:52:03Z",
+  "status": "passed",
+  "scope": {
+    "git_head": "d946631aff44b58583d2295ec0f5131a39949142",
+    "working_tree_included": true,
+    "database": "assetgraph_phase0_provider_20260723_007",
+    "database_classification": "representative_integration_database",
+    "migration_count": 44
+  },
+  "suites": [
+    {
+      "suite": "backend_full_with_postgresql",
+      "command": "ASSETGRAPH_TEST_DATABASE_URL=<redacted> uv run pytest -q",
+      "status": "passed",
+      "result": "643 passed in 21.95s"
+    },
+    {
+      "suite": "browser_use_worker",
+      "command": "uv run pytest -q",
+      "status": "passed",
+      "result": "385 passed in 3.88s"
+    },
+    {
+      "suite": "live_research_worker",
+      "command": "uv run pytest -q",
+      "status": "passed",
+      "result": "30 passed in 0.22s"
+    },
+    {
+      "suite": "frontend_vitest",
+      "command": "npm test -- --run",
+      "status": "passed",
+      "result": "9 files, 32 tests passed in 4.86s"
+    },
+    {
+      "suite": "frontend_typescript",
+      "command": "npm run typecheck",
+      "status": "passed",
+      "result": "tsc -b completed with exit code 0"
+    },
+    {
+      "suite": "frontend_three_entry_build",
+      "command": "npm run build",
+      "status": "passed",
+      "result": "console, maitu and live-research Vite production builds completed"
+    },
+    {
+      "suite": "backend_and_scripts_ruff",
+      "command": "uv run ruff check app tests ../scripts ../workers/video-production/src",
+      "status": "passed",
+      "result": "All checks passed"
+    },
+    {
+      "suite": "browser_use_ruff",
+      "command": "uv run ruff check src tests",
+      "status": "passed",
+      "result": "All checks passed"
+    },
+    {
+      "suite": "live_research_ruff",
+      "command": "uv run ruff check src tests",
+      "status": "passed",
+      "result": "All checks passed"
+    },
+    {
+      "suite": "video_worker_source_ruff",
+      "command": "uv run --project backend ruff check workers/video-production/src",
+      "status": "passed",
+      "result": "All checks passed"
+    },
+    {
+      "suite": "phase0_new_files_format",
+      "command": "uv run ruff format --check <six Phase 0 audit scripts/tests>",
+      "status": "passed",
+      "result": "6 files already formatted"
+    },
+    {
+      "suite": "repository_reproducibility",
+      "command": "uv run --project backend python scripts/verify_reproducibility.py",
+      "status": "passed",
+      "result": "status=ok; external and video-demo checks intentionally disabled"
+    },
+    {
+      "suite": "patch_whitespace",
+      "command": "git diff --check",
+      "status": "passed",
+      "result": "no whitespace errors"
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "VIDEO_WORKER_TESTS_NOT_DISCOVERED",
+      "gating": false,
+      "result": "workers/video-production has no pytest files in its configured test paths",
+      "follow_up": "Phase 3 must add worker-level tests before rendered-video production acceptance"
+    },
+    {
+      "code": "HISTORICAL_FORMAT_BASELINE_NOT_CLEAN",
+      "gating": false,
+      "result": "ruff format --check would reformat 206 backend/script, 38 browser-use and 22 live-research files",
+      "follow_up": "Do not create unrelated formatting churn; enforce formatting prospectively or approve a dedicated mechanical change"
+    },
+    {
+      "code": "EXTERNAL_AND_OPERATIONAL_PATHS_NOT_TESTED",
+      "gating": false,
+      "result": "paid providers, Maitu authority, operational PostgreSQL/object storage and video demo assets were not exercised",
+      "follow_up": "Their separate provider, capacity, migration and human acceptance gates remain authoritative"
+    }
+  ],
+  "credentials_retained": false,
+  "raw_business_rows_retained": false,
+  "report_fingerprint": "0d4acbfa6cf60374de75fce04361939df82c138cf622aa54a147e23f6c40166a"
+}

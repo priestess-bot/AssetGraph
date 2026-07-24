@@ -1,0 +1,256 @@
+{
+  "schema_version": "capacity-baseline-report.v1",
+  "started_at": "2026-07-23T14:33:25.905916Z",
+  "completed_at": "2026-07-23T14:33:25.943062Z",
+  "status": "passed",
+  "classification": "representative_integration_database",
+  "source_snapshot_ref": null,
+  "database_measurement": {
+    "identity": {
+      "database_name": "assetgraph_phase0_provider_20260723_007",
+      "server_version": "14.23 (Ubuntu 14.23-0ubuntu0.22.04.1)",
+      "in_recovery": false,
+      "database_size_bytes": 27929947
+    },
+    "window": {
+      "start": "2026-07-01T00:00:00Z",
+      "end": "2026-07-24T00:00:00Z",
+      "duration_days": 23.0,
+      "timezone": "UTC",
+      "interval_semantics": "half-open [start,end)"
+    },
+    "assets": {
+      "totals": {
+        "total_rows": 6,
+        "non_deleted": 6,
+        "active": 6,
+        "archived": 0,
+        "deleted": 0,
+        "catalog_bytes": 0
+      },
+      "daily_additions_utc": [
+        {
+          "day": "2026-07-23T00:00:00Z",
+          "added": 6
+        }
+      ]
+    },
+    "recordings": {
+      "totals": {
+        "sessions_overlapping_window": 4,
+        "currently_active": 0,
+        "recording_hours_in_window": 0.06666666666666667
+      },
+      "daily_recording_hours_utc": [
+        {
+          "day": "2026-07-01T00:00:00Z",
+          "recording_hours": 0
+        },
+        {
+          "day": "2026-07-02T00:00:00Z",
+          "recording_hours": 0
+        },
+        {
+          "day": "2026-07-03T00:00:00Z",
+          "recording_hours": 0
+        },
+        {
+          "day": "2026-07-04T00:00:00Z",
+          "recording_hours": 0
+        },
+        {
+          "day": "2026-07-05T00:00:00Z",
+          "recording_hours": 0
+        },
+        {
+          "day": "2026-07-06T00:00:00Z",
+          "recording_hours": 0
+        },
+        {
+          "day": "2026-07-07T00:00:00Z",
+          "recording_hours": 0
+        },
+        {
+          "day": "2026-07-08T00:00:00Z",
+          "recording_hours": 0
+        },
+        {
+          "day": "2026-07-09T00:00:00Z",
+          "recording_hours": 0
+        },
+        {
+          "day": "2026-07-10T00:00:00Z",
+          "recording_hours": 0
+        },
+        {
+          "day": "2026-07-11T00:00:00Z",
+          "recording_hours": 0
+        },
+        {
+          "day": "2026-07-12T00:00:00Z",
+          "recording_hours": 0
+        },
+        {
+          "day": "2026-07-13T00:00:00Z",
+          "recording_hours": 0
+        },
+        {
+          "day": "2026-07-14T00:00:00Z",
+          "recording_hours": 0
+        },
+        {
+          "day": "2026-07-15T00:00:00Z",
+          "recording_hours": 0
+        },
+        {
+          "day": "2026-07-16T00:00:00Z",
+          "recording_hours": 0
+        },
+        {
+          "day": "2026-07-17T00:00:00Z",
+          "recording_hours": 0
+        },
+        {
+          "day": "2026-07-18T00:00:00Z",
+          "recording_hours": 0
+        },
+        {
+          "day": "2026-07-19T00:00:00Z",
+          "recording_hours": 0
+        },
+        {
+          "day": "2026-07-20T00:00:00Z",
+          "recording_hours": 0
+        },
+        {
+          "day": "2026-07-21T00:00:00Z",
+          "recording_hours": 0
+        },
+        {
+          "day": "2026-07-22T00:00:00Z",
+          "recording_hours": 0
+        },
+        {
+          "day": "2026-07-23T00:00:00Z",
+          "recording_hours": 0.06666666666666667
+        }
+      ],
+      "peak_concurrent_capture": 1
+    },
+    "events": {
+      "standard_events_exact": {
+        "event_count": 4,
+        "peak_event_time_eps": 1,
+        "peak_processing_time_eps": 2,
+        "quarantined_count": 2
+      },
+      "raw_batches": {
+        "batches_created": 0,
+        "events_in_batches": 0,
+        "current_backlog_batches": 0,
+        "current_backlog_events": 0,
+        "maximum_batch_average_receive_eps": 0
+      },
+      "raw_batch_rate_semantics": "maximum batch-average receive rate; never treated as an exact per-second peak"
+    },
+    "live_sessions": {
+      "totals": {
+        "sessions_overlapping_window": 0,
+        "currently_active": 0
+      },
+      "peak_concurrent_live_sessions": 0
+    },
+    "renders": {
+      "totals": {
+        "jobs_created": 6,
+        "currently_running": 0,
+        "succeeded": 0,
+        "failed": 6,
+        "duration_p50_seconds": null,
+        "duration_p95_seconds": null
+      },
+      "daily_jobs_utc": [
+        {
+          "day": "2026-07-23T00:00:00Z",
+          "jobs_created": 6
+        }
+      ],
+      "peak_concurrent_render_jobs": 0
+    },
+    "artifacts": {
+      "totals": {
+        "artifact_count": 10,
+        "artifact_bytes": 102,
+        "non_content_addressed": 0,
+        "non_s3_uri_count": 0
+      },
+      "by_retention_and_sensitivity": [
+        {
+          "retention_policy_code": "test",
+          "sensitivity": "internal",
+          "artifact_count": 10,
+          "artifact_bytes": 102
+        }
+      ],
+      "daily_growth_utc": [
+        {
+          "day": "2026-07-23T00:00:00Z",
+          "artifacts_created": 10,
+          "bytes_created": 102
+        }
+      ]
+    },
+    "workflows": {
+      "totals": {
+        "total_workflows": 30,
+        "workflows_created": 30,
+        "current_queue_depth": 0,
+        "currently_running": 9,
+        "waiting_human": 2,
+        "duration_p50_seconds": 0.036222000000000004,
+        "duration_p95_seconds": 0.07875375000000001
+      },
+      "steps": {
+        "queued_steps": 0,
+        "leased_steps": 5,
+        "expired_running_leases": 5
+      },
+      "peak_concurrent_workflows": 24
+    },
+    "browser_use": {
+      "current_leases": {
+        "active_draft_leases": 0,
+        "active_retry_leases": 0,
+        "expired_draft_leases": 0,
+        "expired_retry_leases": 0
+      },
+      "observed_draft_execution_peak": 0,
+      "historical_limit": null,
+      "historical_limit_reason": "Lease rows do not preserve every reclaimed retry interval; the approved configured account/room cap must come from the capacity input contract."
+    }
+  },
+  "object_storage_reconciliation": {
+    "status": "not_run",
+    "passed": false,
+    "reason": "object-store endpoint, bucket or ephemeral credentials were not supplied"
+  },
+  "capacity_input": null,
+  "capacity_input_errors": [
+    "approved capacity input was not supplied"
+  ],
+  "qualification_gates": {
+    "operational_classification": false,
+    "source_snapshot_attested": false,
+    "minimum_seven_day_window": true,
+    "approved_capacity_input": false,
+    "object_storage_reconciled": false,
+    "database_measurement_complete": true
+  },
+  "credentials_retained": false,
+  "raw_business_rows_retained": false,
+  "known_limits": [
+    "Integration fixtures validate the collector only and never establish operational capacity."
+  ],
+  "qualifies_for_chk_0110": false,
+  "report_fingerprint": "32d49c59e163cbd011dc21b58fb306e5f7dd9d351cb6d22f73c71f24becf24f2"
+}

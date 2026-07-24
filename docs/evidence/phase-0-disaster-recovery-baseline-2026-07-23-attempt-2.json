@@ -1,0 +1,23 @@
+{
+  "classification": "local_baseline",
+  "completed_at": "2026-07-23T14:00:35.527996Z",
+  "environment": {
+    "archive_mode_requested": true,
+    "credentials_persisted": false,
+    "data_page_checksums_requested": true,
+    "minio": "minio version RELEASE.2025-04-22T22-12-26Z (commit-id=0d7408fc9969caf07de6a8c3a84f9fbb10a6739e)",
+    "pg_basebackup": "pg_basebackup (PostgreSQL) 14.23 (Ubuntu 14.23-0ubuntu0.22.04.1)",
+    "postgres": "postgres (PostgreSQL) 14.23 (Ubuntu 14.23-0ubuntu0.22.04.1)"
+  },
+  "failure": {
+    "sqlstate": null,
+    "stage_error_type": "DisasterRecoveryError"
+  },
+  "qualifies_for_chk_0295": false,
+  "report_fingerprint_sha256": "babbca614928057c4556a7923d2f3390fa175bffb917b09f3c1578dabb4146c0",
+  "run_code": "DR-20260723-F97CF6FACC85",
+  "schema_version": "disaster-recovery-rehearsal.v1",
+  "started_at": "2026-07-23T14:00:10.461010Z",
+  "status": "failed",
+  "total_duration_ms": 25067
+}

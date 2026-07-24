@@ -32,6 +32,37 @@ python scripts/bootstrap_reproducible.py
 python scripts/bootstrap_reproducible.py --skip-dependencies --skip-skill --with-infra
 ```
 
+迁移器按 migration 单独提交，使用全局 advisory lock，并默认设置 5 秒锁超时和
+15 分钟语句超时；已登记 migration 的 SHA-256 发生变化时立即失败。生产变更前还
+必须按 `docs/operations/database-migration-rehearsal.md` 在隔离的生产数据副本执行
+`scripts/rehearse_migrations.py`。干净库或 `synthetic_fixture` 报告不能替代真实副本
+的耗时、锁、数据不变量和前向修复证据。
+
+本地 PITR 与版本化对象恢复基线按
+`docs/operations/disaster-recovery-baseline-runbook.md` 执行。该演练会启动独立的
+PostgreSQL/MinIO、创建物理备份与 WAL 时间目标、破坏当前对象版本并恢复，再执行
+marker、migration、业务不变量、物理页和跨存储 checksum 验证；它不修改当前应用
+数据库，也不替代后续生产规模的 `CHK-7230`。
+
+旧主链兼容门禁按 `docs/operations/legacy-compatibility-audit.md` 执行。先在隔离集成库
+运行 PostgreSQL/API 兼容测试补齐六类代表性来源，再用
+`scripts/audit_legacy_compatibility.py` 核对迁移校验和、来源/投影基数、只读与不确定性
+语义、分页/详情 API、稳定错误码和 canonical 事实表零写入。报告不保存 DSN、令牌或
+原始业务行；代表性报告只证明兼容契约，不证明生产容量或数据质量。
+
+容量采集使用 `scripts/measure_capacity_baseline.py` 和
+`docs/operations/capacity-baseline-input.v1.example.json`。集成库报告只能验证查询与
+指纹契约并固定为不满足 `CHK-0110`；只有运行只读快照、对象存储全量对账、批准后的
+并发上限/预测/成本/阈值输入全部存在时，报告才可能设置
+`qualifies_for_chk_0110=true`。具体执行方式见
+`docs/operations/capacity-baseline-measurement-2026-07-23.md`。
+
+Phase 0 技术包与五方签字使用 `scripts/assemble_phase0_acceptance.py`。它对 Phase owner、
+checklist 状态、容量/迁移/兼容/灾备/全量回归报告及证据文件统一计算技术指纹，再要求
+product、engineering、data、security、operations 对同一指纹签署；任一证据变化都会
+使旧签字失效。流程和拒绝占位的示例见
+`docs/operations/phase-0-acceptance-package.md`。
+
 启动后端：
 
 ```bash
@@ -106,14 +137,26 @@ cd workers/browser-use
 uv run python -m browser_use_worker --probe-maitu
 ```
 
-真实工作台使用 `/maitu/`。先配置 `DEEPSEEK_API_KEY`，再启动后端和队列 Worker：
+真实生产工作台使用稳定 Console 路由 `/production/live-rooms`；旧
+`/maitu/` 入口只做保留深链参数的迁移重定向。在线生成必须先登记有效的
+外部处理方条款与 secret-reference 凭据，并配置 `DEEPSEEK_API_KEY`、已批准的
+`DEEPSEEK_PROCESSING_REGION` 和可写的版本化 evidence 对象存储；缺少任一项时
+生成策略 fail closed。完成这些部署配置后再启动后端和队列 Worker：
 
 ```bash
 python scripts/run_maitu_workbench_worker.py
 python scripts/run_material_analysis_worker.py --lease-seconds 900 --heartbeat-seconds 60
 ```
 
-第一个 Worker 通过已登录的可见 Chrome 同步麦兔资源快照，并且只执行已通过 preflight、绑定到新建空白草稿房间的任务。第二个 Worker 分析当前计划选中的本地视频，长时间抽帧和模型调用期间使用独立数据库连接续租。素材分析使用 `OPENAI_API_KEY`，可恢复的模型请求按 `ONLINE_MODEL_MAX_ATTEMPTS` 做有界重试；尝试耗尽后任务进入 `failed`，由 `POST /api/maitu/workbench/video-analysis-jobs/{analysis_code}/retry` 明确重新排队，不做无限自动重试。Gemini 只接受人工从网页粘贴且绑定素材指纹的 JSON，不需要在服务端保存 Gemini 凭据。
+第一个 Worker 通过已登录的可见 Chrome 同步麦兔资源快照，并且只执行已通过
+preflight、绑定到新建空白草稿房间的任务。第二个 Worker 分析当前计划选中的本地
+视频，长时间抽帧和模型调用期间使用独立数据库连接续租。素材分析使用
+`OPENAI_API_KEY` 和已批准的 `OPENAI_PROCESSING_REGION`，同样要求有效处理条款、
+secret-reference 凭据与 evidence 存储。可恢复的模型请求按
+`ONLINE_MODEL_MAX_ATTEMPTS` 做有界重试；尝试耗尽后任务进入 `failed`，由
+`POST /api/maitu/workbench/video-analysis-jobs/{analysis_code}/retry` 明确重新排队，
+不做无限自动重试。Gemini 只接受人工从网页粘贴且绑定素材指纹的 JSON，不需要在
+服务端保存 Gemini 凭据，也不构成在线 provider 调用。
 
 ## 4. Douyin Live Research：固定第三方 sidecar
 
@@ -131,7 +174,12 @@ uv run --project workers/live-research assetgraph-live-research clip-worker
 uv run --project workers/live-research assetgraph-live-research analysis-worker
 ```
 
-生产运行需要分别启动 `scheduler`、`retention`、`clip-worker` 和 `analysis-worker`。所有内部 API 请求使用 `ASSETGRAPH_SCRIPT_LAYOUT_WORKER_TOKEN` 和 worker identity；数据根由 `ASSETGRAPH_LIVE_RESEARCH_ROOT` 指向外部数据盘。创建抖音观察目标前不会启动真实录制；需要 ASR/视觉/模板聚合时还需配置 OpenAI 与 DeepSeek 凭据。
+生产运行需要分别启动 `scheduler`、`retention`、`clip-worker` 和 `analysis-worker`。
+所有内部 API 请求使用 `ASSETGRAPH_SCRIPT_LAYOUT_WORKER_TOKEN` 和 worker identity；
+数据根由 `ASSETGRAPH_LIVE_RESEARCH_ROOT` 指向外部数据盘。创建抖音观察目标前不会
+启动真实录制；需要 ASR/视觉/模板聚合时还需配置 OpenAI 与 DeepSeek 凭据、对应的
+已批准处理区域、有效处理条款和版本化 evidence 存储。Worker 必须先取得策略授权，
+再调用外部服务并持久化调用证据；证据写入失败时不得提交成功状态。
 
 ## 5. 素材数据迁移（私有生产语料，不属于公开 Core）
 

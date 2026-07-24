@@ -26,8 +26,8 @@ export default function MaituApp() {
     title="麦兔内容生产工作台"
     status={<StatusBadge label="仅执行至草稿" tone="success" />}
     navItems={[
-      { href: "/maitu/", label: "生产工作台", detail: "故事到麦兔草稿", icon: Workflow, active: true },
-      { href: "/live-research/", label: "模板工坊", detail: "直播采集与模板", icon: Sparkles },
+      { href: "/production/live-rooms", label: "生产工作台", detail: "故事到麦兔草稿", icon: Workflow, active: true },
+      { href: "/research/live-sources", label: "模板工坊", detail: "直播采集与模板", icon: Sparkles },
     ]}
   >
     <div className="wb-tabs" role="tablist" aria-label="生产工作台视图">

@@ -30,17 +30,21 @@ def test_openai_transcription_records_actual_model_and_fingerprint(tmp_path: Pat
 
     provider = OpenAITranscriptionProvider(
         api_key="key",
+        model="gpt-4o-transcribe",
         transport=httpx.MockTransport(handler),
     )
     result = provider.transcribe(
         audio,
-        model_version="gpt-4o-transcribe",
+        strategy_revision="live.asr.zh.v2",
         parameters={"language": "zh"},
+        processor_call_audit_code="PROCESSOR-001",
     )
 
-    assert result["actual_model"] == "gpt-4o-transcribe"
-    assert len(result["input_audio_sha256"]) == 64
-    assert result["transcript"]["text"] == "hello"
+    assert len(result.content["input_audio_sha256"]) == 64
+    assert result.content["transcript"]["text"] == "hello"
+    assert "model" not in result.content["transcript"]
+    assert result.evidence["actual_model"] == "gpt-4o-transcribe"
+    assert result.evidence["processor_call_audit_code"] == "PROCESSOR-001"
 
 
 def test_deepseek_aggregation_returns_versioned_template() -> None:
@@ -59,18 +63,21 @@ def test_deepseek_aggregation_returns_versioned_template() -> None:
 
     provider = DeepSeekTemplateProvider(
         api_key="key",
+        model="deepseek-chat",
         transport=httpx.MockTransport(handler),
     )
     result = provider.analyze(
         run_type="template_aggregation",
         source_path=None,
         session={"session_code": "capture_1", "channels": []},
-        model_version="deepseek-chat",
+        strategy_revision="live.template-aggregation.v2",
         parameters={"observations": [{"kind": "host"}]},
+        processor_call_audit_code="PROCESSOR-002",
     )
 
-    assert result["contract_version"] == "live-template-aggregation.v1"
-    assert result["template"]["canvas"]["width"] == 1080
+    assert result.content["contract_version"] == "live-template-aggregation.v1"
+    assert result.content["template"]["canvas"]["width"] == 1080
+    assert result.evidence["strategy_revision"] == "live.template-aggregation.v2"
 
 
 class _FrameRunner:
@@ -122,6 +129,7 @@ def test_openai_vision_samples_frames_and_parses_structured_observations(
 
     provider = OpenAIVisionProvider(
         api_key="key",
+        model="vision-v1",
         storage=SecureStorage(tmp_path / "store"),
         transport=httpx.MockTransport(handler),
         runner=_FrameRunner(),
@@ -130,13 +138,15 @@ def test_openai_vision_samples_frames_and_parses_structured_observations(
         run_type="layout_inference",
         source_path=source,
         session={"session_code": "capture-1"},
-        model_version="vision-v1",
+        strategy_revision="live.layout-inference.v2",
         parameters={"sample_times_seconds": [0]},
+        processor_call_audit_code="PROCESSOR-003",
     )
 
-    assert result["contract_version"] == "live-vision-observations.v1"
-    assert result["observations"][0]["kind"] == "host"
-    assert result["frame_manifest"][0]["sha256"]
+    assert result.content["contract_version"] == "live-vision-observations.v1"
+    assert result.content["observations"][0]["kind"] == "host"
+    assert result.content["frame_manifest"][0]["sha256"]
+    assert result.evidence["capability"] == "image_understanding"
 
 
 def test_provider_marks_5xx_as_retryable(tmp_path: Path) -> None:
@@ -144,14 +154,16 @@ def test_provider_marks_5xx_as_retryable(tmp_path: Path) -> None:
     audio.write_bytes(b"RIFF" + b"\0" * 100)
     provider = OpenAITranscriptionProvider(
         api_key="key",
+        model="gpt-4o-transcribe",
         transport=httpx.MockTransport(lambda _request: httpx.Response(503)),
     )
 
     with pytest.raises(ModelProviderError) as captured:
         provider.transcribe(
             audio,
-            model_version="gpt-4o-transcribe",
+            strategy_revision="live.asr.zh.v2",
             parameters={},
+            processor_call_audit_code="PROCESSOR-004",
         )
     assert captured.value.retryable is True
 
@@ -163,14 +175,16 @@ def test_routed_provider_fails_explicitly_without_credentials() -> None:
             run_type="ocr",
             source_path=Path("source.ts"),
             session={},
-            model_version="vision-model",
+            strategy_revision="live.ocr.v2",
             parameters={},
+            processor_call_audit_code="PROCESSOR-005",
         )
     with pytest.raises(ModelProviderError, match="DEEPSEEK_API_KEY"):
         provider.analyze(
             run_type="template_aggregation",
             source_path=None,
             session={},
-            model_version="deepseek-chat",
+            strategy_revision="live.template-aggregation.v2",
             parameters={"observations": [{}]},
+            processor_call_audit_code="PROCESSOR-006",
         )

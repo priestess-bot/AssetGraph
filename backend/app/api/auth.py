@@ -16,6 +16,9 @@ def maitu_forbidden_values() -> tuple[str, ...]:
         settings.maitu_reconciliation_operator_token,
         settings.maitu_readback_attestation_key,
         settings.maitu_authority_token,
+        settings.control_plane_worker_token,
+        settings.control_plane_operator_token,
+        settings.manifest_signing_key,
     ):
         if configured is not None and configured.get_secret_value():
             values.append(configured.get_secret_value())
@@ -117,4 +120,54 @@ def require_maitu_script_layout_worker(
         or contains_durable_secret(identity, forbidden_values=(worker_secret,))
     ):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Invalid worker identity")
+    return identity
+
+
+def require_control_plane_worker(
+    authorization: Annotated[str | None, Header()] = None,
+    worker_id: Annotated[str | None, Header(alias="X-AssetGraph-Worker-ID")] = None,
+) -> str:
+    configured = settings.control_plane_worker_token
+    if configured is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Control-plane worker authentication is not configured",
+        )
+    supplied = _bearer_value(authorization, principal="Control-plane worker")
+    worker_secret = configured.get_secret_value()
+    if not hmac.compare_digest(supplied, worker_secret):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Worker authentication failed")
+    identity = str(worker_id or "").strip()
+    if (
+        not identity
+        or len(identity) > 128
+        or contains_durable_secret(identity, forbidden_values=(worker_secret,))
+    ):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Invalid worker identity")
+    return identity
+
+
+def require_control_plane_operator(
+    authorization: Annotated[str | None, Header()] = None,
+) -> str:
+    configured = settings.control_plane_operator_token
+    if configured is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Control-plane operator authentication is not configured",
+        )
+    supplied = _bearer_value(authorization, principal="Control-plane operator")
+    operator_secret = configured.get_secret_value()
+    if not hmac.compare_digest(supplied, operator_secret):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Operator authentication failed")
+    identity = settings.control_plane_operator_id.strip()
+    if (
+        not identity
+        or len(identity) > 128
+        or contains_durable_secret(identity, forbidden_values=(operator_secret,))
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Control-plane operator identity is not configured safely",
+        )
     return identity

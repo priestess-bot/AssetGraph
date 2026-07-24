@@ -26,8 +26,8 @@ export default function LiveResearchApp() {
     title="直播模板工坊"
     status={<StatusBadge label="研究采集运行中" tone="info" />}
     navItems={[
-      { href: "/maitu/", label: "生产工作台", detail: "故事到麦兔草稿", icon: Workflow },
-      { href: "/live-research/", label: "模板工坊", detail: "直播采集与模板", icon: RadioTower, active: true },
+      { href: "/production/live-rooms", label: "生产工作台", detail: "故事到麦兔草稿", icon: Workflow },
+      { href: "/research/live-sources", label: "模板工坊", detail: "直播采集与模板", icon: RadioTower, active: true },
     ]}
   >
     <div className="wb-tabs research-tabs" role="tablist" aria-label="模板工坊视图">

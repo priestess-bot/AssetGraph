@@ -369,15 +369,11 @@ class WorkbenchPlanRevisionRead(BaseModel):
     inventory_snapshot_code: str
     source_build_plan_code: str | None = None
     input_fingerprint: str
-    generation_provider: str
-    generation_requested_model: str
-    generation_actual_model: str
+    generation_strategy_revision: str
+    generation_invocation_evidence_ref: str | None = None
     generation_prompt_version: str
-    generation_request_id: str | None = None
     generation_input_fingerprint: str
     generation_output_fingerprint: str
-    generation_usage: dict[str, Any] = Field(default_factory=dict)
-    generation_latency_ms: int
     pipeline_source: str
     pipeline_output: dict[str, Any]
     gap_report: dict[str, Any] = Field(default_factory=dict)

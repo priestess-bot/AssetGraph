@@ -31,8 +31,9 @@ from app.services.material_analysis import (  # noqa: E402
     MaterialAnalysisWorkbenchService,
     MaterialVisionAnalyzer,
     RepresentativeFrameExtractor,
+    build_material_analysis_router,
 )
-from app.services.online_models import OnlineModelError, OpenAIResponsesClient  # noqa: E402
+from app.services.online_models import OnlineModelError  # noqa: E402
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -53,18 +54,12 @@ def _build_processor(
     assets_root: Path,
     analysis_root: Path,
 ) -> MaterialAnalysisJobProcessor | None:
-    configured = settings.openai_api_key
-    if configured is None or not configured.get_secret_value().strip():
+    router = build_material_analysis_router(repository.connection)
+    if router is None:
         return None
-    client = OpenAIResponsesClient(
-        api_key=configured.get_secret_value(),
-        base_url=settings.openai_base_url,
-        timeout_seconds=settings.online_model_timeout_seconds,
-        max_attempts=settings.online_model_max_attempts,
-    )
     return MaterialAnalysisJobProcessor(
         workflow=MaterialAnalysisWorkbenchService(repository),
-        analyzer=MaterialVisionAnalyzer(client, model=settings.openai_video_frame_model),
+        analyzer=MaterialVisionAnalyzer(router),
         extractor=RepresentativeFrameExtractor(analysis_root / "representative-frames"),
         asset_materials_root=assets_root,
         maitu_mirror_root=settings.maitu_mirror_root,
@@ -147,7 +142,9 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             try:
                 if processor is None:
-                    raise MaterialAnalysisError("OpenAI API key is not configured")
+                    raise MaterialAnalysisError(
+                        "Governed material-analysis strategy is not configured"
+                    )
                 with MaterialAnalysisLeaseHeartbeat(
                     renew=lambda: _renew_claim(job, args.worker_id, args.lease_seconds),
                     interval_seconds=heartbeat_seconds,
@@ -159,11 +156,11 @@ def main(argv: list[str] | None = None) -> int:
                     )
                 print(f"completed {job['analysis_code']} asset={job['asset_code']}", flush=True)
             except OnlineModelError as exc:
-                persisted = _fail_claim(repository, job, args.worker_id, "OPENAI_REQUEST_FAILED", exc)
+                persisted = _fail_claim(repository, job, args.worker_id, "MODEL_STRATEGY_REQUEST_FAILED", exc)
                 suffix = "" if persisted else " (lease lost; authoritative state was not overwritten)"
                 print(f"failed {job['analysis_code']}: {exc}{suffix}", file=sys.stderr, flush=True)
             except MaterialAnalysisError as exc:
-                error_code = "OPENAI_NOT_CONFIGURED" if processor is None else "MATERIAL_ANALYSIS_FAILED"
+                error_code = "MODEL_STRATEGY_NOT_CONFIGURED" if processor is None else "MATERIAL_ANALYSIS_FAILED"
                 persisted = _fail_claim(repository, job, args.worker_id, error_code, exc)
                 suffix = "" if persisted else " (lease lost; authoritative state was not overwritten)"
                 print(f"failed {job['analysis_code']}: {exc}{suffix}", file=sys.stderr, flush=True)

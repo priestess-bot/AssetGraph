@@ -1,0 +1,168 @@
+{
+  "classification": "local_baseline",
+  "completed_at": "2026-07-23T14:02:00.522187Z",
+  "composite_measured_rto_ms": 794,
+  "cross_store_validation": {
+    "passed": true,
+    "recovered_artifact_ref_matches_restored_object": true
+  },
+  "database": {
+    "base_backup_bytes": 62935669,
+    "base_backup_duration_ms": 591,
+    "base_backup_restore_copy_duration_ms": 414,
+    "business_invariants": [
+      {
+        "actual": true,
+        "code": "legacy_asset_projection_cardinality",
+        "expected": true,
+        "passed": true
+      },
+      {
+        "actual": true,
+        "code": "legacy_content_projection_cardinality",
+        "expected": true,
+        "passed": true
+      },
+      {
+        "actual": true,
+        "code": "legacy_live_variant_projection_cardinality",
+        "expected": true,
+        "passed": true
+      },
+      {
+        "actual": true,
+        "code": "legacy_layout_projection_cardinality",
+        "expected": true,
+        "passed": true
+      },
+      {
+        "actual": true,
+        "code": "legacy_delivery_projection_cardinality",
+        "expected": true,
+        "passed": true
+      },
+      {
+        "actual": true,
+        "code": "legacy_delivery_does_not_fabricate_delivery_or_exposure",
+        "expected": true,
+        "passed": true
+      },
+      {
+        "actual": true,
+        "code": "legacy_layout_remains_reference_only",
+        "expected": true,
+        "passed": true
+      },
+      {
+        "actual": true,
+        "code": "legacy_asset_semantics_remain_observational",
+        "expected": true,
+        "passed": true
+      },
+      {
+        "actual": true,
+        "code": "neutral_plan_rows_have_no_supplier_projection",
+        "expected": true,
+        "passed": true
+      },
+      {
+        "actual": true,
+        "code": "neutral_live_analysis_rows_have_no_supplier_projection",
+        "expected": true,
+        "passed": true
+      },
+      {
+        "actual": true,
+        "code": "neutral_material_rows_have_complete_identity",
+        "expected": true,
+        "passed": true
+      },
+      {
+        "actual": true,
+        "code": "compatibility_views_are_read_only",
+        "expected": true,
+        "passed": true
+      }
+    ],
+    "business_invariants_passed": true,
+    "data_checksum_check_passed": true,
+    "database_name": "assetgraph_dr_rehearsal",
+    "excluded_marker_at": "2026-07-23 23:01:58.366284+09:00",
+    "expected_migration_count": 44,
+    "latest_retained_marker_at": "2026-07-23 23:01:58.113378+09:00",
+    "marker_boundary_passed": true,
+    "measured_rpo_ms": 2,
+    "measured_rto_ms": 775,
+    "migration_count": 44,
+    "migrations_applied_before_backup": 44,
+    "passed": false,
+    "pg_amcheck_passed": true,
+    "pg_verifybackup_passed": true,
+    "promoted": false,
+    "recovered_markers": [
+      {
+        "committed_at": "2026-07-23 23:01:57.304582+09:00",
+        "marker_code": "base_backup",
+        "marker_payload": "DR-20260723-1675A439AB62"
+      },
+      {
+        "committed_at": "2026-07-23 23:01:58.113378+09:00",
+        "marker_code": "before_target",
+        "marker_payload": "DR-20260723-1675A439AB62:before"
+      }
+    ],
+    "recovery_target_at": "2026-07-23 23:01:58.115113+09:00",
+    "wal_archive_events": [
+      {
+        "archived_count": 5,
+        "failed_count": 0,
+        "last_archived_wal": "000000010000000000000004",
+        "switched_lsn": "0/4006510"
+      }
+    ]
+  },
+  "disaster_declared_at": "2026-07-23T14:01:58.939690Z",
+  "environment": {
+    "archive_mode_requested": true,
+    "credentials_persisted": false,
+    "data_page_checksums_requested": true,
+    "minio": "minio version RELEASE.2025-04-22T22-12-26Z (commit-id=0d7408fc9969caf07de6a8c3a84f9fbb10a6739e)",
+    "pg_basebackup": "pg_basebackup (PostgreSQL) 14.23 (Ubuntu 14.23-0ubuntu0.22.04.1)",
+    "postgres": "postgres (PostgreSQL) 14.23 (Ubuntu 14.23-0ubuntu0.22.04.1)"
+  },
+  "known_limits": [
+    "local baseline with repository schema and deterministic drill data, not production volume",
+    "does not establish the production RPO/RTO targets required by CHK-7230",
+    "does not cover a multi-node PostgreSQL or distributed object-store failure"
+  ],
+  "object_storage": {
+    "artifact_code": "ART-DR-20260723-1675A439AB62",
+    "bucket": "assetgraph-dr-evidence",
+    "corrupt_version_id": "9f724262-8bb4-42ad-8385-864e43e60c1c",
+    "delete_marker_created": true,
+    "expected_byte_size": 61,
+    "expected_checksum_sha256": "b704f7dfb22bfc9b69ab92dff941a39923a89d5f5fb8904ba0624e5d23f6ff84",
+    "measured_rpo_bytes": 0,
+    "measured_rto_from_disaster_ms": 794,
+    "object_key": "artifacts/sha256/b7/b704f7dfb22bfc9b69ab92dff941a39923a89d5f5fb8904ba0624e5d23f6ff84",
+    "original_version_id": "c89662e1-7351-4f1c-9325-d1bf82fd72a9",
+    "passed": true,
+    "restore": {
+      "metadata_checksum_sha256": "b704f7dfb22bfc9b69ab92dff941a39923a89d5f5fb8904ba0624e5d23f6ff84",
+      "operation_duration_ms": 19,
+      "passed": true,
+      "restored_byte_size": 61,
+      "restored_checksum_sha256": "b704f7dfb22bfc9b69ab92dff941a39923a89d5f5fb8904ba0624e5d23f6ff84",
+      "restored_version_id": "b8cc0e63-1e39-45d4-aba8-20758c882c0b",
+      "source_version_id": "c89662e1-7351-4f1c-9325-d1bf82fd72a9"
+    },
+    "versioning_enabled": true
+  },
+  "qualifies_for_chk_0295": false,
+  "report_fingerprint_sha256": "661c19b010675677954c8338ca21ffb0d80ab5dbe9499317cdab5905c9f70b3c",
+  "run_code": "DR-20260723-1675A439AB62",
+  "schema_version": "disaster-recovery-rehearsal.v1",
+  "started_at": "2026-07-23T14:01:53.840370Z",
+  "status": "failed",
+  "total_duration_ms": 6682
+}

@@ -22,42 +22,65 @@ pytestmark = pytest.mark.skipif(
 ANALYSIS_SPECS = [
     {
         "analysis_type": "frame_sampling",
-        "model_provider": "ffmpeg",
-        "model_version": "frame-sampling.v1",
+        "strategy_revision": "live.frame-sampling.v2",
         "parameters": {"interval_seconds": 5},
     },
     {
         "analysis_type": "asr",
-        "model_provider": "openai",
-        "model_version": "transcribe-v1",
+        "strategy_revision": "live.asr.zh.v2",
         "parameters": {"language": "zh"},
     },
     {
         "analysis_type": "ocr",
-        "model_provider": "openai",
-        "model_version": "vision-v1",
+        "strategy_revision": "live.ocr.v2",
         "parameters": {"sample_times_seconds": [0]},
     },
     {
         "analysis_type": "layout_inference",
-        "model_provider": "openai",
-        "model_version": "vision-v1",
+        "strategy_revision": "live.layout-inference.v2",
         "parameters": {"sample_times_seconds": [0]},
     },
 ]
 AGGREGATION_SPEC = {
-    "model_provider": "deepseek",
-    "model_version": "deepseek-test",
+    "strategy_revision": "live.template-aggregation.v2",
 }
+
+
+def _register_provider_evidence(connection: psycopg.Connection) -> str:
+    suffix = uuid4().hex
+    artifact_code = f"ART-LIVE-{suffix[:16]}"
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            INSERT INTO artifact_refs (
+                artifact_code, artifact_kind, media_type, schema_version,
+                storage_uri, checksum_sha256, byte_size, producer_type,
+                producer_code, sensitivity, retention_policy_code
+            ) VALUES (
+                %s, 'provider_invocation_evidence', 'application/json',
+                'provider-invocation-evidence.v1', %s, %s, 1,
+                'provider_strategy', 'test-live-worker', 'confidential',
+                'critical-audit-evidence'
+            )
+            """,
+            (artifact_code, f"s3://test/{suffix}", suffix.ljust(64, "0")),
+        )
+    connection.commit()
+    return artifact_code
 
 
 def test_postgres_analysis_dag_work_heartbeat_retention_reclaim_and_stale_capture() -> None:
     schema = f"live_research_test_{uuid4().hex[:12]}"
-    migration = (
-        Path(__file__).resolve().parents[1]
-        / "migrations"
-        / "024_live_research_observations.sql"
-    ).read_text(encoding="utf-8")
+    migration_root = Path(__file__).resolve().parents[1] / "migrations"
+    migrations = [
+        (migration_root / name).read_text(encoding="utf-8")
+        for name in (
+            "023_maitu_production_workbench.sql",
+            "024_live_research_observations.sql",
+            "025_maitu_material_analysis.sql",
+            "043_provider_neutral_producer_contracts.sql",
+        )
+    ]
     try:
         with psycopg.connect(DATABASE_URL) as connection:
             with connection.cursor() as cursor:
@@ -67,8 +90,15 @@ def test_postgres_analysis_dag_work_heartbeat_retention_reclaim_and_stale_captur
                         sql.Identifier(schema)
                     )
                 )
-                cursor.execute(sql.SQL(migration))
-                cursor.execute(sql.SQL(migration))
+                cursor.execute(
+                    sql.SQL(
+                        "CREATE TABLE {}.artifact_refs "
+                        "(LIKE public.artifact_refs INCLUDING ALL)"
+                    ).format(sql.Identifier(schema))
+                )
+                for migration in migrations:
+                    cursor.execute(sql.SQL(migration))
+                    cursor.execute(sql.SQL(migration))
             connection.commit()
             repository = LiveObservationRepository(connection)
             target = repository.create_watch_target(
@@ -221,21 +251,26 @@ def test_postgres_analysis_dag_work_heartbeat_retention_reclaim_and_stale_captur
                         lease_token=run["lease_token"],
                         lease_seconds=60,
                     ) is not None
+                completion_payload = {
+                    "output_payload": {
+                        "observations": [
+                            {"kind": run["analysis_type"], "confidence": 0.9}
+                        ]
+                    },
+                    "output_relative_path": (
+                        f"templates/analysis/{run['analysis_run_code']}/result.json"
+                    ),
+                    "output_checksum_sha256": f"{completed_count + 1:064x}",
+                }
+                if run["analysis_type"] != "frame_sampling":
+                    completion_payload["invocation_evidence_ref"] = (
+                        _register_provider_evidence(connection)
+                    )
                 completed = repository.complete_analysis_run(
                     run["analysis_run_code"],
                     "analysis-worker",
                     run["lease_token"],
-                    {
-                        "output_payload": {
-                            "observations": [
-                                {"kind": run["analysis_type"], "confidence": 0.9}
-                            ]
-                        },
-                        "output_relative_path": (
-                            f"templates/analysis/{run['analysis_run_code']}/result.json"
-                        ),
-                        "output_checksum_sha256": f"{completed_count + 1:064x}",
-                    },
+                    completion_payload,
                     aggregation_spec=AGGREGATION_SPEC,
                 )
                 assert completed is not None
@@ -263,6 +298,7 @@ def test_postgres_analysis_dag_work_heartbeat_retention_reclaim_and_stale_captur
                     "output_payload": {"template": {"canvas": {"width": 1080}}},
                     "output_relative_path": "templates/analysis/aggregation/result.json",
                     "output_checksum_sha256": "f" * 64,
+                    "invocation_evidence_ref": _register_provider_evidence(connection),
                 },
                 aggregation_spec=AGGREGATION_SPEC,
             )

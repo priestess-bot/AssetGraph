@@ -7,11 +7,12 @@ from typing import Any
 
 import pytest
 
+from app.domain.contracts import DataClassification
 from app.repositories.maitu_workbench import MaituWorkbenchConflictError
 from app.services.maitu_workbench import (
-    DeepSeekPlanGenerationProvider,
     DeterministicPlanGenerationProvider,
     MaituWorkbenchService,
+    RoutedPlanGenerationProvider,
     UnavailablePlanGenerationProvider,
     WorkbenchDraftSafetyError,
     WorkbenchModelGenerationError,
@@ -20,6 +21,12 @@ from app.services.maitu_workbench import (
     assert_draft_only,
 )
 from app.services.online_models import ModelInvocation, OnlineModelError
+from app.services.providers import (
+    ModelCapability,
+    OpenAICompatibleStructuredAdapter,
+    ProviderBinding,
+    ProviderRouter,
+)
 
 
 NOW = datetime(2026, 7, 20, tzinfo=UTC)
@@ -214,9 +221,14 @@ class FakeWorkbenchRepository:
         self.reference_publication: dict[str, Any] | None = _reference_publication()
         self.reference_resolution_count = 0
         self.created_reference_template: dict[str, Any] | None = None
+        self.protected_resources: dict[tuple[str, str], dict[str, Any]] = {}
 
     def get_run(self, run_code: str) -> dict[str, Any] | None:
         return deepcopy(self.run) if run_code == self.run["run_code"] else None
+
+    def get_protected_resource(self, resource_type: str, resource_id: str) -> dict[str, Any] | None:
+        resource = self.protected_resources.get((resource_type, resource_id))
+        return deepcopy(resource) if resource else None
 
     def resolve_published_reference_template(
         self, template_code: str
@@ -343,15 +355,13 @@ class FakeWorkbenchRepository:
             "inventory_snapshot_code": kwargs["inventory_snapshot"]["snapshot_code"],
             "source_build_plan_code": kwargs["source_build_plan_code"],
             "input_fingerprint": kwargs["input_fingerprint"],
-            "generation_provider": kwargs["generation_provider"],
-            "generation_requested_model": kwargs["generation_requested_model"],
-            "generation_actual_model": kwargs["generation_actual_model"],
+            "generation_strategy_revision": kwargs["generation_strategy_revision"],
+            "generation_invocation_evidence_ref": kwargs[
+                "generation_invocation_evidence_ref"
+            ],
             "generation_prompt_version": kwargs["generation_prompt_version"],
-            "generation_request_id": kwargs["generation_request_id"],
             "generation_input_fingerprint": kwargs["generation_input_fingerprint"],
             "generation_output_fingerprint": kwargs["generation_output_fingerprint"],
-            "generation_usage": kwargs["generation_usage"],
-            "generation_latency_ms": kwargs["generation_latency_ms"],
             "pipeline_source": kwargs["pipeline_source"],
             "pipeline_output": kwargs["pipeline_output"],
             "gap_report": kwargs["gap_report"],
@@ -593,7 +603,11 @@ def test_planning_uses_real_pipeline_and_persists_generation_audit_metadata() ->
     assert sum(
         scene["duration_seconds"] for scene in plan["pipeline_output"]["model_plan"]["scenes"]
     ) == 60
-    assert repository.plan_calls[0]["generation_provider"] == "deterministic-test"
+    assert (
+        repository.plan_calls[0]["generation_strategy_revision"]
+        == "test.maitu.creative-plan.v1"
+    )
+    assert repository.plan_calls[0]["generation_invocation_evidence_ref"] is None
     assert repository.plan_calls[0]["generation_prompt_version"] == "maitu-workbench-plan-v3"
     assert len(repository.plan_calls[0]["generation_input_fingerprint"]) == 64
     assert len(repository.plan_calls[0]["generation_output_fingerprint"]) == 64
@@ -863,7 +877,10 @@ def test_model_unavailable_fails_closed_before_pipeline_persistence() -> None:
     with pytest.raises(WorkbenchModelUnavailableError):
         service.create_initial_plan(repository.run["run_code"], {})
 
-    assert repository.failed == ("MODEL_UNAVAILABLE", "DeepSeek planning is unavailable")
+    assert repository.failed == (
+        "MODEL_UNAVAILABLE",
+        "Creative-plan model strategy is unavailable",
+    )
     assert repository.plan_calls == []
 
 
@@ -982,6 +999,32 @@ def test_preflight_requires_backend_blank_room_attestation() -> None:
     assert authority_check["passed"] is False
 
 
+def test_preflight_independently_rejects_a_dynamically_protected_target_room() -> None:
+    repository = FakeWorkbenchRepository()
+    repository.protected_resources[("maitu_room", "room-draft-001")] = {
+        "protection_mode": "deny_write",
+        "allowed_capabilities": [],
+        "reason_code": "PRODUCTION_HOLD",
+    }
+    service = MaituWorkbenchService(
+        repository,
+        FakeMaituRepository(),
+        generation_provider=DeterministicPlanGenerationProvider(),
+    )
+    service.create_initial_plan(repository.run["run_code"], {})
+
+    preflight = service.preflight(
+        repository.run["run_code"],
+        {"expected_plan_revision": 1},
+        room_verifier=fresh_blank_room_verifier,
+    )
+
+    target_check = next(check for check in preflight["checks"] if check["code"] == "target_room")
+    assert preflight["status"] == "blocked"
+    assert target_check["passed"] is False
+    assert target_check["evidence"]["registry_reason"] == "PROTECTED_RESOURCE_DENY_WRITE"
+
+
 def test_draft_execution_rechecks_authoritative_room_evidence() -> None:
     repository = FakeWorkbenchRepository()
     service = MaituWorkbenchService(
@@ -1035,6 +1078,41 @@ class FakeDeepSeekClient:
         )
 
 
+class MemoryProviderEvidenceSink:
+    def __init__(self) -> None:
+        self.items: list[dict[str, Any]] = []
+
+    def persist_provider_invocation(self, evidence: dict[str, Any]) -> str:
+        self.items.append(evidence)
+        return "ART-PROVIDER-TEST"
+
+
+def _routed_plan_provider(
+    client: Any,
+) -> tuple[RoutedPlanGenerationProvider, MemoryProviderEvidenceSink]:
+    sink = MemoryProviderEvidenceSink()
+    adapter = OpenAICompatibleStructuredAdapter(
+        client,
+        adapter_code="deepseek-chat-test.v1",
+        provider_code="deepseek",
+    )
+    router = ProviderRouter(
+        [
+            ProviderBinding(
+                strategy_revision="maitu.creative-plan.v2",
+                capability=ModelCapability.STRUCTURED_GENERATION,
+                adapter=adapter,
+                provider_model="deepseek-v4-pro",
+                allowed_classifications=frozenset(
+                    {DataClassification.CONFIDENTIAL}
+                ),
+            )
+        ],
+        sink,
+    )
+    return RoutedPlanGenerationProvider(router), sink
+
+
 def _deepseek_model_output() -> dict[str, Any]:
     return {
         "title": "完整场景计划",
@@ -1083,11 +1161,16 @@ def _deepseek_model_output() -> dict[str, Any]:
     }
 
 
-def test_deepseek_adapter_uses_json_contract_and_preserves_invocation_metadata() -> None:
+def test_routed_plan_strategy_uses_json_contract_and_is_provider_neutral() -> None:
     client = FakeDeepSeekClient(_deepseek_model_output())
-    provider = DeepSeekPlanGenerationProvider(client, model="deepseek-v4-pro")  # type: ignore[arg-type]
+    provider, sink = _routed_plan_provider(client)
 
-    result = provider.generate({"approved_product_facts": {"product_name": "demo"}})
+    result = provider.generate(
+        {
+            "approved_product_facts": {"product_name": "demo"},
+            "request_context": {"open_id": "sensitive-user-123"},
+        }
+    )
 
     assert client.call is not None
     assert client.call["provider"] == "deepseek"
@@ -1113,48 +1196,44 @@ def test_deepseek_adapter_uses_json_contract_and_preserves_invocation_metadata()
         "required_category": "digital_human_video",
         "accepted_asset_types": ["IMG", "VID"],
     }
-    assert result.actual_model == "deepseek-v4-pro-202607"
-    assert result.request_id == "chatcmpl-test"
-    assert result.input_fingerprint == "c" * 64
-    assert result.output_fingerprint == "d" * 64
-    assert result.usage == {"input_tokens": 10, "output_tokens": 20}
+    assert user_payload["context"]["request_context"]["open_id"] == "[REDACTED]"
+    assert "sensitive-user-123" not in client.call["messages"][1]["content"]
+    assert result.strategy_revision == "maitu.creative-plan.v2"
+    assert result.invocation_evidence_ref == "ART-PROVIDER-TEST"
+    assert len(result.input_fingerprint) == 64
+    assert len(result.output_fingerprint) == 64
+    assert sink.items[0]["actual_model"] == "deepseek-v4-pro-202607"
+    assert sink.items[0]["provider_response_id"] == "chatcmpl-test"
+    assert sink.items[0]["usage"] == {"input_tokens": 10, "output_tokens": 20}
+    assert sink.items[0]["input_redaction_count"] == 1
 
 
-def test_deepseek_adapter_rejects_malformed_model_output() -> None:
-    provider = DeepSeekPlanGenerationProvider(
-        FakeDeepSeekClient({"title": "missing fields"}),  # type: ignore[arg-type]
-        model="deepseek-v4-pro",
-    )
+def test_routed_plan_strategy_rejects_malformed_model_output() -> None:
+    provider, _sink = _routed_plan_provider(FakeDeepSeekClient({"title": "missing fields"}))
 
     with pytest.raises(WorkbenchModelGenerationError):
         provider.generate({"approved_product_facts": {}})
 
 
-def test_deepseek_adapter_classifies_non_json_content_as_generation_error() -> None:
+def test_routed_plan_strategy_classifies_non_json_content_as_unavailable() -> None:
     class NonJSONClient:
         def generate_json(self, **_kwargs: Any) -> ModelInvocation:
             raise OnlineModelError("chat response content was not valid JSON")
 
-    provider = DeepSeekPlanGenerationProvider(
-        NonJSONClient(),  # type: ignore[arg-type]
-        model="deepseek-v4-flash",
-    )
+    provider, _sink = _routed_plan_provider(NonJSONClient())
 
-    with pytest.raises(WorkbenchModelGenerationError, match="not valid JSON"):
+    with pytest.raises(WorkbenchModelUnavailableError, match="could not produce"):
         provider.generate({"approved_product_facts": {}})
 
 
-def test_deepseek_adapter_preserves_transport_failure_as_unavailable() -> None:
+def test_routed_plan_strategy_preserves_transport_failure_as_unavailable() -> None:
     class UnavailableClient:
         def generate_json(self, **_kwargs: Any) -> ModelInvocation:
             raise OnlineModelError("upstream timed out", retryable=True)
 
-    provider = DeepSeekPlanGenerationProvider(
-        UnavailableClient(),  # type: ignore[arg-type]
-        model="deepseek-v4-flash",
-    )
+    provider, _sink = _routed_plan_provider(UnavailableClient())
 
-    with pytest.raises(WorkbenchModelUnavailableError, match="timed out"):
+    with pytest.raises(WorkbenchModelUnavailableError, match="could not produce"):
         provider.generate({"approved_product_facts": {}})
 
 
@@ -1213,5 +1292,8 @@ def test_planning_rejects_invalid_duration_and_ungrounded_model_script(invalid_k
     with pytest.raises(WorkbenchModelGenerationError):
         service.create_initial_plan(repository.run["run_code"], {})
 
-    assert repository.failed == ("MODEL_OUTPUT_INVALID", "DeepSeek planning output is invalid")
+    assert repository.failed == (
+        "MODEL_OUTPUT_INVALID",
+        "Creative-plan model strategy output is invalid",
+    )
     assert repository.plan_calls == []

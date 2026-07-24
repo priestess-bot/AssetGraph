@@ -24,9 +24,9 @@
 .research-session-list button { display: flex; width: 100%; min-height: 78px; align-items: flex-start; justify-content: space-between; gap: 8px; padding: 9px; border: 1px solid transparent; border-radius: 5px; background: transparent; text-align: left; cursor: pointer; }
 .research-session-list button:hover { background: var(--wb-subtle); }
 .research-session-list button.active { border-color: #9bbcad; background: var(--wb-accent-soft); }
-.research-session-list button > div { display: flex; min-width: 0; flex-direction: column; }
+.research-session-list button > div { display: flex; width: 100%; min-width: 0; max-width: 100%; flex-direction: column; }
 .research-session-list button strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.research-session-list button code { margin-top: 4px; color: var(--wb-accent-dark); font-size: 8px; }
+.research-session-list button code { max-width: 100%; margin-top: 4px; overflow: hidden; color: var(--wb-accent-dark); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
 .research-session-list button small { margin-top: 5px; color: var(--wb-muted); font-size: 8px; }
 .research-session-list button > span { display: flex; flex: 0 0 auto; flex-direction: column; align-items: flex-end; gap: 4px; }
 .research-session-detail { min-width: 0; }

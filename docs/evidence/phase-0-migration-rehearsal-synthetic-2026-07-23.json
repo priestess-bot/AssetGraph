@@ -1,0 +1,3455 @@
+{
+  "after": {
+    "captured_at": "2026-07-23T13:48:08.352040Z",
+    "constraint_health": {
+      "unvalidated_constraints": 0
+    },
+    "exact_counts": {
+      "assets": 4,
+      "jd_live_metric_samples": null,
+      "live_analysis_runs": 0,
+      "live_capture_sessions": 2,
+      "live_room_template_revisions": 4,
+      "maitu_workbench_runs": 6,
+      "maitu_workbench_video_analyses": 0,
+      "video_production_jobs": 4
+    },
+    "identity": {
+      "database_name": "assetgraph_phase0_migration_synthetic_20260723_008",
+      "database_size_bytes": 27643227,
+      "in_recovery": false,
+      "other_session_count": 0,
+      "server_version": "14.23 (Ubuntu 14.23-0ubuntu0.22.04.1)"
+    },
+    "index_health": {
+      "invalid_indexes": 0,
+      "unready_indexes": 0
+    },
+    "migration_ledger": [
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "9e8effa09248618d34370b8bd5e60008ca00d425f64158b0dd33f9b4be4454d1",
+        "migration_name": "001_initial_schema.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "e4b83394ee806d378404e0e6a1d0330096b60fb876e9f8a1f5cd9b1d3f9e4377",
+        "migration_name": "002_digital_human_livestream_schema.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "3d8caece3343dcd2680b1230ccaf677fa63d553407ca2f3fc37a648d142ea2d3",
+        "migration_name": "003_maitu_asset_metadata.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "67759b72e0bcae3d6af8068ef19a87814934246d30afda19d3d847614cd9f234",
+        "migration_name": "004_maitu_replacement_plans.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "2c0bd082380020344b71e75cf7740a917956426ed6d1b5fbfbdd17742bac6125",
+        "migration_name": "005_maitu_execution_results.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "3e022c2f2d126fa1db8e72dbabfc4135dcc404396d98f7fa4901e614f45285f2",
+        "migration_name": "006_asset_local_material_mapping.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "c15af5029ec4d8ff64aa940838ab41b7120ff159b7a85937daac4ded89e8a035",
+        "migration_name": "007_asset_ingestion_hardening.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "4990c6dcc0b2d9bc984be390616566b8f45893c9678026f3b02ba31918cb293e",
+        "migration_name": "008_maitu_live_room_blueprints.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "510f5a45f06e8c8fdacf32dc6b3a2d72196a889db17dd95e595bdeeb24a533dc",
+        "migration_name": "009_maitu_live_room_build_plans.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "b8d2c474f4d31c30265e80927ed9d5244663706de0c4caa6e2ecf58c8ee1ad4c",
+        "migration_name": "010_maitu_layout_adjustments.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "b638549af517613d3b99c0c42e7fc81227abcf2503e37fca2f6bd10a65c27019",
+        "migration_name": "011_maitu_live_room_build_execution_results.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "c7515159dba884512a4913a7d262ba6bea45a8fa7a7096bcc7fd6709c1cb5700",
+        "migration_name": "012_maitu_build_plan_operation_asset_selection.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "d153a1cf4f66523aea28dcbc223261a4f8e7ef772a04acd43fc63c466f1baf4f",
+        "migration_name": "013_maitu_live_room_template_component_index.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "53ffa7640f16f791d8e442bc53d91ef971368635a0b6d4a74326a560d7676549",
+        "migration_name": "014_jd_live_metric_capture.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "4c54e0c75ea81ececaf9e81bf5754caed9d21b73cfaa756d05bf0a06afbbd056",
+        "migration_name": "015_asset_maitu_material_binding.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "271343a22b93006990f47eb9657c25f2b44aaa7b4bb3490d9c81a8b22b3ff5d3",
+        "migration_name": "016_maitu_retry_lease_idempotency.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "a27d90bd76fff97d2bb9f8fb9ed42e350f87bdc26931544c8e02db6bceddc406",
+        "migration_name": "017_maitu_retry_operation_checkpoints.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "e358cfa91b27d8ee7112d1d2d3d908308de10854f0a338e1ec462257b3ee1c3f",
+        "migration_name": "018_maitu_retry_operation_reconciliation.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "a564e022fe7725b93bfec4ff33493b5a4c92a546ab99ff7e159f25e7e17bd195",
+        "migration_name": "019_maitu_retry_mutation_intent.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "bb0fb29bd6a9785a5d2d99372cfa36ba0dbd1f2c580eed335e64f6e6d5921005",
+        "migration_name": "020_script_driven_build_plan_persistence.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "1d1a35dd811abb07af98949c609a4bc2eb6fa947d64950291e0d981848771f78",
+        "migration_name": "021_script_layout_execution_checkpoints.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "2d4051e09432b3940bd29c8641819037236232915e6a5f7c5488122d60822d04",
+        "migration_name": "022_video_production_jobs.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "644269c9e2c2dcc11d08403c91b1995d98e0bd37608ae19eef0b18fe4dcaa007",
+        "migration_name": "023_maitu_production_workbench.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "5ee20f5bb5ac06a37c5029f964990c3ccbc5eaef372f30815b270990eb562e87",
+        "migration_name": "024_live_research_observations.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "cfed1a258b0922ffd7527c8c12ef18a889156b788bbef45e06ba1e63ad0a3262",
+        "migration_name": "025_maitu_material_analysis.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "5e6cbf46e15303860f94a8781ce8f3d22099dda1d4d3ad898ef24253179251fc",
+        "migration_name": "026_maitu_reference_template_handoff.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "412091a375ba3544da928a14c51be2476bc3d3d5500458d1e8334c92b0542a8a",
+        "migration_name": "027_closed_loop_content_core.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "413404bbe3b3a426e3267941667ac8558168d4ade0a5d55813bb30512d3851c8",
+        "migration_name": "028_artifact_workflow_control_plane.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "cc3447f1e07ddc8fbdb21b6a3752d7c5efc221420638cd279599e501ea9efb0e",
+        "migration_name": "029_policy_release_data_governance.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "27074562b765216db24ff8ae8674664ae5bb34a9305b20745ee8f8faedcf9593",
+        "migration_name": "030_phase0_capability_defaults.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "10d83531d3503e6a710619780da0136ca9876c4125428c32b0c01a8598494663",
+        "migration_name": "031_metric_contract_quality_details.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "c37ddceed238fe5f5338a16c9ef06d5f0dcd098d5bcf5f2f5fc9390c074ce98c",
+        "migration_name": "032_catalog_revision_immutability.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "53be621e078e256e44f1330a6e785733a6b41bbde67d0b1a34b985fc862b5a77",
+        "migration_name": "033_workflow_external_effect_protocol.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "da0618e82598cb5ed13c801590849c56f37405960e06c5d0539f06b4ad62d030",
+        "migration_name": "034_content_production_aggregate_completion.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "a43fb6780e40fe4e11bc400dae2d9b8f8a09ade0da7beaa8953a682332b89986",
+        "migration_name": "035_evidence_integrity_alerting.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "8d5a3430ad248d0eb9ff08dfbf79ebf76b23c6559fae2199395633fc2e881f9b",
+        "migration_name": "036_legacy_workflow_compatibility_projections.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "1c5b484836e3d9c0ef0faa2c532621d0e90b541f954d0a229bd8a8ccbc55814b",
+        "migration_name": "037_least_privilege_and_protected_resource_registry.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "7911229163557310324811a7c13c89ce08e317f15ddf5bcfbe4e06d1bc53d37e",
+        "migration_name": "038_privacy_retention_deletion_credentials.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "a3c93836a191a232ed921ae19ba1ba828a20eef3267c91637cb9638cfefbbd83",
+        "migration_name": "039_deletion_retry_receipts.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "39b013c9cc763b975540bfdcaec8b4a3715a3fad7a955c395a067f630b48bb83",
+        "migration_name": "040_legacy_domain_compatibility_projections.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.966785+09:00",
+        "checksum_sha256": "d9e4596b419cfd618bdb8337cc4c7e96f8dd047e6a7a74ab5e701683edbc2d15",
+        "migration_name": "041_console_drafts_and_explicit_commands.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.974089+09:00",
+        "checksum_sha256": "8a48f3ce10b0916640139769e2514bba292eedc6e98bfc1ed6760f0617ec404e",
+        "migration_name": "042_console_command_receipts.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.974089+09:00",
+        "checksum_sha256": "56fd7b82fd655d32b5f023a8d9958ba2de9b27ae78454581b0bec16ecc977bca",
+        "migration_name": "043_provider_neutral_producer_contracts.sql"
+      },
+      {
+        "applied_at": "2026-07-23 22:48:08.173635+09:00",
+        "checksum_sha256": "0ad57d9a19e59cf08934f4fa8534198f70605fbe85e8cb4764ab335f93222324",
+        "migration_name": "044_provider_neutral_analysis_identity.sql"
+      }
+    ],
+    "schema_fingerprint": "876b41166ffff97cd479bfa5b70f398eed960db1a24a026afdc511886e14054e",
+    "table_stats": [
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 16384,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "artifact_input_refs",
+        "total_bytes": 24576
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 65536,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "artifact_refs",
+        "total_bytes": 81920
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 57344,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "asset_files",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 8192,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "asset_sequences",
+        "total_bytes": 8192
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 8192,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "asset_tags",
+        "total_bytes": 8192
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 16384,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "assetgraph_schema_migrations",
+        "total_bytes": 32768
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 442368,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "assets",
+        "total_bytes": 458752
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 16384,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "attribution_results",
+        "total_bytes": 24576
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 16384,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "attribution_runs",
+        "total_bytes": 24576
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "audit_events",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 16384,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "business_sequences",
+        "total_bytes": 24576
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 16384,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "capability_flags",
+        "total_bytes": 32768
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "capability_policy_versions",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 65536,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "console_command_receipts",
+        "total_bytes": 81920
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "console_draft_events",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 65536,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "console_drafts",
+        "total_bytes": 81920
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 81920,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "content_exposure_events",
+        "total_bytes": 98304
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "content_program_revisions",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": 40,
+        "heap_bytes": 16384,
+        "index_bytes": 81920,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "content_project_revisions",
+        "total_bytes": 131072
+      },
+      {
+        "estimated_rows": 22,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "content_projects",
+        "total_bytes": 40960
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "content_script_blocks",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "content_script_revisions",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "credential_records",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "credential_rotation_events",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 65536,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "data_access_decisions",
+        "total_bytes": 81920
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "data_access_policy_versions",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "data_contracts",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 24576,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "data_quality_batches",
+        "total_bytes": 32768
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 16384,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "data_quality_violations",
+        "total_bytes": 24576
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "data_tombstones",
+        "total_bytes": 40960
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 16384,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "decision_logs",
+        "total_bytes": 24576
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "deletion_receipts",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "deletion_run_status_history",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "deletion_runs",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "delivery_attempts",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "digital_humans",
+        "total_bytes": 40960
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 16384,
+        "index_bytes": 65536,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "domain_derivation_edges",
+        "total_bytes": 114688
+      },
+      {
+        "estimated_rows": 26,
+        "heap_bytes": 8192,
+        "index_bytes": 16384,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "domain_sequences",
+        "total_bytes": 57344
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 16384,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "effect_eligibility_policy_versions",
+        "total_bytes": 24576
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 16384,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "effect_estimates",
+        "total_bytes": 24576
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 65536,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "evidence_integrity_alerts",
+        "total_bytes": 81920
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 16384,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "execution_authorization_history",
+        "total_bytes": 81920
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 98304,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "execution_authorizations",
+        "total_bytes": 114688
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "external_processor_call_audits",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "external_processor_records",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 16384,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "feature_snapshots",
+        "total_bytes": 24576
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 16384,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "graph_projection_versions",
+        "total_bytes": 16384
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "human_tasks",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "integrity_check_runs",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "interaction_events",
+        "total_bytes": 40960
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 16384,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "learning_policy_versions",
+        "total_bytes": 24576
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "legacy_production_variant_links",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "legal_hold_history",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "legal_holds",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 65536,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "lineage_edges",
+        "total_bytes": 81920
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 40960,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "live_analysis_runs",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "live_assets",
+        "total_bytes": 57344
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "live_capture_channels",
+        "total_bytes": 40960
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 57344,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "live_capture_chunks",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 73728,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "live_capture_sessions",
+        "total_bytes": 90112
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "live_clip_jobs",
+        "total_bytes": 40960
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 40960,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "live_raw_event_batches",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 16384,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "live_research_sequences",
+        "total_bytes": 24576
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 24576,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "live_retention_tombstones",
+        "total_bytes": 32768
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "live_room_configuration_revisions",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "live_room_configurations",
+        "total_bytes": 57344
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 65536,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "live_room_template_publications",
+        "total_bytes": 81920
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 65536,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "live_room_template_revisions",
+        "total_bytes": 81920
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "live_room_templates",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 8192,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "live_sequences",
+        "total_bytes": 8192
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 65536,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "live_sessions",
+        "total_bytes": 73728
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "live_timeline_spans",
+        "total_bytes": 40960
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 81920,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "live_watch_targets",
+        "total_bytes": 98304
+      },
+      {
+        "estimated_rows": 24,
+        "heap_bytes": 8192,
+        "index_bytes": 180224,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_execution_retry_tasks",
+        "total_bytes": 229376
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 57344,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_jd_live_metric_samples",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 65536,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_jd_live_metric_sessions",
+        "total_bytes": 73728
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_layout_adjustments",
+        "total_bytes": 57344
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 57344,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_live_room_blueprints",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": 0,
+        "heap_bytes": 8192,
+        "index_bytes": 196608,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_live_room_build_plan_executions",
+        "total_bytes": 212992
+      },
+      {
+        "estimated_rows": 0,
+        "heap_bytes": 40960,
+        "index_bytes": 131072,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_live_room_build_plan_operation_results",
+        "total_bytes": 204800
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 114688,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_live_room_build_plan_operations",
+        "total_bytes": 131072
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_live_room_build_plan_reconciliations",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 81920,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_live_room_build_plans",
+        "total_bytes": 98304
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 40960,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_live_room_template_components",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 57344,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_live_room_template_scenes",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 131072,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_material_slots",
+        "total_bytes": 147456
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 40960,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_reference_room_profiles",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_replacement_plan_executions",
+        "total_bytes": 57344
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 98304,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_replacement_plan_items",
+        "total_bytes": 114688
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_replacement_plan_operation_results",
+        "total_bytes": 57344
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 98304,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_replacement_plans",
+        "total_bytes": 114688
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_retry_execution_receipts",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 65536,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_retry_operation_checkpoints",
+        "total_bytes": 81920
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 73728,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_retry_operation_intents",
+        "total_bytes": 139264
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_retry_operation_reconciliations",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 24576,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_workbench_analysis_conflicts",
+        "total_bytes": 32768
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_workbench_draft_execution_jobs",
+        "total_bytes": 40960
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_workbench_gemini_submissions",
+        "total_bytes": 40960
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_workbench_inventory_snapshot_items",
+        "total_bytes": 40960
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 65536,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_workbench_inventory_snapshots",
+        "total_bytes": 81920
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 57344,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_workbench_inventory_sync_jobs",
+        "total_bytes": 73728
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_workbench_material_decisions",
+        "total_bytes": 40960
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_workbench_material_requirements",
+        "total_bytes": 40960
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_workbench_plan_revisions",
+        "total_bytes": 40960
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_workbench_preflights",
+        "total_bytes": 40960
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 81920,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_workbench_product_fact_card_versions",
+        "total_bytes": 98304
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_workbench_product_fact_cards",
+        "total_bytes": 57344
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 57344,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_workbench_runs",
+        "total_bytes": 73728
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 40960,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_workbench_video_analyses",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "metric_definition_revisions",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "metric_definitions",
+        "total_bytes": 40960
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 16384,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "performance_profiles",
+        "total_bytes": 24576
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 16384,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "policy_decisions",
+        "total_bytes": 98304
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 24576,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "processing_jobs",
+        "total_bytes": 32768
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 16384,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "production_variant_revisions",
+        "total_bytes": 98304
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 65536,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "production_variants",
+        "total_bytes": 73728
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 40960,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "products",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "program_segment_script_block_adoptions",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "program_segments",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 16384,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "projection_checkpoints",
+        "total_bytes": 24576
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "projection_event_consumptions",
+        "total_bytes": 40960
+      },
+      {
+        "estimated_rows": 2,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "protected_resource_events",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "protected_resources",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "redaction_policy_versions",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "release_approvals",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 16384,
+        "index_bytes": 65536,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "release_manifests",
+        "total_bytes": 114688
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 16384,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "release_status_history",
+        "total_bytes": 32768
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "releases",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "retention_policy_versions",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "run_manifests",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 24576,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "script_blocks",
+        "total_bytes": 32768
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "scripts",
+        "total_bytes": 40960
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "shot_list_revisions",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "shot_projection_links",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "shot_script_block_sources",
+        "total_bytes": 57344
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "shots",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "stale_propagation_records",
+        "total_bytes": 40960
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "standard_events",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "story_brief_revisions",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "story_briefs",
+        "total_bytes": 40960
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 16384,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "tags",
+        "total_bytes": 16384
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "transactional_outbox_events",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "video_production_artifacts",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": 4,
+        "heap_bytes": 8192,
+        "index_bytes": 65536,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "video_production_jobs",
+        "total_bytes": 81920
+      },
+      {
+        "estimated_rows": 32,
+        "heap_bytes": 16384,
+        "index_bytes": 65536,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "video_production_stages",
+        "total_bytes": 114688
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 73728,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "video_segments",
+        "total_bytes": 81920
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "voice_profiles",
+        "total_bytes": 40960
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 8192,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "workflow_artifact_links",
+        "total_bytes": 8192
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 24576,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "workflow_external_effect_history",
+        "total_bytes": 90112
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 65536,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "workflow_external_effects",
+        "total_bytes": 81920
+      },
+      {
+        "estimated_rows": 30,
+        "heap_bytes": 16384,
+        "index_bytes": 98304,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "workflow_runs",
+        "total_bytes": 155648
+      },
+      {
+        "estimated_rows": 70,
+        "heap_bytes": 16384,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "workflow_status_history",
+        "total_bytes": 81920
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 16384,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "workflow_step_dependencies",
+        "total_bytes": 24576
+      },
+      {
+        "estimated_rows": 40,
+        "heap_bytes": 24576,
+        "index_bytes": 98304,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "workflow_steps",
+        "total_bytes": 163840
+      }
+    ]
+  },
+  "before": {
+    "captured_at": "2026-07-23T13:48:08.122327Z",
+    "constraint_health": {
+      "unvalidated_constraints": 0
+    },
+    "exact_counts": {
+      "assets": 4,
+      "jd_live_metric_samples": null,
+      "live_analysis_runs": 0,
+      "live_capture_sessions": 2,
+      "live_room_template_revisions": 4,
+      "maitu_workbench_runs": 6,
+      "maitu_workbench_video_analyses": 0,
+      "video_production_jobs": 4
+    },
+    "identity": {
+      "database_name": "assetgraph_phase0_migration_synthetic_20260723_008",
+      "database_size_bytes": 27643227,
+      "in_recovery": false,
+      "other_session_count": 0,
+      "server_version": "14.23 (Ubuntu 14.23-0ubuntu0.22.04.1)"
+    },
+    "index_health": {
+      "invalid_indexes": 0,
+      "unready_indexes": 0
+    },
+    "migration_ledger": [
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "9e8effa09248618d34370b8bd5e60008ca00d425f64158b0dd33f9b4be4454d1",
+        "migration_name": "001_initial_schema.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "e4b83394ee806d378404e0e6a1d0330096b60fb876e9f8a1f5cd9b1d3f9e4377",
+        "migration_name": "002_digital_human_livestream_schema.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "3d8caece3343dcd2680b1230ccaf677fa63d553407ca2f3fc37a648d142ea2d3",
+        "migration_name": "003_maitu_asset_metadata.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "67759b72e0bcae3d6af8068ef19a87814934246d30afda19d3d847614cd9f234",
+        "migration_name": "004_maitu_replacement_plans.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "2c0bd082380020344b71e75cf7740a917956426ed6d1b5fbfbdd17742bac6125",
+        "migration_name": "005_maitu_execution_results.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "3e022c2f2d126fa1db8e72dbabfc4135dcc404396d98f7fa4901e614f45285f2",
+        "migration_name": "006_asset_local_material_mapping.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "c15af5029ec4d8ff64aa940838ab41b7120ff159b7a85937daac4ded89e8a035",
+        "migration_name": "007_asset_ingestion_hardening.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "4990c6dcc0b2d9bc984be390616566b8f45893c9678026f3b02ba31918cb293e",
+        "migration_name": "008_maitu_live_room_blueprints.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "510f5a45f06e8c8fdacf32dc6b3a2d72196a889db17dd95e595bdeeb24a533dc",
+        "migration_name": "009_maitu_live_room_build_plans.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "b8d2c474f4d31c30265e80927ed9d5244663706de0c4caa6e2ecf58c8ee1ad4c",
+        "migration_name": "010_maitu_layout_adjustments.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "b638549af517613d3b99c0c42e7fc81227abcf2503e37fca2f6bd10a65c27019",
+        "migration_name": "011_maitu_live_room_build_execution_results.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "c7515159dba884512a4913a7d262ba6bea45a8fa7a7096bcc7fd6709c1cb5700",
+        "migration_name": "012_maitu_build_plan_operation_asset_selection.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "d153a1cf4f66523aea28dcbc223261a4f8e7ef772a04acd43fc63c466f1baf4f",
+        "migration_name": "013_maitu_live_room_template_component_index.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "53ffa7640f16f791d8e442bc53d91ef971368635a0b6d4a74326a560d7676549",
+        "migration_name": "014_jd_live_metric_capture.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "4c54e0c75ea81ececaf9e81bf5754caed9d21b73cfaa756d05bf0a06afbbd056",
+        "migration_name": "015_asset_maitu_material_binding.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "271343a22b93006990f47eb9657c25f2b44aaa7b4bb3490d9c81a8b22b3ff5d3",
+        "migration_name": "016_maitu_retry_lease_idempotency.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "a27d90bd76fff97d2bb9f8fb9ed42e350f87bdc26931544c8e02db6bceddc406",
+        "migration_name": "017_maitu_retry_operation_checkpoints.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "e358cfa91b27d8ee7112d1d2d3d908308de10854f0a338e1ec462257b3ee1c3f",
+        "migration_name": "018_maitu_retry_operation_reconciliation.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "a564e022fe7725b93bfec4ff33493b5a4c92a546ab99ff7e159f25e7e17bd195",
+        "migration_name": "019_maitu_retry_mutation_intent.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "bb0fb29bd6a9785a5d2d99372cfa36ba0dbd1f2c580eed335e64f6e6d5921005",
+        "migration_name": "020_script_driven_build_plan_persistence.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "1d1a35dd811abb07af98949c609a4bc2eb6fa947d64950291e0d981848771f78",
+        "migration_name": "021_script_layout_execution_checkpoints.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "2d4051e09432b3940bd29c8641819037236232915e6a5f7c5488122d60822d04",
+        "migration_name": "022_video_production_jobs.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "644269c9e2c2dcc11d08403c91b1995d98e0bd37608ae19eef0b18fe4dcaa007",
+        "migration_name": "023_maitu_production_workbench.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "5ee20f5bb5ac06a37c5029f964990c3ccbc5eaef372f30815b270990eb562e87",
+        "migration_name": "024_live_research_observations.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "cfed1a258b0922ffd7527c8c12ef18a889156b788bbef45e06ba1e63ad0a3262",
+        "migration_name": "025_maitu_material_analysis.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "5e6cbf46e15303860f94a8781ce8f3d22099dda1d4d3ad898ef24253179251fc",
+        "migration_name": "026_maitu_reference_template_handoff.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "412091a375ba3544da928a14c51be2476bc3d3d5500458d1e8334c92b0542a8a",
+        "migration_name": "027_closed_loop_content_core.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "413404bbe3b3a426e3267941667ac8558168d4ade0a5d55813bb30512d3851c8",
+        "migration_name": "028_artifact_workflow_control_plane.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "cc3447f1e07ddc8fbdb21b6a3752d7c5efc221420638cd279599e501ea9efb0e",
+        "migration_name": "029_policy_release_data_governance.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "27074562b765216db24ff8ae8674664ae5bb34a9305b20745ee8f8faedcf9593",
+        "migration_name": "030_phase0_capability_defaults.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "10d83531d3503e6a710619780da0136ca9876c4125428c32b0c01a8598494663",
+        "migration_name": "031_metric_contract_quality_details.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "c37ddceed238fe5f5338a16c9ef06d5f0dcd098d5bcf5f2f5fc9390c074ce98c",
+        "migration_name": "032_catalog_revision_immutability.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "53be621e078e256e44f1330a6e785733a6b41bbde67d0b1a34b985fc862b5a77",
+        "migration_name": "033_workflow_external_effect_protocol.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "da0618e82598cb5ed13c801590849c56f37405960e06c5d0539f06b4ad62d030",
+        "migration_name": "034_content_production_aggregate_completion.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "a43fb6780e40fe4e11bc400dae2d9b8f8a09ade0da7beaa8953a682332b89986",
+        "migration_name": "035_evidence_integrity_alerting.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "8d5a3430ad248d0eb9ff08dfbf79ebf76b23c6559fae2199395633fc2e881f9b",
+        "migration_name": "036_legacy_workflow_compatibility_projections.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "1c5b484836e3d9c0ef0faa2c532621d0e90b541f954d0a229bd8a8ccbc55814b",
+        "migration_name": "037_least_privilege_and_protected_resource_registry.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "7911229163557310324811a7c13c89ce08e317f15ddf5bcfbe4e06d1bc53d37e",
+        "migration_name": "038_privacy_retention_deletion_credentials.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "a3c93836a191a232ed921ae19ba1ba828a20eef3267c91637cb9638cfefbbd83",
+        "migration_name": "039_deletion_retry_receipts.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.033680+09:00",
+        "checksum_sha256": "39b013c9cc763b975540bfdcaec8b4a3715a3fad7a955c395a067f630b48bb83",
+        "migration_name": "040_legacy_domain_compatibility_projections.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.966785+09:00",
+        "checksum_sha256": "d9e4596b419cfd618bdb8337cc4c7e96f8dd047e6a7a74ab5e701683edbc2d15",
+        "migration_name": "041_console_drafts_and_explicit_commands.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.974089+09:00",
+        "checksum_sha256": "8a48f3ce10b0916640139769e2514bba292eedc6e98bfc1ed6760f0617ec404e",
+        "migration_name": "042_console_command_receipts.sql"
+      },
+      {
+        "applied_at": "2026-07-23 21:56:04.974089+09:00",
+        "checksum_sha256": "56fd7b82fd655d32b5f023a8d9958ba2de9b27ae78454581b0bec16ecc977bca",
+        "migration_name": "043_provider_neutral_producer_contracts.sql"
+      }
+    ],
+    "schema_fingerprint": "0dfb926e6a290f11f7a71bec0c7144ac2936a430565651956f74db5478d74f97",
+    "table_stats": [
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 16384,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "artifact_input_refs",
+        "total_bytes": 24576
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 65536,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "artifact_refs",
+        "total_bytes": 81920
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 57344,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "asset_files",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 8192,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "asset_sequences",
+        "total_bytes": 8192
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 8192,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "asset_tags",
+        "total_bytes": 8192
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 16384,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "assetgraph_schema_migrations",
+        "total_bytes": 32768
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 442368,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "assets",
+        "total_bytes": 458752
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 16384,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "attribution_results",
+        "total_bytes": 24576
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 16384,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "attribution_runs",
+        "total_bytes": 24576
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "audit_events",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 16384,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "business_sequences",
+        "total_bytes": 24576
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 16384,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "capability_flags",
+        "total_bytes": 32768
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "capability_policy_versions",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 65536,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "console_command_receipts",
+        "total_bytes": 81920
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "console_draft_events",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 65536,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "console_drafts",
+        "total_bytes": 81920
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 81920,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "content_exposure_events",
+        "total_bytes": 98304
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "content_program_revisions",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": 40,
+        "heap_bytes": 16384,
+        "index_bytes": 81920,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "content_project_revisions",
+        "total_bytes": 131072
+      },
+      {
+        "estimated_rows": 22,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "content_projects",
+        "total_bytes": 40960
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "content_script_blocks",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "content_script_revisions",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "credential_records",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "credential_rotation_events",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 65536,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "data_access_decisions",
+        "total_bytes": 81920
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "data_access_policy_versions",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "data_contracts",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 24576,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "data_quality_batches",
+        "total_bytes": 32768
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 16384,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "data_quality_violations",
+        "total_bytes": 24576
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "data_tombstones",
+        "total_bytes": 40960
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 16384,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "decision_logs",
+        "total_bytes": 24576
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "deletion_receipts",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "deletion_run_status_history",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "deletion_runs",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "delivery_attempts",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "digital_humans",
+        "total_bytes": 40960
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 16384,
+        "index_bytes": 65536,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "domain_derivation_edges",
+        "total_bytes": 114688
+      },
+      {
+        "estimated_rows": 26,
+        "heap_bytes": 8192,
+        "index_bytes": 16384,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "domain_sequences",
+        "total_bytes": 57344
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 16384,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "effect_eligibility_policy_versions",
+        "total_bytes": 24576
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 16384,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "effect_estimates",
+        "total_bytes": 24576
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 65536,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "evidence_integrity_alerts",
+        "total_bytes": 81920
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 16384,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "execution_authorization_history",
+        "total_bytes": 81920
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 98304,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "execution_authorizations",
+        "total_bytes": 114688
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "external_processor_call_audits",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "external_processor_records",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 16384,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "feature_snapshots",
+        "total_bytes": 24576
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 16384,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "graph_projection_versions",
+        "total_bytes": 16384
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "human_tasks",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "integrity_check_runs",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "interaction_events",
+        "total_bytes": 40960
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 16384,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "learning_policy_versions",
+        "total_bytes": 24576
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "legacy_production_variant_links",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "legal_hold_history",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "legal_holds",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 65536,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "lineage_edges",
+        "total_bytes": 81920
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 40960,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "live_analysis_runs",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "live_assets",
+        "total_bytes": 57344
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "live_capture_channels",
+        "total_bytes": 40960
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 57344,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "live_capture_chunks",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 73728,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "live_capture_sessions",
+        "total_bytes": 90112
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "live_clip_jobs",
+        "total_bytes": 40960
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 40960,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "live_raw_event_batches",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 16384,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "live_research_sequences",
+        "total_bytes": 24576
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 24576,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "live_retention_tombstones",
+        "total_bytes": 32768
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "live_room_configuration_revisions",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "live_room_configurations",
+        "total_bytes": 57344
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 65536,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "live_room_template_publications",
+        "total_bytes": 81920
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 65536,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "live_room_template_revisions",
+        "total_bytes": 81920
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "live_room_templates",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 8192,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "live_sequences",
+        "total_bytes": 8192
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 65536,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "live_sessions",
+        "total_bytes": 73728
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "live_timeline_spans",
+        "total_bytes": 40960
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 81920,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "live_watch_targets",
+        "total_bytes": 98304
+      },
+      {
+        "estimated_rows": 24,
+        "heap_bytes": 8192,
+        "index_bytes": 180224,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_execution_retry_tasks",
+        "total_bytes": 229376
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 57344,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_jd_live_metric_samples",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 65536,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_jd_live_metric_sessions",
+        "total_bytes": 73728
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_layout_adjustments",
+        "total_bytes": 57344
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 57344,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_live_room_blueprints",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": 0,
+        "heap_bytes": 8192,
+        "index_bytes": 196608,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_live_room_build_plan_executions",
+        "total_bytes": 212992
+      },
+      {
+        "estimated_rows": 0,
+        "heap_bytes": 40960,
+        "index_bytes": 131072,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_live_room_build_plan_operation_results",
+        "total_bytes": 204800
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 114688,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_live_room_build_plan_operations",
+        "total_bytes": 131072
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_live_room_build_plan_reconciliations",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 81920,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_live_room_build_plans",
+        "total_bytes": 98304
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 40960,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_live_room_template_components",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 57344,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_live_room_template_scenes",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 131072,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_material_slots",
+        "total_bytes": 147456
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 40960,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_reference_room_profiles",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_replacement_plan_executions",
+        "total_bytes": 57344
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 98304,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_replacement_plan_items",
+        "total_bytes": 114688
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_replacement_plan_operation_results",
+        "total_bytes": 57344
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 98304,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_replacement_plans",
+        "total_bytes": 114688
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_retry_execution_receipts",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 65536,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_retry_operation_checkpoints",
+        "total_bytes": 81920
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 73728,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_retry_operation_intents",
+        "total_bytes": 139264
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_retry_operation_reconciliations",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 24576,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_workbench_analysis_conflicts",
+        "total_bytes": 32768
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_workbench_draft_execution_jobs",
+        "total_bytes": 40960
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_workbench_gemini_submissions",
+        "total_bytes": 40960
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_workbench_inventory_snapshot_items",
+        "total_bytes": 40960
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 65536,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_workbench_inventory_snapshots",
+        "total_bytes": 81920
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 57344,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_workbench_inventory_sync_jobs",
+        "total_bytes": 73728
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_workbench_material_decisions",
+        "total_bytes": 40960
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_workbench_material_requirements",
+        "total_bytes": 40960
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_workbench_plan_revisions",
+        "total_bytes": 40960
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_workbench_preflights",
+        "total_bytes": 40960
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 81920,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_workbench_product_fact_card_versions",
+        "total_bytes": 98304
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_workbench_product_fact_cards",
+        "total_bytes": 57344
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 57344,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_workbench_runs",
+        "total_bytes": 73728
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 40960,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "maitu_workbench_video_analyses",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "metric_definition_revisions",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "metric_definitions",
+        "total_bytes": 40960
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 16384,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "performance_profiles",
+        "total_bytes": 24576
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 16384,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "policy_decisions",
+        "total_bytes": 98304
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 24576,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "processing_jobs",
+        "total_bytes": 32768
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 16384,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "production_variant_revisions",
+        "total_bytes": 98304
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 65536,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "production_variants",
+        "total_bytes": 73728
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 40960,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "products",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "program_segment_script_block_adoptions",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "program_segments",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 16384,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "projection_checkpoints",
+        "total_bytes": 24576
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "projection_event_consumptions",
+        "total_bytes": 40960
+      },
+      {
+        "estimated_rows": 2,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "protected_resource_events",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "protected_resources",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "redaction_policy_versions",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "release_approvals",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 16384,
+        "index_bytes": 65536,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "release_manifests",
+        "total_bytes": 114688
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 16384,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "release_status_history",
+        "total_bytes": 32768
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "releases",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "retention_policy_versions",
+        "total_bytes": 49152
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "run_manifests",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 24576,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "script_blocks",
+        "total_bytes": 32768
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "scripts",
+        "total_bytes": 40960
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "shot_list_revisions",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "shot_projection_links",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "shot_script_block_sources",
+        "total_bytes": 57344
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "shots",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "stale_propagation_records",
+        "total_bytes": 40960
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "standard_events",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "story_brief_revisions",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "story_briefs",
+        "total_bytes": 40960
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 16384,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "tags",
+        "total_bytes": 16384
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "transactional_outbox_events",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 49152,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "video_production_artifacts",
+        "total_bytes": 65536
+      },
+      {
+        "estimated_rows": 4,
+        "heap_bytes": 8192,
+        "index_bytes": 65536,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "video_production_jobs",
+        "total_bytes": 81920
+      },
+      {
+        "estimated_rows": 32,
+        "heap_bytes": 16384,
+        "index_bytes": 65536,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "video_production_stages",
+        "total_bytes": 114688
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 73728,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "video_segments",
+        "total_bytes": 81920
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "voice_profiles",
+        "total_bytes": 40960
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 0,
+        "index_bytes": 8192,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "workflow_artifact_links",
+        "total_bytes": 8192
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 24576,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "workflow_external_effect_history",
+        "total_bytes": 90112
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 65536,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "workflow_external_effects",
+        "total_bytes": 81920
+      },
+      {
+        "estimated_rows": 30,
+        "heap_bytes": 16384,
+        "index_bytes": 98304,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "workflow_runs",
+        "total_bytes": 155648
+      },
+      {
+        "estimated_rows": 70,
+        "heap_bytes": 16384,
+        "index_bytes": 32768,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "workflow_status_history",
+        "total_bytes": 81920
+      },
+      {
+        "estimated_rows": -1,
+        "heap_bytes": 8192,
+        "index_bytes": 16384,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "workflow_step_dependencies",
+        "total_bytes": 24576
+      },
+      {
+        "estimated_rows": 40,
+        "heap_bytes": 24576,
+        "index_bytes": 98304,
+        "observed_dead_rows": 0,
+        "observed_live_rows": 0,
+        "table_name": "workflow_steps",
+        "total_bytes": 163840
+      }
+    ]
+  },
+  "completed_at": "2026-07-23T13:48:08.411158Z",
+  "copy_attestation": {
+    "classification": "synthetic_fixture",
+    "expected_database": "assetgraph_phase0_migration_synthetic_20260723_008",
+    "sanitization_evidence_ref": null,
+    "source_snapshot_ref": null
+  },
+  "duration_ms": 452,
+  "failure": null,
+  "lock_report": {
+    "max_ungranted_wait_ms": 0,
+    "monitor_errors": [],
+    "observations": [],
+    "sample_interval_ms": 50
+  },
+  "migration_executions": [
+    {
+      "checksum_sha256": "0ad57d9a19e59cf08934f4fa8534198f70605fbe85e8cb4764ab335f93222324",
+      "duration_ms": 12,
+      "migration_name": "044_provider_neutral_analysis_identity.sql",
+      "status": "applied"
+    }
+  ],
+  "qualifies_for_chk_0260": false,
+  "report_fingerprint_sha256": "1e1775f476ebc1d4435da9fe303342a939eea12e3cf0059ec89b159142af8437",
+  "run_code": "MIGREH-20260723-0A8F8B8A86F1",
+  "safety": {
+    "advisory_lock": "assetgraph-schema-migrations-v1",
+    "database_url_persisted": false,
+    "isolated_at_start": true,
+    "lock_timeout_ms": 5000,
+    "statement_timeout_ms": 900000
+  },
+  "schema_version": "migration-rehearsal-report.v1",
+  "started_at": "2026-07-23T13:48:07.959253Z",
+  "status": "passed",
+  "validation": {
+    "all_repository_migrations_applied": true,
+    "catalog_health_passed": true,
+    "count_stability": [
+      {
+        "after": 4,
+        "before": 4,
+        "comparable": true,
+        "stable": true,
+        "table": "assets"
+      },
+      {
+        "after": 6,
+        "before": 6,
+        "comparable": true,
+        "stable": true,
+        "table": "maitu_workbench_runs"
+      },
+      {
+        "after": 4,
+        "before": 4,
+        "comparable": true,
+        "stable": true,
+        "table": "video_production_jobs"
+      },
+      {
+        "after": 4,
+        "before": 4,
+        "comparable": true,
+        "stable": true,
+        "table": "live_room_template_revisions"
+      },
+      {
+        "after": 2,
+        "before": 2,
+        "comparable": true,
+        "stable": true,
+        "table": "live_capture_sessions"
+      },
+      {
+        "after": 0,
+        "before": 0,
+        "comparable": true,
+        "stable": true,
+        "table": "live_analysis_runs"
+      },
+      {
+        "after": 0,
+        "before": 0,
+        "comparable": true,
+        "stable": true,
+        "table": "maitu_workbench_video_analyses"
+      },
+      {
+        "after": null,
+        "before": null,
+        "comparable": false,
+        "stable": false,
+        "table": "jd_live_metric_samples"
+      }
+    ],
+    "counts_stable": true,
+    "forward_fix": {
+      "constraint_validated": true,
+      "forward_fix_migration": "044_provider_neutral_analysis_identity.sql",
+      "passed": true,
+      "predecessor_migration": "043_provider_neutral_producer_contracts.sql",
+      "repair_semantics": "additive database enforcement of neutral material-analysis identity"
+    },
+    "invariants": [
+      {
+        "actual": true,
+        "code": "legacy_asset_projection_cardinality",
+        "expected": true,
+        "passed": true
+      },
+      {
+        "actual": true,
+        "code": "legacy_content_projection_cardinality",
+        "expected": true,
+        "passed": true
+      },
+      {
+        "actual": true,
+        "code": "legacy_live_variant_projection_cardinality",
+        "expected": true,
+        "passed": true
+      },
+      {
+        "actual": true,
+        "code": "legacy_layout_projection_cardinality",
+        "expected": true,
+        "passed": true
+      },
+      {
+        "actual": true,
+        "code": "legacy_delivery_projection_cardinality",
+        "expected": true,
+        "passed": true
+      },
+      {
+        "actual": true,
+        "code": "legacy_delivery_does_not_fabricate_delivery_or_exposure",
+        "expected": true,
+        "passed": true
+      },
+      {
+        "actual": true,
+        "code": "legacy_layout_remains_reference_only",
+        "expected": true,
+        "passed": true
+      },
+      {
+        "actual": true,
+        "code": "legacy_asset_semantics_remain_observational",
+        "expected": true,
+        "passed": true
+      },
+      {
+        "actual": true,
+        "code": "neutral_plan_rows_have_no_supplier_projection",
+        "expected": true,
+        "passed": true
+      },
+      {
+        "actual": true,
+        "code": "neutral_live_analysis_rows_have_no_supplier_projection",
+        "expected": true,
+        "passed": true
+      },
+      {
+        "actual": true,
+        "code": "neutral_material_rows_have_complete_identity",
+        "expected": true,
+        "passed": true
+      },
+      {
+        "actual": true,
+        "code": "compatibility_views_are_read_only",
+        "expected": true,
+        "passed": true
+      }
+    ],
+    "invariants_passed": true,
+    "schema_changed": true
+  }
+}

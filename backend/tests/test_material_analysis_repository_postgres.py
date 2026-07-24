@@ -25,8 +25,10 @@ def test_postgres_video_analysis_queue_gemini_conflict_and_selection_gate() -> N
         (migration_root / name).read_text(encoding="utf-8")
         for name in (
             "023_maitu_production_workbench.sql",
+            "024_live_research_observations.sql",
             "025_maitu_material_analysis.sql",
             "026_maitu_reference_template_handoff.sql",
+            "043_provider_neutral_producer_contracts.sql",
         )
     ]
     try:
@@ -42,6 +44,12 @@ def test_postgres_video_analysis_queue_gemini_conflict_and_selection_gate() -> N
                             sql.Identifier(table),
                         )
                     )
+                cursor.execute(
+                    sql.SQL(
+                        "CREATE TABLE {}.artifact_refs "
+                        "(LIKE public.artifact_refs INCLUDING ALL)"
+                    ).format(sql.Identifier(schema))
+                )
                 for migration in migrations:
                     cursor.execute(sql.SQL(migration))
                 cursor.execute(
@@ -208,6 +216,24 @@ def test_postgres_video_analysis_queue_gemini_conflict_and_selection_gate() -> N
             claim = repository.claim_video_analysis("analysis-worker", 60)
             assert claim is not None
             service = MaterialAnalysisWorkbenchService(repository)
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO artifact_refs (
+                        artifact_code, artifact_kind, media_type, schema_version,
+                        storage_uri, checksum_sha256, byte_size, producer_type,
+                        producer_code, sensitivity, retention_policy_code
+                    ) VALUES (
+                        'ART-MATERIAL-TEST', 'provider_invocation_evidence',
+                        'application/json', 'provider-invocation-evidence.v1',
+                        's3://test/material-evidence', %s, 1,
+                        'provider_strategy', 'test-material-worker',
+                        'confidential', 'critical-audit-evidence'
+                    )
+                    """,
+                    ("9" * 64,),
+                )
+            connection.commit()
             service.complete_video_analysis(
                 claim["analysis_code"],
                 "analysis-worker",
@@ -216,15 +242,11 @@ def test_postgres_video_analysis_queue_gemini_conflict_and_selection_gate() -> N
                     "technical": {"duration_seconds": 10},
                     "frame_manifest": {"frames": []},
                     "observation": _observation("AG-VID-INT", ["PRO"]),
-                    "model_provider": "openai",
-                    "model_requested": "gpt-5.6-sol",
-                    "model_actual": "gpt-5.6-sol",
-                    "model_prompt_version": "material-observation-v1",
-                    "model_request_id": "resp",
-                    "model_input_fingerprint": "3" * 64,
-                    "model_output_fingerprint": "4" * 64,
-                    "model_usage": {},
-                    "model_latency_ms": 1,
+                    "analysis_strategy_revision": "material.semantic-observation.v2",
+                    "invocation_evidence_ref": "ART-MATERIAL-TEST",
+                    "analysis_prompt_revision": "material-observation-v1",
+                    "analysis_input_fingerprint": "3" * 64,
+                    "analysis_output_fingerprint": "4" * 64,
                 },
             )
             raw = {

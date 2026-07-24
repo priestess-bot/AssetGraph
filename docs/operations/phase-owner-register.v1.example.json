@@ -1,0 +1,14 @@
+{
+  "schema_version": "phase-owner-register.v1",
+  "phases": [
+    {"phase": "0", "owners": {"product": null, "engineering": null, "data": null, "security": null, "design": null}, "appointment_ref": null},
+    {"phase": "1", "owners": {"product": null, "engineering": null, "data": null, "security": null, "design": null}, "appointment_ref": null},
+    {"phase": "2", "owners": {"product": null, "engineering": null, "data": null, "security": null, "design": null}, "appointment_ref": null},
+    {"phase": "3", "owners": {"product": null, "engineering": null, "data": null, "security": null, "design": null}, "appointment_ref": null},
+    {"phase": "4", "owners": {"product": null, "engineering": null, "data": null, "security": null, "design": null}, "appointment_ref": null},
+    {"phase": "5", "owners": {"product": null, "engineering": null, "data": null, "security": null, "design": null}, "appointment_ref": null},
+    {"phase": "6", "owners": {"product": null, "engineering": null, "data": null, "security": null, "design": null}, "appointment_ref": null},
+    {"phase": "7", "owners": {"product": null, "engineering": null, "data": null, "security": null, "design": null}, "appointment_ref": null},
+    {"phase": "8", "owners": {"product": null, "engineering": null, "data": null, "security": null, "design": null}, "appointment_ref": null}
+  ]
+}

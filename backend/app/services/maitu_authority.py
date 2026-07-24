@@ -12,6 +12,7 @@ from uuid import uuid4
 import httpx
 
 from app.core.config import settings
+from app.core.telemetry import inject_current_trace
 
 
 class MaituAuthorityError(RuntimeError):
@@ -67,7 +68,9 @@ class MaituAuthorityVerifier:
         if len(self._token) < 16:
             raise MaituAuthorityConfigurationError("backend Maitu authority token is not configured")
         try:
-            response = self._client.get(path)
+            trace_headers: dict[str, str] = {}
+            inject_current_trace(trace_headers)
+            response = self._client.get(path, headers=trace_headers)
             response.raise_for_status()
             return self._unwrap(response.json())
         except httpx.HTTPStatusError as exc:

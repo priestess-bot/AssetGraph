@@ -1,0 +1,256 @@
+{
+  "schema_version": "legacy-compatibility-audit.v1",
+  "started_at": "2026-07-23T14:23:21.596653Z",
+  "completed_at": "2026-07-23T14:23:21.824413Z",
+  "status": "passed",
+  "classification": "representative_integration_database",
+  "database": {
+    "database_name": "assetgraph_phase0_provider_20260723_007",
+    "server_version": "14.23 (Ubuntu 14.23-0ubuntu0.22.04.1)",
+    "in_recovery": false
+  },
+  "migration_audit": {
+    "passed": true,
+    "expected": {
+      "036_legacy_workflow_compatibility_projections.sql": "8d5a3430ad248d0eb9ff08dfbf79ebf76b23c6559fae2199395633fc2e881f9b",
+      "040_legacy_domain_compatibility_projections.sql": "39b013c9cc763b975540bfdcaec8b4a3715a3fad7a955c395a067f630b48bb83"
+    },
+    "observed": {
+      "036_legacy_workflow_compatibility_projections.sql": "8d5a3430ad248d0eb9ff08dfbf79ebf76b23c6559fae2199395633fc2e881f9b",
+      "040_legacy_domain_compatibility_projections.sql": "39b013c9cc763b975540bfdcaec8b4a3715a3fad7a955c395a067f630b48bb83"
+    },
+    "mismatches": []
+  },
+  "relation_guards": {
+    "passed": true,
+    "expected_count": 7,
+    "observed_count": 7,
+    "missing_views": [],
+    "invalid_guard_views": [],
+    "views": [
+      {
+        "view_name": "legacy_asset_observations_v1",
+        "relation_kind": "v",
+        "has_semantic_comment": true,
+        "enabled_read_only_triggers": 1
+      },
+      {
+        "view_name": "legacy_content_project_projections_v1",
+        "relation_kind": "v",
+        "has_semantic_comment": true,
+        "enabled_read_only_triggers": 1
+      },
+      {
+        "view_name": "legacy_delivery_unknown_projections_v1",
+        "relation_kind": "v",
+        "has_semantic_comment": true,
+        "enabled_read_only_triggers": 1
+      },
+      {
+        "view_name": "legacy_layout_hypothesis_projections_v1",
+        "relation_kind": "v",
+        "has_semantic_comment": true,
+        "enabled_read_only_triggers": 1
+      },
+      {
+        "view_name": "legacy_live_room_variant_projections_v1",
+        "relation_kind": "v",
+        "has_semantic_comment": true,
+        "enabled_read_only_triggers": 1
+      },
+      {
+        "view_name": "legacy_workflow_run_projections_v1",
+        "relation_kind": "v",
+        "has_semantic_comment": true,
+        "enabled_read_only_triggers": 1
+      },
+      {
+        "view_name": "legacy_workflow_step_projections_v1",
+        "relation_kind": "v",
+        "has_semantic_comment": true,
+        "enabled_read_only_triggers": 1
+      }
+    ]
+  },
+  "cardinality": {
+    "passed": true,
+    "workflow_sources": {
+      "maitu_workbench_run": 8,
+      "video_production_job": 5,
+      "live_capture_session": 3,
+      "live_clip_job": 1,
+      "live_analysis_run": 1,
+      "maitu_retry_task": 25
+    },
+    "workflow_projections": {
+      "maitu_workbench_run": 8,
+      "video_production_job": 5,
+      "live_capture_session": 3,
+      "live_clip_job": 1,
+      "live_analysis_run": 1,
+      "maitu_retry_task": 25
+    },
+    "workflow_mismatches": {},
+    "step_sources": {
+      "maitu_workbench_run": 8,
+      "video_production_stage": 40,
+      "live_capture_session": 3,
+      "live_clip_job": 1,
+      "live_analysis_run": 1,
+      "maitu_retry_task": 25
+    },
+    "step_projections": {
+      "maitu_workbench_run": 8,
+      "video_production_stage": 40,
+      "live_capture_session": 3,
+      "live_clip_job": 1,
+      "live_analysis_run": 1,
+      "maitu_retry_task": 25
+    },
+    "step_mismatches": {},
+    "domain_projections": {
+      "legacy_asset_observations_v1": 5,
+      "legacy_content_project_projections_v1": 13,
+      "legacy_live_room_variant_projections_v1": 8,
+      "legacy_layout_hypothesis_projections_v1": 5,
+      "legacy_delivery_unknown_projections_v1": 3
+    },
+    "representative_sample_coverage": {
+      "passed": true,
+      "missing_workflow_source_types": [],
+      "missing_domain_projections": []
+    }
+  },
+  "semantic_assertions": [
+    {
+      "code": "workflow_semantics_are_explicit",
+      "passed": true,
+      "invalid_count": 0,
+      "detail": "Every legacy workflow is read-only, legacy_import and explicitly mapped."
+    },
+    {
+      "code": "workflow_steps_are_read_only_and_parented",
+      "passed": true,
+      "invalid_count": 0,
+      "detail": "Every projected step is read-only and belongs to a projected run."
+    },
+    {
+      "code": "workflow_codes_are_unique",
+      "passed": true,
+      "invalid_count": 0,
+      "detail": "Workflow projection codes are unique across all legacy queues."
+    },
+    {
+      "code": "asset_geometry_remains_observation",
+      "passed": true,
+      "invalid_count": 0,
+      "detail": "Geometry and duplicate groups remain observations, never constraints/groups."
+    },
+    {
+      "code": "content_missing_provenance_is_explicit",
+      "passed": true,
+      "invalid_count": 0,
+      "detail": "Synthetic content roots retain a non-empty missing-provenance list."
+    },
+    {
+      "code": "variant_verification_requires_explicit_links",
+      "passed": true,
+      "invalid_count": 0,
+      "detail": "A legacy live-room variant is verified only when both explicit links exist."
+    },
+    {
+      "code": "layout_hypothesis_stays_reference_only",
+      "passed": true,
+      "invalid_count": 0,
+      "detail": "Legacy layout hypotheses are approximate, non-convertible references."
+    },
+    {
+      "code": "legacy_completion_never_fabricates_delivery",
+      "passed": true,
+      "invalid_count": 0,
+      "detail": "Legacy completion never becomes Release, Delivery or Exposure evidence."
+    }
+  ],
+  "api_audit": {
+    "passed": true,
+    "base_url": "http://127.0.0.1:8002",
+    "authentication": "bearer token supplied through environment; value not retained",
+    "endpoints": [
+      {
+        "path": "/api/compatibility/workflow-runs",
+        "expected_count": 43,
+        "observed_count": 43,
+        "all_read_only": true
+      },
+      {
+        "path": "/api/compatibility/assets",
+        "expected_count": 5,
+        "observed_count": 5,
+        "all_read_only": true
+      },
+      {
+        "path": "/api/compatibility/content-projects",
+        "expected_count": 13,
+        "observed_count": 13,
+        "all_read_only": true
+      },
+      {
+        "path": "/api/compatibility/live-room-variants",
+        "expected_count": 8,
+        "observed_count": 8,
+        "all_read_only": true
+      },
+      {
+        "path": "/api/compatibility/layout-hypotheses",
+        "expected_count": 5,
+        "observed_count": 5,
+        "all_read_only": true
+      },
+      {
+        "path": "/api/compatibility/delivery-unknown",
+        "expected_count": 3,
+        "observed_count": 3,
+        "all_read_only": true
+      }
+    ],
+    "detail_source_types": [
+      "live_analysis_run",
+      "live_capture_session",
+      "live_clip_job",
+      "maitu_retry_task",
+      "maitu_workbench_run",
+      "video_production_job"
+    ],
+    "stable_not_found": {
+      "status": 404,
+      "code": "LEGACY_WORKFLOW_PROJECTION_NOT_FOUND",
+      "passed": true
+    }
+  },
+  "canonical_fact_write_check": {
+    "passed": true,
+    "before": {
+      "content_projects": 22,
+      "production_variants": 4,
+      "workflow_runs": 30,
+      "releases": 8,
+      "delivery_attempts": 2,
+      "content_exposure_events": 2
+    },
+    "after": {
+      "content_projects": 22,
+      "production_variants": 4,
+      "workflow_runs": 30,
+      "releases": 8,
+      "delivery_attempts": 2,
+      "content_exposure_events": 2
+    }
+  },
+  "raw_business_rows_retained": false,
+  "credentials_retained": false,
+  "known_limits": [
+    "Representative integration data proves compatibility contracts and old repository/API behavior; it is not a production volume or data-quality claim."
+  ],
+  "qualifies_for_chk_0294": true,
+  "report_fingerprint": "2cbe5bcc6697773da3dacd6cfeb15f97ed33298428cd107c0d6bd91d3eeb5ec6"
+}

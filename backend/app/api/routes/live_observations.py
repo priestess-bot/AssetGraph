@@ -14,7 +14,15 @@ from psycopg import Connection, IntegrityError
 from app.api.auth import require_maitu_script_layout_worker
 from app.core.config import settings
 from app.core.database import get_db
+from app.domain.contracts import DataClassification
+from app.domain.errors import (
+    DomainAuthorizationError,
+    DomainUnavailableError,
+    DomainValidationError,
+)
+from app.repositories.evidence import EvidenceRepository
 from app.repositories.live_observations import LiveObservationRepository
+from app.repositories.privacy_governance import PrivacyGovernanceRepository
 from app.schemas.live_observations import (
     AnalysisRunCompletion,
     AnalysisRunCreate,
@@ -36,6 +44,9 @@ from app.schemas.live_observations import (
     ClipJobRead,
     InteractionSummary,
     LiveResearchOverview,
+    ProviderEvidenceArtifactRead,
+    ProviderStrategyAuthorizationRead,
+    ProviderStrategyAuthorizationRequest,
     RawEventBatchRead,
     RawEventBatchRegistration,
     RetentionCandidate,
@@ -63,10 +74,18 @@ from app.schemas.live_observations import (
     WorkHeartbeatRequest,
     WorkStatus,
 )
+from app.services.artifacts import ContentAddressedArtifactService
 from app.services.live_observations import (
     LiveObservationConflictError,
     LiveObservationNotFoundError,
     LiveObservationService,
+)
+from app.services.object_storage import MinioObjectStorage
+from app.services.processor_credentials import ExternalProcessorService
+from app.services.providers import (
+    ArtifactProviderEvidenceSink,
+    ModelCapability,
+    ProviderInvocationEvidenceRecord,
 )
 
 
@@ -86,6 +105,70 @@ Service = Annotated[LiveObservationService, Depends(get_live_observation_service
 WorkerIdentity = Annotated[str, Depends(require_maitu_script_layout_worker)]
 
 
+_LIVE_EXTERNAL_STRATEGIES: dict[str, tuple[str, ModelCapability, str, str | None]] = {
+    "live.asr.zh.v2": (
+        "asr",
+        ModelCapability.SPEECH_TO_TEXT,
+        settings.openai_processor_code,
+        settings.openai_processing_region,
+    ),
+    "live.ocr.v2": (
+        "ocr",
+        ModelCapability.OPTICAL_CHARACTER_RECOGNITION,
+        settings.openai_processor_code,
+        settings.openai_processing_region,
+    ),
+    "live.layout-inference.v2": (
+        "layout_inference",
+        ModelCapability.IMAGE_UNDERSTANDING,
+        settings.openai_processor_code,
+        settings.openai_processing_region,
+    ),
+    "live.template-aggregation.v2": (
+        "template_aggregation",
+        ModelCapability.STRUCTURED_GENERATION,
+        settings.deepseek_processor_code,
+        settings.deepseek_processing_region,
+    ),
+}
+
+
+def get_provider_evidence_sink(
+    connection: Annotated[Connection, Depends(get_db)],
+) -> ArtifactProviderEvidenceSink:
+    storage = MinioObjectStorage(
+        endpoint=settings.minio_endpoint,
+        access_key=settings.minio_access_key,
+        secret_key=settings.minio_secret_key,
+        secure=settings.minio_secure,
+    )
+    return ArtifactProviderEvidenceSink(
+        ContentAddressedArtifactService(
+            EvidenceRepository(connection),
+            storage,
+            bucket_name=settings.minio_bucket,
+        ),
+        producer_code="live-research-analysis-worker",
+    )
+
+
+def _provider_http_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, DomainAuthorizationError):
+        return HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=exc.as_dict())
+    if isinstance(exc, DomainValidationError):
+        return HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=exc.as_dict(),
+        )
+    if isinstance(exc, DomainUnavailableError):
+        return HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=exc.as_dict(),
+        )
+    return HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="Provider evidence infrastructure is unavailable",
+    )
 @router.get("/overview", response_model=LiveResearchOverview)
 def overview(service: Service) -> dict[str, int]:
     return service.overview()
@@ -488,6 +571,93 @@ def worker_fail_clip_job(
     return _call(service.fail_clip_job, job_code, payload)
 
 
+@router.post(
+    "/worker/provider-strategy-authorizations",
+    response_model=ProviderStrategyAuthorizationRead,
+)
+def worker_authorize_provider_strategy(
+    payload: ProviderStrategyAuthorizationRequest,
+    authenticated_worker_id: WorkerIdentity,
+    connection: Annotated[Connection, Depends(get_db)],
+) -> dict[str, str]:
+    _require_worker_match(authenticated_worker_id, payload.worker_id)
+    binding = _LIVE_EXTERNAL_STRATEGIES.get(payload.strategy_revision)
+    if binding is None or binding[0] != payload.analysis_type:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Analysis type is not registered for the requested strategy revision",
+        )
+    _analysis_type, _capability, processor_code, processing_region = binding
+    if not processing_region:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="External processor region is not configured for this strategy",
+        )
+    try:
+        authorized = ExternalProcessorService(
+            PrivacyGovernanceRepository(connection)
+        ).prepare_payload(
+            processor_code=processor_code,
+            purpose="model_inference",
+            region=processing_region,
+            data_classification=DataClassification.CONFIDENTIAL,
+            payload={
+                "strategy_revision": payload.strategy_revision,
+                "analysis_type": payload.analysis_type,
+                "input_fingerprint": payload.input_fingerprint,
+            },
+            principal_id=payload.worker_id,
+        )
+    except (DomainAuthorizationError, DomainUnavailableError, DomainValidationError) as exc:
+        raise _provider_http_error(exc) from exc
+    return {
+        "strategy_revision": payload.strategy_revision,
+        "processor_call_audit_code": authorized.audit_code,
+    }
+
+
+@router.post(
+    "/worker/provider-invocation-evidence",
+    response_model=ProviderEvidenceArtifactRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def worker_persist_provider_invocation_evidence(
+    payload: ProviderInvocationEvidenceRecord,
+    authenticated_worker_id: WorkerIdentity,
+    connection: Annotated[Connection, Depends(get_db)],
+    sink: Annotated[ArtifactProviderEvidenceSink, Depends(get_provider_evidence_sink)],
+) -> dict[str, str]:
+    binding = _LIVE_EXTERNAL_STRATEGIES.get(payload.strategy_revision)
+    if binding is None or payload.capability is not binding[1]:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Provider evidence does not match a registered live-analysis strategy",
+        )
+    if not payload.processor_call_audit_code:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="External provider evidence requires a processor authorization audit",
+        )
+    audit = PrivacyGovernanceRepository(connection).get_external_processor_call(
+        payload.processor_call_audit_code
+    )
+    if (
+        audit is None
+        or audit["decision"] != "allow"
+        or audit["processor_code"] != binding[2]
+        or audit["principal_id"] != authenticated_worker_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Provider evidence is not bound to an allowed worker processor call",
+        )
+    try:
+        artifact_code = sink.persist_provider_invocation(payload.model_dump(mode="json"))
+    except Exception as exc:
+        raise _provider_http_error(exc) from exc
+    return {"artifact_code": artifact_code}
+
+
 @router.post("/worker/analysis-run-claims", response_model=ClaimedAnalysisRun | None)
 def worker_claim_analysis_run(
     payload: WorkClaimRequest, service: Service, authenticated_worker_id: WorkerIdentity
@@ -641,3 +811,6 @@ def _file_chunks(path: Path, start: int, content_length: int) -> Iterator[bytes]
                 break
             remaining -= len(chunk)
             yield chunk
+    ProviderEvidenceArtifactRead,
+    ProviderStrategyAuthorizationRead,
+    ProviderStrategyAuthorizationRequest,

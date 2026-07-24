@@ -1,14 +1,68 @@
 export type JsonRecord = Record<string, unknown>;
 
+let accessToken: string | undefined;
+
+export function setWorkbenchAccessToken(token?: string): void {
+  accessToken = token?.trim() || undefined;
+}
+
+export function hasWorkbenchAccessToken(): boolean {
+  return Boolean(accessToken);
+}
+
+export type OperationalState = "error" | "warning" | "insufficient_data" | "stale" | "reconcile_required";
+
+export interface ProblemEvidence {
+  kind: string;
+  ref: string;
+}
+
+export interface WorkbenchProblem {
+  code: string;
+  state: OperationalState;
+  message: string;
+  impact: string;
+  evidence: ProblemEvidence[];
+  nextStep: string;
+  retryable: boolean;
+  traceId?: string;
+}
+
 export class WorkbenchApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
     readonly detail?: unknown,
+    readonly problem?: WorkbenchProblem,
   ) {
     super(message);
     this.name = "WorkbenchApiError";
   }
+}
+
+const OPERATIONAL_STATES = new Set<OperationalState>(["error", "warning", "insufficient_data", "stale", "reconcile_required"]);
+
+export function normalizeProblem(value: unknown): WorkbenchProblem | undefined {
+  if (!isRecord(value)) return undefined;
+  const state = asString(value.state) as OperationalState;
+  const code = asString(value.code);
+  if (!code || !OPERATIONAL_STATES.has(state)) return undefined;
+  const evidence = asArray(value.evidence).flatMap((item) => {
+    if (!isRecord(item)) return [];
+    const kind = asString(item.kind);
+    const ref = asString(item.ref);
+    return kind && ref ? [{ kind, ref }] : [];
+  });
+  return {
+    code,
+    state,
+    message: asString(value.message, "请求未能完成"),
+    impact: asString(value.impact, "当前操作未完成。"),
+    evidence,
+    nextStep: asString(value.next_step, "检查输入和证据后重试。"),
+    retryable: asBoolean(value.retryable),
+    traceId: asOptionalString(value.trace_id),
+  };
 }
 
 export function isRecord(value: unknown): value is JsonRecord {
@@ -58,6 +112,7 @@ export async function requestJson<T>(path: string, init?: RequestInit): Promise<
     headers: {
       Accept: "application/json",
       ...(init?.body ? { "Content-Type": "application/json" } : {}),
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       ...init?.headers,
     },
   });
@@ -68,7 +123,10 @@ export async function requestJson<T>(path: string, init?: RequestInit): Promise<
   } catch {
     body = undefined;
   }
-  if (!response.ok) throw new WorkbenchApiError(errorMessage(body, response.status), response.status, body);
+  if (!response.ok) {
+    const problem = isRecord(body) ? normalizeProblem(body.error) : undefined;
+    throw new WorkbenchApiError(problem?.message ?? errorMessage(body, response.status), response.status, body, problem);
+  }
   return body as T;
 }
 

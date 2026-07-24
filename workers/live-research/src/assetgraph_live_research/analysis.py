@@ -6,14 +6,20 @@ import os
 from pathlib import Path
 from typing import Any, Protocol
 
+from .providers import ProviderResult
 from .storage import SecureStorage
 from .streamcap import CommandRunner, SubprocessCommandRunner
 
 
 class ASRProvider(Protocol):
     def transcribe(
-        self, audio_path: Path, *, model_version: str, parameters: dict[str, Any]
-    ) -> dict[str, Any]: ...
+        self,
+        audio_path: Path,
+        *,
+        strategy_revision: str,
+        parameters: dict[str, Any],
+        processor_call_audit_code: str,
+    ) -> ProviderResult: ...
 
 
 class LayoutProvider(Protocol):
@@ -23,9 +29,10 @@ class LayoutProvider(Protocol):
         run_type: str,
         source_path: Path | None,
         session: dict[str, Any],
-        model_version: str,
+        strategy_revision: str,
         parameters: dict[str, Any],
-    ) -> dict[str, Any]: ...
+        processor_call_audit_code: str,
+    ) -> ProviderResult: ...
 
 
 class LiveMediaAnalysisExecutor:
@@ -60,14 +67,17 @@ class LiveMediaAnalysisExecutor:
         if run_type in {"ocr", "layout_inference", "template_aggregation"}:
             if self.layout_provider is None:
                 raise RuntimeError("no versioned frame/layout provider is configured")
-            result = self.layout_provider.analyze(
+            invocation = self.layout_provider.analyze(
                 run_type=run_type,
                 source_path=source,
                 session=session,
-                model_version=str(run["model_version"]),
+                strategy_revision=str(run["strategy_revision"]),
                 parameters=dict(run.get("parameters") or {}),
+                processor_call_audit_code=self._processor_audit(run),
             )
-            return self._write_json_result(run, result)
+            completion = self._write_json_result(run, invocation.content)
+            completion["provider_invocation_evidence"] = invocation.evidence
+            return completion
         raise RuntimeError(f"unsupported live analysis type: {run_type}")
 
     def _sample_frames(self, run: dict[str, Any], source: Path) -> dict[str, Any]:
@@ -165,20 +175,21 @@ class LiveMediaAnalysisExecutor:
             os.chmod(audio, 0o600)
         finally:
             temporary.unlink(missing_ok=True)
-        result = self.asr_provider.transcribe(
+        invocation = self.asr_provider.transcribe(
             audio,
-            model_version=str(run["model_version"]),
+            strategy_revision=str(run["strategy_revision"]),
             parameters=dict(run.get("parameters") or {}),
+            processor_call_audit_code=self._processor_audit(run),
         )
-        if not isinstance(result, dict):
-            raise RuntimeError("ASR provider returned a non-object result")
         result = {
             "contract_version": "asr-observations.v1",
             "audio_relative_path": audio_relative,
             "audio_checksum_sha256": _sha256_file(audio),
-            **result,
+            **invocation.content,
         }
-        return self._write_json_result(run, result)
+        completion = self._write_json_result(run, result)
+        completion["provider_invocation_evidence"] = invocation.evidence
+        return completion
 
     def _write_json_result(
         self, run: dict[str, Any], result: dict[str, Any]
@@ -218,6 +229,13 @@ class LiveMediaAnalysisExecutor:
         if _sha256_file(source) != chunk.get("checksum_sha256"):
             raise RuntimeError("analysis source checksum changed")
         return source
+
+    @staticmethod
+    def _processor_audit(run: dict[str, Any]) -> str:
+        audit_code = str(run.get("_processor_call_audit_code") or "")
+        if not audit_code:
+            raise RuntimeError("external analysis has no processor authorization audit")
+        return audit_code
 
 
 def _sha256_file(path: Path) -> str:

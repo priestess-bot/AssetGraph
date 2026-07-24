@@ -26,7 +26,9 @@ def test_postgres_workbench_version_snapshot_replan_preflight_and_execution_stat
         for name in (
             "023_maitu_production_workbench.sql",
             "024_live_research_observations.sql",
+            "025_maitu_material_analysis.sql",
             "026_maitu_reference_template_handoff.sql",
+            "043_provider_neutral_producer_contracts.sql",
         )
     ]
     try:

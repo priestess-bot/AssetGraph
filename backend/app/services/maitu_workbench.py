@@ -12,11 +12,26 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from app.core.config import settings
+from app.domain.contracts import Capability, DataClassification
+from app.domain.errors import DomainUnavailableError, DomainValidationError
+from app.domain.protected_resources import protected_resource_denial
+from app.repositories.evidence import EvidenceRepository
 from app.repositories.maitu_workbench import MaituWorkbenchConflictError
+from app.repositories.privacy_governance import PrivacyGovernanceRepository
+from app.services.artifacts import ContentAddressedArtifactService
+from app.services.object_storage import MinioObjectStorage
 from app.services.online_models import (
-    ModelInvocation,
     OnlineModelError,
     OpenAICompatibleChatClient,
+)
+from app.services.processor_credentials import ExternalProcessorService
+from app.services.providers import (
+    ArtifactProviderEvidenceSink,
+    ModelCapability,
+    OpenAICompatibleStructuredAdapter,
+    ProviderBinding,
+    ProviderRouter,
+    StrategyRequest,
 )
 from app.services.script_asset_gap_reporter import BLOCKING_NEED_TYPES, ScriptAssetGapReporter
 from app.services.script_asset_need_planner import ScriptAssetNeedPlanner
@@ -26,9 +41,10 @@ from app.services.script_layout_planner import ScriptLayoutPlanner
 
 
 PLAN_PROMPT_VERSION = "maitu-workbench-plan-v3"
-PIPELINE_SOURCE = "deepseek_script_scene_plan+deterministic_asset_layout_v1"
+PLAN_STRATEGY_REVISION = "maitu.creative-plan.v2"
+PIPELINE_SOURCE = "strategy_script_scene_plan+deterministic_asset_layout_v2"
 PIPELINE_STAGE_ORDER = [
-    "deepseek_script_and_scene_generation",
+    "strategy_script_and_scene_generation",
     "script_asset_needs",
     "script_asset_selections",
     "script_asset_gap_report",
@@ -374,28 +390,29 @@ class _CreativePlan(BaseModel):
 
 @dataclass(frozen=True, slots=True)
 class PlanGenerationResult:
-    provider: str
-    requested_model: str
-    actual_model: str
+    strategy_revision: str
+    invocation_evidence_ref: str | None
     prompt_version: str
-    request_id: str | None
     content: dict[str, Any]
-    usage: dict[str, Any]
     input_fingerprint: str
     output_fingerprint: str
-    latency_ms: int
 
 
 class PlanGenerationProvider(Protocol):
     def generate(self, context: dict[str, Any]) -> PlanGenerationResult: ...
 
 
-class DeepSeekPlanGenerationProvider:
-    """Production creative-plan provider. It never falls back to local rules."""
+class RoutedPlanGenerationProvider:
+    """Provider-neutral creative-plan producer with durable invocation evidence."""
 
-    def __init__(self, client: OpenAICompatibleChatClient, *, model: str) -> None:
-        self.client = client
-        self.model = model
+    def __init__(
+        self,
+        router: ProviderRouter,
+        *,
+        strategy_revision: str = PLAN_STRATEGY_REVISION,
+    ) -> None:
+        self.router = router
+        self.strategy_revision = strategy_revision
 
     def generate(self, context: dict[str, Any]) -> PlanGenerationResult:
         schema = _CreativePlan.model_json_schema()
@@ -442,41 +459,40 @@ class DeepSeekPlanGenerationProvider:
             "context": context,
         }
         try:
-            invocation = self.client.generate_json(
-                provider="deepseek",
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": _canonical_json(user_payload)},
-                ],
-                temperature=0.2,
-                max_tokens=5000,
+            result = self.router.execute(
+                StrategyRequest(
+                    capability=ModelCapability.STRUCTURED_GENERATION,
+                    strategy_revision=self.strategy_revision,
+                    input_schema_version="maitu-creative-plan-input.v2",
+                    output_schema_version="maitu-creative-plan-output.v1",
+                    inputs={
+                        "instructions": system_prompt,
+                        "user_payload": user_payload,
+                        "temperature": 0.2,
+                        "max_tokens": 5000,
+                    },
+                    output_json_schema=schema,
+                    data_classification=DataClassification.CONFIDENTIAL,
+                    principal_id="maitu-plan-producer",
+                )
             )
-        except OnlineModelError as exc:
-            if exc.retryable or exc.status_code is not None:
-                raise WorkbenchModelUnavailableError(str(exc)) from exc
-            raise WorkbenchModelGenerationError(
-                "DeepSeek returned content that was not valid JSON"
-            ) from exc
-        return self._normalize(invocation)
-
-    @staticmethod
-    def _normalize(invocation: ModelInvocation) -> PlanGenerationResult:
+        except DomainUnavailableError as exc:
+            raise WorkbenchModelUnavailableError(str(exc)) from exc
+        except DomainValidationError as exc:
+            raise WorkbenchModelGenerationError(str(exc)) from exc
         try:
-            plan = _CreativePlan.model_validate(invocation.content)
+            plan = _CreativePlan.model_validate(result.content)
         except ValidationError as exc:
-            raise WorkbenchModelGenerationError("DeepSeek returned an invalid creative-plan contract") from exc
+            raise WorkbenchModelGenerationError(
+                "Model strategy returned an invalid creative-plan contract"
+            ) from exc
         return PlanGenerationResult(
-            provider=invocation.provider,
-            requested_model=invocation.requested_model,
-            actual_model=invocation.actual_model,
+            strategy_revision=result.strategy_revision,
+            invocation_evidence_ref=result.invocation_evidence_ref,
             prompt_version=PLAN_PROMPT_VERSION,
-            request_id=invocation.response_id,
             content=plan.model_dump(mode="json"),
-            usage=dict(invocation.usage),
-            input_fingerprint=invocation.input_fingerprint,
-            output_fingerprint=invocation.output_fingerprint,
-            latency_ms=invocation.latency_ms,
+            input_fingerprint=result.input_fingerprint,
+            output_fingerprint=result.output_fingerprint,
         )
 
 
@@ -499,16 +515,12 @@ class DeterministicPlanGenerationProvider:
         content = self.content or self._content_from_context(context)
         normalized = _CreativePlan.model_validate(content).model_dump(mode="json")
         return PlanGenerationResult(
-            provider="deterministic-test",
-            requested_model="deterministic-test-v1",
-            actual_model="deterministic-test-v1",
+            strategy_revision="test.maitu.creative-plan.v1",
+            invocation_evidence_ref=None,
             prompt_version=PLAN_PROMPT_VERSION,
-            request_id=None,
             content=normalized,
-            usage={},
             input_fingerprint=fingerprint(context),
             output_fingerprint=fingerprint(normalized),
-            latency_ms=0,
         )
 
     @staticmethod
@@ -577,10 +589,20 @@ class DeterministicPlanGenerationProvider:
         }
 
 
-def build_production_plan_generation_provider() -> PlanGenerationProvider:
+def build_production_plan_generation_provider(
+    connection: Any | None = None,
+) -> PlanGenerationProvider:
     configured = settings.deepseek_api_key
     if configured is None or not configured.get_secret_value().strip():
-        return UnavailablePlanGenerationProvider("DeepSeek API key is not configured")
+        return UnavailablePlanGenerationProvider("Creative-plan model strategy is not configured")
+    if connection is None:
+        return UnavailablePlanGenerationProvider(
+            "Governed provider evidence storage requires a database connection"
+        )
+    if not settings.deepseek_processing_region:
+        return UnavailablePlanGenerationProvider(
+            "Creative-plan processor region is not configured"
+        )
     try:
         client = OpenAICompatibleChatClient(
             api_key=configured.get_secret_value(),
@@ -590,7 +612,41 @@ def build_production_plan_generation_provider() -> PlanGenerationProvider:
         )
     except OnlineModelError as exc:
         return UnavailablePlanGenerationProvider(str(exc))
-    return DeepSeekPlanGenerationProvider(client, model=settings.deepseek_flash_model)
+    storage = MinioObjectStorage(
+        endpoint=settings.minio_endpoint,
+        access_key=settings.minio_access_key,
+        secret_key=settings.minio_secret_key,
+        secure=settings.minio_secure,
+    )
+    artifact_service = ContentAddressedArtifactService(
+        EvidenceRepository(connection),
+        storage,
+        bucket_name=settings.minio_bucket,
+    )
+    adapter = OpenAICompatibleStructuredAdapter(
+        client,
+        adapter_code="deepseek-openai-compatible-chat.v1",
+        provider_code="deepseek",
+    )
+    binding = ProviderBinding(
+        strategy_revision=PLAN_STRATEGY_REVISION,
+        capability=ModelCapability.STRUCTURED_GENERATION,
+        adapter=adapter,
+        provider_model=settings.deepseek_flash_model,
+        allowed_classifications=frozenset(
+            {DataClassification.INTERNAL, DataClassification.CONFIDENTIAL}
+        ),
+        max_canonical_input_bytes=2_000_000,
+        processor_code=settings.deepseek_processor_code,
+        processing_region=settings.deepseek_processing_region,
+        processing_purpose="model_inference",
+    )
+    router = ProviderRouter(
+        [binding],
+        ArtifactProviderEvidenceSink(artifact_service, producer_code="maitu-plan-producer"),
+        ExternalProcessorService(PrivacyGovernanceRepository(connection)),
+    )
+    return RoutedPlanGenerationProvider(router)
 
 
 class _SnapshotBoundAssetRepository:
@@ -660,7 +716,9 @@ class MaituWorkbenchService:
     ) -> None:
         self.repository = repository
         self.maitu_repository = maitu_repository
-        self.generation_provider = generation_provider or build_production_plan_generation_provider()
+        self.generation_provider = generation_provider or build_production_plan_generation_provider(
+            getattr(repository, "connection", None)
+        )
 
     # Versioned facts and immutable inventory --------------------------
 
@@ -837,12 +895,12 @@ class MaituWorkbenchService:
                         },
                     }
             if generation is None or model_plan is None:
-                raise WorkbenchModelGenerationError("DeepSeek planning produced no validated result")
+                raise WorkbenchModelGenerationError("Model strategy produced no validated result")
         except WorkbenchModelUnavailableError:
             self.repository.mark_run_failed(
                 run_code,
                 "MODEL_UNAVAILABLE",
-                "DeepSeek planning is unavailable",
+                "Creative-plan model strategy is unavailable",
                 expected_revision=expected_revision,
             )
             raise
@@ -850,7 +908,7 @@ class MaituWorkbenchService:
             self.repository.mark_run_failed(
                 run_code,
                 "MODEL_OUTPUT_INVALID",
-                "DeepSeek planning output is invalid",
+                "Creative-plan model strategy output is invalid",
                 expected_revision=expected_revision,
             )
             raise
@@ -932,15 +990,11 @@ class MaituWorkbenchService:
                 inventory_snapshot=snapshot,
                 source_build_plan_code=persisted_build_plan.get("build_plan_code"),
                 input_fingerprint=fingerprint(plan_identity),
-                generation_provider=generation.provider,
-                generation_requested_model=generation.requested_model,
-                generation_actual_model=generation.actual_model,
+                generation_strategy_revision=generation.strategy_revision,
+                generation_invocation_evidence_ref=generation.invocation_evidence_ref,
                 generation_prompt_version=generation.prompt_version,
-                generation_request_id=generation.request_id,
                 generation_input_fingerprint=generation.input_fingerprint,
                 generation_output_fingerprint=generation.output_fingerprint,
-                generation_usage=generation.usage,
-                generation_latency_ms=generation.latency_ms,
                 pipeline_source=PIPELINE_SOURCE,
                 pipeline_output=output,
                 gap_report=gap_report,
@@ -1227,27 +1281,31 @@ class MaituWorkbenchService:
         try:
             plan = _CreativePlan.model_validate(generated)
         except ValidationError as exc:
-            raise WorkbenchModelGenerationError("DeepSeek returned an invalid scene-plan contract") from exc
+            raise WorkbenchModelGenerationError(
+                "Model strategy returned an invalid scene-plan contract"
+            ) from exc
         normalized = plan.model_dump(mode="json")
         scenes = normalized["scenes"]
         duration_seconds = sum(int(scene["duration_seconds"]) for scene in scenes)
         target_seconds = int(context["target_duration_seconds"])
         if duration_seconds != target_seconds:
             raise WorkbenchModelGenerationError(
-                f"DeepSeek scene duration must total exactly {target_seconds} seconds"
+                f"Model-strategy scene duration must total exactly {target_seconds} seconds"
             )
         scene_names = [scene["scene_name"] for scene in scenes]
         if len(scene_names) != len(set(scene_names)):
-            raise WorkbenchModelGenerationError("DeepSeek scene names must be unique")
+            raise WorkbenchModelGenerationError("Model-strategy scene names must be unique")
         if scenes[0]["scene_goal"] != "opening" or not any(
             scene["scene_goal"] in {"product_explanation", "explanation", "conversion"}
             for scene in scenes
         ):
             raise WorkbenchModelGenerationError(
-                "DeepSeek scene plan requires an opening and a product explanation"
+                "Model-strategy scene plan requires an opening and a product explanation"
             )
         if not any(scene["material_intents"] for scene in scenes):
-            raise WorkbenchModelGenerationError("DeepSeek scene plan requires material intents")
+            raise WorkbenchModelGenerationError(
+                "Model-strategy scene plan requires material intents"
+            )
 
         allowed_sentences = set(context["allowed_script_sentences"])
         fact_sentences = set(context["approved_fact_script_sentences"])
@@ -1257,7 +1315,8 @@ class MaituWorkbenchService:
             script_sentences = _split_script_sentences(scene["script"])
             if not script_sentences or any(sentence not in allowed_sentences for sentence in script_sentences):
                 raise WorkbenchModelGenerationError(
-                    f"DeepSeek scene script is not grounded in approved facts: {scene['scene_name']}"
+                    "Model-strategy scene script is not grounded in approved facts: "
+                    f"{scene['scene_name']}"
                 )
             used_sentences.extend(script_sentences)
             keywords = [*scene["keywords"]]
@@ -1271,17 +1330,23 @@ class MaituWorkbenchService:
             )
             if invalid_keywords:
                 raise WorkbenchModelGenerationError(
-                    "DeepSeek scene uses keyword(s) outside the approved catalog: "
+                    "Model-strategy scene uses keyword(s) outside the approved catalog: "
                     f"{scene['scene_name']}: {invalid_keywords}"
                 )
         if not fact_sentences.intersection(used_sentences):
-            raise WorkbenchModelGenerationError("DeepSeek script must use approved product facts")
+            raise WorkbenchModelGenerationError(
+                "Model-strategy script must use approved product facts"
+            )
         if len(used_sentences) != len(set(used_sentences)):
-            raise WorkbenchModelGenerationError("DeepSeek script must not repeat grounded sentences")
+            raise WorkbenchModelGenerationError(
+                "Model-strategy script must not repeat grounded sentences"
+            )
         unverified_claims = context["approved_product_facts"].get("unverified_promotion_claims") or []
         serialized = _canonical_json(normalized)
         if any(str(claim).strip() and str(claim).strip() in serialized for claim in unverified_claims):
-            raise WorkbenchModelGenerationError("DeepSeek output contains an unverified promotion claim")
+            raise WorkbenchModelGenerationError(
+                "Model-strategy output contains an unverified promotion claim"
+            )
         return normalized
 
     @staticmethod
@@ -1314,14 +1379,14 @@ class MaituWorkbenchService:
         spoken_script = "\n\n".join(scene["script"] for scene in scenes)
         total_seconds = sum(scene["duration_seconds"] for scene in scenes)
         scene_plan = {
-            "source": "deepseek_workbench_scene_plan_v1",
+            "source": "strategy_workbench_scene_plan_v2",
             "scene_count": len(scenes),
             "target_scene_count": len(scenes),
             "manual_review_required": False,
             "scenes": scenes,
         }
         script_draft = {
-            "source": "deepseek_grounded_script_v1",
+            "source": "strategy_grounded_script_v2",
             "title": model_plan["title"],
             "host_persona": model_plan["host_persona"],
             "target_audience": model_plan["target_audience"],
@@ -1349,13 +1414,15 @@ class MaituWorkbenchService:
         model_scenes: list[dict[str, Any]],
     ) -> None:
         if len(planned_scenes) != len(model_scenes):
-            raise WorkbenchModelGenerationError("DeepSeek scenes changed before material planning")
+            raise WorkbenchModelGenerationError(
+                "Model-strategy scenes changed before material planning"
+            )
         for planned, model_scene in zip(planned_scenes, model_scenes, strict=True):
             model_intents = [
                 {
                     **intent,
                     "suggested_layer_role": intent["need_type"],
-                    "reason": "Material intent generated from the grounded DeepSeek scene plan",
+                    "reason": "Material intent generated from the grounded strategy scene plan",
                 }
                 for intent in model_scene["material_intents"]
             ]
@@ -1604,14 +1671,28 @@ class MaituWorkbenchService:
             "A complete latest inventory snapshot is required",
         )
         target_live_room_id = str(run.get("target_live_room_id") or "").strip()
-        target_room_ok = bool(target_live_room_id) and (
-            target_live_room_id not in PROTECTED_REFERENCE_ROOM_IDS
+        protected_resource = None
+        protected_reader = getattr(self.repository, "get_protected_resource", None)
+        if target_live_room_id and callable(protected_reader):
+            protected_resource = protected_reader("maitu_room", target_live_room_id)
+        protection_reason = protected_resource_denial(protected_resource, Capability.WRITE_DRAFT)
+        target_room_ok = (
+            bool(target_live_room_id)
+            and target_live_room_id not in PROTECTED_REFERENCE_ROOM_IDS
+            and protection_reason is None
         )
         self._add_check(
             checks,
             "target_room",
             target_room_ok,
             "A fresh target live-room draft is required; protected reference rooms are read-only",
+            evidence={
+                "resource_type": "maitu_room",
+                "resource_id": target_live_room_id,
+                "registry_reason": protection_reason,
+            }
+            if protection_reason
+            else None,
         )
         authority_evidence = None
         if target_room_ok and room_verifier is not None:

@@ -1,12 +1,16 @@
 from fastapi import APIRouter
 
 from app.api.routes import (
+    compatibility,
     assets,
+    console,
+    control_plane,
     digital_humans,
     live_observations,
     lives,
     maitu,
     maitu_workbench,
+    policy,
     products,
     rag,
     scripts,
@@ -16,6 +20,10 @@ from app.api.routes import (
 )
 
 api_router = APIRouter()
+api_router.include_router(compatibility.router)
+api_router.include_router(console.router)
+api_router.include_router(control_plane.router)
+api_router.include_router(policy.router)
 api_router.include_router(assets.router)
 api_router.include_router(lives.router)
 api_router.include_router(digital_humans.router)

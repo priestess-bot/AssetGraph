@@ -7,6 +7,7 @@ import mimetypes
 import os
 import tempfile
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -23,16 +24,24 @@ class ModelProviderError(RuntimeError):
         self.retryable = retryable
 
 
+@dataclass(frozen=True, slots=True)
+class ProviderResult:
+    content: dict[str, Any]
+    evidence: dict[str, Any]
+
+
 class OpenAITranscriptionProvider:
     def __init__(
         self,
         *,
         api_key: str,
+        model: str,
         base_url: str = "https://api.openai.com/v1",
         timeout_seconds: float = 600,
         transport: httpx.BaseTransport | None = None,
     ):
         self.api_key = _require_api_key(api_key, "OPENAI_API_KEY")
+        self.model = _require_model_version(model)
         self.base_url = _validated_base_url(base_url)
         self.timeout_seconds = timeout_seconds
         self.transport = transport
@@ -41,13 +50,14 @@ class OpenAITranscriptionProvider:
         self,
         audio_path: Path,
         *,
-        model_version: str,
+        strategy_revision: str,
         parameters: dict[str, Any],
-    ) -> dict[str, Any]:
+        processor_call_audit_code: str,
+    ) -> ProviderResult:
         if not audio_path.is_file() or audio_path.is_symlink():
             raise ModelProviderError("ASR input must be a regular file")
         request_fields: dict[str, str] = {
-            "model": _require_model_version(model_version),
+            "model": self.model,
             "response_format": "diarized_json",
             "chunking_strategy": "auto",
         }
@@ -73,16 +83,34 @@ class OpenAITranscriptionProvider:
                 retryable=True,
             ) from exc
         data = _response_json(response, "OpenAI transcription")
-        return {
-            "provider": "openai",
-            "requested_model": model_version,
-            "actual_model": str(data.get("model") or model_version),
-            "response_id": str(data["id"]) if data.get("id") else None,
-            "usage": data.get("usage") if isinstance(data.get("usage"), dict) else {},
-            "input_audio_sha256": _sha256_file(audio_path),
-            "latency_ms": int((time.monotonic() - started) * 1000),
-            "transcript": data,
+        transcript = {
+            key: value
+            for key, value in data.items()
+            if key not in {"id", "model", "usage"}
         }
+        content = {
+            "input_audio_sha256": _sha256_file(audio_path),
+            "transcript": transcript,
+        }
+        return ProviderResult(
+            content=content,
+            evidence=_provider_evidence(
+                provider_adapter="openai-transcription.v1",
+                requested_model=self.model,
+                actual_model=str(data.get("model") or self.model),
+                provider_response_id=str(data["id"]) if data.get("id") else None,
+                capability="speech_to_text",
+                strategy_revision=strategy_revision,
+                input_value={
+                    "audio_sha256": content["input_audio_sha256"],
+                    "parameters": parameters,
+                },
+                output_value=content,
+                usage=data.get("usage") if isinstance(data.get("usage"), dict) else {},
+                latency_ms=int((time.monotonic() - started) * 1000),
+                processor_call_audit_code=processor_call_audit_code,
+            ),
+        )
 
 
 class OpenAIVisionProvider:
@@ -90,6 +118,7 @@ class OpenAIVisionProvider:
         self,
         *,
         api_key: str,
+        model: str,
         storage: SecureStorage,
         base_url: str = "https://api.openai.com/v1",
         timeout_seconds: float = 600,
@@ -97,6 +126,7 @@ class OpenAIVisionProvider:
         runner: CommandRunner | None = None,
     ):
         self.api_key = _require_api_key(api_key, "OPENAI_API_KEY")
+        self.model = _require_model_version(model)
         self.storage = storage
         self.base_url = _validated_base_url(base_url)
         self.timeout_seconds = timeout_seconds
@@ -109,14 +139,15 @@ class OpenAIVisionProvider:
         run_type: str,
         source_path: Path | None,
         session: dict[str, Any],
-        model_version: str,
+        strategy_revision: str,
         parameters: dict[str, Any],
-    ) -> dict[str, Any]:
+        processor_call_audit_code: str,
+    ) -> ProviderResult:
         if run_type not in {"ocr", "layout_inference"}:
             raise ModelProviderError(f"OpenAI vision does not handle {run_type}")
         if source_path is None:
             raise ModelProviderError(f"{run_type} requires a source chunk")
-        model = _require_model_version(model_version)
+        model = self.model
         sample_times = _sample_times(parameters)
         frame_root = self.storage.resolve(
             "templates/runtime/vision/.runtime",
@@ -182,17 +213,35 @@ class OpenAIVisionProvider:
                 ) from exc
             data = _response_json(response, "OpenAI vision")
         observations = _parse_responses_output(data)
-        return {
+        content = {
             "contract_version": "live-vision-observations.v1",
-            "provider": "openai",
-            "requested_model": model,
-            "actual_model": str(data.get("model") or model),
-            "response_id": str(data["id"]) if data.get("id") else None,
-            "usage": data.get("usage") if isinstance(data.get("usage"), dict) else {},
             "frame_manifest": frame_manifest,
-            "latency_ms": int((time.monotonic() - started) * 1000),
             **observations,
         }
+        return ProviderResult(
+            content=content,
+            evidence=_provider_evidence(
+                provider_adapter="openai-responses-vision.v1",
+                requested_model=model,
+                actual_model=str(data.get("model") or model),
+                provider_response_id=str(data["id"]) if data.get("id") else None,
+                capability=(
+                    "optical_character_recognition"
+                    if run_type == "ocr"
+                    else "image_understanding"
+                ),
+                strategy_revision=strategy_revision,
+                input_value={
+                    "run_type": run_type,
+                    "frame_manifest": frame_manifest,
+                    "parameters": parameters,
+                },
+                output_value=content,
+                usage=data.get("usage") if isinstance(data.get("usage"), dict) else {},
+                latency_ms=int((time.monotonic() - started) * 1000),
+                processor_call_audit_code=processor_call_audit_code,
+            ),
+        )
 
     def _extract_frames(
         self, source: Path, destination: Path, sample_times: list[float]
@@ -235,11 +284,13 @@ class DeepSeekTemplateProvider:
         self,
         *,
         api_key: str,
+        model: str,
         base_url: str = "https://api.deepseek.com",
         timeout_seconds: float = 300,
         transport: httpx.BaseTransport | None = None,
     ):
         self.api_key = _require_api_key(api_key, "DEEPSEEK_API_KEY")
+        self.model = _require_model_version(model)
         self.base_url = _validated_base_url(base_url)
         self.timeout_seconds = timeout_seconds
         self.transport = transport
@@ -250,9 +301,10 @@ class DeepSeekTemplateProvider:
         run_type: str,
         source_path: Path | None,
         session: dict[str, Any],
-        model_version: str,
+        strategy_revision: str,
         parameters: dict[str, Any],
-    ) -> dict[str, Any]:
+        processor_call_audit_code: str,
+    ) -> ProviderResult:
         del source_path
         if run_type != "template_aggregation":
             raise ModelProviderError(f"DeepSeek aggregation does not handle {run_type}")
@@ -271,7 +323,7 @@ class DeepSeekTemplateProvider:
         )
         if len(encoded_context.encode("utf-8")) > 1024 * 1024:
             raise ModelProviderError("template aggregation input exceeds 1 MiB")
-        model = _require_model_version(model_version)
+        model = self.model
         payload = {
             "model": model,
             "temperature": 0.1,
@@ -319,17 +371,26 @@ class DeepSeekTemplateProvider:
             raise ModelProviderError("DeepSeek response was not valid JSON") from exc
         if not isinstance(result, dict):
             raise ModelProviderError("DeepSeek template result must be an object")
-        return {
+        output = {
             "contract_version": "live-template-aggregation.v1",
-            "provider": "deepseek",
-            "requested_model": model,
-            "actual_model": str(data.get("model") or model),
-            "response_id": str(data["id"]) if data.get("id") else None,
-            "usage": data.get("usage") if isinstance(data.get("usage"), dict) else {},
-            "input_fingerprint": hashlib.sha256(encoded_context.encode("utf-8")).hexdigest(),
-            "latency_ms": int((time.monotonic() - started) * 1000),
             "template": result,
         }
+        return ProviderResult(
+            content=output,
+            evidence=_provider_evidence(
+                provider_adapter="deepseek-openai-compatible-chat.v1",
+                requested_model=model,
+                actual_model=str(data.get("model") or model),
+                provider_response_id=str(data["id"]) if data.get("id") else None,
+                capability="structured_generation",
+                strategy_revision=strategy_revision,
+                input_value=context,
+                output_value=output,
+                usage=data.get("usage") if isinstance(data.get("usage"), dict) else {},
+                latency_ms=int((time.monotonic() - started) * 1000),
+                processor_call_audit_code=processor_call_audit_code,
+            ),
+        )
 
 
 class RoutedLayoutProvider:
@@ -442,6 +503,50 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: source.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _provider_evidence(
+    *,
+    provider_adapter: str,
+    requested_model: str,
+    actual_model: str,
+    provider_response_id: str | None,
+    capability: str,
+    strategy_revision: str,
+    input_value: dict[str, Any],
+    output_value: dict[str, Any],
+    usage: dict[str, Any],
+    latency_ms: int,
+    processor_call_audit_code: str,
+) -> dict[str, Any]:
+    return {
+        "schema_version": "provider-invocation-evidence.v1",
+        "provider_adapter": provider_adapter,
+        "requested_model": requested_model,
+        "actual_model": actual_model,
+        "provider_response_id": provider_response_id,
+        "capability": capability,
+        "strategy_revision": strategy_revision,
+        "input_fingerprint": _canonical_fingerprint(input_value),
+        "output_fingerprint": _canonical_fingerprint(output_value),
+        "usage": usage,
+        "latency_ms": latency_ms,
+        "traceparent": None,
+        "redaction_policy_ref": "baseline-sensitive-field-redaction@1",
+        "input_redaction_count": 0,
+        "output_redaction_count": 0,
+        "processor_call_audit_code": processor_call_audit_code,
+    }
+
+
+def _canonical_fingerprint(value: dict[str, Any]) -> str:
+    encoded = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 _VISION_SCHEMA: dict[str, Any] = {

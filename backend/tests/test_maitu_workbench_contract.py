@@ -24,7 +24,7 @@ from app.services.maitu_authority import (
 )
 
 
-def test_workbench_migration_parses_and_contains_audited_state_machine() -> None:
+def test_workbench_legacy_migration_parses_and_is_replaced_by_neutral_contract() -> None:
     migration = Path(__file__).resolve().parents[1] / "migrations" / "023_maitu_production_workbench.sql"
     sql = migration.read_text(encoding="utf-8")
 
@@ -47,6 +47,16 @@ def test_workbench_migration_parses_and_contains_audited_state_machine() -> None
     assert "topic TEXT NOT NULL" in sql
     assert "ready_for_go_live = false" in sql
     assert "FOR UPDATE SKIP LOCKED" not in sql  # Leasing belongs in repository commands.
+
+    replacement = (
+        Path(__file__).resolve().parents[1]
+        / "migrations"
+        / "043_provider_neutral_producer_contracts.sql"
+    ).read_text(encoding="utf-8")
+    parse_sql(replacement)
+    assert "ALTER COLUMN generation_provider DROP NOT NULL" in replacement
+    assert "generation_strategy_revision" in replacement
+    assert "generation_invocation_evidence_ref" in replacement
 
 
 def test_reference_template_handoff_migration_pins_an_immutable_complete_bundle() -> None:

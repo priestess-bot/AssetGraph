@@ -920,6 +920,14 @@ class LiveObservationRepository:
     def create_analysis_run(
         self, session_code: str, payload: dict[str, Any]
     ) -> dict[str, Any]:
+        legacy_contract = payload.get("strategy_revision") is None
+        strategy_revision = (
+            "legacy.live-analysis.v1"
+            if legacy_contract
+            else str(payload["strategy_revision"])
+        )
+        model_provider = payload.get("model_provider") if legacy_contract else None
+        model_version = payload.get("model_version") if legacy_contract else None
         run_code = self._next_code("analysis_run")
         with self.connection.cursor(row_factory=dict_row) as cursor:
             session = self._session_by_code(cursor, session_code)
@@ -938,9 +946,10 @@ class LiveObservationRepository:
                 """
                 INSERT INTO live_analysis_runs (
                     analysis_run_code, session_id, session_code, chunk_id, chunk_code,
-                    analysis_type, input_fingerprint, model_provider, model_version, parameters
+                    analysis_type, input_fingerprint, strategy_revision,
+                    model_provider, model_version, parameters
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT DO NOTHING
                 RETURNING *
                 """,
@@ -952,8 +961,9 @@ class LiveObservationRepository:
                     chunk["chunk_code"] if chunk else None,
                     payload["analysis_type"],
                     payload["input_fingerprint"],
-                    payload["model_provider"],
-                    payload["model_version"],
+                    strategy_revision,
+                    model_provider,
+                    model_version,
                     Jsonb(payload.get("parameters") or {}),
                 ),
             )
@@ -964,15 +974,14 @@ class LiveObservationRepository:
                     SELECT * FROM live_analysis_runs
                     WHERE session_id = %s AND chunk_id IS NOT DISTINCT FROM %s
                       AND analysis_type = %s AND input_fingerprint = %s
-                      AND model_provider = %s AND model_version = %s
+                      AND strategy_revision = %s
                     """,
                     (
                         session["id"],
                         chunk["id"] if chunk else None,
                         payload["analysis_type"],
                         payload["input_fingerprint"],
-                        payload["model_provider"],
-                        payload["model_version"],
+                        strategy_revision,
                     ),
                 )
                 row = cursor.fetchone()
@@ -999,8 +1008,7 @@ class LiveObservationRepository:
                 {
                     "chunk_checksum_sha256": chunk["checksum_sha256"],
                     "analysis_type": analysis_type,
-                    "model_provider": spec["model_provider"],
-                    "model_version": spec["model_version"],
+                    "strategy_revision": spec["strategy_revision"],
                     "parameters": parameters,
                 }
             )
@@ -1008,9 +1016,9 @@ class LiveObservationRepository:
                 """
                 INSERT INTO live_analysis_runs (
                     analysis_run_code, session_id, session_code, chunk_id, chunk_code,
-                    analysis_type, input_fingerprint, model_provider, model_version, parameters
+                    analysis_type, input_fingerprint, strategy_revision, parameters
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT DO NOTHING
                 """,
                 (
@@ -1021,8 +1029,7 @@ class LiveObservationRepository:
                     chunk["chunk_code"],
                     analysis_type,
                     fingerprint,
-                    spec["model_provider"],
-                    spec["model_version"],
+                    spec["strategy_revision"],
                     Jsonb(parameters),
                 ),
             )
@@ -1069,7 +1076,8 @@ class LiveObservationRepository:
             """
             SELECT DISTINCT ON (chunk_id, analysis_type)
                    id, analysis_run_code, chunk_id, chunk_code, analysis_type,
-                   output_payload, output_checksum_sha256, model_provider, model_version,
+                   output_payload, output_checksum_sha256, strategy_revision,
+                   invocation_evidence_ref,
                    completed_at
             FROM live_analysis_runs
             WHERE session_id = %s AND chunk_id = ANY(%s)
@@ -1104,8 +1112,8 @@ class LiveObservationRepository:
                     {
                         "analysis_run_code": run["analysis_run_code"],
                         "output_checksum_sha256": run["output_checksum_sha256"],
-                        "model_provider": run["model_provider"],
-                        "model_version": run["model_version"],
+                        "strategy_revision": run["strategy_revision"],
+                        "invocation_evidence_ref": run["invocation_evidence_ref"],
                     }
                 )
         fingerprint = self._fingerprint(
@@ -1120,8 +1128,7 @@ class LiveObservationRepository:
                     for chunk in chunks
                 ],
                 "upstream": upstream,
-                "model_provider": spec["model_provider"],
-                "model_version": spec["model_version"],
+                "strategy_revision": spec["strategy_revision"],
             }
         )
         parameters = {
@@ -1137,9 +1144,9 @@ class LiveObservationRepository:
             """
             INSERT INTO live_analysis_runs (
                 analysis_run_code, session_id, session_code, chunk_id, chunk_code,
-                analysis_type, input_fingerprint, model_provider, model_version, parameters
+                analysis_type, input_fingerprint, strategy_revision, parameters
             )
-            VALUES (%s, %s, %s, NULL, NULL, 'template_aggregation', %s, %s, %s, %s)
+            VALUES (%s, %s, %s, NULL, NULL, 'template_aggregation', %s, %s, %s)
             ON CONFLICT DO NOTHING
             """,
             (
@@ -1147,8 +1154,7 @@ class LiveObservationRepository:
                 session["id"],
                 session["session_code"],
                 fingerprint,
-                spec["model_provider"],
-                spec["model_version"],
+                spec["strategy_revision"],
                 Jsonb(parameters),
             ),
         )
@@ -1201,7 +1207,8 @@ class LiveObservationRepository:
                 """
                 UPDATE live_analysis_runs
                 SET status = 'succeeded', output_payload = %s, output_relative_path = %s,
-                    output_checksum_sha256 = %s, completed_at = now(), updated_at = now(),
+                    output_checksum_sha256 = %s, invocation_evidence_ref = %s,
+                    completed_at = now(), updated_at = now(),
                     claimed_by = NULL, lease_token = NULL, lease_expires_at = NULL, heartbeat_at = NULL
                 WHERE analysis_run_code = %s AND status = 'running' AND claimed_by = %s
                   AND lease_token = %s AND lease_expires_at > now()
@@ -1211,6 +1218,7 @@ class LiveObservationRepository:
                     Jsonb(payload.get("output_payload") or {}),
                     payload.get("output_relative_path"),
                     payload.get("output_checksum_sha256"),
+                    payload.get("invocation_evidence_ref"),
                     run_code,
                     worker_id,
                     token,
@@ -1535,6 +1543,8 @@ class LiveObservationRepository:
         revision_number: int,
         payload: dict[str, Any],
         projection: dict[str, Any],
+        *,
+        commit: bool = True,
     ) -> dict[str, Any]:
         publication_code = self._next_code("publication")
         with self.connection.cursor(row_factory=dict_row) as cursor:
@@ -1545,6 +1555,13 @@ class LiveObservationRepository:
             template = cursor.fetchone()
             if template is None:
                 raise LiveObservationConflictError("room template does not exist")
+            cursor.execute(
+                "SELECT MAX(revision_number) AS latest_revision FROM live_room_template_revisions WHERE template_id = %s",
+                (template["id"],),
+            )
+            latest_revision = cursor.fetchone()["latest_revision"]
+            if latest_revision is None or int(latest_revision) != revision_number:
+                raise LiveObservationConflictError("only the latest room template revision can be published")
             cursor.execute(
                 """
                 SELECT * FROM live_room_template_revisions
@@ -1608,7 +1625,8 @@ class LiveObservationRepository:
                 """,
                 (revision["id"], template["id"]),
             )
-        self.connection.commit()
+        if commit:
+            self.connection.commit()
         return self._projection(publication, template)
 
     def get_room_template_projection(self, template_code: str) -> dict[str, Any] | None:

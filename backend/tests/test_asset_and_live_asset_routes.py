@@ -487,9 +487,14 @@ def test_patch_asset_material_binding_returns_409_during_active_retry_lease(
         app.dependency_overrides.clear()
 
     assert response.status_code == 409
-    assert response.json() == {
-        "detail": "Asset Maitu material binding cannot change during an active retry worker lease"
-    }
+    assert response.json()["detail"] == (
+        "Asset Maitu material binding cannot change during an active retry worker lease"
+    )
+    assert response.json()["error"] | {
+        "code": "STALE_REVISION",
+        "state": "stale",
+        "retryable": False,
+    } == response.json()["error"]
 
 
 def test_link_asset_to_live_and_list_assets(client: TestClient) -> None:

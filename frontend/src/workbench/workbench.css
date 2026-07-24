@@ -117,6 +117,15 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .wb-notice-success { border-color: #b9d4c5; background: var(--wb-accent-soft); color: var(--wb-accent-dark); }
 .wb-notice-warning { border-color: #e3ccaa; background: var(--wb-amber-soft); color: #774b14; }
 .wb-notice-danger { border-color: #e0b9b5; background: var(--wb-red-soft); color: #822f29; }
+.wb-problem { align-items: flex-start; }
+.wb-problem > div { width: 100%; }
+.wb-problem-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px; }
+.wb-problem-heading code { font-size: 9px; }
+.wb-problem dl { display: grid; gap: 5px; margin: 8px 0 0; }
+.wb-problem dl > div { display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 8px; }
+.wb-problem dt { font-weight: 800; }
+.wb-problem dd { display: flex; min-width: 0; flex-wrap: wrap; gap: 5px; margin: 0; overflow-wrap: anywhere; }
+.wb-problem dd code { overflow-wrap: anywhere; }
 
 .wb-field { display: flex; min-width: 0; flex-direction: column; gap: 5px; }
 .wb-field > label, .wb-field > span { color: var(--wb-muted); font-size: 10px; font-weight: 700; }

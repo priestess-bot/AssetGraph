@@ -40,7 +40,28 @@ def validate_repository(root: Path) -> list[str]:
         "workers/browser-use/uv.lock",
         "scripts/bootstrap_reproducible.py",
         "scripts/apply_migrations.py",
+        "scripts/rehearse_migrations.py",
+        "scripts/rehearse_disaster_recovery.py",
+        "scripts/audit_legacy_compatibility.py",
+        "scripts/measure_capacity_baseline.py",
+        "scripts/assemble_phase0_acceptance.py",
         "scripts/verify_reproducibility.py",
+        "docs/operations/database-migration-rehearsal.md",
+        "docs/operations/disaster-recovery-baseline-runbook.md",
+        "docs/operations/legacy-compatibility-audit.md",
+        "docs/operations/capacity-baseline-input.v1.example.json",
+        "docs/operations/capacity-baseline-measurement-2026-07-23.md",
+        "docs/operations/phase-owner-register.v1.example.json",
+        "docs/operations/phase-0-acceptance-signoff.v1.example.json",
+        "docs/operations/phase-0-acceptance-package.md",
+        "docs/operations/phase-0-migration-invariants.v1.json",
+        "docs/evidence/phase-0-disaster-recovery-validation-2026-07-23.md",
+        "docs/evidence/phase-0-disaster-recovery-baseline-2026-07-23-attempt-4.json",
+        "docs/evidence/phase-0-legacy-compatibility-validation-2026-07-23.md",
+        "docs/evidence/phase-0-legacy-compatibility-audit-2026-07-23.json",
+        "docs/evidence/phase-0-capacity-baseline-integration-2026-07-23.json",
+        "docs/evidence/phase-0-regression-2026-07-23.json",
+        "docs/evidence/phase-0-acceptance-package-preparation-2026-07-23.json",
         ".github/workflows/reproducibility.yml",
         "services/qwen3/qwen3_shared_server.py",
         "services/qwen3/pyproject.toml",
@@ -69,11 +90,15 @@ def validate_repository(root: Path) -> list[str]:
     skill = manifest["script_skill"]
     skill_root = root / skill["path"]
     expected_skill_files = {Path(relative).as_posix() for relative in skill["files"]}
-    actual_skill_files = {
-        path.relative_to(skill_root).as_posix()
-        for path in skill_root.rglob("*")
-        if path.is_file()
-    } if skill_root.is_dir() else set()
+    actual_skill_files = (
+        {
+            path.relative_to(skill_root).as_posix()
+            for path in skill_root.rglob("*")
+            if path.is_file()
+        }
+        if skill_root.is_dir()
+        else set()
+    )
     if actual_skill_files != expected_skill_files:
         errors.append(
             "script skill file set mismatch: "
@@ -90,9 +115,14 @@ def validate_repository(root: Path) -> list[str]:
     skill_path = skill_root / "SKILL.md"
     if skill_path.is_file():
         content = skill_path.read_text(encoding="utf-8")
-        if not content.startswith("---\n") or "name: jd-wine-livestream-scriptwriting" not in content:
+        if (
+            not content.startswith("---\n")
+            or "name: jd-wine-livestream-scriptwriting" not in content
+        ):
             errors.append("script skill frontmatter is invalid")
-        for relative in re.findall(r"\]\((references/[^)]+|templates/[^)]+)\)", content):
+        for relative in re.findall(
+            r"\]\((references/[^)]+|templates/[^)]+)\)", content
+        ):
             if not (skill_root / relative).is_file():
                 errors.append(f"script skill link is broken: {relative}")
 
@@ -106,7 +136,9 @@ def validate_repository(root: Path) -> list[str]:
             errors.append("asset inventory count does not match reproducibility lock")
     transfer_tool = root / asset_contract["transfer_tool"]
     if not transfer_tool.is_file():
-        errors.append(f"private asset corpus transfer tool missing: {asset_contract['transfer_tool']}")
+        errors.append(
+            f"private asset corpus transfer tool missing: {asset_contract['transfer_tool']}"
+        )
 
     migrations = sorted((root / "backend" / "migrations").glob("[0-9][0-9][0-9]_*.sql"))
     numbers = [int(path.name[:3]) for path in migrations]
@@ -114,7 +146,10 @@ def validate_repository(root: Path) -> list[str]:
         errors.append(f"migration sequence is not contiguous: {numbers}")
 
     backend_pyproject = root / "backend" / "pyproject.toml"
-    if backend_pyproject.is_file() and '"httpx2>=2.5.0"' not in backend_pyproject.read_text(encoding="utf-8"):
+    if (
+        backend_pyproject.is_file()
+        and '"httpx2>=2.5.0"' not in backend_pyproject.read_text(encoding="utf-8")
+    ):
         errors.append("backend dev dependency is missing the Starlette httpx2 adapter")
 
     hardcoded = re.compile(r"(?i)(?:[a-z]:[/\\](?:assetgraph|browser-use|ai-models))")
@@ -132,9 +167,13 @@ def validate_repository(root: Path) -> list[str]:
         for path in source_root.rglob("*"):
             if path.suffix not in {".py", ".sh", ".ps1"} or not path.is_file():
                 continue
-            for line_number, line in enumerate(path.read_text(encoding="utf-8", errors="ignore").splitlines(), 1):
+            for line_number, line in enumerate(
+                path.read_text(encoding="utf-8", errors="ignore").splitlines(), 1
+            ):
                 if hardcoded.search(line):
-                    errors.append(f"machine-specific executable path: {path.relative_to(root)}:{line_number}")
+                    errors.append(
+                        f"machine-specific executable path: {path.relative_to(root)}:{line_number}"
+                    )
     return errors
 
 
@@ -143,7 +182,9 @@ def validate_external(root: Path, *, verify_asset_hashes: bool = False) -> list[
     manifest = _load_manifest(root)
     errors: list[str] = []
 
-    browser_path = Path(os.getenv("BROWSER_USE_REPO", root / manifest["browser_use"]["default_path"]))
+    browser_path = Path(
+        os.getenv("BROWSER_USE_REPO", root / manifest["browser_use"]["default_path"])
+    )
     if not browser_path.is_dir():
         errors.append(f"browser-use checkout missing: {browser_path}")
     else:
@@ -155,7 +196,9 @@ def validate_external(root: Path, *, verify_asset_hashes: bool = False) -> list[
         )
         actual = completed.stdout.strip()
         if completed.returncode != 0 or actual != manifest["browser_use"]["commit"]:
-            errors.append(f"browser-use revision mismatch: expected {manifest['browser_use']['commit']}, got {actual or 'unreadable'}")
+            errors.append(
+                f"browser-use revision mismatch: expected {manifest['browser_use']['commit']}, got {actual or 'unreadable'}"
+            )
 
     for key, label in (("streamcap", "StreamCap"), ("douyin_live", "douyinLive")):
         item = manifest["live_research"][key]
@@ -171,7 +214,9 @@ def validate_external(root: Path, *, verify_asset_hashes: bool = False) -> list[
         )
         actual = completed.stdout.strip()
         if completed.returncode != 0 or actual != item["commit"]:
-            errors.append(f"{label} revision mismatch: expected {item['commit']}, got {actual or 'unreadable'}")
+            errors.append(
+                f"{label} revision mismatch: expected {item['commit']}, got {actual or 'unreadable'}"
+            )
     douyin = manifest["live_research"]["douyin_live"]
     binary = root / douyin["default_binary_path"]
     if not binary.is_file():
@@ -184,11 +229,19 @@ def validate_external(root: Path, *, verify_asset_hashes: bool = False) -> list[
             check=False,
         )
         version_text = completed.stdout + completed.stderr
-        if completed.returncode != 0 or douyin["tag"] not in version_text or douyin["commit"][:12] not in version_text:
-            errors.append("douyinLive binary version does not match the reproducibility lock")
+        if (
+            completed.returncode != 0
+            or douyin["tag"] not in version_text
+            or douyin["commit"][:12] not in version_text
+        ):
+            errors.append(
+                "douyinLive binary version does not match the reproducibility lock"
+            )
 
     model_root = root / ".external" / "models" / "qwen3-4b"
-    embedding = Path(os.getenv("QWEN3_EMBEDDING_PATH", model_root / "Qwen3-Embedding-4B"))
+    embedding = Path(
+        os.getenv("QWEN3_EMBEDDING_PATH", model_root / "Qwen3-Embedding-4B")
+    )
     reranker = Path(os.getenv("QWEN3_RERANKER_PATH", model_root / "Qwen3-Reranker-4B"))
     for label, path in (("embedding", embedding), ("reranker", reranker)):
         if not (path / "config.json").is_file():
@@ -210,9 +263,13 @@ def validate_external(root: Path, *, verify_asset_hashes: bool = False) -> list[
         elif verify_asset_hashes and _sha256(path) != item["sha256"]:
             mismatched_assets.append(item["relative_path"])
     if missing_assets:
-        errors.append(f"asset inventory missing {len(missing_assets)} files under {assets_root}")
+        errors.append(
+            f"asset inventory missing {len(missing_assets)} files under {assets_root}"
+        )
     if mismatched_assets:
-        errors.append(f"asset inventory mismatch for {len(mismatched_assets)} files under {assets_root}")
+        errors.append(
+            f"asset inventory mismatch for {len(mismatched_assets)} files under {assets_root}"
+        )
     return errors
 
 
@@ -232,7 +289,10 @@ def validate_video_demo(root: Path, *, verify_asset_hashes: bool = True) -> list
             text=True,
             check=False,
         )
-        if completed.returncode != 0 or contract["required_font"] not in completed.stdout:
+        if (
+            completed.returncode != 0
+            or contract["required_font"] not in completed.stdout
+        ):
             errors.append(f"video demo font missing: {contract['required_font']}")
 
     video_tts = manifest["video_tts"]
@@ -271,10 +331,24 @@ def validate_video_demo(root: Path, *, verify_asset_hashes: bool = True) -> list
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Verify AssetGraph reproducibility contract")
-    parser.add_argument("--external", action="store_true", help="also verify browser-use, Qwen3 models, and asset inventory")
-    parser.add_argument("--video-demo", action="store_true", help="verify only the video Demo runtime, model, and five fixed assets")
-    parser.add_argument("--verify-asset-hashes", action="store_true", help="hash every inventory asset; implies --external and may be slow")
+    parser = argparse.ArgumentParser(
+        description="Verify AssetGraph reproducibility contract"
+    )
+    parser.add_argument(
+        "--external",
+        action="store_true",
+        help="also verify browser-use, Qwen3 models, and asset inventory",
+    )
+    parser.add_argument(
+        "--video-demo",
+        action="store_true",
+        help="verify only the video Demo runtime, model, and five fixed assets",
+    )
+    parser.add_argument(
+        "--verify-asset-hashes",
+        action="store_true",
+        help="hash every inventory asset; implies --external and may be slow",
+    )
     args = parser.parse_args(argv)
 
     errors = validate_repository(REPO_ROOT)
@@ -288,7 +362,11 @@ def main(argv: list[str] | None = None) -> int:
     elif args.video_demo:
         errors.extend(validate_video_demo(REPO_ROOT, verify_asset_hashes=True))
     if errors:
-        print(json.dumps({"status": "failed", "errors": errors}, ensure_ascii=False, indent=2))
+        print(
+            json.dumps(
+                {"status": "failed", "errors": errors}, ensure_ascii=False, indent=2
+            )
+        )
         return 1
     print(
         json.dumps(

@@ -11,6 +11,7 @@ import {
   Workflow,
   X,
 } from "lucide-react";
+import type { OperationalState, WorkbenchProblem } from "./api";
 
 export type Tone = "neutral" | "info" | "success" | "warning" | "danger";
 
@@ -31,8 +32,8 @@ interface WorkbenchShellProps {
 }
 
 const DEFAULT_NAV: ProductNavItem[] = [
-  { href: "/maitu/", label: "生产工作台", detail: "故事到麦兔草稿", icon: Workflow },
-  { href: "/live-research/", label: "模板工坊", detail: "直播采集与模板", icon: RadioTower },
+  { href: "/production/live-rooms", label: "生产工作台", detail: "故事到麦兔草稿", icon: Workflow },
+  { href: "/research/live-sources", label: "模板工坊", detail: "直播采集与模板", icon: RadioTower },
 ];
 
 export function WorkbenchShell({ eyebrow, title, status, children, navItems = DEFAULT_NAV }: WorkbenchShellProps) {
@@ -103,6 +104,28 @@ export function InlineNotice({ tone = "info", title, children }: { tone?: Tone; 
     <div className={`wb-notice wb-notice-${tone}`} role={tone === "danger" ? "alert" : "status"}>
       <Icon size={17} aria-hidden="true" />
       <div><strong>{title}</strong>{children ? <span>{children}</span> : null}</div>
+    </div>
+  );
+}
+
+export function operationalTone(state: OperationalState): Tone {
+  if (state === "error") return "danger";
+  if (state === "insufficient_data") return "info";
+  return "warning";
+}
+
+export function ProblemNotice({ problem }: { problem: WorkbenchProblem }) {
+  return (
+    <div className={`wb-problem wb-notice wb-notice-${operationalTone(problem.state)}`} role={problem.state === "error" ? "alert" : "status"}>
+      <AlertTriangle size={17} aria-hidden="true" />
+      <div>
+        <div className="wb-problem-heading"><strong>{problem.message}</strong><code>{problem.code}</code></div>
+        <dl>
+          <div><dt>影响</dt><dd>{problem.impact}</dd></div>
+          <div><dt>下一步</dt><dd>{problem.nextStep}</dd></div>
+          {problem.evidence.length ? <div><dt>证据</dt><dd>{problem.evidence.map((item) => <code key={`${item.kind}:${item.ref}`}>{item.kind}:{item.ref}</code>)}</dd></div> : null}
+        </dl>
+      </div>
     </div>
   );
 }

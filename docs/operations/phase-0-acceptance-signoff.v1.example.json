@@ -1,0 +1,11 @@
+{
+  "schema_version": "phase0-acceptance-signoff.v1",
+  "technical_package_fingerprint": null,
+  "decisions": {
+    "product": {"signer_id": null, "decision": "pending", "signed_at": null, "evidence_ref": null},
+    "engineering": {"signer_id": null, "decision": "pending", "signed_at": null, "evidence_ref": null},
+    "data": {"signer_id": null, "decision": "pending", "signed_at": null, "evidence_ref": null},
+    "security": {"signer_id": null, "decision": "pending", "signed_at": null, "evidence_ref": null},
+    "operations": {"signer_id": null, "decision": "pending", "signed_at": null, "evidence_ref": null}
+  }
+}

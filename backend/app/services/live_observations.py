@@ -7,7 +7,6 @@ from datetime import UTC, datetime, timedelta
 from pathlib import PurePosixPath
 from typing import Any, Protocol
 
-from app.core.config import settings
 from app.schemas.live_observations import (
     AnalysisRunCreate,
     AnalysisRunCompletion,
@@ -53,30 +52,25 @@ def canonical_fingerprint(value: Any) -> str:
 
 
 def default_chunk_analysis_specs() -> list[dict[str, Any]]:
-    vision_model = settings.openai_video_frame_model
     return [
         {
             "analysis_type": "frame_sampling",
-            "model_provider": "ffmpeg",
-            "model_version": "frame-sampling.v1",
+            "strategy_revision": "live.frame-sampling.v2",
             "parameters": {"interval_seconds": 5, "max_frames": 720},
         },
         {
             "analysis_type": "asr",
-            "model_provider": "openai",
-            "model_version": settings.openai_transcription_model,
+            "strategy_revision": "live.asr.zh.v2",
             "parameters": {"language": "zh"},
         },
         {
             "analysis_type": "ocr",
-            "model_provider": "openai",
-            "model_version": vision_model,
+            "strategy_revision": "live.ocr.v2",
             "parameters": {"sample_times_seconds": [0, 5, 15, 30]},
         },
         {
             "analysis_type": "layout_inference",
-            "model_provider": "openai",
-            "model_version": vision_model,
+            "strategy_revision": "live.layout-inference.v2",
             "parameters": {"sample_times_seconds": [0, 5, 15, 30]},
         },
     ]
@@ -84,8 +78,7 @@ def default_chunk_analysis_specs() -> list[dict[str, Any]]:
 
 def default_aggregation_spec() -> dict[str, str]:
     return {
-        "model_provider": "deepseek",
-        "model_version": settings.deepseek_flash_model,
+        "strategy_revision": "live.template-aggregation.v2",
     }
 
 

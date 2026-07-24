@@ -423,8 +423,7 @@ class AnalysisRunCreate(StrictModel):
     chunk_code: str | None = Field(default=None, max_length=64)
     analysis_type: Literal["asr", "frame_sampling", "ocr", "layout_inference", "template_aggregation"]
     input_fingerprint: str = Field(..., pattern=r"^[0-9a-f]{64}$")
-    model_provider: str = Field(..., min_length=1, max_length=128)
-    model_version: str = Field(..., min_length=1, max_length=128)
+    strategy_revision: str = Field(..., min_length=1, max_length=128)
     parameters: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
@@ -451,8 +450,8 @@ class AnalysisRunRead(BaseModel):
     analysis_type: str
     status: WorkStatus
     input_fingerprint: str
-    model_provider: str
-    model_version: str
+    strategy_revision: str
+    invocation_evidence_ref: str | None = None
     parameters: dict[str, Any] = Field(default_factory=dict)
     output_payload: dict[str, Any] = Field(default_factory=dict)
     output_relative_path: str | None = None
@@ -511,6 +510,7 @@ class AnalysisRunCompletion(StrictModel):
     output_payload: dict[str, Any] = Field(default_factory=dict)
     output_relative_path: str | None = None
     output_checksum_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    invocation_evidence_ref: str | None = Field(default=None, min_length=1, max_length=80)
 
     @model_validator(mode="after")
     def validate_output(self) -> "AnalysisRunCompletion":
@@ -518,7 +518,48 @@ class AnalysisRunCompletion(StrictModel):
             _validate_relative_path(self.output_relative_path)
         if (self.output_relative_path is None) != (self.output_checksum_sha256 is None):
             raise ValueError("analysis output path and checksum must be supplied together")
+        forbidden_provider_keys = {
+            "provider",
+            "model_provider",
+            "model_version",
+            "requested_model",
+            "actual_model",
+            "provider_response_id",
+            "response_id",
+            "usage",
+            "latency_ms",
+        }
+
+        def contains_provider_metadata(value: Any) -> bool:
+            if isinstance(value, dict):
+                return bool(forbidden_provider_keys.intersection(value)) or any(
+                    contains_provider_metadata(item) for item in value.values()
+                )
+            if isinstance(value, list):
+                return any(contains_provider_metadata(item) for item in value)
+            return False
+
+        if contains_provider_metadata(self.output_payload):
+            raise ValueError(
+                "supplier invocation metadata belongs in provider evidence, not analysis output"
+            )
         return self
+
+
+class ProviderStrategyAuthorizationRequest(StrictModel):
+    worker_id: str = Field(..., min_length=1, max_length=128)
+    strategy_revision: str = Field(..., min_length=1, max_length=128)
+    analysis_type: Literal["asr", "ocr", "layout_inference", "template_aggregation"]
+    input_fingerprint: str = Field(..., pattern=r"^[0-9a-f]{64}$")
+
+
+class ProviderStrategyAuthorizationRead(StrictModel):
+    strategy_revision: str
+    processor_call_audit_code: str
+
+
+class ProviderEvidenceArtifactRead(StrictModel):
+    artifact_code: str
 
 
 class WorkFailure(StrictModel):

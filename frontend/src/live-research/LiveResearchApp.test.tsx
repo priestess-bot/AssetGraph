@@ -3,6 +3,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import LiveResearchApp from "./LiveResearchApp";
+import { productionHandoffHref } from "./TemplatesPage";
 
 function renderApp() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
@@ -40,5 +41,20 @@ describe("live template research workbench", () => {
     expect(await screen.findByText("发布版本只读")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "保存新修订" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "发布参考模板" })).not.toBeInTheDocument();
+  });
+
+  it("hands a fixed template projection to the stable production route", () => {
+    expect(productionHandoffHref("TPL-001", {
+      template_code: "TPL-001",
+      revision: 3,
+      projection_fingerprint: "a".repeat(64),
+      source_session_code: "CAP-001",
+      production_eligible: true,
+      reference_capabilities: [],
+      executable_capabilities: [],
+      blocked_operations: [],
+      warnings: [],
+      scenes: [],
+    })).toBe(`/production/live-rooms?reference_template_code=TPL-001&reference_template_revision_number=3&reference_template_projection_fingerprint=${"a".repeat(64)}`);
   });
 });

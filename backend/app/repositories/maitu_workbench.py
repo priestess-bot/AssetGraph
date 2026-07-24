@@ -21,6 +21,20 @@ class MaituWorkbenchRepository:
     def __init__(self, connection: Connection):
         self.connection = connection
 
+    def get_protected_resource(self, resource_type: str, resource_id: str) -> dict[str, Any] | None:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT * FROM protected_resources
+                WHERE resource_type = %s AND resource_id = %s
+                  AND revoked_at IS NULL AND effective_at <= now()
+                  AND (expires_at IS NULL OR expires_at > now())
+                """,
+                (resource_type, resource_id),
+            )
+            row = cursor.fetchone()
+        return self._serialize(row) if row else None
+
     # Product fact cards -------------------------------------------------
 
     def create_product_fact_card(
@@ -968,15 +982,9 @@ class MaituWorkbenchRepository:
         inventory_snapshot: dict[str, Any],
         source_build_plan_code: str | None,
         input_fingerprint: str,
-        generation_provider: str,
-        generation_requested_model: str,
-        generation_actual_model: str,
         generation_prompt_version: str,
-        generation_request_id: str | None,
         generation_input_fingerprint: str,
         generation_output_fingerprint: str,
-        generation_usage: dict[str, Any],
-        generation_latency_ms: int,
         pipeline_source: str,
         pipeline_output: dict[str, Any],
         gap_report: dict[str, Any],
@@ -984,7 +992,28 @@ class MaituWorkbenchRepository:
         requirements: list[dict[str, Any]],
         reason: str | None,
         created_by: str | None,
+        generation_strategy_revision: str | None = None,
+        generation_invocation_evidence_ref: str | None = None,
+        generation_provider: str | None = None,
+        generation_requested_model: str | None = None,
+        generation_actual_model: str | None = None,
+        generation_request_id: str | None = None,
+        generation_usage: dict[str, Any] | None = None,
+        generation_latency_ms: int | None = None,
     ) -> dict[str, Any]:
+        legacy_contract = generation_strategy_revision is None
+        strategy_revision = (
+            "legacy.maitu-plan.v1"
+            if legacy_contract
+            else generation_strategy_revision
+        )
+        if not legacy_contract:
+            generation_provider = None
+            generation_requested_model = None
+            generation_actual_model = None
+            generation_request_id = None
+            generation_usage = {}
+            generation_latency_ms = None
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
                 "SELECT * FROM maitu_workbench_runs WHERE run_code = %s FOR UPDATE",
@@ -1014,7 +1043,9 @@ class MaituWorkbenchRepository:
                     plan_revision_code, run_id, run_code, revision_number, trigger_type,
                     status, fact_card_version_id, fact_card_version_code,
                     inventory_snapshot_id, inventory_snapshot_code, source_build_plan_code,
-                    input_fingerprint, generation_provider, generation_requested_model,
+                    input_fingerprint, generation_strategy_revision,
+                    generation_invocation_evidence_ref,
+                    generation_provider, generation_requested_model,
                     generation_actual_model, generation_prompt_version, generation_request_id,
                     generation_input_fingerprint, generation_output_fingerprint,
                     generation_usage, generation_latency_ms, pipeline_source, pipeline_output,
@@ -1023,7 +1054,7 @@ class MaituWorkbenchRepository:
                 VALUES (
                     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s, %s, %s
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s
                 )
                 RETURNING *
                 """,
@@ -1040,6 +1071,8 @@ class MaituWorkbenchRepository:
                     inventory_snapshot["snapshot_code"],
                     source_build_plan_code,
                     input_fingerprint,
+                    strategy_revision,
+                    generation_invocation_evidence_ref,
                     generation_provider,
                     generation_requested_model,
                     generation_actual_model,
@@ -1047,7 +1080,7 @@ class MaituWorkbenchRepository:
                     generation_request_id,
                     generation_input_fingerprint,
                     generation_output_fingerprint,
-                    Jsonb(generation_usage),
+                    Jsonb(generation_usage or {}),
                     generation_latency_ms,
                     pipeline_source,
                     Jsonb(pipeline_output),
@@ -2107,6 +2140,38 @@ class MaituWorkbenchRepository:
         lease_token: str,
         payload: dict[str, Any],
     ) -> dict[str, Any]:
+        legacy_contract = payload.get("analysis_strategy_revision") is None
+        strategy_revision = (
+            "legacy.material-vision.v1"
+            if legacy_contract
+            else str(payload["analysis_strategy_revision"])
+        )
+        if legacy_contract:
+            analysis_prompt_revision = payload.get("model_prompt_version")
+            analysis_input_fingerprint = payload.get("model_input_fingerprint")
+            analysis_output_fingerprint = payload.get("model_output_fingerprint")
+            model_provider = payload.get("model_provider")
+            model_requested = payload.get("model_requested")
+            model_actual = payload.get("model_actual")
+            model_prompt_version = payload.get("model_prompt_version")
+            model_request_id = payload.get("model_request_id")
+            model_input_fingerprint = payload.get("model_input_fingerprint")
+            model_output_fingerprint = payload.get("model_output_fingerprint")
+            model_usage = payload.get("model_usage") or {}
+            model_latency_ms = payload.get("model_latency_ms")
+        else:
+            analysis_prompt_revision = payload["analysis_prompt_revision"]
+            analysis_input_fingerprint = payload["analysis_input_fingerprint"]
+            analysis_output_fingerprint = payload["analysis_output_fingerprint"]
+            model_provider = None
+            model_requested = None
+            model_actual = None
+            model_prompt_version = None
+            model_request_id = None
+            model_input_fingerprint = None
+            model_output_fingerprint = None
+            model_usage = {}
+            model_latency_ms = None
         token = self._parse_uuid(lease_token)
         if token is None:
             raise MaituWorkbenchLeaseConflictError("Video analysis lease is invalid")
@@ -2125,9 +2190,12 @@ class MaituWorkbenchRepository:
             cursor.execute(
                 """
                 UPDATE maitu_workbench_video_analyses
-                SET status = 'succeeded', provisional_source = 'gpt_5_6_sol',
+                SET status = 'succeeded', provisional_source = 'strategy_frames',
                     provisional_summary = %s, technical = %s, frame_manifest = %s,
                     automatic_observation = %s, merged_profile = %s,
+                    analysis_strategy_revision = %s, invocation_evidence_ref = %s,
+                    analysis_prompt_revision = %s, analysis_input_fingerprint = %s,
+                    analysis_output_fingerprint = %s,
                     model_provider = %s, model_requested = %s, model_actual = %s,
                     model_prompt_version = %s, model_request_id = %s,
                     model_input_fingerprint = %s, model_output_fingerprint = %s,
@@ -2143,15 +2211,20 @@ class MaituWorkbenchRepository:
                     Jsonb(payload["frame_manifest"]),
                     Jsonb(payload["observation"]),
                     Jsonb(payload["merged_profile"]),
-                    payload["model_provider"],
-                    payload["model_requested"],
-                    payload["model_actual"],
-                    payload["model_prompt_version"],
-                    payload.get("model_request_id"),
-                    payload["model_input_fingerprint"],
-                    payload["model_output_fingerprint"],
-                    Jsonb(payload.get("model_usage") or {}),
-                    payload["model_latency_ms"],
+                    strategy_revision,
+                    payload.get("invocation_evidence_ref"),
+                    analysis_prompt_revision,
+                    analysis_input_fingerprint,
+                    analysis_output_fingerprint,
+                    model_provider,
+                    model_requested,
+                    model_actual,
+                    model_prompt_version,
+                    model_request_id,
+                    model_input_fingerprint,
+                    model_output_fingerprint,
+                    Jsonb(model_usage),
+                    model_latency_ms,
                     job["id"],
                 ),
             )
@@ -2261,7 +2334,7 @@ class MaituWorkbenchRepository:
             if analysis["status"] != "succeeded" or not analysis.get("automatic_observation"):
                 self.connection.rollback()
                 raise MaituWorkbenchConflictError(
-                    "Gemini backfill requires a completed provisional OpenAI analysis"
+                    "Secondary manual backfill requires a completed provisional strategy analysis"
                 )
             revision = int(analysis["current_gemini_revision"]) + 1
             submission_code = self._next_code(cursor, "MT-GEM-SUB", "MAITU_GEMINI_SUBMISSION")

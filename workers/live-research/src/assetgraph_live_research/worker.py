@@ -136,8 +136,29 @@ class AnalysisRunWorker:
                 lease_token=str(run["lease_token"]),
                 lease_seconds=self.lease_seconds,
             ) as heartbeat:
+                run_for_execution = dict(run)
+                requires_provider = str(run.get("analysis_type")) != "frame_sampling"
+                if requires_provider:
+                    authorization = self.api.authorize_provider_strategy(
+                        worker_id=self.worker_id,
+                        strategy_revision=str(run["strategy_revision"]),
+                        analysis_type=str(run["analysis_type"]),
+                        input_fingerprint=str(run["input_fingerprint"]),
+                    )
+                    run_for_execution["_processor_call_audit_code"] = authorization[
+                        "processor_call_audit_code"
+                    ]
                 session = self.api.get_capture_session(str(run["session_code"]))
-                completion = self.executor.execute(run, session)
+                completion = self.executor.execute(run_for_execution, session)
+                evidence = completion.pop("provider_invocation_evidence", None)
+                if requires_provider:
+                    if not isinstance(evidence, dict):
+                        raise RuntimeError(
+                            "external analysis did not return provider invocation evidence"
+                        )
+                    completion["invocation_evidence_ref"] = (
+                        self.api.persist_provider_invocation_evidence(evidence)
+                    )
                 heartbeat.raise_if_failed()
             self.api.complete_analysis_run(
                 str(run["analysis_run_code"]),

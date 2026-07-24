@@ -17,7 +17,7 @@ export function productionHandoffHref(templateCode: string, projection: Template
     reference_template_revision_number: String(projection.revision),
     reference_template_projection_fingerprint: projection.projection_fingerprint,
   });
-  return `/maitu/?${params.toString()}`;
+  return `/production/live-rooms?${params.toString()}`;
 }
 
 function jobBadge(status: AnalysisRun["status"]) {

@@ -1,0 +1,72 @@
+{
+  "schema_version": "capacity-baseline-input.v1",
+  "configured_limits": {
+    "live_capture_concurrency": null,
+    "live_session_concurrency": null,
+    "render_concurrency": null,
+    "browser_use_concurrency": null,
+    "workflow_worker_concurrency": null
+  },
+  "forecast": {
+    "assets": {
+      "annual_growth_rate": null,
+      "peak_factor": null,
+      "source_ref": null
+    },
+    "recording_hours": {
+      "annual_growth_rate": null,
+      "peak_factor": null,
+      "source_ref": null
+    },
+    "events": {
+      "annual_growth_rate": null,
+      "peak_factor": null,
+      "source_ref": null
+    },
+    "artifacts_bytes": {
+      "annual_growth_rate": null,
+      "peak_factor": null,
+      "source_ref": null
+    },
+    "workflows": {
+      "annual_growth_rate": null,
+      "peak_factor": null,
+      "source_ref": null
+    }
+  },
+  "unit_costs": [
+    {
+      "cost_code": null,
+      "amount": null,
+      "currency": null,
+      "unit": null,
+      "source_ref": null
+    }
+  ],
+  "thresholds": [
+    {
+      "signal": null,
+      "warning": null,
+      "stop": null,
+      "owner": null,
+      "decision_ref": null
+    }
+  ],
+  "approvals": {
+    "engineering": {
+      "owner": null,
+      "decision": "pending",
+      "decision_ref": null
+    },
+    "data": {
+      "owner": null,
+      "decision": "pending",
+      "decision_ref": null
+    },
+    "operations": {
+      "owner": null,
+      "decision": "pending",
+      "decision_ref": null
+    }
+  }
+}

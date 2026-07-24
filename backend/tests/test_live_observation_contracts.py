@@ -6,6 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.schemas.live_observations import (
+    AnalysisRunCompletion,
     AnalysisRunCreate,
     RawEventBatchRegistration,
     RoomTemplateRevisionCreate,
@@ -65,8 +66,7 @@ def test_raw_event_batch_requires_gzip_mode_0600_and_has_no_retention_input() ->
 def test_analysis_dag_rejects_chunkless_sources_and_empty_aggregation() -> None:
     common = {
         "input_fingerprint": "a" * 64,
-        "model_provider": "openai",
-        "model_version": "model-v1",
+        "strategy_revision": "live.asr.zh.v2",
     }
     with pytest.raises(ValidationError, match="requires chunk_code"):
         AnalysisRunCreate(analysis_type="asr", **common)
@@ -78,6 +78,18 @@ def test_analysis_dag_rejects_chunkless_sources_and_empty_aggregation() -> None:
         **common,
     )
     assert aggregation.chunk_code is None
+
+
+def test_analysis_completion_rejects_supplier_metadata_in_domain_output() -> None:
+    with pytest.raises(ValidationError, match="provider evidence"):
+        AnalysisRunCompletion(
+            worker_id="worker-1",
+            lease_token="11111111-1111-1111-1111-111111111111",
+            output_payload={
+                "transcript": {"text": "verified", "actual_model": "supplier-model"}
+            },
+            invocation_evidence_ref="ART-EVIDENCE-001",
+        )
 
 
 def test_timeline_requires_sequential_non_overlapping_spans_and_explicit_gaps() -> None:

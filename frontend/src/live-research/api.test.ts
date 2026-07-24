@@ -108,7 +108,7 @@ describe("live research api", () => {
     ]));
   });
 
-  it("unwraps the DeepSeek template payload before materializing a draft", async () => {
+  it("unwraps the strategy template payload before materializing a draft", async () => {
     const aggregation = [{
       analysis_type: "template_aggregation",
       status: "succeeded",

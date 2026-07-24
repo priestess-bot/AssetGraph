@@ -1,0 +1,65 @@
+{
+  "schema_version": "migration-invariants.v1",
+  "assertions": [
+    {
+      "code": "legacy_asset_projection_cardinality",
+      "sql": "SELECT (SELECT count(*) FROM legacy_asset_observations_v1) = (SELECT count(*) FROM assets WHERE deleted_at IS NULL)",
+      "expected": true
+    },
+    {
+      "code": "legacy_content_projection_cardinality",
+      "sql": "SELECT (SELECT count(*) FROM legacy_content_project_projections_v1) = ((SELECT count(*) FROM maitu_workbench_runs) + (SELECT count(*) FROM video_production_jobs))",
+      "expected": true
+    },
+    {
+      "code": "legacy_live_variant_projection_cardinality",
+      "sql": "SELECT (SELECT count(*) FROM legacy_live_room_variant_projections_v1) = (SELECT count(*) FROM maitu_workbench_runs)",
+      "expected": true
+    },
+    {
+      "code": "legacy_layout_projection_cardinality",
+      "sql": "SELECT (SELECT count(*) FROM legacy_layout_hypothesis_projections_v1) = (SELECT count(*) FROM live_room_template_revisions WHERE contract_version = 'layout-hypothesis.v1')",
+      "expected": true
+    },
+    {
+      "code": "legacy_delivery_projection_cardinality",
+      "sql": "SELECT (SELECT count(*) FROM legacy_delivery_unknown_projections_v1) = ((SELECT count(*) FROM maitu_workbench_runs WHERE status = 'completed') + (SELECT count(*) FROM video_production_jobs WHERE status = 'succeeded'))",
+      "expected": true
+    },
+    {
+      "code": "legacy_delivery_does_not_fabricate_delivery_or_exposure",
+      "sql": "SELECT count(*) = 0 FROM legacy_delivery_unknown_projections_v1 WHERE is_actual_delivery OR is_exposure OR release_code IS NOT NULL OR delivery_code IS NOT NULL",
+      "expected": true
+    },
+    {
+      "code": "legacy_layout_remains_reference_only",
+      "sql": "SELECT count(*) = 0 FROM legacy_layout_hypothesis_projections_v1 WHERE reference_mode <> 'reference_only' OR layout_fidelity <> 'approximate' OR buildability <> 'reference_only' OR conversion_allowed",
+      "expected": true
+    },
+    {
+      "code": "legacy_asset_semantics_remain_observational",
+      "sql": "SELECT count(*) = 0 FROM legacy_asset_observations_v1 WHERE is_constraint OR is_user_group OR geometry_semantics <> 'observed_legacy_placement' OR duplicate_group_semantics <> 'legacy_duplicate_candidate'",
+      "expected": true
+    },
+    {
+      "code": "neutral_plan_rows_have_no_supplier_projection",
+      "sql": "SELECT count(*) = 0 FROM maitu_workbench_plan_revisions WHERE generation_strategy_revision <> 'legacy.maitu-plan.v1' AND (generation_provider IS NOT NULL OR generation_requested_model IS NOT NULL OR generation_actual_model IS NOT NULL OR generation_request_id IS NOT NULL OR generation_usage <> '{}'::jsonb OR generation_latency_ms IS NOT NULL)",
+      "expected": true
+    },
+    {
+      "code": "neutral_live_analysis_rows_have_no_supplier_projection",
+      "sql": "SELECT count(*) = 0 FROM live_analysis_runs WHERE strategy_revision <> 'legacy.live-analysis.v1' AND (model_provider IS NOT NULL OR model_version IS NOT NULL)",
+      "expected": true
+    },
+    {
+      "code": "neutral_material_rows_have_complete_identity",
+      "sql": "SELECT count(*) = 0 FROM maitu_workbench_video_analyses WHERE status = 'succeeded' AND analysis_strategy_revision <> 'legacy.material-vision.v1' AND (analysis_prompt_revision IS NULL OR analysis_input_fingerprint IS NULL OR analysis_output_fingerprint IS NULL)",
+      "expected": true
+    },
+    {
+      "code": "compatibility_views_are_read_only",
+      "sql": "SELECT count(DISTINCT c.relname) = 7 FROM pg_trigger AS t JOIN pg_class AS c ON c.oid = t.tgrelid JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND NOT t.tgisinternal AND t.tgname LIKE 'trg_%_read_only' AND c.relname IN ('legacy_asset_observations_v1', 'legacy_content_project_projections_v1', 'legacy_live_room_variant_projections_v1', 'legacy_layout_hypothesis_projections_v1', 'legacy_delivery_unknown_projections_v1', 'legacy_workflow_run_projections_v1', 'legacy_workflow_step_projections_v1')",
+      "expected": true
+    }
+  ]
+}

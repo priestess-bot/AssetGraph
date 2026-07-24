@@ -12,6 +12,8 @@ from typing import Any, Callable
 
 import httpx
 
+from app.core.telemetry import inject_current_trace
+
 
 class OnlineModelError(RuntimeError):
     def __init__(self, message: str, *, retryable: bool = False, status_code: int | None = None) -> None:
@@ -64,9 +66,11 @@ class _RetryingJSONClient:
         for attempt in range(1, self.max_attempts + 1):
             try:
                 with httpx.Client(timeout=self.timeout_seconds, transport=self.transport) as client:
+                    headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+                    inject_current_trace(headers)
                     response = client.post(
                         f"{self.base_url}{path}",
-                        headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
+                        headers=headers,
                         json=payload,
                     )
                 if response.status_code >= 400:
@@ -228,9 +232,11 @@ class OpenAIResponsesClient(_RetryingJSONClient):
                     timeout=self.timeout_seconds,
                     transport=self.transport,
                 ) as client:
+                    headers = {"Authorization": f"Bearer {self.api_key}"}
+                    inject_current_trace(headers)
                     response = client.post(
                         f"{self.base_url}/audio/transcriptions",
-                        headers={"Authorization": f"Bearer {self.api_key}"},
+                        headers=headers,
                         data={
                             "model": model,
                             "response_format": "diarized_json",

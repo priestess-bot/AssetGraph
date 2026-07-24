@@ -112,10 +112,9 @@ export interface PlanRevision {
     material_intents: string[];
   }>;
   generation?: {
-    provider: string;
-    model: string;
+    strategy_revision: string;
     prompt_version: string;
-    latency_ms: number;
+    invocation_evidence_ref?: string;
   };
   created_at?: string;
 }
@@ -184,8 +183,10 @@ export interface VideoAnalysisItem {
   asset_fingerprint?: string;
   asset_title: string;
   selected: boolean;
-  provisional_source: "keyframe" | "gpt_5_6_sol" | "none";
+  provisional_source: "keyframe" | "strategy_frames" | "none";
   provisional_summary?: string;
+  analysis_strategy_revision: string;
+  invocation_evidence_ref?: string;
   gemini_status: GeminiJobStatus;
   gemini_summary?: string;
   conflict_count: number;

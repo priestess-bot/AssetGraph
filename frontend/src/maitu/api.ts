@@ -225,10 +225,9 @@ export function normalizePlanRevision(value: unknown): PlanRevision {
     }).concat(blockedReasons.map((message, index) => ({ code: `BLOCKED_${index + 1}`, severity: "critical" as const, message }))),
     scenes: modelScenes,
     generation: {
-      provider: asString(value.generation_provider, "unknown"),
-      model: asString(value.generation_actual_model ?? value.generation_requested_model, "unknown"),
+      strategy_revision: asString(value.generation_strategy_revision, "unknown"),
       prompt_version: asString(value.generation_prompt_version, "unknown"),
-      latency_ms: asNumber(value.generation_latency_ms),
+      invocation_evidence_ref: asOptionalString(value.generation_invocation_evidence_ref),
     },
     created_at: asOptionalString(value.created_at),
   };
@@ -324,6 +323,8 @@ function normalizeAnalysis(value: unknown): VideoAnalysisItem | undefined {
     selected: asBoolean(value.selected),
     provisional_source: asString(value.provisional_source, "none") as VideoAnalysisItem["provisional_source"],
     provisional_summary: asOptionalString(value.provisional_summary),
+    analysis_strategy_revision: asString(value.analysis_strategy_revision, "legacy.material-vision.v1"),
+    invocation_evidence_ref: asOptionalString(value.invocation_evidence_ref),
     gemini_status: asString(value.gemini_status, "not_requested") as GeminiJobStatus,
     gemini_summary: asOptionalString(value.gemini_summary),
     conflict_count: asNumber(value.conflict_count),

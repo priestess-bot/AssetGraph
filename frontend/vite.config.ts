@@ -2,7 +2,7 @@ import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 
 export default defineConfig(({ mode }) => {
-  const entry = mode === "live-research" ? "live-research" : "maitu";
+  const entry = mode === "live-research" ? "live-research" : mode === "console" ? "console" : "maitu";
 
   return {
     root: entry,
@@ -13,7 +13,7 @@ export default defineConfig(({ mode }) => {
       emptyOutDir: true,
     },
     server: {
-      port: entry === "maitu" ? 5174 : 5175,
+      port: entry === "console" ? 5173 : entry === "maitu" ? 5174 : 5175,
       proxy: {
         "/api": {
           target: "http://127.0.0.1:8000",

@@ -1,0 +1,395 @@
+{
+  "schema_version": "phase0-acceptance-package.v1",
+  "generated_at": "2026-07-23T14:53:33.502665Z",
+  "status": "blocked",
+  "technical_package": {
+    "schema_version": "phase0-technical-package.v1",
+    "checklist": {
+      "passed": false,
+      "checklist_path": "/home/dongyue/AssetGraph/docs/plans/2026-07-23-live-content-production-operations-implementation-checklist.md",
+      "checklist_sha256": "46689139c13b66c331707d140487d8c3b501ab28774a56a3b412d28106f4d538",
+      "completed_usage_controls": [
+        "CHK-0001",
+        "CHK-0003",
+        "CHK-0004",
+        "CHK-0005",
+        "CHK-0006",
+        "CHK-0007",
+        "CHK-0008",
+        "CHK-0009",
+        "CHK-0010",
+        "CHK-0011"
+      ],
+      "incomplete_usage_controls": [
+        "CHK-0002"
+      ],
+      "completed_phase0_prerequisites": [
+        "CHK-0101",
+        "CHK-0102",
+        "CHK-0103",
+        "CHK-0104",
+        "CHK-0105",
+        "CHK-0106",
+        "CHK-0107",
+        "CHK-0108",
+        "CHK-0109",
+        "CHK-0111",
+        "CHK-0112",
+        "CHK-0113",
+        "CHK-0114",
+        "CHK-0120",
+        "CHK-0121",
+        "CHK-0122",
+        "CHK-0123",
+        "CHK-0124",
+        "CHK-0125",
+        "CHK-0126",
+        "CHK-0127",
+        "CHK-0128",
+        "CHK-0129",
+        "CHK-0130",
+        "CHK-0140",
+        "CHK-0141",
+        "CHK-0142",
+        "CHK-0143",
+        "CHK-0144",
+        "CHK-0145",
+        "CHK-0146",
+        "CHK-0147",
+        "CHK-0148",
+        "CHK-0149",
+        "CHK-0160",
+        "CHK-0161",
+        "CHK-0162",
+        "CHK-0163",
+        "CHK-0164",
+        "CHK-0165",
+        "CHK-0166",
+        "CHK-0167",
+        "CHK-0168",
+        "CHK-0169",
+        "CHK-0170",
+        "CHK-0180",
+        "CHK-0181",
+        "CHK-0182",
+        "CHK-0183",
+        "CHK-0184",
+        "CHK-0185",
+        "CHK-0186",
+        "CHK-0187",
+        "CHK-0188",
+        "CHK-0200",
+        "CHK-0201",
+        "CHK-0202",
+        "CHK-0203",
+        "CHK-0204",
+        "CHK-0205",
+        "CHK-0206",
+        "CHK-0220",
+        "CHK-0221",
+        "CHK-0222",
+        "CHK-0223",
+        "CHK-0224",
+        "CHK-0225",
+        "CHK-0240",
+        "CHK-0241",
+        "CHK-0242",
+        "CHK-0243",
+        "CHK-0244",
+        "CHK-0245",
+        "CHK-0261",
+        "CHK-0262",
+        "CHK-0263",
+        "CHK-0264",
+        "CHK-0265",
+        "CHK-0266",
+        "CHK-0267",
+        "CHK-0268",
+        "CHK-0290",
+        "CHK-0291",
+        "CHK-0292",
+        "CHK-0293",
+        "CHK-0294",
+        "CHK-0295"
+      ],
+      "incomplete_phase0_prerequisites": [
+        "CHK-0110",
+        "CHK-0260"
+      ],
+      "acceptance_checkbox_currently_checked": false,
+      "archive_checkbox_currently_checked": false,
+      "errors": [
+        "incomplete usage controls: CHK-0002",
+        "incomplete Phase 0 prerequisites: CHK-0110, CHK-0260"
+      ]
+    },
+    "owners": {
+      "passed": false,
+      "path": "docs/operations/phase-owner-register.v1.example.json",
+      "schema_version": "phase-owner-register.v1",
+      "phase_count": 9,
+      "file_sha256": "2146fc52db629c3b56f8b95e883bea3efb2360f25b1029c6bac97962a4d113ef",
+      "errors": [
+        "phase 0 owner data is missing",
+        "phase 0 owner design is missing",
+        "phase 0 owner engineering is missing",
+        "phase 0 owner product is missing",
+        "phase 0 owner security is missing",
+        "phase 0 appointment_ref is missing",
+        "phase 1 owner data is missing",
+        "phase 1 owner design is missing",
+        "phase 1 owner engineering is missing",
+        "phase 1 owner product is missing",
+        "phase 1 owner security is missing",
+        "phase 1 appointment_ref is missing",
+        "phase 2 owner data is missing",
+        "phase 2 owner design is missing",
+        "phase 2 owner engineering is missing",
+        "phase 2 owner product is missing",
+        "phase 2 owner security is missing",
+        "phase 2 appointment_ref is missing",
+        "phase 3 owner data is missing",
+        "phase 3 owner design is missing",
+        "phase 3 owner engineering is missing",
+        "phase 3 owner product is missing",
+        "phase 3 owner security is missing",
+        "phase 3 appointment_ref is missing",
+        "phase 4 owner data is missing",
+        "phase 4 owner design is missing",
+        "phase 4 owner engineering is missing",
+        "phase 4 owner product is missing",
+        "phase 4 owner security is missing",
+        "phase 4 appointment_ref is missing",
+        "phase 5 owner data is missing",
+        "phase 5 owner design is missing",
+        "phase 5 owner engineering is missing",
+        "phase 5 owner product is missing",
+        "phase 5 owner security is missing",
+        "phase 5 appointment_ref is missing",
+        "phase 6 owner data is missing",
+        "phase 6 owner design is missing",
+        "phase 6 owner engineering is missing",
+        "phase 6 owner product is missing",
+        "phase 6 owner security is missing",
+        "phase 6 appointment_ref is missing",
+        "phase 7 owner data is missing",
+        "phase 7 owner design is missing",
+        "phase 7 owner engineering is missing",
+        "phase 7 owner product is missing",
+        "phase 7 owner security is missing",
+        "phase 7 appointment_ref is missing",
+        "phase 8 owner data is missing",
+        "phase 8 owner design is missing",
+        "phase 8 owner engineering is missing",
+        "phase 8 owner product is missing",
+        "phase 8 owner security is missing",
+        "phase 8 appointment_ref is missing"
+      ]
+    },
+    "capacity": {
+      "passed": false,
+      "path": "docs/evidence/phase-0-capacity-baseline-integration-2026-07-23.json",
+      "schema_version": "capacity-baseline-report.v1",
+      "qualification_field": "qualifies_for_chk_0110",
+      "qualification_value": false,
+      "source_report_fingerprint": "32d49c59e163cbd011dc21b58fb306e5f7dd9d351cb6d22f73c71f24becf24f2",
+      "file_sha256": "a70f4a1fd2da75b90500ea09f490ef0ae7e7b62bb5b98883f6ae0f586ba673a7",
+      "errors": [
+        "qualifies_for_chk_0110 is not true"
+      ]
+    },
+    "migration": {
+      "passed": false,
+      "path": "docs/evidence/phase-0-migration-rehearsal-synthetic-2026-07-23.json",
+      "schema_version": "migration-rehearsal-report.v1",
+      "qualification_field": "qualifies_for_chk_0260",
+      "qualification_value": false,
+      "source_report_fingerprint": "1e1775f476ebc1d4435da9fe303342a939eea12e3cf0059ec89b159142af8437",
+      "file_sha256": "3aeb5caa0ec14f03d4858464781e5cf08092045783bb0ba5cf53c017d41ac3d3",
+      "errors": [
+        "qualifies_for_chk_0260 is not true"
+      ]
+    },
+    "compatibility": {
+      "passed": true,
+      "path": "docs/evidence/phase-0-legacy-compatibility-audit-2026-07-23.json",
+      "schema_version": "legacy-compatibility-audit.v1",
+      "qualification_field": "qualifies_for_chk_0294",
+      "qualification_value": true,
+      "source_report_fingerprint": "2cbe5bcc6697773da3dacd6cfeb15f97ed33298428cd107c0d6bd91d3eeb5ec6",
+      "file_sha256": "2d2d329a007aa39c9f7780965807815d38620a0937ff675c8a79928c1cb2146f",
+      "errors": []
+    },
+    "disaster_recovery": {
+      "passed": true,
+      "path": "docs/evidence/phase-0-disaster-recovery-baseline-2026-07-23-attempt-4.json",
+      "schema_version": "disaster-recovery-rehearsal.v1",
+      "qualification_field": "qualifies_for_chk_0295",
+      "qualification_value": true,
+      "source_report_fingerprint": "f5fcbeb51309a01107673c016084a6e1b585b5f86461e3e482f4d938b7b31b69",
+      "file_sha256": "aaeaf72d382101783cd7608ccc0c9aed9cd72261bf7d68d6f880bf2968ae93f1",
+      "errors": []
+    },
+    "regression": {
+      "passed": true,
+      "path": "docs/evidence/phase-0-regression-2026-07-23.json",
+      "suite_count": 13,
+      "source_report_fingerprint": "0d4acbfa6cf60374de75fce04361939df82c138cf622aa54a147e23f6c40166a",
+      "file_sha256": "e546de0fcf34f62d7c3aeb4d884e05d3451cf2b59da15781212a52c083783800",
+      "errors": []
+    },
+    "evidence": {
+      "passed": true,
+      "files": [
+        {
+          "path": "docs/plans/2026-07-22-live-content-production-operations-closed-loop-design.md",
+          "sha256": "aed3ac0f92570548773f2928627ea29c93a5e622d9761b46bfa7f0e6114ea8a7",
+          "byte_size": 121049
+        },
+        {
+          "path": "docs/architecture/phase-0-baseline.md",
+          "sha256": "0f1ee2ab7232827ceca48106f6aa58ddde3652b3e89f45252ccf16c72245583c",
+          "byte_size": 9032
+        },
+        {
+          "path": "docs/architecture/provider-adapter-boundary.md",
+          "sha256": "27a46cdf2393f902c58227bb211c76aa54b0b86b3f63cd76ba035ea9c241018f",
+          "byte_size": 4765
+        },
+        {
+          "path": "docs/architecture/stable-error-contract.md",
+          "sha256": "f00a2910f844affd9f5748acf118948e2385b58a75c019a07de6b5c02f5fb1c0",
+          "byte_size": 2135
+        },
+        {
+          "path": "docs/security/capability-matrix.md",
+          "sha256": "48bba481052a4b0db22826a532cdf16277b535db2a6010766ae5c63fa0fde989",
+          "byte_size": 2039
+        },
+        {
+          "path": "docs/operations/database-migration-rehearsal.md",
+          "sha256": "21bde7b24234d1a1305f01b169817c17475656a265ea896984a76097211fc959",
+          "byte_size": 6386
+        },
+        {
+          "path": "docs/operations/disaster-recovery-baseline-runbook.md",
+          "sha256": "f8a5bf71ee95e8586c4684ecda51d99a65745de91736c8238da965f828171107",
+          "byte_size": 2243
+        },
+        {
+          "path": "docs/operations/legacy-compatibility-audit.md",
+          "sha256": "a62286215bc7cb3213cf04946751ce2fa9e85e0c1a67ca7bfb880590a5b726e5",
+          "byte_size": 4046
+        },
+        {
+          "path": "docs/operations/capacity-baseline-measurement-2026-07-23.md",
+          "sha256": "05468684c973b4fdc23966b32bb0ec6fa27f27fc2290c1312862b92d9b242bfc",
+          "byte_size": 6559
+        },
+        {
+          "path": "docs/evidence/phase-0-provider-neutral-producers-validation-2026-07-23.md",
+          "sha256": "3eeea76f65dda19f050d15167577226397f22b193c23f9457055322759093d29",
+          "byte_size": 5799
+        },
+        {
+          "path": "docs/evidence/phase-0-legacy-compatibility-validation-2026-07-23.md",
+          "sha256": "6513edeaf697987ed3969e9c99597e633d0658ccbb9e4ef6eb32d3512ccd5be2",
+          "byte_size": 2178
+        },
+        {
+          "path": "docs/evidence/phase-0-disaster-recovery-validation-2026-07-23.md",
+          "sha256": "7cefa92c662d55e1703dc55945328f3812b2711d838bedb8a9fbe916b3576377",
+          "byte_size": 4378
+        },
+        {
+          "path": "docs/evidence/phase-0-capacity-baseline-integration-2026-07-23.json",
+          "sha256": "a70f4a1fd2da75b90500ea09f490ef0ae7e7b62bb5b98883f6ae0f586ba673a7",
+          "byte_size": 6900
+        },
+        {
+          "path": "docs/evidence/phase-0-migration-rehearsal-synthetic-2026-07-23.json",
+          "sha256": "3aeb5caa0ec14f03d4858464781e5cf08092045783bb0ba5cf53c017d41ac3d3",
+          "byte_size": 103642
+        },
+        {
+          "path": "docs/evidence/phase-0-legacy-compatibility-audit-2026-07-23.json",
+          "sha256": "2d2d329a007aa39c9f7780965807815d38620a0937ff675c8a79928c1cb2146f",
+          "byte_size": 7878
+        },
+        {
+          "path": "docs/evidence/phase-0-disaster-recovery-baseline-2026-07-23-attempt-4.json",
+          "sha256": "aaeaf72d382101783cd7608ccc0c9aed9cd72261bf7d68d6f880bf2968ae93f1",
+          "byte_size": 5620
+        },
+        {
+          "path": "docs/evidence/phase-0-regression-2026-07-23.json",
+          "sha256": "e546de0fcf34f62d7c3aeb4d884e05d3451cf2b59da15781212a52c083783800",
+          "byte_size": 3931
+        },
+        {
+          "path": "docs/operations/phase-owner-register.v1.example.json",
+          "sha256": "2146fc52db629c3b56f8b95e883bea3efb2360f25b1029c6bac97962a4d113ef",
+          "byte_size": 1355
+        }
+      ],
+      "missing": []
+    }
+  },
+  "technical_package_fingerprint": "befc45ef7b35b03e6ca4b621ebee9783e56cce7972d4b1a397e87d2b3b6259e8",
+  "signoff": {
+    "passed": false,
+    "path": "docs/operations/phase-0-acceptance-signoff.v1.example.json",
+    "schema_version": "phase0-acceptance-signoff.v1",
+    "decision_roles": [
+      "data",
+      "engineering",
+      "operations",
+      "product",
+      "security"
+    ],
+    "file_sha256": "9231651d96b5aaa0628b3b2ab5cf7694689a15b8eb961aebb6bebdcfb37fe6f0",
+    "errors": [
+      "signoff technical_package_fingerprint does not match this package",
+      "signoff data is not approved",
+      "signoff data.signer_id is missing",
+      "signoff data.evidence_ref is missing",
+      "signoff data.signed_at is invalid",
+      "signoff engineering is not approved",
+      "signoff engineering.signer_id is missing",
+      "signoff engineering.evidence_ref is missing",
+      "signoff engineering.signed_at is invalid",
+      "signoff operations is not approved",
+      "signoff operations.signer_id is missing",
+      "signoff operations.evidence_ref is missing",
+      "signoff operations.signed_at is invalid",
+      "signoff product is not approved",
+      "signoff product.signer_id is missing",
+      "signoff product.evidence_ref is missing",
+      "signoff product.signed_at is invalid",
+      "signoff security is not approved",
+      "signoff security.signer_id is missing",
+      "signoff security.evidence_ref is missing",
+      "signoff security.signed_at is invalid"
+    ]
+  },
+  "qualification_gates": {
+    "checklist_prerequisites_complete": false,
+    "phase_owners_assigned": false,
+    "capacity_baseline_qualified": false,
+    "production_copy_migration_qualified": false,
+    "legacy_compatibility_qualified": true,
+    "disaster_recovery_qualified": true,
+    "full_regression_qualified": true,
+    "evidence_archive_complete": true,
+    "five_party_signoff_matches_package": false
+  },
+  "required_checkbox_updates_after_acceptance": [
+    "CHK-0002",
+    "CHK-0012",
+    "CHK-0296"
+  ],
+  "qualifies_for_chk_0296": false,
+  "credentials_retained": false,
+  "raw_business_rows_retained": false,
+  "report_fingerprint": "226cccd1f5775d7d9108c184b13deccfc39fba64901c245367d985ded67bcf33"
+}

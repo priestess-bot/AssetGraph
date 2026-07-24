@@ -9,16 +9,24 @@ from pathlib import Path
 import pytest
 
 import app.services.material_analysis as material_analysis_module
+from app.domain.contracts import DataClassification
 from app.schemas.material_analysis import MaterialSemanticObservation
 from app.services.material_analysis import (
     MaterialAnalysisError,
     MaterialAnalysisJobProcessor,
     MaterialAnalysisLeaseHeartbeat,
     MaterialAnalysisLeaseLostError,
+    MaterialVisionAnalyzer,
     RepresentativeFrameExtractor,
     merge_material_profile,
     parse_gemini_manual_submission,
     sha256_file,
+)
+from app.services.providers import (
+    ModelCapability,
+    ProviderBinding,
+    ProviderInvocationOutput,
+    ProviderRouter,
 )
 
 
@@ -106,6 +114,68 @@ def test_automatic_profile_is_immediately_provisional() -> None:
     profile = merge_material_profile(technical={"duration_seconds": 10}, automatic=observation())
     assert profile.status == "provisional"
     assert profile.semantic.audio_class == "unknown"
+
+
+def test_material_analysis_identity_uses_frame_manifest_not_machine_local_cache_paths() -> None:
+    class ImageAdapter:
+        adapter_code = "test-image-adapter"
+        capabilities = frozenset({ModelCapability.IMAGE_UNDERSTANDING})
+
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        def invoke(self, **kwargs: object) -> ProviderInvocationOutput:
+            self.calls.append(kwargs)
+            return ProviderInvocationOutput(
+                content=observation().model_dump(),
+                provider_response_id="provider-response",
+                actual_model="test-image-model",
+                usage={},
+                latency_ms=1,
+            )
+
+    class EvidenceSink:
+        def __init__(self) -> None:
+            self.items: list[dict[str, object]] = []
+
+        def persist_provider_invocation(self, evidence: dict[str, object]) -> str:
+            self.items.append(evidence)
+            return "ART-EVIDENCE-001"
+
+    adapter = ImageAdapter()
+    sink = EvidenceSink()
+    router = ProviderRouter(
+        [
+            ProviderBinding(
+                strategy_revision="material-test.v1",
+                capability=ModelCapability.IMAGE_UNDERSTANDING,
+                adapter=adapter,
+                provider_model="test-image-model",
+                allowed_classifications=frozenset({DataClassification.CONFIDENTIAL}),
+            )
+        ],
+        sink,
+    )
+    analyzer = MaterialVisionAnalyzer(router, strategy_revision="material-test.v1")
+    manifest = {"frames": [{"frame_code": "FRAME-001", "sha256": "b" * 64}]}
+
+    _, first = analyzer.analyze(
+        asset_code="AG-VID-1",
+        asset_fingerprint=FINGERPRINT,
+        image_paths=[Path("/worker-a/frames/FRAME-001.png")],
+        frame_manifest=manifest,
+    )
+    _, second = analyzer.analyze(
+        asset_code="AG-VID-1",
+        asset_fingerprint=FINGERPRINT,
+        image_paths=[Path("/worker-b/frames/FRAME-001.png")],
+        frame_manifest=manifest,
+    )
+
+    assert first.input_fingerprint == second.input_fingerprint
+    assert adapter.calls[0]["inputs"]["image_paths"] == ["/worker-a/frames/FRAME-001.png"]
+    assert adapter.calls[1]["inputs"]["image_paths"] == ["/worker-b/frames/FRAME-001.png"]
+    assert "/worker-a/frames/FRAME-001.png" not in str(sink.items[0])
 
 
 def test_manual_product_identity_conflict_requires_review() -> None:

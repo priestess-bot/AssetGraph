@@ -119,9 +119,15 @@ def test_chunk_finish_and_analysis_completion_carry_the_automatic_dag() -> None:
         spec["analysis_type"] for spec in repository.finalize_call["analysis_specs"]
     } == {"frame_sampling", "asr", "ocr", "layout_inference"}
     assert repository.finish_call is not None
-    assert repository.finish_call["aggregation_spec"]["model_provider"] == "deepseek"
+    assert (
+        repository.finish_call["aggregation_spec"]["strategy_revision"]
+        == "live.template-aggregation.v2"
+    )
     assert repository.complete_call is not None
-    assert repository.complete_call["aggregation_spec"]["model_provider"] == "deepseek"
+    assert (
+        repository.complete_call["aggregation_spec"]["strategy_revision"]
+        == "live.template-aggregation.v2"
+    )
     assert repository.retry_call == {
         "run_code": "analysis-2",
         "worker_id": "worker-1",
