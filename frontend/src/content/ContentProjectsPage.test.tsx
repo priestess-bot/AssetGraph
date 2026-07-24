@@ -58,6 +58,7 @@ const detail = {
         segment_code: "SEGMENT-001",
         semantic_goal: "建立选择场景",
         program_phase: "opening",
+        estimated_duration_ms: 30000,
         product_refs: [],
         interaction_actions: [],
         cta_actions: [],
@@ -69,6 +70,7 @@ const detail = {
         segment_code: "SEGMENT-002",
         semantic_goal: "引导互动",
         program_phase: "conversion",
+        estimated_duration_ms: 30000,
         product_refs: [],
         interaction_actions: [],
         cta_actions: [],
@@ -91,6 +93,7 @@ const detail = {
         audio_actions: [],
         continuity: {},
         acceptance_criteria: [],
+        estimated_duration_ms: 30000,
         branch_applicability: ["live_room"],
         must_include: [],
         must_avoid: [],
@@ -105,6 +108,7 @@ const detail = {
         audio_actions: [],
         continuity: {},
         acceptance_criteria: [],
+        estimated_duration_ms: 30000,
         branch_applicability: ["live_room"],
         must_include: [],
         must_avoid: [],
@@ -154,6 +158,12 @@ describe("ContentProjectsPage", () => {
     );
 
     await screen.findByRole("heading", { name: "人工编排节目段与镜头" });
+    expect(screen.getByText("编排时间线")).toBeInTheDocument();
+    expect(screen.getByText("1:00 · 2 段 · 2 镜头")).toBeInTheDocument();
+    fireEvent.change(screen.getAllByLabelText("预计时长（毫秒）")[2], {
+      target: { value: "20000" },
+    });
+    expect(screen.getByText("段 1 的段落时长与镜头合计不一致")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "添加节目段" }));
     fireEvent.change(screen.getByLabelText("节目段 3 目标"), {
       target: { value: "收束互动行动" },

@@ -2128,6 +2128,26 @@ function ScriptRevisionEditor({
   );
 }
 
+function durationLabel(milliseconds: number): string {
+  const seconds = Math.max(0, Math.round(milliseconds / 1000));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+function ProgramShotTimelinePreview({ segments, shots }: { segments: ProgramSegmentDraft[]; shots: ShotDraft[] }) {
+  const segmentTimeline = segments.map((segment, index) => {
+    const segmentShots = shots.filter((shot) => shot.programSegmentIndex === index);
+    const shotDuration = segmentShots.reduce((total, shot) => total + Math.max(0, shot.estimated_duration_ms ?? 0), 0);
+    const segmentDuration = Math.max(0, segment.estimated_duration_ms ?? 0);
+    const duration = segmentDuration || shotDuration;
+    return { segment, index, segmentShots, shotDuration, segmentDuration, duration };
+  });
+  const total = segmentTimeline.reduce((sum, item) => sum + item.duration, 0);
+  const missingShotDurations = shots.filter((shot) => !shot.estimated_duration_ms || shot.estimated_duration_ms <= 0);
+  const inconsistentSegments = segmentTimeline.filter((item) => item.segmentDuration && item.shotDuration && item.segmentDuration !== item.shotDuration);
+  let cursor = 0;
+  return <div className="content-program-timeline" aria-label="节目段与镜头时间线预览"><div className="content-program-timeline-heading"><div><h3>编排时间线</h3><small>{durationLabel(total)} · {segments.length} 段 · {shots.length} 镜头</small></div><StatusBadge label={missingShotDurations.length || inconsistentSegments.length ? "待校准" : "时长一致"} tone={missingShotDurations.length || inconsistentSegments.length ? "warning" : "success"} /></div><div className="content-program-timeline-segments">{segmentTimeline.map((item) => { const start = cursor; cursor += item.duration; return <article key={item.segment.editorKey} style={{ flexGrow: Math.max(1, item.duration) }}><strong>段 {item.index + 1}</strong><span>{item.segment.program_phase}</span><small>{durationLabel(start)} - {durationLabel(cursor)}</small><em>{item.duration ? durationLabel(item.duration) : "未设时长"}</em></article>; })}</div><div className="content-program-timeline-shots">{segmentTimeline.map((item) => <div key={item.segment.editorKey}><header><strong>段 {item.index + 1}</strong><small>{item.segment.semantic_goal || "未填写目标"}</small><span>{item.segmentShots.length} 镜头 · {durationLabel(item.shotDuration)}</span></header><div>{item.segmentShots.map((shot, shotIndex) => <article key={shot.editorKey} style={{ flexGrow: Math.max(1, shot.estimated_duration_ms ?? 0) }}><strong>镜头 {shotIndex + 1}</strong><small>{shot.estimated_duration_ms ? durationLabel(shot.estimated_duration_ms) : "未设时长"}</small></article>)}</div></div>)}</div>{missingShotDurations.length || inconsistentSegments.length ? <div className="content-program-timeline-warnings">{missingShotDurations.length ? <small>{missingShotDurations.length} 个镜头未设置预计时长</small> : null}{inconsistentSegments.length ? <small>{inconsistentSegments.map((item) => `段 ${item.index + 1}`).join("、")} 的段落时长与镜头合计不一致</small> : null}</div> : null}</div>;
+}
+
 function ProgramShotRevisionEditor({
   detail,
   onSave,
@@ -2360,6 +2380,7 @@ function ProgramShotRevisionEditor({
       />
       <div className="wb-section-body">
         <div className="content-project-form">
+          <ProgramShotTimelinePreview segments={segments} shots={shots} />
           <div className="content-program-editor">
             <h3>节目段</h3>
             {segments.map((segment, index) => (
