@@ -202,6 +202,16 @@
 .content-flow-list li > div { display: flex; min-width: 0; flex-direction: column; }
 .content-flow-list strong { overflow-wrap: anywhere; font-size: 11px; line-height: 1.5; }
 .content-flow-list small { margin-top: 4px; color: var(--wb-muted); font-size: 8px; }
+.content-template-choice { display: grid; gap: 4px; padding: 7px 0; border-top: 1px solid var(--wb-line); }
+.content-module-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding: 7px; border: 1px solid var(--wb-line); border-radius: 4px; background: var(--wb-subtle); }
+.content-module-options label { min-width: 0; font-size: 8px; }
+.content-template-contributions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; background: var(--wb-line); }
+.content-template-contributions article { display: grid; gap: 7px; padding: 10px; background: #fff; }
+.content-template-contributions header { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 6px; }
+.content-template-contributions code { overflow-wrap: anywhere; color: var(--console-cyan); font-size: 8px; }
+.content-template-contributions article > div { display: grid; gap: 3px; }
+.content-template-contributions span { color: var(--wb-muted); font-size: 8px; }
+.content-template-contributions strong { overflow-wrap: anywhere; font-size: 9px; }
 
 .live-room-layout { display: grid; grid-template-columns: minmax(290px, .78fr) minmax(0, 1.22fr); gap: 16px; }
 .live-plan-rail { position: sticky; top: 84px; align-self: start; max-height: calc(100vh - 105px); overflow-y: auto; }
@@ -508,6 +518,7 @@
   .console-entity-inspector { width: min(560px, 100vw); }
   .asset-library-layout { grid-template-columns: 1fr; }
   .content-project-layout, .knowledge-layout, .live-room-layout, .video-plan-layout, .release-workspace, .operations-layout { grid-template-columns: 1fr; }
+  .content-template-contributions, .content-module-options { grid-template-columns: 1fr; }
   .release-rail { position: static; max-height: none; }
   .release-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .release-snapshot-columns { grid-template-columns: 1fr; }

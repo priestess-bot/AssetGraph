@@ -13,6 +13,7 @@ export interface ContentProjectSummary {
 
 export interface ContentProjectDetail extends ContentProjectSummary {
   content: Record<string, unknown>;
+  templateContributionDecisions: Array<{ templateCode: string; revision: number; selectionRole: string; availableModules: string[]; acceptedModules: string[]; rejectedModules: string[]; materialCues: string[] }>;
   factCards: Array<{ fact_card_code: string; version_number: number; version_code: string; content_sha256: string }>;
   designBrief?: { design_brief_code: string; revision_number: number; status: string; raw_input: string; parsed_brief: Record<string, unknown>; open_questions: Array<{ field: string; question: string; recommended_answer: string; blocking: boolean }> };
   generated: boolean;
@@ -42,7 +43,15 @@ function detail(value: unknown): ContentProjectDetail {
   const storyBrief = isRecord(value.story_brief) ? { story_brief_code: asString(value.story_brief.story_brief_code), revision_number: asNumber(value.story_brief.revision_number), content: isRecord(value.story_brief.content) ? value.story_brief.content : {} } : undefined;
   const factCards = asArray(value.fact_cards).flatMap((item) => isRecord(item) ? [{ fact_card_code: asString(item.fact_card_code), version_number: asNumber(item.version_number), version_code: asString(item.version_code), content_sha256: asString(item.content_sha256) }] : []).filter((item) => Boolean(item.fact_card_code && item.version_number));
   const designBrief = isRecord(value.design_brief) ? { design_brief_code: asString(value.design_brief.design_brief_code), revision_number: asNumber(value.design_brief.revision_number), status: asString(value.design_brief.status), raw_input: asString(value.design_brief.raw_input), parsed_brief: isRecord(value.design_brief.parsed_brief) ? value.design_brief.parsed_brief : {}, open_questions: asArray(value.design_brief.open_questions).flatMap((item) => isRecord(item) ? [{ field: asString(item.field), question: asString(item.question), recommended_answer: asString(item.recommended_answer), blocking: item.blocking === true }] : []) } : undefined;
-  return { ...base, content: isRecord(value.content) ? value.content : {}, factCards, designBrief, generated: value.generated === true, generationMode: asOptionalString(value.generation_mode), storyBrief, script, program, shotList };
+  const content = isRecord(value.content) ? value.content : {};
+  const templateContributionDecisions = asArray(content.template_contribution_decisions).flatMap((item) => isRecord(item) && asString(item.template_code) ? [{
+    templateCode: asString(item.template_code), revision: asNumber(item.revision), selectionRole: asString(item.selection_role),
+    availableModules: asArray(item.available_modules).flatMap((entry) => typeof entry === "string" ? [entry] : []),
+    acceptedModules: asArray(item.accepted_modules).flatMap((entry) => typeof entry === "string" ? [entry] : []),
+    rejectedModules: asArray(item.rejected_modules).flatMap((entry) => typeof entry === "string" ? [entry] : []),
+    materialCues: asArray(item.material_cues).flatMap((entry) => typeof entry === "string" ? [entry] : []),
+  }] : []);
+  return { ...base, content, templateContributionDecisions, factCards, designBrief, generated: value.generated === true, generationMode: asOptionalString(value.generation_mode), storyBrief, script, program, shotList };
 }
 
 export const contentProjectsApi = {

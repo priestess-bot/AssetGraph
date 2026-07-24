@@ -11,6 +11,19 @@ class FactCardReference(BaseModel):
     version_number: int | None = Field(default=None, ge=1)
 
 
+class TemplateContributionDecisionInput(BaseModel):
+    template_code: str = Field(min_length=1, max_length=80)
+    accepted_modules: list[str] = Field(default_factory=list, max_length=32)
+
+    @field_validator("accepted_modules")
+    @classmethod
+    def unique_accepted_modules(cls, value: list[str]) -> list[str]:
+        normalized = list(dict.fromkeys(item.strip() for item in value if item.strip()))
+        if len(normalized) != len(value):
+            raise ValueError("accepted template modules must be unique and non-empty")
+        return normalized
+
+
 class ContentProjectCreate(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     generation_goal: str = Field(min_length=1, max_length=4000)
@@ -36,6 +49,7 @@ class ContentProjectCreate(BaseModel):
     # Secondary templates are narrowed by the context compiler, not by a UI
     # cardinality cap. The project must retain the complete selected set.
     secondary_template_codes: list[str] = Field(default_factory=list)
+    template_contribution_decisions: list[TemplateContributionDecisionInput] = Field(default_factory=list, max_length=50)
 
     @field_validator("secondary_template_codes")
     @classmethod
@@ -49,6 +63,9 @@ class ContentProjectCreate(BaseModel):
     def validate_template_and_fact_selection(self) -> "ContentProjectCreate":
         if self.primary_template_code and self.primary_template_code in self.secondary_template_codes:
             raise ValueError("primary template cannot also be a secondary template")
+        contribution_codes = [decision.template_code for decision in self.template_contribution_decisions]
+        if len(contribution_codes) != len(set(contribution_codes)):
+            raise ValueError("template contribution decisions must be unique")
         fact_codes = [ref.fact_card_code for ref in self.fact_card_refs]
         if len(fact_codes) != len(set(fact_codes)):
             raise ValueError("fact card references must be unique")
@@ -79,11 +96,16 @@ class ContentProjectUpdate(BaseModel):
     fact_card_refs: list[FactCardReference] | None = None
     primary_template_code: str | None = Field(default=None, max_length=80)
     secondary_template_codes: list[str] | None = None
+    template_contribution_decisions: list[TemplateContributionDecisionInput] | None = Field(default=None, max_length=50)
 
     @model_validator(mode="after")
     def validate_template_and_fact_selection(self) -> "ContentProjectUpdate":
         if self.primary_template_code and self.secondary_template_codes and self.primary_template_code in self.secondary_template_codes:
             raise ValueError("primary template cannot also be a secondary template")
+        if self.template_contribution_decisions is not None:
+            contribution_codes = [decision.template_code for decision in self.template_contribution_decisions]
+            if len(contribution_codes) != len(set(contribution_codes)):
+                raise ValueError("template contribution decisions must be unique")
         if self.fact_card_refs is not None:
             fact_codes = [ref.fact_card_code for ref in self.fact_card_refs]
             if len(fact_codes) != len(set(fact_codes)):

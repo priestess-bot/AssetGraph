@@ -268,7 +268,7 @@ def test_content_project_pins_published_template_revision() -> None:
             "buildability": "reference_only",
             "content_strategy": {
                 "target_category": "beverage", "compatibility_tags": ["education"],
-                "program_outline": [{"module_key": "opening", "title": "开场", "purpose": "建立选择目标", "start_ms": 0, "end_ms": 30_000}],
+                "program_outline": [{"module_key": "opening", "title": "开场", "purpose": "建立选择目标", "source_session_code": source_session["session_code"], "start_ms": 0, "end_ms": 30_000}],
                 "duration_policy": {"opening": {"ratio": 0.2}}, "module_recipes": [],
                 "product_rotation_policy": {}, "interaction_policy": {"ask_every_minutes": 3},
                 "conversion_policy": {"cta": "comment"}, "host_style": {"tone": "clear"},
@@ -302,6 +302,18 @@ def test_content_project_pins_published_template_revision() -> None:
         detail = service.get_detail(project["project_code"])
         assert detail is not None
         assert detail["content"]["primary_template_ref"]["revision"] == 1
+        assert detail["content"]["template_contribution_decisions"] == [
+            {
+                "template_code": template["template_code"],
+                "revision": 1,
+                "selection_role": "primary",
+                "contribution": "primary_structure",
+                "available_modules": ["opening"],
+                "accepted_modules": ["opening"],
+                "rejected_modules": [],
+                "material_cues": ["background", "promotion_text"],
+            }
+        ]
 
         second = live.create_room_template_revision(
             template["template_code"],
@@ -326,6 +338,39 @@ def test_content_project_pins_published_template_revision() -> None:
                 "selection_role": "primary",
             }
         ]
+        assert generated["shot_list"]["shots"][0]["material_role_requirements"] == [
+            "digital_human", "background", "promotion_text"
+        ]
+
+        explicitly_unadopted = service.create_project(
+            {
+                "title": f"No module adoption {uuid4().hex}",
+                "generation_goal": "Keep the template as an unadopted reference",
+                "primary_template_code": template["template_code"],
+                "template_contribution_decisions": [
+                    {"template_code": template["template_code"], "accepted_modules": []}
+                ],
+            },
+            actor_id="test-operator",
+        )
+        unadopted_detail = service.get_detail(explicitly_unadopted["project_code"])
+        assert unadopted_detail is not None
+        assert unadopted_detail["content"]["template_contribution_decisions"][0]["accepted_modules"] == []
+        assert unadopted_detail["content"]["template_contribution_decisions"][0]["rejected_modules"] == ["opening"]
+
+        with pytest.raises(DomainValidationError) as unknown_module:
+            service.create_project(
+                {
+                    "title": f"Unknown template module {uuid4().hex}",
+                    "generation_goal": "Reject an unpinned module name",
+                    "primary_template_code": template["template_code"],
+                    "template_contribution_decisions": [
+                        {"template_code": template["template_code"], "accepted_modules": ["not-a-module"]}
+                    ],
+                },
+                actor_id="test-operator",
+            )
+        assert unknown_module.value.code == "TEMPLATE_CONTRIBUTION_MODULE_UNKNOWN"
 
 
 def test_content_strategy_template_rejects_cross_room_sources_and_stays_reference_only() -> None:

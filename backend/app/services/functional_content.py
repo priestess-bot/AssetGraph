@@ -60,6 +60,11 @@ class FunctionalContentService:
         updates = self._document(payload, include_defaults=False)
         if "fact_card_codes" in updates and "fact_card_refs" not in updates:
             document.pop("fact_card_refs", None)
+        if (
+            {"primary_template_code", "secondary_template_codes"} & set(updates)
+            and "template_contribution_decisions" not in updates
+        ):
+            document.pop("template_contribution_decisions", None)
         document.update(updates)
         self._pin_fact_cards(document)
         self._pin_template_refs(document)
@@ -539,7 +544,30 @@ class FunctionalContentService:
             if isinstance(item, dict) and str(item.get("template_code") or "").strip():
                 existing_by_code[str(item["template_code"]).strip()] = item
 
+        requested_decisions: dict[str, dict[str, Any]] = {}
+        for item in document.get("template_contribution_decisions") or []:
+            if not isinstance(item, dict):
+                raise DomainValidationError(
+                    "TEMPLATE_CONTRIBUTION_INVALID",
+                    "Template contribution decisions must be objects",
+                )
+            code = str(item.get("template_code") or "").strip()
+            if not code or code in requested_decisions:
+                raise DomainValidationError(
+                    "TEMPLATE_CONTRIBUTION_INVALID",
+                    "Template contribution decisions must identify each selected template once",
+                )
+            accepted_modules = item.get("accepted_modules") or []
+            if not isinstance(accepted_modules, list) or not all(isinstance(value, str) for value in accepted_modules):
+                raise DomainValidationError(
+                    "TEMPLATE_CONTRIBUTION_INVALID",
+                    "Accepted template modules must be a string array",
+                    details={"template_code": code},
+                )
+            requested_decisions[code] = {"accepted_modules": [value.strip() for value in accepted_modules if value.strip()]}
+
         pinned: list[dict[str, Any]] = []
+        decisions: list[dict[str, Any]] = []
         for index, code in enumerate(all_codes):
             previous = existing_by_code.get(code)
             if require_existing_pins and previous is None:
@@ -560,52 +588,99 @@ class FunctionalContentService:
                 if template is None or revision is None:
                     raise DomainValidationError("TEMPLATE_REVISION_NOT_FOUND", "Pinned template revision is unavailable", details={"template_code": code, "revision": revision_number})
                 self._validate_content_strategy_template(template, revision, code)
-                pinned.append(dict(previous))
-                continue
-
-            template = self.templates.get_room_template(code, include_revisions=True)
-            published_revision = template.get("published_revision_number") if template else None
-            if template is None or template.get("status") != "published" or not isinstance(published_revision, int):
-                raise DomainValidationError(
-                    "TEMPLATE_NOT_PUBLISHED",
-                    "Selected content templates must have a published revision",
-                    details={"template_code": code},
+                reference = dict(previous)
+            else:
+                template = self.templates.get_room_template(code, include_revisions=True)
+                published_revision = template.get("published_revision_number") if template else None
+                if template is None or template.get("status") != "published" or not isinstance(published_revision, int):
+                    raise DomainValidationError(
+                        "TEMPLATE_NOT_PUBLISHED",
+                        "Selected content templates must have a published revision",
+                        details={"template_code": code},
+                    )
+                revision = next(
+                    (row for row in template.get("revisions") or [] if int(row["revision_number"]) == published_revision),
+                    None,
                 )
-            revision = next(
-                (row for row in template.get("revisions") or [] if int(row["revision_number"]) == published_revision),
-                None,
-            )
-            if revision is None:
-                raise DomainValidationError(
-                    "TEMPLATE_REVISION_NOT_FOUND",
-                    "Selected published template revision is unavailable",
-                    details={"template_code": code, "revision": published_revision},
-                )
-            self._validate_content_strategy_template(template, revision, code)
-            pinned.append(
-                {
+                if revision is None:
+                    raise DomainValidationError(
+                        "TEMPLATE_REVISION_NOT_FOUND",
+                        "Selected published template revision is unavailable",
+                        details={"template_code": code, "revision": published_revision},
+                    )
+                self._validate_content_strategy_template(template, revision, code)
+                reference = {
                     "template_code": code,
                     "revision": int(published_revision),
-                    "contribution": "primary_structure" if index == 0 and primary_code else "secondary_supplement",
-                    "selection_role": "primary" if index == 0 and primary_code else "secondary",
                     "contract_version": "content-strategy.v2",
                 }
+
+            selection_role = "primary" if index == 0 and primary_code else "secondary"
+            contribution = "primary_structure" if selection_role == "primary" else "secondary_supplement"
+            reference.update({"contribution": contribution, "selection_role": selection_role})
+            pinned.append(reference)
+            strategy = dict(revision.get("content_strategy") or {})
+            available_modules = [
+                str(item.get("module_key") or "").strip()
+                for item in strategy.get("program_outline") or []
+                if isinstance(item, dict) and str(item.get("module_key") or "").strip()
+            ]
+            requested = requested_decisions.get(code)
+            if requested is None:
+                # A primary strategy supplies its full skeleton by default.
+                # Secondary strategies remain opt-in per module so they cannot
+                # silently replace the primary's stage order.
+                accepted_modules = available_modules if selection_role == "primary" else []
+            else:
+                accepted_modules = requested["accepted_modules"]
+            unknown_modules = sorted(set(accepted_modules) - set(available_modules))
+            if unknown_modules:
+                raise DomainValidationError(
+                    "TEMPLATE_CONTRIBUTION_MODULE_UNKNOWN",
+                    "Selected template module is not present in the pinned revision",
+                    details={"template_code": code, "modules": unknown_modules},
+                )
+            decisions.append(
+                {
+                    "template_code": code,
+                    "revision": int(reference["revision"]),
+                    "selection_role": selection_role,
+                    "contribution": contribution,
+                    "available_modules": available_modules,
+                    "accepted_modules": accepted_modules,
+                    "rejected_modules": [key for key in available_modules if key not in accepted_modules],
+                    "material_cues": [
+                        str(value).strip()
+                        for value in strategy.get("material_cues") or []
+                        if str(value).strip()
+                    ],
+                }
             )
+
+        unknown_decisions = sorted(set(requested_decisions) - set(all_codes))
+        if unknown_decisions:
+            raise DomainValidationError(
+                "TEMPLATE_CONTRIBUTION_TEMPLATE_NOT_SELECTED",
+                "Template contribution decisions must reference a selected template",
+                details={"template_codes": unknown_decisions},
+            )
+        adopted_by_module: dict[str, str] = {}
+        for decision in decisions:
+            for module_key in decision["accepted_modules"]:
+                previous_code = adopted_by_module.get(module_key)
+                if previous_code is not None:
+                    raise DomainValidationError(
+                        "TEMPLATE_CONTRIBUTION_MODULE_CONFLICT",
+                        "A program module can be adopted from only one selected template",
+                        details={"module_key": module_key, "template_codes": [previous_code, decision["template_code"]]},
+                    )
+                adopted_by_module[module_key] = decision["template_code"]
 
         document["primary_template_ref"] = next((item for item in pinned if item["selection_role"] == "primary"), None)
         document["secondary_template_refs"] = [item for item in pinned if item["selection_role"] == "secondary"]
         document["primary_template_code"] = primary_code
         document["secondary_template_codes"] = secondary_codes
-        document["template_contribution_decisions"] = [
-            {
-                "template_code": item["template_code"],
-                "revision": item["revision"],
-                "selection_role": item["selection_role"],
-                "contribution": item["contribution"],
-                "accepted_modules": [],
-            }
-            for item in pinned
-        ]
+        document["template_contribution_decisions"] = decisions
 
     @staticmethod
     def _validate_content_strategy_template(
@@ -894,6 +969,52 @@ class FunctionalContentService:
         ]
 
     @staticmethod
+    def _template_sources_for_block(content: dict[str, Any], module_type: str) -> list[dict[str, Any]]:
+        refs = FunctionalContentService._template_refs(content)
+        decisions = {
+            str(item.get("template_code")): item
+            for item in content.get("template_contribution_decisions") or []
+            if isinstance(item, dict) and item.get("template_code")
+        }
+        adopted = [
+            ref for ref in refs
+            if module_type in decisions.get(str(ref["template_code"]), {}).get("accepted_modules", [])
+        ]
+        if adopted:
+            return adopted
+        # A primary strategy controls the overall skeleton even when its
+        # source module names differ from this deterministic demo's names.
+        primary_sources = [ref for ref in refs if ref.get("selection_role") == "primary"]
+        if not primary_sources:
+            return []
+        if any(
+            decisions.get(str(ref["template_code"]), {}).get("accepted_modules", [])
+            for ref in primary_sources
+        ):
+            return primary_sources
+        return []
+
+    @staticmethod
+    def _material_cues_for_sources(content: dict[str, Any], sources: list[dict[str, Any]]) -> list[str]:
+        decisions = {
+            str(item.get("template_code")): item
+            for item in content.get("template_contribution_decisions") or []
+            if isinstance(item, dict) and item.get("template_code")
+        }
+        allowed = {
+            "background", "product_display", "digital_human", "brand_title", "promotion_text",
+            "decoration_foreground", "supporting_video", "voice", "background_music", "sound_effect",
+        }
+        return list(
+            dict.fromkeys(
+                cue
+                for source in sources
+                for cue in decisions.get(str(source.get("template_code")), {}).get("material_cues", [])
+                if isinstance(cue, str) and cue in allowed
+            )
+        )
+
+    @staticmethod
     def _script_blocks(
         goal: str,
         content: dict[str, Any],
@@ -901,26 +1022,18 @@ class FunctionalContentService:
     ) -> list[dict[str, Any]]:
         theme = content.get("theme") or goal
         story = content.get("story") or "从真实使用场景出发，给出容易理解的选择建议。"
-        primary_sources = [
-            ref for ref in FunctionalContentService._template_refs(content)
-            if ref.get("selection_role") == "primary"
-        ]
-        secondary_sources = [
-            ref for ref in FunctionalContentService._template_refs(content)
-            if ref.get("selection_role") == "secondary"
-        ]
         blocks = [
             {
                 "module_type": "opening",
                 "content": f"今天我们围绕{theme}展开，目标是{goal}。",
                 "estimated_duration_ms": 45_000,
-                "template_sources": primary_sources,
+                "template_sources": FunctionalContentService._template_sources_for_block(content, "opening"),
             },
             {
                 "module_type": "story",
                 "content": story,
                 "estimated_duration_ms": 90_000,
-                "template_sources": primary_sources,
+                "template_sources": FunctionalContentService._template_sources_for_block(content, "story"),
             },
         ]
         for fact in approved_facts:
@@ -937,7 +1050,7 @@ class FunctionalContentService:
                         "module_type": "product_fact",
                         "content": claim,
                         "estimated_duration_ms": 30_000,
-                        "template_sources": primary_sources,
+                        "template_sources": FunctionalContentService._template_sources_for_block(content, "product_fact"),
                         "fact_citations": [
                             {
                                 "fact_card_code": fact["fact_card_code"],
@@ -955,7 +1068,7 @@ class FunctionalContentService:
                 "module_type": "conversion",
                 "content": "结合你的实际需求选择合适方案，欢迎在互动区留下你的使用场景。",
                 "estimated_duration_ms": 45_000,
-                "template_sources": secondary_sources or primary_sources,
+                "template_sources": FunctionalContentService._template_sources_for_block(content, "conversion"),
                 "cta_intent": {"type": "comment"},
             },
         )
@@ -989,7 +1102,11 @@ class FunctionalContentService:
                 "shot_goal": segment["semantic_goal"],
                 "composition_intent": {"style": "talking_head", "focus": "host" if index == 0 else "product_or_message"},
                 "material_role_requirements": FunctionalContentService._shot_material_roles(
-                    blocks[index].get("module_type"), default_roles
+                    blocks[index].get("module_type"),
+                    default_roles,
+                    FunctionalContentService._material_cues_for_sources(
+                        content, blocks[index].get("template_sources") or []
+                    ),
                 ),
                 "audio_actions": [],
                 "continuity": {"from_previous": index > 0},
@@ -1003,12 +1120,14 @@ class FunctionalContentService:
         ]
 
     @staticmethod
-    def _shot_material_roles(module_type: Any, default_roles: list[str]) -> list[str]:
+    def _shot_material_roles(module_type: Any, default_roles: list[str], material_cues: list[str]) -> list[str]:
         if module_type in {"opening", "story"}:
-            return default_roles
-        if module_type == "product_fact":
-            return ["digital_human", "product_image"]
-        return ["digital_human", "promotion_text"]
+            base = default_roles
+        elif module_type == "product_fact":
+            base = ["digital_human", "product_image"]
+        else:
+            base = ["digital_human", "promotion_text"]
+        return list(dict.fromkeys([*base, *material_cues]))
 
     @staticmethod
     def _summary(row: dict[str, Any]) -> dict[str, Any]:
