@@ -388,6 +388,32 @@ def test_live_room_plan_selects_only_published_material_pack_and_freezes_resolve
             "average_confidence": 0.8,
         }
         assert report["results"]["metadata"]["observed_session_count"] == 1
+        timeline = operations.get_content_timeline(session["session_code"])
+        assert timeline["status"] == "resolved"
+        assert timeline["coverage_ratio"] == pytest.approx(0.1)
+        assert timeline["unobserved_seconds"] == 540.0
+        assert timeline["spans"][0]["exposure_code"] == exposure["exposure_code"]
+        assert timeline["spans"][0]["duration_seconds"] == 60.0
+        assert timeline["spans"][0]["scene"] == {
+            "scene_code": plan["blueprint"]["scenes"][0]["scene_code"],
+            "shot_code": plan["blueprint"]["scenes"][0]["shot_code"],
+            "title": plan["blueprint"]["scenes"][0]["title"],
+            "estimated_duration_ms": plan["blueprint"]["scenes"][0].get(
+                "estimated_duration_ms"
+            ),
+            "status": "resolved",
+        }
+        assert timeline["spans"][0]["layers"] == [
+            {
+                "layer_blueprint_code": layer["layer_blueprint_code"],
+                "role": layer["material_role"],
+                "asset_code": layer["asset_code"],
+                "execution_capability": layer["asset_binding_ref"][
+                    "execution_capability"
+                ],
+            }
+            for layer in plan["blueprint"]["scenes"][0]["layers"]
+        ]
         with pytest.raises(DomainValidationError) as overlap:
             operations.create_exposure(
                 {

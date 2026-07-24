@@ -49,6 +49,34 @@ class ContentExposureRead(ContentExposureCreate):
     created_at: datetime
 
 
+class ContentTimelineSpanRead(BaseModel):
+    exposure_code: str
+    plan_code: str
+    variant_code: str
+    release_code: str | None = None
+    scene_code: str
+    started_at: datetime
+    ended_at: datetime
+    duration_seconds: float
+    source_kind: str
+    confidence: float
+    scene: dict[str, Any]
+    layers: list[dict[str, Any]]
+
+
+class ContentTimelineRead(BaseModel):
+    session_code: str
+    started_at: datetime
+    ended_at: datetime
+    total_seconds: float
+    observed_seconds: float
+    coverage_ratio: float
+    unobserved_seconds: float
+    status: str
+    missing_plan_codes: list[str]
+    spans: list[ContentTimelineSpanRead]
+
+
 class AttributionReportCreate(BaseModel):
     metric_key: str = Field(min_length=1, max_length=80)
     session_codes: list[str] = Field(min_length=1)

@@ -9,6 +9,7 @@ from app.schemas.functional_operations import (
     AttributionReportRead,
     ContentExposureCreate,
     ContentExposureRead,
+    ContentTimelineRead,
     OperationSessionCreate,
     OperationSessionRead,
     SchedulePlanCreate,
@@ -51,7 +52,21 @@ def list_sessions(
     return instance.list_sessions()
 
 
-@router.post("/exposures", response_model=ContentExposureRead, status_code=status.HTTP_201_CREATED)
+@router.get(
+    "/sessions/{session_code}/content-timeline", response_model=ContentTimelineRead
+)
+def get_content_timeline(
+    session_code: str,
+    instance: Annotated[FunctionalOperationsService, Depends(service)],
+) -> dict:
+    return call(instance.get_content_timeline, session_code)
+
+
+@router.post(
+    "/exposures",
+    response_model=ContentExposureRead,
+    status_code=status.HTTP_201_CREATED,
+)
 def create_exposure(
     payload: ContentExposureCreate,
     instance: Annotated[FunctionalOperationsService, Depends(service)],
@@ -60,7 +75,9 @@ def create_exposure(
 
 
 @router.get("/exposures", response_model=list[ContentExposureRead])
-def list_exposures(instance: Annotated[FunctionalOperationsService, Depends(service)]) -> list[dict]:
+def list_exposures(
+    instance: Annotated[FunctionalOperationsService, Depends(service)],
+) -> list[dict]:
     return instance.list_exposures()
 
 

@@ -209,6 +209,117 @@ class FunctionalOperationsService:
             )
             return [dict(row) for row in cursor.fetchall()]
 
+    def get_content_timeline(self, session_code: str) -> dict[str, Any]:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                "SELECT * FROM functional_operation_sessions WHERE session_code = %s",
+                (session_code,),
+            )
+            session = cursor.fetchone()
+            if session is None:
+                raise DomainValidationError(
+                    "CONTENT_TIMELINE_SESSION_NOT_FOUND",
+                    "The operation session does not exist",
+                )
+            cursor.execute(
+                """SELECT exposure_code, plan_code, variant_code, release_code, scene_code,
+                          started_at, ended_at, source_kind, confidence
+                   FROM functional_content_exposures
+                   WHERE session_code = %s AND status = 'active'
+                   ORDER BY started_at, exposure_code""",
+                (session_code,),
+            )
+            exposures = [dict(row) for row in cursor.fetchall()]
+            plan_codes = sorted({item["plan_code"] for item in exposures})
+            plans_by_code: dict[str, dict[str, Any]] = {}
+            if plan_codes:
+                cursor.execute(
+                    """SELECT plan_code, blueprint FROM functional_live_room_plans
+                       WHERE plan_code = ANY(%s)""",
+                    (plan_codes,),
+                )
+                plans_by_code = {
+                    row["plan_code"]: dict(row) for row in cursor.fetchall()
+                }
+
+        total_seconds = (session["ended_at"] - session["started_at"]).total_seconds()
+        observed_seconds = 0.0
+        missing_plan_codes: list[str] = []
+        spans: list[dict[str, Any]] = []
+        for exposure in exposures:
+            duration_seconds = (
+                exposure["ended_at"] - exposure["started_at"]
+            ).total_seconds()
+            observed_seconds += duration_seconds
+            plan = plans_by_code.get(exposure["plan_code"])
+            scene: dict[str, Any] = {
+                "scene_code": exposure["scene_code"],
+                "status": "missing_plan",
+            }
+            layers: list[dict[str, Any]] = []
+            if plan is None:
+                if exposure["plan_code"] not in missing_plan_codes:
+                    missing_plan_codes.append(exposure["plan_code"])
+            else:
+                scenes = (plan["blueprint"] or {}).get("scenes") or []
+                source_scene = next(
+                    (
+                        item
+                        for item in scenes
+                        if isinstance(item, dict)
+                        and item.get("scene_code") == exposure["scene_code"]
+                    ),
+                    None,
+                )
+                if source_scene is None:
+                    scene["status"] = "missing_scene"
+                else:
+                    scene = {
+                        "scene_code": source_scene.get("scene_code"),
+                        "shot_code": source_scene.get("shot_code"),
+                        "title": source_scene.get("title"),
+                        "estimated_duration_ms": source_scene.get(
+                            "estimated_duration_ms"
+                        ),
+                        "status": "resolved",
+                    }
+                    layers = [
+                        {
+                            "layer_blueprint_code": layer.get("layer_blueprint_code"),
+                            "role": layer.get("role") or layer.get("material_role"),
+                            "asset_code": layer.get("asset_code"),
+                            "execution_capability": layer.get("execution_capability")
+                            or (layer.get("asset_binding_ref") or {}).get(
+                                "execution_capability"
+                            ),
+                        }
+                        for layer in source_scene.get("layers") or []
+                        if isinstance(layer, dict)
+                    ]
+            spans.append(
+                {
+                    **exposure,
+                    "duration_seconds": duration_seconds,
+                    "scene": scene,
+                    "layers": layers,
+                }
+            )
+        observed_seconds = min(total_seconds, observed_seconds)
+        return {
+            "session_code": session_code,
+            "started_at": session["started_at"],
+            "ended_at": session["ended_at"],
+            "total_seconds": total_seconds,
+            "observed_seconds": observed_seconds,
+            "coverage_ratio": observed_seconds / total_seconds
+            if total_seconds
+            else 0.0,
+            "unobserved_seconds": max(0.0, total_seconds - observed_seconds),
+            "status": "partial" if missing_plan_codes else "resolved",
+            "missing_plan_codes": missing_plan_codes,
+            "spans": spans,
+        }
+
     def create_report(self, payload: dict[str, Any]) -> dict[str, Any]:
         codes = list(dict.fromkeys(payload["session_codes"]))
         with self.connection.cursor(row_factory=dict_row) as cursor:
