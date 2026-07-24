@@ -7,6 +7,8 @@ from app.domain.errors import DomainValidationError
 from app.schemas.functional_operations import (
     AttributionReportCreate,
     AttributionReportRead,
+    ContentExposureCreate,
+    ContentExposureRead,
     OperationSessionCreate,
     OperationSessionRead,
     SchedulePlanCreate,
@@ -47,6 +49,19 @@ def list_sessions(
     instance: Annotated[FunctionalOperationsService, Depends(service)],
 ) -> list[dict]:
     return instance.list_sessions()
+
+
+@router.post("/exposures", response_model=ContentExposureRead, status_code=status.HTTP_201_CREATED)
+def create_exposure(
+    payload: ContentExposureCreate,
+    instance: Annotated[FunctionalOperationsService, Depends(service)],
+) -> dict:
+    return call(instance.create_exposure, payload.model_dump())
+
+
+@router.get("/exposures", response_model=list[ContentExposureRead])
+def list_exposures(instance: Annotated[FunctionalOperationsService, Depends(service)]) -> list[dict]:
+    return instance.list_exposures()
 
 
 @router.post(

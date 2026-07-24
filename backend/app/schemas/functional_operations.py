@@ -10,6 +10,7 @@ class OperationSessionCreate(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     platform: str = Field(min_length=1, max_length=64)
     content_project_code: str | None = Field(default=None, max_length=64)
+    live_room_plan_code: str | None = Field(default=None, max_length=64)
     started_at: datetime
     ended_at: datetime
     metrics: dict[str, float] = Field(default_factory=dict)
@@ -19,6 +20,25 @@ class OperationSessionRead(OperationSessionCreate):
     session_code: str
     source_kind: str
     import_version: int
+    created_at: datetime
+
+
+class ContentExposureCreate(BaseModel):
+    session_code: str = Field(min_length=1, max_length=64)
+    plan_code: str = Field(min_length=1, max_length=64)
+    scene_code: str = Field(min_length=1, max_length=64)
+    started_at: datetime
+    ended_at: datetime
+    source_kind: str = Field(pattern="^(manual_observation|served_log|recording_match)$")
+    evidence_note: str = Field(min_length=1, max_length=4000)
+    confidence: float = Field(default=0.5, ge=0, le=1)
+
+
+class ContentExposureRead(ContentExposureCreate):
+    exposure_code: str
+    variant_code: str
+    release_code: str | None = None
+    status: str
     created_at: datetime
 
 

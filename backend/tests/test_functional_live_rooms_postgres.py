@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import psycopg
@@ -12,6 +13,7 @@ from app.repositories.material_library import MaterialLibraryRepository
 from app.repositories.releases import ReleaseRepository
 from app.services.functional_content import FunctionalContentService
 from app.services.functional_live_rooms import FunctionalLiveRoomService
+from app.services.functional_operations import FunctionalOperationsService
 from app.services.releases import ReleaseService
 
 
@@ -272,6 +274,29 @@ def test_live_room_plan_selects_only_published_material_pack_and_freezes_resolve
 
         library.replace_group_members(group["group_code"], [selected[0]["asset_code"]])
         assert plan["build_plan"]["inventory_snapshot"]["asset_codes"] == [asset["asset_code"] for asset in selected]
+
+        observed_start = datetime.now(UTC).replace(microsecond=0)
+        operations = FunctionalOperationsService(connection)
+        session = operations.import_session(
+            {
+                "title": "Observed published-pack session", "platform": "douyin",
+                "live_room_plan_code": plan["plan_code"], "started_at": observed_start,
+                "ended_at": observed_start + timedelta(minutes=10), "metrics": {"watchers": 88},
+            }
+        )
+        exposure = operations.create_exposure(
+            {
+                "session_code": session["session_code"], "plan_code": plan["plan_code"],
+                "scene_code": plan["blueprint"]["scenes"][0]["scene_code"],
+                "started_at": observed_start, "ended_at": observed_start + timedelta(minutes=1),
+                "source_kind": "manual_observation", "evidence_note": "Operator observed the scene in the room.", "confidence": 0.8,
+            }
+        )
+        assert exposure["variant_code"] == plan["variant_code"]
+        assert exposure["release_code"] is None
+        with pytest.raises(DomainValidationError) as overlap:
+            operations.create_exposure({**exposure, "exposure_code": None, "evidence_note": "Overlapping interval."})
+        assert overlap.value.code == "CONTENT_EXPOSURE_OVERLAP_CONFLICT"
 
 
 def test_live_room_constraint_profiles_bind_to_snapshot_and_place_product_on_table_surface() -> None:
