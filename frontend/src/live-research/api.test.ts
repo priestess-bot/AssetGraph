@@ -80,6 +80,36 @@ describe("live research api", () => {
     expect(body.components[0].evidence).toEqual([{ label: "主播", source: "flat_video_visual_inference" }]);
   });
 
+  it("creates source-bounded content modules and cleaned examples", async () => {
+    const strategyTemplate = {
+      template_code: "DY-TPL-STRATEGY", name: "策略", template_kind: "content_strategy", status: "draft",
+      revisions: [{
+        revision_number: 1, source_session_codes: ["DY-CAP-001"],
+        content_strategy: {
+          target_category: "beverage",
+          program_outline: [{ module_key: "opening", title: "开场", purpose: "建立目标", source_session_code: "DY-CAP-001", start_ms: 0, end_ms: 30_000 }],
+          reviewed_examples: [],
+        },
+      }],
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ template_code: "DY-TPL-STRATEGY", name: "策略", template_kind: "content_strategy", status: "draft", revisions: [] }, 201))
+      .mockResolvedValueOnce(response({ revision_number: 1, status: "draft" }, 201))
+      .mockResolvedValueOnce(response(strategyTemplate));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await liveResearchApi.createContentStrategyTemplate({
+      title: "结构策略", sourceTargetCode: "DY-WATCH-001", sourceSessionCodes: ["DY-CAP-001"], targetCategory: "beverage", materialCues: ["background"],
+      modules: [{ moduleKey: "opening", title: "开场", purpose: "建立目标", sourceSessionCode: "DY-CAP-001", startMs: 0, endMs: 30_000 }],
+      reviewedExamples: [{ moduleKey: "opening", exampleText: "以问题引导选择", sourceSessionCode: "DY-CAP-001", startMs: 1_000, endMs: 8_000 }],
+    });
+
+    const revision = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+    expect(revision.layout_fidelity).toBe("none");
+    expect(revision.content_strategy.program_outline[0]).toMatchObject({ source_session_code: "DY-CAP-001", end_ms: 30_000 });
+    expect(revision.content_strategy.reviewed_examples[0]).toMatchObject({ example_text: "以问题引导选择", source_session_code: "DY-CAP-001" });
+  });
+
   it("projects real provider outputs from each chunk onto the global timeline", async () => {
     const spans = [
       { span_index: 0, chunk_code: "CHUNK-1", global_start_seconds: 0, global_end_seconds: 600, chunk_start_seconds: 0, chunk_end_seconds: 600, mapping_slope: 1 },

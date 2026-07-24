@@ -169,7 +169,7 @@ export interface TemplateRevision {
 export interface ContentStrategy {
   targetCategory: string;
   compatibilityTags: string[];
-  programOutline: Array<{ moduleKey: string; title: string; purpose: string; startMs: number; endMs: number }>;
+  programOutline: Array<{ moduleKey: string; title: string; purpose: string; sourceSessionCode?: string; startMs: number; endMs: number }>;
   materialCues: string[];
   reviewedExamples: Array<{ moduleKey: string; exampleText: string; sourceSessionCode: string; startMs: number; endMs: number }>;
 }

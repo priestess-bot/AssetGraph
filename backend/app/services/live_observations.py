@@ -205,6 +205,23 @@ _SOURCE_FACT_MARKERS = (
 )
 
 
+def _strategy_text_values(value: Any) -> list[str]:
+    """Return reviewer-authored strategy text without treating evidence IDs as text."""
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        return [text for item in value for text in _strategy_text_values(item)]
+    if not isinstance(value, dict):
+        return []
+    ignored = {"source_session_code", "module_key", "start_ms", "end_ms"}
+    return [
+        text
+        for key, item in value.items()
+        if key not in ignored
+        for text in _strategy_text_values(item)
+    ]
+
+
 def build_content_strategy_projection(
     template: dict[str, Any], revision: dict[str, Any]
 ) -> dict[str, Any]:
@@ -242,16 +259,24 @@ def build_content_strategy_projection(
     module_keys = {str(item.get("module_key") or "") for item in program_outline}
     if "" in module_keys or len(module_keys) != len(program_outline):
         blocking.append("CONTENT_STRATEGY_MODULE_KEYS_INVALID")
+    module_sources = {str(item.get("source_session_code") or "") for item in program_outline}
+    if "" in module_sources:
+        blocking.append("CONTENT_STRATEGY_MODULE_EVIDENCE_REQUIRED")
+    if not module_sources.issubset(set(source_session_codes)):
+        blocking.append("CONTENT_STRATEGY_MODULE_SOURCE_OUT_OF_SCOPE")
     example_sources = {str(item.get("source_session_code") or "") for item in reviewed_examples}
     if not example_sources.issubset(set(source_session_codes)):
         blocking.append("CONTENT_STRATEGY_EXAMPLE_SOURCE_OUT_OF_SCOPE")
     if any(str(item.get("module_key") or "") not in module_keys for item in reviewed_examples):
         blocking.append("CONTENT_STRATEGY_EXAMPLE_MODULE_INVALID")
-    for example in reviewed_examples:
-        text = str(example.get("example_text") or "").lower()
-        if any(marker in text for marker in _SOURCE_FACT_MARKERS) or "￥" in text or "¥" in text:
+    for text in _strategy_text_values(strategy):
+        normalized = text.lower()
+        if any(marker in normalized for marker in _SOURCE_FACT_MARKERS) or "￥" in text or "¥" in text:
             blocking.append("CONTENT_STRATEGY_SOURCE_FACT_REMAINS")
             break
+
+    if revision.get("layout_fidelity") not in {"none", "approximate"}:
+        blocking.append("CONTENT_STRATEGY_LAYOUT_FIDELITY_INVALID")
 
     requested_readiness = str(revision.get("content_readiness") or "review_required")
     if requested_readiness != "ready":

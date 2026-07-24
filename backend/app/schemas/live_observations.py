@@ -649,6 +649,9 @@ class ContentStrategyStage(StrictModel):
     module_key: str = Field(..., min_length=1, max_length=64)
     title: str = Field(..., min_length=1, max_length=255)
     purpose: str = Field(..., min_length=1, max_length=2000)
+    # A content module is an abstraction, but its review still has to point
+    # back to one bounded interval in an authorised source recording.
+    source_session_code: str | None = Field(default=None, min_length=1, max_length=64)
     start_ms: int = Field(..., ge=0)
     end_ms: int = Field(..., gt=0)
 

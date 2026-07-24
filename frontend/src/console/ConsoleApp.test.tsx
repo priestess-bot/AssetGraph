@@ -61,6 +61,9 @@ describe("AssetGraph Console", () => {
     expect(new URLSearchParams(window.location.search).get("view")).toBe("sessions");
     expect(new URLSearchParams(window.location.search).get("session")).toBe("DY-CAP-DEMO-001");
     expect(await screen.findByText("设置永久片段范围")).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: "内容策略" }));
+    expect(new URLSearchParams(window.location.search).get("view")).toBe("strategies");
+    expect(await screen.findByText("创建内容策略模板")).toBeInTheDocument();
   });
 
   it("remounts the live-room workspace when an internal deep link changes run", async () => {

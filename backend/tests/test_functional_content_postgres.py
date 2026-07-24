@@ -368,7 +368,7 @@ def test_content_strategy_template_rejects_cross_room_sources_and_stays_referenc
         )
         strategy = {
             "target_category": "beverage",
-            "program_outline": [{"module_key": "opening", "title": "开场", "purpose": "建立主题", "start_ms": 0, "end_ms": 30_000}],
+            "program_outline": [{"module_key": "opening", "title": "开场", "purpose": "建立主题", "source_session_code": first, "start_ms": 0, "end_ms": 30_000}],
             "duration_policy": {}, "module_recipes": [], "product_rotation_policy": {},
             "interaction_policy": {}, "conversion_policy": {}, "host_style": {},
             "material_cues": ["background"], "reviewed_examples": [],

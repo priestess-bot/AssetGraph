@@ -370,7 +370,7 @@ function normalizeContentStrategy(value: unknown): ContentStrategy {
     compatibilityTags: strings(record.compatibility_tags),
     programOutline: asArray(record.program_outline).flatMap((item) => isRecord(item) ? [{
       moduleKey: asString(item.module_key), title: asString(item.title), purpose: asString(item.purpose),
-      startMs: asNumber(item.start_ms), endMs: asNumber(item.end_ms),
+      sourceSessionCode: asOptionalString(item.source_session_code), startMs: asNumber(item.start_ms), endMs: asNumber(item.end_ms),
     }] : []),
     materialCues: strings(record.material_cues),
     reviewedExamples: asArray(record.reviewed_examples).flatMap((item) => isRecord(item) ? [{
@@ -504,8 +504,13 @@ export const liveResearchApi = {
   getTemplate: async (templateCode: string) => normalizeTemplate(await requestJson(`${ROOT}/room-templates/${encodeURIComponent(templateCode)}`)),
   createTemplate: async (payload: { title: string; source_session_code: string }) => normalizeTemplate(await postJson(`${ROOT}/room-templates`, { name: payload.title, description: `由采集场次 ${payload.source_session_code} 生成的外部平面视频参考模板` })),
   createContentStrategyTemplate: async (payload: {
-    title: string; sourceTargetCode: string; sourceSessionCodes: string[]; targetCategory: string;
-    moduleTitle: string; modulePurpose: string; moduleDurationSeconds: number; materialCues: string[];
+    title: string;
+    sourceTargetCode: string;
+    sourceSessionCodes: string[];
+    targetCategory: string;
+    modules: Array<{ moduleKey: string; title: string; purpose: string; sourceSessionCode: string; startMs: number; endMs: number }>;
+    reviewedExamples: Array<{ moduleKey: string; exampleText: string; sourceSessionCode: string; startMs: number; endMs: number }>;
+    materialCues: string[];
   }) => {
     const created = normalizeTemplate(await postJson(`${ROOT}/room-templates`, {
       name: payload.title, source_target_code: payload.sourceTargetCode, template_kind: "content_strategy",
@@ -515,14 +520,32 @@ export const liveResearchApi = {
       source_session_codes: payload.sourceSessionCodes, contract_version: "content-strategy.v2",
       canvas: { width: 1080, height: 1920, rotation_degrees: 0, pixel_aspect_ratio: "1:1" }, scenes: [], components: [],
       audio_policy: { max_active_speech: 1, max_active_bgm: 1, unknown_audio_default_muted: true, allow_overlapping_bgm_crossfade: false, speech_ducking_db: -9 },
-      provenance: { review_mode: "manual_content_strategy", source_facts_removed: true }, content_readiness: "ready",
-      layout_fidelity: "approximate", buildability: "reference_only", layout_reference: {}, confidence: 0.8,
+      provenance: {
+        review_mode: "manual_content_strategy",
+        source_facts_removed: true,
+        module_evidence_mode: "source-session-bounded-interval.v1",
+      }, content_readiness: "ready",
+      layout_fidelity: "none", buildability: "reference_only", layout_reference: {}, confidence: 0.8,
       created_by: "assetgraph_content_strategy_reviewer",
       content_strategy: {
         target_category: payload.targetCategory, compatibility_tags: [],
-        program_outline: [{ module_key: "opening", title: payload.moduleTitle, purpose: payload.modulePurpose, start_ms: 0, end_ms: Math.max(1, Math.round(payload.moduleDurationSeconds * 1000)) }],
+        program_outline: payload.modules.map((module) => ({
+          module_key: module.moduleKey,
+          title: module.title,
+          purpose: module.purpose,
+          source_session_code: module.sourceSessionCode,
+          start_ms: Math.round(module.startMs),
+          end_ms: Math.round(module.endMs),
+        })),
         duration_policy: {}, module_recipes: [], product_rotation_policy: {}, interaction_policy: {}, conversion_policy: {}, host_style: {},
-        material_cues: payload.materialCues, reviewed_examples: [],
+        material_cues: payload.materialCues,
+        reviewed_examples: payload.reviewedExamples.map((example) => ({
+          module_key: example.moduleKey,
+          example_text: example.exampleText,
+          source_session_code: example.sourceSessionCode,
+          start_ms: Math.round(example.startMs),
+          end_ms: Math.round(example.endMs),
+        })),
         removed_source_fact_categories: ["price", "promotion", "inventory", "product_identity", "source_brand", "host_identity"],
       },
     });

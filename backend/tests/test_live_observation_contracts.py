@@ -180,7 +180,7 @@ def test_content_strategy_contract_requires_clean_single_room_reference_semantic
         "content_strategy": {
             "target_category": "beverage",
             "program_outline": [
-                {"module_key": "opening", "title": "开场", "purpose": "建立主题", "start_ms": 0, "end_ms": 30_000}
+                {"module_key": "opening", "title": "开场", "purpose": "建立主题", "source_session_code": "LR-CAP-1", "start_ms": 0, "end_ms": 30_000}
             ],
             "removed_source_fact_categories": ["price", "promotion", "inventory", "product_identity", "source_brand", "host_identity"],
         },
@@ -195,6 +195,17 @@ def test_content_strategy_contract_requires_clean_single_room_reference_semantic
     assert projection["content_readiness"] == "ready"
     assert projection["buildability"] == "reference_only"
     assert projection["projection_ready"] is True
+
+    missing_evidence = dict(revision)
+    missing_evidence["content_strategy"] = dict(revision["content_strategy"])
+    missing_evidence["content_strategy"]["program_outline"] = [
+        {"module_key": "opening", "title": "开场", "purpose": "建立主题", "start_ms": 0, "end_ms": 30_000}
+    ]
+    blocked = build_content_strategy_projection(
+        {"template_code": "LR-TPL-1", "name": "strategy", "template_kind": "content_strategy", "source_target_code": "LR-WATCH-1"},
+        missing_evidence,
+    )
+    assert "CONTENT_STRATEGY_MODULE_EVIDENCE_REQUIRED" in blocked["blocking_reasons"]
 
     with pytest.raises(ValidationError, match="require source session"):
         RoomTemplateRevisionCreate(**{key: value for key, value in common.items() if key != "source_session_codes"})

@@ -34,6 +34,7 @@ import { OperationsPage } from "../operations/OperationsPage";
 import { LearningPage } from "../learning/LearningPage";
 import { KnowledgePage } from "../knowledge/KnowledgePage";
 import { SessionsPage } from "../live-research/SessionsPage";
+import { ContentStrategiesPage } from "../live-research/ContentStrategiesPage";
 import { TemplatesPage } from "../live-research/TemplatesPage";
 import { WatchPage } from "../live-research/WatchPage";
 import {
@@ -233,14 +234,21 @@ function Dashboard({ tasks, notifications, loading }: { tasks: ConsoleTask[]; no
 }
 
 
-function ResearchWorkspace({ search }: { search: string }) {
+function ResearchWorkspace({ search, demoMode }: { search: string; demoMode: boolean }) {
   const view = new URLSearchParams(search).get("view") ?? "watch";
-  const change = (next: string) => navigate(`/research/live-sources${next === "watch" ? "" : `?view=${next}`}`);
+  const change = (next: string) => {
+    const current = new URLSearchParams(search);
+    const nextSearch = new URLSearchParams();
+    if (demoMode || current.get("demo") === "1") nextSearch.set("demo", "1");
+    if (next !== "watch") nextSearch.set("view", next);
+    const encoded = nextSearch.toString();
+    navigate(`/research/live-sources${encoded ? `?${encoded}` : ""}`);
+  };
   return <>
     <div className="wb-tabs" role="tablist" aria-label="直播研究视图">
-      {[ ["watch", "来源直播间"], ["sessions", "录屏场次"], ["drafts", "模板草稿"], ["published", "已发布模板"] ].map(([key, label]) => <button key={key} type="button" role="tab" aria-selected={view === key} className={view === key ? "active" : undefined} onClick={() => change(key)}>{label}</button>)}
+      {[ ["watch", "来源直播间"], ["sessions", "录屏场次"], ["strategies", "内容策略"], ["drafts", "模板草稿"], ["published", "已发布模板"] ].map(([key, label]) => <button key={key} type="button" role="tab" aria-selected={view === key} className={view === key ? "active" : undefined} onClick={() => change(key)}>{label}</button>)}
     </div>
-    {view === "watch" ? <WatchPage /> : view === "sessions" ? <SessionsPage /> : <TemplatesPage published={view === "published"} />}
+    {view === "watch" ? <WatchPage /> : view === "sessions" ? <SessionsPage /> : view === "strategies" ? <ContentStrategiesPage /> : <TemplatesPage published={view === "published"} />}
   </>;
 }
 
@@ -251,10 +259,10 @@ function AssetsWorkspace({ search }: { search: string }) {
 }
 
 
-export function Workspace({ pathname, search, tasks, notifications, loading }: { pathname: string; search: string; tasks: ConsoleTask[]; notifications: ConsoleNotification[]; loading: boolean }) {
+export function Workspace({ pathname, search, tasks, notifications, loading, demoMode = false }: { pathname: string; search: string; tasks: ConsoleTask[]; notifications: ConsoleNotification[]; loading: boolean; demoMode?: boolean }) {
   if (pathname === "/" || pathname === "/console" || pathname === "/console/") return <Dashboard tasks={tasks} notifications={notifications} loading={loading} />;
   if (pathname.startsWith("/assets/library")) return <AssetsWorkspace search={search} />;
-  if (pathname.startsWith("/research/live-sources")) return <ResearchWorkspace search={search} />;
+  if (pathname.startsWith("/research/live-sources")) return <ResearchWorkspace search={search} demoMode={demoMode} />;
   if (pathname.startsWith("/production/live-rooms")) {
     return <LiveRoomPlannerPage search={search} />;
   }
@@ -384,7 +392,7 @@ export default function ConsoleApp() {
       <main className={`console-main ${selectedEntity ? "has-entity-inspector" : ""}`}>
         <div className="console-workspace">
           {queryProblem ? <ProblemNotice problem={queryProblem} /> : null}
-          <Workspace pathname={location.pathname} search={location.search} tasks={tasks} notifications={notifications} loading={tasksQuery.isLoading || notificationsQuery.isLoading} />
+          <Workspace pathname={location.pathname} search={location.search} tasks={tasks} notifications={notifications} loading={tasksQuery.isLoading || notificationsQuery.isLoading} demoMode={demoMode} />
         </div>
         {selectedEntity ? <EntityInspector selection={selectedEntity} demoMode={demoMode} onClose={closeEntityInspector} /> : null}
       </main>

@@ -1493,6 +1493,7 @@ class LiveObservationRepository:
             if template is None:
                 raise LiveObservationConflictError("room template does not exist")
             source_sessions = self._resolve_template_source_sessions(cursor, template, payload)
+            self._validate_content_strategy_evidence(payload, source_sessions)
             first_session = source_sessions[0] if source_sessions else None
             cursor.execute(
                 "SELECT coalesce(max(revision_number), 0) + 1 AS next_revision FROM live_room_template_revisions WHERE template_id = %s",
@@ -1913,7 +1914,12 @@ class LiveObservationRepository:
             return []
         cursor.execute(
             """
-            SELECT session.id, session.session_code, session.target_id, session.target_code, session.status
+            SELECT session.id, session.session_code, session.target_id, session.target_code, session.status,
+                   coalesce((
+                       SELECT max(span.global_end_seconds)
+                       FROM live_timeline_spans AS span
+                       WHERE span.session_id = session.id
+                   ), 0) AS timeline_duration_seconds
             FROM live_capture_sessions AS session
             WHERE session.session_code = ANY(%s)
             """,
@@ -1956,6 +1962,48 @@ class LiveObservationRepository:
             template["source_target_id"] = target["target_id"]
             template["source_target_code"] = target["target_code"]
         return sessions
+
+    @staticmethod
+    def _validate_content_strategy_evidence(
+        payload: dict[str, Any], source_sessions: list[dict[str, Any]]
+    ) -> None:
+        """Keep strategy evidence inside the selected, completed source set.
+
+        Drafts may omit a module source so a reviewer can save incomplete work;
+        publication then reports the stable blocking code from the projection.
+        A populated source reference, however, must never point outside this
+        revision's immutable source-session bridge.
+        """
+        if payload.get("contract_version") != "content-strategy.v2":
+            return
+        sessions_by_code = {str(item["session_code"]): item for item in source_sessions}
+        selected_codes = set(sessions_by_code)
+        strategy = payload.get("content_strategy") or {}
+        items = [
+            ("MODULE", item)
+            for item in strategy.get("program_outline") or []
+            if isinstance(item, dict)
+        ] + [
+            ("EXAMPLE", item)
+            for item in strategy.get("reviewed_examples") or []
+            if isinstance(item, dict)
+        ]
+        for evidence_type, item in items:
+            source_code = str(item.get("source_session_code") or "").strip()
+            if not source_code:
+                continue
+            if source_code not in selected_codes:
+                raise LiveObservationConflictError(
+                    f"CONTENT_STRATEGY_{evidence_type}_SOURCE_OUT_OF_SCOPE"
+                )
+            known_duration_ms = int(
+                float(sessions_by_code[source_code].get("timeline_duration_seconds") or 0)
+                * 1000
+            )
+            if known_duration_ms and int(item.get("end_ms") or 0) > known_duration_ms:
+                raise LiveObservationConflictError(
+                    f"CONTENT_STRATEGY_{evidence_type}_INTERVAL_OUT_OF_BOUNDS"
+                )
 
     @staticmethod
     def _insert_template_revision_source_sessions(
