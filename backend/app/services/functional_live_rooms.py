@@ -55,6 +55,10 @@ class FunctionalLiveRoomService:
         )
         if not selected_assets:
             raise DomainValidationError("LIVE_ROOM_ASSETS_REQUIRED", "Select at least one asset or group before planning")
+        material_role_overrides = self._validate_material_role_overrides(
+            payload.get("material_role_overrides") or {}, selected_assets
+        )
+        payload = {**payload, "material_role_overrides": material_role_overrides}
         selection_sources = self._material_selection_sources(
             asset_codes=payload.get("asset_codes") or [],
             group_codes=payload.get("group_codes") or [],
@@ -77,6 +81,7 @@ class FunctionalLiveRoomService:
                 for asset in selected_assets
             ],
             "material_pack_refs": material_pack_refs,
+            "material_role_overrides": material_role_overrides,
         }
         templates = self._project_template_selection(detail, payload)
         variant = self.production.create_production_variant(
@@ -92,6 +97,7 @@ class FunctionalLiveRoomService:
                 "templates": templates,
                 "selected_asset_codes": snapshot["asset_codes"],
                 "selected_material_pack_codes": payload.get("material_pack_codes") or [],
+                "material_role_overrides": material_role_overrides,
             },
             material_snapshot_ref=snapshot,
             constraint_snapshot_ref={
@@ -127,6 +133,7 @@ class FunctionalLiveRoomService:
                 "selected_asset_codes": snapshot["asset_codes"],
                 "selected_group_codes": payload.get("group_codes") or [],
                 "selected_material_pack_codes": payload.get("material_pack_codes") or [],
+                "material_role_overrides": material_role_overrides,
             },
             actor_id=actor_id,
         )
@@ -393,6 +400,7 @@ class FunctionalLiveRoomService:
                 "asset_codes": list(source["selected_asset_codes"] or []),
                 "group_codes": list(source["selected_group_codes"] or []),
                 "material_pack_codes": list(source["selected_material_pack_codes"] or []),
+                "material_role_overrides": dict((source["quality_report"] or {}).get("material_role_overrides") or {}),
             },
             actor_id=actor_id,
         )
@@ -406,6 +414,7 @@ class FunctionalLiveRoomService:
                 "selected_asset_codes",
                 "selected_group_codes",
                 "selected_material_pack_codes",
+                "material_role_overrides",
             ],
             "cleared_target_state": [
                 "target_live_room_fingerprint",
@@ -1214,8 +1223,84 @@ class FunctionalLiveRoomService:
             "selected_material_roles": selected_roles,
             "missing_material_roles": missing_roles,
             "compiler_blocked_reasons": compiler_blocked_reasons,
+            "material_role_overrides": dict(blueprint.get("material_role_overrides") or {}),
+            "material_selection_decisions": list(blueprint.get("material_selection_decisions") or []),
         }
         return gates, quality_report
+
+    @staticmethod
+    def _validate_material_role_overrides(
+        overrides: dict[str, Any], assets: list[dict[str, Any]]
+    ) -> dict[str, str]:
+        if not isinstance(overrides, dict):
+            raise DomainValidationError(
+                "LIVE_ROOM_MATERIAL_OVERRIDE_INVALID",
+                "Material role overrides must be an object of role to selected asset code",
+            )
+        selected_by_code = {str(asset["asset_code"]): asset for asset in assets}
+        normalized: dict[str, str] = {}
+        for raw_role, raw_asset_code in overrides.items():
+            role = str(raw_role).strip()
+            asset_code = str(raw_asset_code).strip()
+            asset = selected_by_code.get(asset_code)
+            if asset is None:
+                raise DomainValidationError(
+                    "LIVE_ROOM_MATERIAL_OVERRIDE_NOT_SELECTED",
+                    "A material role override must reference an asset selected for this plan",
+                    details={"role": role, "asset_code": asset_code},
+                )
+            if role not in (asset.get("material_roles") or []):
+                raise DomainValidationError(
+                    "LIVE_ROOM_MATERIAL_OVERRIDE_ROLE_MISMATCH",
+                    "The override asset does not carry the requested material role",
+                    details={"role": role, "asset_code": asset_code, "asset_roles": asset.get("material_roles") or []},
+                )
+            normalized[role] = asset_code
+        return normalized
+
+    @staticmethod
+    def _choose_material_for_role(
+        *,
+        role: str,
+        candidates: list[dict[str, Any]],
+        overrides: dict[str, str],
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        def candidate_score(asset: dict[str, Any]) -> tuple[int, list[str]]:
+            capability = str(asset.get("execution_capability") or "unclassified")
+            profile_bound = isinstance(asset.get("constraint_profile_ref"), dict)
+            score = 60 + (30 if capability == "maitu_bound" else 0) + (10 if profile_bound else 0)
+            reasons = ["ROLE_MATCH", f"CAPABILITY_{capability.upper()}"]
+            if profile_bound:
+                reasons.append("CONSTRAINT_PROFILE_BOUND")
+            return score, reasons
+
+        ordered = sorted(candidates, key=lambda asset: (-candidate_score(asset)[0], str(asset["asset_code"])))
+        override_asset_code = overrides.get(role)
+        selected = next((asset for asset in ordered if asset["asset_code"] == override_asset_code), None) if override_asset_code else ordered[0]
+        if selected is None:
+            raise DomainValidationError(
+                "LIVE_ROOM_MATERIAL_OVERRIDE_INVALID",
+                "The requested material role override is not a candidate for this role",
+                details={"role": role, "asset_code": override_asset_code},
+            )
+        score, reasons = candidate_score(selected)
+        return selected, {
+            "schema_version": "functional-material-selection-decision.v1",
+            "role": role,
+            "strategy": "explicit_override" if override_asset_code else "deterministic_score",
+            "requested_override_asset_code": override_asset_code,
+            "selected_asset_code": selected["asset_code"],
+            "selected_score": score,
+            "selection_reasons": reasons,
+            "candidate_scores": [
+                {
+                    "asset_code": candidate["asset_code"],
+                    "score": candidate_score(candidate)[0],
+                    "selection_reasons": candidate_score(candidate)[1],
+                }
+                for candidate in ordered
+            ],
+        }
 
     @staticmethod
     def _compile(
@@ -1234,6 +1319,8 @@ class FunctionalLiveRoomService:
         scenes: list[dict[str, Any]] = []
         operations: list[dict[str, Any]] = [{"kind": "rename_room", "expected_title": payload["expected_title"]}]
         blocked: list[str] = []
+        material_role_overrides = dict(payload.get("material_role_overrides") or {})
+        material_selection_decisions: list[dict[str, Any]] = []
         named_regions, named_region_failures = FunctionalLiveRoomService._named_regions(assets)
         blocked.extend(named_region_failures)
         active_start_ms = 0
@@ -1244,7 +1331,11 @@ class FunctionalLiveRoomService:
                 if not candidates:
                     blocked.append(f"missing_role:{role}:shot:{shot['shot_code']}")
                     continue
-                asset = candidates[0]
+                asset, selection_decision = FunctionalLiveRoomService._choose_material_for_role(
+                    role=str(role), candidates=candidates, overrides=material_role_overrides
+                )
+                selection_decision = {**selection_decision, "shot_code": shot["shot_code"]}
+                material_selection_decisions.append(selection_decision)
                 geometry, z_order, visual_properties, audio_properties, constraint_evidence, failures = (
                     FunctionalLiveRoomService._resolve_layer_constraints(
                         asset=asset,
@@ -1252,6 +1343,10 @@ class FunctionalLiveRoomService:
                         named_regions=named_regions,
                     )
                 )
+                constraint_evidence = {
+                    **constraint_evidence,
+                    "material_selection": selection_decision,
+                }
                 blocked.extend(f"{failure}:shot:{shot['shot_code']}" for failure in failures)
                 layers.append(
                     {
@@ -1282,7 +1377,12 @@ class FunctionalLiveRoomService:
             active_start_ms += duration_ms
         operations.append({"kind": "save_draft"})
         return (
-            {"schema_version": "maitu-scene-blueprint.functional.v1", "scenes": scenes},
+            {
+                "schema_version": "maitu-scene-blueprint.functional.v2",
+                "scenes": scenes,
+                "material_role_overrides": material_role_overrides,
+                "material_selection_decisions": material_selection_decisions,
+            },
             {"schema_version": "maitu-build-plan.functional.v1", "target_live_room_id": payload["target_live_room_id"], "operations": operations, "go_live": False},
             list(dict.fromkeys(blocked)),
         )

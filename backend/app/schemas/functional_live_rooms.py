@@ -15,6 +15,7 @@ class FunctionalLiveRoomPlanCreate(BaseModel):
     asset_codes: list[str] = Field(default_factory=list)
     group_codes: list[str] = Field(default_factory=list)
     material_pack_codes: list[str] = Field(default_factory=list)
+    material_role_overrides: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("secondary_template_codes")
     @classmethod
@@ -30,6 +31,20 @@ class FunctionalLiveRoomPlanCreate(BaseModel):
         normalized = list(dict.fromkeys(item.strip() for item in value if item.strip()))
         if len(normalized) != len(value):
             raise ValueError("selection codes must be unique and non-empty")
+        return normalized
+
+    @field_validator("material_role_overrides")
+    @classmethod
+    def normalize_material_role_overrides(cls, value: dict[str, str]) -> dict[str, str]:
+        normalized: dict[str, str] = {}
+        for role, asset_code in value.items():
+            normalized_role = str(role).strip()
+            normalized_asset_code = str(asset_code).strip()
+            if not normalized_role or not normalized_asset_code:
+                raise ValueError("material role overrides must use non-empty role and asset codes")
+            if len(normalized_role) > 64 or len(normalized_asset_code) > 64:
+                raise ValueError("material role override keys and asset codes must be at most 64 characters")
+            normalized[normalized_role] = normalized_asset_code
         return normalized
 
 

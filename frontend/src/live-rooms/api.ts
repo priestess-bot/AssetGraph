@@ -14,6 +14,8 @@ export interface FunctionalLiveRoomPlan {
   selectedAssetCodes: string[];
   selectedGroupCodes: string[];
   selectedMaterialPackCodes: string[];
+  materialRoleOverrides: Record<string, string>;
+  materialSelectionDecisions: Array<{ role: string; shotCode?: string; strategy: string; selectedAssetCode: string; selectedScore: number; selectionReasons: string[]; candidateScores: Array<{ assetCode: string; score: number }> }>;
   materialSnapshot: {
     assetCodes: string[];
     assets: Array<{
@@ -73,6 +75,11 @@ function plan(value: unknown): FunctionalLiveRoomPlan {
   const blueprint = isRecord(value.blueprint) ? value.blueprint : {};
   const buildPlan = isRecord(value.build_plan) ? value.build_plan : {};
   const inventorySnapshot = isRecord(buildPlan.inventory_snapshot) ? buildPlan.inventory_snapshot : {};
+  const qualityReport = isRecord(value.quality_report) ? value.quality_report : {};
+  const materialRoleOverrides = isRecord(qualityReport.material_role_overrides) ? Object.fromEntries(Object.entries(qualityReport.material_role_overrides).flatMap(([role, assetCode]) => typeof assetCode === "string" && assetCode ? [[role, assetCode]] : [])) : {};
+  const materialSelectionDecisions = asArray(qualityReport.material_selection_decisions).flatMap((decision) => isRecord(decision) && asString(decision.role) && asString(decision.selected_asset_code) ? [{
+    role: asString(decision.role), shotCode: asOptionalString(decision.shot_code), strategy: asString(decision.strategy), selectedAssetCode: asString(decision.selected_asset_code), selectedScore: asNumber(decision.selected_score), selectionReasons: strings(decision.selection_reasons), candidateScores: asArray(decision.candidate_scores).flatMap((candidate) => isRecord(candidate) && asString(candidate.asset_code) ? [{ assetCode: asString(candidate.asset_code), score: asNumber(candidate.score) }] : []),
+  }] : []);
   return {
     planCode,
     projectCode: asString(value.project_code),
@@ -85,6 +92,8 @@ function plan(value: unknown): FunctionalLiveRoomPlan {
     selectedAssetCodes: strings(value.selected_asset_codes),
     selectedGroupCodes: strings(value.selected_group_codes),
     selectedMaterialPackCodes: strings(value.selected_material_pack_codes),
+    materialRoleOverrides,
+    materialSelectionDecisions,
     materialSnapshot: {
       assetCodes: strings(inventorySnapshot.asset_codes),
       assets: asArray(inventorySnapshot.assets).flatMap((asset) => isRecord(asset) && asString(asset.asset_code) ? [{
@@ -98,7 +107,7 @@ function plan(value: unknown): FunctionalLiveRoomPlan {
       schema_version: asString(blueprint.schema_version),
       scenes: asArray(blueprint.scenes).flatMap((scene) => isRecord(scene) ? [{
         scene_code: asString(scene.scene_code), shot_code: asString(scene.shot_code), title: asString(scene.title), script: asString(scene.script),
-        layers: asArray(scene.layers).flatMap((layer) => isRecord(layer) ? [{ role: asString(layer.role), asset_code: asString(layer.asset_code), execution_capability: asString(layer.execution_capability), z_order: typeof layer.z_order === "number" ? layer.z_order : 0 }] : []),
+        layers: asArray(scene.layers).flatMap((layer) => isRecord(layer) ? [{ role: asString(layer.role, asString(layer.material_role)), asset_code: asString(layer.asset_code), execution_capability: asString(layer.execution_capability, isRecord(layer.asset_binding_ref) ? asString(layer.asset_binding_ref.execution_capability) : ""), z_order: typeof layer.z_order === "number" ? layer.z_order : 0 }] : []),
       }] : []),
     },
     buildPlan: {
@@ -106,7 +115,7 @@ function plan(value: unknown): FunctionalLiveRoomPlan {
       operations: asArray(buildPlan.operations).flatMap((operation) => isRecord(operation) ? [{ kind: asString(operation.operation_type, asString(operation.kind)), scene_code: asOptionalString(operation.scene_code) ?? asOptionalString(operation.scene_name), asset_code: asOptionalString(operation.asset_code), role: asOptionalString(operation.role) ?? asOptionalString(operation.layer_type), script_block_code: asOptionalString(operation.script_block_code) }] : []),
     },
     gateResults: asArray(value.gate_results).flatMap((gate) => isRecord(gate) && asString(gate.gate) ? [{ gate: asString(gate.gate), status: asString(gate.status), ruleCode: asString(gate.rule_code), remediation: asOptionalString(gate.remediation) }] : []),
-    qualityReport: isRecord(value.quality_report) ? value.quality_report : {},
+    qualityReport,
     status: asString(value.status),
     blockedReasons: strings(value.blocked_reasons),
     executionStatus: asString(value.execution_status),
@@ -147,7 +156,7 @@ export const functionalLiveRoomsApi = {
   list: () => requestJson<unknown[]>(ROOT).then((rows) => rows.map(plan)),
   get: (planCode: string) => requestJson<unknown>(`${ROOT}/${planCode}`).then(plan),
   getTrace: (planCode: string) => requestJson<unknown>(`${ROOT}/${planCode}/trace`).then(trace),
-  create: (payload: { project_code: string; target_live_room_id: string; expected_title: string; primary_template_code?: string; secondary_template_codes: string[]; asset_codes: string[]; group_codes: string[]; material_pack_codes: string[] }) => postJson<unknown>(ROOT, payload).then(plan),
+  create: (payload: { project_code: string; target_live_room_id: string; expected_title: string; primary_template_code?: string; secondary_template_codes: string[]; asset_codes: string[]; group_codes: string[]; material_pack_codes: string[]; material_role_overrides: Record<string, string> }) => postJson<unknown>(ROOT, payload).then(plan),
   confirmExecution: (planCode: string) => postJson<unknown>(`${ROOT}/${planCode}/confirm-execution`, { confirmed: true }).then(plan),
   createReleaseCandidate: (planCode: string) => postJson<unknown>(`${ROOT}/${planCode}/release-candidate`, {}).then(plan),
   clone: (planCode: string, payload: { target_live_room_id: string; expected_title: string }) => postJson<unknown>(`${ROOT}/${planCode}/clone`, payload).then(plan),

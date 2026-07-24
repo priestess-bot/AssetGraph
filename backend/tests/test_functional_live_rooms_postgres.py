@@ -98,7 +98,7 @@ def test_functional_live_room_plan_compiles_and_only_requests_maitu_execution() 
 
         assert plan["status"] == "ready"
         assert (
-            plan["blueprint"]["schema_version"] == "maitu-scene-blueprint.functional.v1"
+            plan["blueprint"]["schema_version"] == "maitu-scene-blueprint.functional.v2"
         )
         assert len(plan["blueprint"]["scenes"]) == 3
         assert plan["build_plan"]["go_live"] is False
@@ -228,6 +228,60 @@ def test_functional_live_room_plan_compiles_and_only_requests_maitu_execution() 
         assert requested is not None
         assert requested["execution_status"] == "requested"
         assert requested["execution_evidence"]["status"] == "awaiting_maitu_worker"
+
+
+def test_live_room_plan_pins_explicit_material_role_selection() -> None:
+    suffix = uuid4().hex
+    with psycopg.connect(DATABASE_URL) as connection:
+        assets = AssetRepository(connection)
+        project = _generated_project(connection, suffix)
+        digital_human = _asset(assets, suffix, "digital_human")
+        first_background = _asset(assets, f"first-{suffix}", "background")
+        selected_background = _asset(assets, f"selected-{suffix}", "background")
+        promotion_text = _asset(assets, suffix, "promotion_text")
+        service = FunctionalLiveRoomService(connection)
+
+        plan = service.create_plan(
+            {
+                "project_code": project["project_code"],
+                "target_live_room_id": f"selection-draft-{suffix}",
+                "expected_title": "Pinned material selection",
+                "asset_codes": [
+                    digital_human["asset_code"], first_background["asset_code"],
+                    selected_background["asset_code"], promotion_text["asset_code"],
+                ],
+                "group_codes": [],
+                "material_role_overrides": {"background": selected_background["asset_code"]},
+            },
+            actor_id="test-operator",
+        )
+
+        decisions = plan["quality_report"]["material_selection_decisions"]
+        background_decisions = [decision for decision in decisions if decision["role"] == "background"]
+        assert background_decisions
+        assert all(decision["strategy"] == "explicit_override" for decision in background_decisions)
+        assert all(decision["selected_asset_code"] == selected_background["asset_code"] for decision in background_decisions)
+        assert plan["quality_report"]["material_role_overrides"] == {"background": selected_background["asset_code"]}
+        assert all(
+            layer["asset_code"] == selected_background["asset_code"]
+            for scene in plan["blueprint"]["scenes"]
+            for layer in scene["layers"]
+            if layer["material_role"] == "background"
+        )
+
+        with pytest.raises(DomainValidationError) as invalid:
+            service.create_plan(
+                {
+                    "project_code": project["project_code"],
+                    "target_live_room_id": f"invalid-selection-{suffix}",
+                    "expected_title": "Invalid material selection",
+                    "asset_codes": [digital_human["asset_code"], first_background["asset_code"], promotion_text["asset_code"]],
+                    "group_codes": [],
+                    "material_role_overrides": {"product_display": first_background["asset_code"]},
+                },
+                actor_id="test-operator",
+            )
+        assert invalid.value.code == "LIVE_ROOM_MATERIAL_OVERRIDE_ROLE_MISMATCH"
 
 
 def test_functional_live_room_plan_blocks_unbound_required_material() -> None:
