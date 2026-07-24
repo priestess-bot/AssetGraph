@@ -3,7 +3,7 @@
 > Status: open. This register records only inputs that require an operator, an
 > approved operational environment, or an accountable business decision. It is
 > intentionally not a substitute for evidence and does not qualify any `CHK`.
-> Updated: 2026-07-24
+> Updated: 2026-07-25
 
 ## How To Use This Register
 
@@ -29,6 +29,8 @@ to be committed to this file.
 | `EXT-P1-MAITU-DRAFT` | `CHK-1162`, `CHK-1283` through `CHK-1285` | Authoritative Maitu staging/production credential through the approved secret channel; a designated empty, unlive draft room; target identity attestation; an operator authorized to inspect read-back. | No request is made until Phase 0 has passed. Use the existing fenced draft-execution workflow; never provide credentials in Git or chat. | Deferred |
 | `EXT-P1-RELEASE-EVIDENCE` | `CHK-1220`, `CHK-1221`, `CHK-1290` through `CHK-1295` | Asset/template rights decision references, a short-lived draft-write authorization, and authoritative Maitu preflight/final readback evidence for one designated empty room. | Create the candidate locally first. Supply immutable evidence references through the agreed evidence store, then run the release validation and draft-delivery/readback workflow. No source credential or raw room data belongs in Git. | Deferred |
 | `EXT-P1-RELEASE-SIGNING` | Deployment of `CHK-1220` candidate creation outside `app_env=local` | A secret-manager reference for a dedicated Release manifest HMAC key and its key ID, with the rotation owner and expiry policy. | Set `ASSETGRAPH_MANIFEST_SIGNING_KEY` and `ASSETGRAPH_MANIFEST_SIGNING_KEY_ID` only in deployment configuration. Local development uses a clearly identified local-only signing key and must not reuse it outside local. | Open for deployment |
+| `EXT-P1-FACT-SOURCES` | Real-data use of `CHK-1103`, `CHK-1105`, `CHK-1144`, `CHK-7101` | For each intended product: approved source document or URL, owner, effective date, applicable platform/region and any prohibited claims. | Enter only the immutable reference and attribution into a ProductFactCard `source_references`; preserve source files in the approved evidence store. The Console fact-card workspace supports draft, revision, approval and rejection without this input, but unreferenced entries remain operator-authored demo data. | Open |
+| `EXT-P2-REFERENCE-RECORDINGS` | `CHK-2260` through `CHK-2279`, `CHK-2395`, `CHK-2396` | Permitted recording or replay URLs/files, target-room identity, capture window/timezone, platform terms and a named reviewer for similarity, copyright and personal-data review. | Register immutable capture evidence through Live Research before publishing any external-content strategy. Do not place recordings, cookies, account tokens or identifying source data in Git. | Deferred |
 
 ## Handoff Package
 
