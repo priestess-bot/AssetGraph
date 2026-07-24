@@ -25,8 +25,9 @@ import {
 } from "lucide-react";
 import type { ComponentType } from "react";
 import { GeminiPage } from "../maitu/GeminiPage";
-import { ProductionPage } from "../maitu/ProductionPage";
 import { AssetLibraryPage } from "../assets/AssetLibraryPage";
+import { ContentProjectsPage } from "../content/ContentProjectsPage";
+import { LiveRoomPlannerPage } from "../live-rooms/LiveRoomPlannerPage";
 import { SessionsPage } from "../live-research/SessionsPage";
 import { TemplatesPage } from "../live-research/TemplatesPage";
 import { WatchPage } from "../live-research/WatchPage";
@@ -255,12 +256,11 @@ export function Workspace({ pathname, search, tasks, notifications, loading }: {
   if (pathname.startsWith("/assets/library")) return <AssetsWorkspace search={search} />;
   if (pathname.startsWith("/research/live-sources")) return <ResearchWorkspace search={search} />;
   if (pathname.startsWith("/production/live-rooms")) {
-    const runCode = new URLSearchParams(search).get("run")?.trim() ?? "";
-    return <ProductionPage key={`live-room-run:${runCode}`} />;
+    return <LiveRoomPlannerPage />;
   }
   if (pathname.startsWith("/governance/runs")) return <div className="console-band console-governance"><header><div><span>CONTROL PLANE</span><h2>任务与运行</h2></div></header><TaskRows tasks={tasks} /><NotificationRows notifications={notifications} /></div>;
   if (pathname.startsWith("/knowledge")) return <EmptyWorkspace icon={BookOpen} title="已批准知识" entity="事实卡、内容知识与来源证据" />;
-  if (pathname.startsWith("/content")) return <EmptyWorkspace icon={FolderKanban} title="内容项目" entity="内容项目修订" />;
+  if (pathname.startsWith("/content/projects")) return <ContentProjectsPage />;
   if (pathname.startsWith("/production/videos")) return <EmptyWorkspace icon={Film} title="成片任务" entity="成片生产变体" />;
   if (pathname.startsWith("/production/releases")) return <EmptyWorkspace icon={PackageCheck} title="发布记录" entity="ReleaseManifest" />;
   if (pathname.startsWith("/operations/live-sessions")) return <EmptyWorkspace icon={Radio} title="运营场次" entity="实际直播场次" />;

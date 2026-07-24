@@ -1,0 +1,64 @@
+import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { CircleAlert, MonitorUp, Send, WandSparkles } from "lucide-react";
+import { assetLibraryApi } from "../assets/api";
+import { contentProjectsApi } from "../content/api";
+import { EmptyBlock, InlineNotice, LoadingBlock, SectionHeader, StatusBadge } from "../workbench/components";
+import { functionalLiveRoomsApi, type FunctionalLiveRoomPlan } from "./api";
+
+function message(error: unknown): string { return error instanceof Error ? error.message : "操作未完成"; }
+function list(value: string): string[] { return Array.from(new Set(value.split(/[\n,]/).map((item) => item.trim()).filter(Boolean))); }
+function toggle(values: string[], value: string): string[] { return values.includes(value) ? values.filter((item) => item !== value) : [...values, value]; }
+
+function tone(status: string): "success" | "warning" | "danger" | "info" | "neutral" {
+  if (status === "ready" || status === "maitu_complete") return "success";
+  if (status === "blocked") return "danger";
+  if (status === "requested") return "warning";
+  return "neutral";
+}
+
+function label(status: string): string {
+  return ({ ready: "可生成草稿", blocked: "素材或约束阻断", not_requested: "尚未请求", requested: "等待麦兔 Worker", maitu_complete: "已由麦兔完成" } as Record<string, string>)[status] ?? status;
+}
+
+function PlanDetail({ plan }: { plan: FunctionalLiveRoomPlan }) {
+  const queryClient = useQueryClient();
+  const [confirmed, setConfirmed] = useState(false);
+  const request = useMutation({ mutationFn: () => functionalLiveRoomsApi.confirmExecution(plan.planCode), onSuccess: (next) => { queryClient.setQueryData(["functional-live-room-plan", plan.planCode], next); void queryClient.invalidateQueries({ queryKey: ["functional-live-room-plans"] }); } });
+  return <div className="live-plan-detail">
+    <section className="wb-section"><SectionHeader kicker={plan.planCode} title={plan.expectedTitle} actions={<div className="live-plan-badges"><StatusBadge label={label(plan.status)} tone={tone(plan.status)} /><StatusBadge label={label(plan.executionStatus)} tone={tone(plan.executionStatus)} /></div>} />
+      <div className="live-plan-summary"><div><span>目标直播间</span><strong>{plan.targetLiveRoomId}</strong></div><div><span>生产变体</span><code>{plan.variantCode}</code></div><div><span>直播间配置</span><code>{plan.configurationCode}</code></div><div><span>开播动作</span><strong>已关闭</strong></div></div>
+      {plan.blockedReasons.length ? <InlineNotice tone="danger" title="BuildPlan 已阻断">{plan.blockedReasons.join("；")}</InlineNotice> : <InlineNotice tone="info" title="当前计划仅生成草稿">计划中不包含开播操作。请求后仍须由已配置的麦兔 Worker 校验空白草稿并写入。</InlineNotice>}
+    </section>
+    <section className="wb-section"><SectionHeader kicker="MAITU SCENE BLUEPRINT" title="场景与图层" />
+      <div className="live-scene-list">{plan.blueprint.scenes.map((scene) => <article key={scene.scene_code}><header><span>{scene.scene_code}</span><strong>{scene.title}</strong><code>{scene.shot_code}</code></header><p>{scene.script}</p><div>{scene.layers.map((layer) => <span key={`${scene.scene_code}:${layer.role}:${layer.asset_code}`}><b>{layer.z_order}</b>{layer.role}<code>{layer.asset_code}</code></span>)}</div></article>)}</div>
+    </section>
+    <section className="wb-section"><SectionHeader kicker="BUILD PLAN" title="麦兔草稿操作" actions={<StatusBadge label={plan.buildPlan.go_live ? "包含开播" : "不含开播"} tone={plan.buildPlan.go_live ? "danger" : "success"} />} />
+      <ol className="live-operation-list">{plan.buildPlan.operations.map((operation, index) => <li key={`${operation.kind}:${index}`}><b>{index + 1}</b><span>{operation.kind}</span><code>{operation.scene_code ?? operation.asset_code ?? operation.script_block_code ?? ""}</code></li>)}</ol>
+    </section>
+    <section className="live-request-panel"><div><span>人工确认后的 Worker 请求</span><strong>{plan.executionStatus === "requested" ? "已提交，等待麦兔 Worker 回读" : "尚未请求"}</strong><small>{typeof plan.executionEvidence.message === "string" ? plan.executionEvidence.message : "仅在指定空白、未开播草稿中执行。"}</small></div>{plan.executionStatus === "not_requested" ? <div className="live-request-action"><label><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />我已确认该目标是指定的空白未开播草稿</label><button type="button" className="wb-button wb-button-primary" disabled={!confirmed || request.isPending || plan.status !== "ready"} onClick={() => request.mutate()}><Send size={15} aria-hidden="true" />请求写入草稿</button></div> : null}</section>
+    {request.error ? <InlineNotice tone="danger" title="草稿请求未提交">{message(request.error)}</InlineNotice> : null}
+  </div>;
+}
+
+export function LiveRoomPlannerPage() {
+  const queryClient = useQueryClient();
+  const [selectedPlan, setSelectedPlan] = useState(""); const [projectCode, setProjectCode] = useState(""); const [roomId, setRoomId] = useState(""); const [title, setTitle] = useState(""); const [primaryTemplate, setPrimaryTemplate] = useState(""); const [secondaryTemplates, setSecondaryTemplates] = useState(""); const [assetCodes, setAssetCodes] = useState<string[]>([]); const [groupCodes, setGroupCodes] = useState<string[]>([]);
+  const projects = useQuery({ queryKey: ["content-projects"], queryFn: contentProjectsApi.list });
+  const assets = useQuery({ queryKey: ["assets", "library"], queryFn: assetLibraryApi.listAssets });
+  const groups = useQuery({ queryKey: ["assets", "groups"], queryFn: assetLibraryApi.listGroups });
+  const plans = useQuery({ queryKey: ["functional-live-room-plans"], queryFn: functionalLiveRoomsApi.list });
+  const usableProjects = useMemo(() => projects.data ?? [], [projects.data]);
+  useEffect(() => { if (!projectCode && usableProjects[0]) setProjectCode(usableProjects[0].projectCode); }, [projectCode, usableProjects]);
+  const activePlanCode = plans.data?.some((item) => item.planCode === selectedPlan) ? selectedPlan : plans.data?.[0]?.planCode ?? "";
+  useEffect(() => { if (selectedPlan !== activePlanCode) setSelectedPlan(activePlanCode); }, [activePlanCode, selectedPlan]);
+  const detail = useQuery({ queryKey: ["functional-live-room-plan", activePlanCode], queryFn: () => functionalLiveRoomsApi.get(activePlanCode), enabled: Boolean(activePlanCode) });
+  const create = useMutation({ mutationFn: () => functionalLiveRoomsApi.create({ project_code: projectCode, target_live_room_id: roomId, expected_title: title, primary_template_code: primaryTemplate || undefined, secondary_template_codes: list(secondaryTemplates).slice(0, 3), asset_codes: assetCodes, group_codes: groupCodes }), onSuccess: (plan) => { setSelectedPlan(plan.planCode); void queryClient.invalidateQueries({ queryKey: ["functional-live-room-plans"] }); } });
+  const submit = (event: FormEvent) => { event.preventDefault(); if (projectCode && roomId.trim() && title.trim() && (assetCodes.length || groupCodes.length)) create.mutate(); };
+  const loading = projects.isLoading || assets.isLoading || groups.isLoading || plans.isLoading;
+  const problem = projects.error ?? assets.error ?? groups.error ?? plans.error;
+  return <div className="live-room-layout"><aside className="wb-section live-plan-rail"><SectionHeader kicker="LIVE ROOM PLANS" title="直播间配置" />
+    <form className="live-plan-form" onSubmit={submit}><label className="wb-field"><span>内容项目</span><select className="wb-input" value={projectCode} onChange={(event) => setProjectCode(event.target.value)}><option value="">选择已创建内容项目</option>{usableProjects.map((project) => <option key={project.projectCode} value={project.projectCode}>{project.title} · {project.projectCode}</option>)}</select></label><label className="wb-field"><span>直播间 ID</span><input className="wb-input" value={roomId} onChange={(event) => setRoomId(event.target.value)} required /></label><label className="wb-field"><span>直播间标题</span><input className="wb-input" value={title} onChange={(event) => setTitle(event.target.value)} required /></label><label className="wb-field"><span>主参考模板</span><input className="wb-input" value={primaryTemplate} onChange={(event) => setPrimaryTemplate(event.target.value)} placeholder="可选，TPL-*" /></label><label className="wb-field"><span>次参考模板（最多 3 个）</span><input className="wb-input" value={secondaryTemplates} onChange={(event) => setSecondaryTemplates(event.target.value)} placeholder="逗号分隔" /></label><div className="live-selection"><span>零散素材</span>{assets.data?.map((asset) => <label key={asset.assetCode}><input type="checkbox" checked={assetCodes.includes(asset.assetCode)} onChange={() => setAssetCodes((current) => toggle(current, asset.assetCode))} /><span><strong>{asset.title}</strong><small>{asset.materialRoles.join(" / ") || "未分类"} · {asset.executionCapability}</small></span></label>)}</div><div className="live-selection"><span>素材分组</span>{groups.data?.map((group) => <label key={group.groupCode}><input type="checkbox" checked={groupCodes.includes(group.groupCode)} onChange={() => setGroupCodes((current) => toggle(current, group.groupCode))} /><span><strong>{group.title}</strong><small>{group.assetCount} 项 · {group.groupCode}</small></span></label>)}</div>{create.error ? <InlineNotice tone="danger" title="无法生成 BuildPlan">{message(create.error)}</InlineNotice> : null}<button className="wb-button wb-button-primary" disabled={create.isPending || !projectCode || !roomId.trim() || !title.trim() || (!assetCodes.length && !groupCodes.length)}><WandSparkles size={15} aria-hidden="true" />生成场景与 BuildPlan</button></form>
+    <div className="live-plan-list">{plans.data?.map((plan) => <button key={plan.planCode} type="button" className={plan.planCode === activePlanCode ? "active" : undefined} onClick={() => setSelectedPlan(plan.planCode)}><span><strong>{plan.expectedTitle}</strong><code>{plan.planCode}</code><small>{plan.targetLiveRoomId}</small></span><StatusBadge label={label(plan.status)} tone={tone(plan.status)} /></button>)}</div></aside>
+    <main className="live-room-main">{loading ? <LoadingBlock label="正在读取直播间配置数据" /> : problem ? <InlineNotice tone="danger" title="直播间工作台无法加载">{message(problem)}</InlineNotice> : detail.data ? <PlanDetail plan={detail.data} /> : <EmptyBlock icon={plans.data?.length ? CircleAlert : MonitorUp} title={plans.data?.length ? "选择一个直播间计划" : "创建第一个直播间计划"} detail="先完成内容项目和素材选择，系统会生成场景蓝图与草稿操作序列。" />}</main></div>;
+}
