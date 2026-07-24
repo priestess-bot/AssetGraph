@@ -53,6 +53,7 @@ class FunctionalVideoSubtitleClipUpdate(BaseModel):
     clip_code: str = Field(min_length=1, max_length=100)
     subtitle_text: str = Field(min_length=1, max_length=500)
     headline_text: str = Field(default="", max_length=160)
+    caption_position: str = Field(default="bottom", pattern="^(bottom|center)$")
 
 
 class FunctionalVideoAudioClipUpdate(BaseModel):

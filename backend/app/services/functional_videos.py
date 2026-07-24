@@ -752,6 +752,7 @@ class FunctionalVideoService:
                     "clip_code": str(clip.get("clip_code") or ""),
                     "subtitle_text": str(clip.get("subtitle_text") or ""),
                     "headline_text": str(clip.get("headline_text") or ""),
+                    "caption_position": str(clip.get("caption_position") or "bottom"),
                 }
             )
         return updates
@@ -1025,6 +1026,7 @@ class FunctionalVideoService:
             if update is not None:
                 subtitle_text = str(update.get("subtitle_text") or "").strip()
                 headline_text = str(update.get("headline_text") or "").strip()
+                caption_position = str(update.get("caption_position") or "bottom")
                 if not subtitle_text or len(subtitle_text) > 500 or len(headline_text) > 160:
                     raise DomainValidationError(
                         "VIDEO_TIMELINE_SUBTITLE_TEXT_INVALID",
@@ -1033,6 +1035,19 @@ class FunctionalVideoService:
                     )
                 subtitle["subtitle_text"] = subtitle_text
                 subtitle["headline_text"] = headline_text
+                if caption_position not in {"bottom", "center"}:
+                    raise DomainValidationError(
+                        "VIDEO_TIMELINE_SUBTITLE_POSITION_INVALID",
+                        "Subtitle caption position must be bottom or center",
+                        details={"clip_code": subtitle_code},
+                    )
+                subtitle["caption_position"] = caption_position
+            else:
+                subtitle["caption_position"] = (
+                    str(subtitle.get("caption_position"))
+                    if subtitle.get("caption_position") in {"bottom", "center"}
+                    else "bottom"
+                )
             subtitle["linked_shot_code"] = video_code
             subtitle["timeline_range"] = dict(video_clip["timeline_range"])
             ordered_subtitles.append(subtitle)
@@ -1089,6 +1104,11 @@ class FunctionalVideoService:
             if subtitle is not None:
                 shot["subtitle_text"] = str(subtitle.get("subtitle_text") or shot.get("narration") or "")
                 shot["screen_text"] = str(subtitle.get("headline_text") or "")
+                shot["caption_position"] = (
+                    str(subtitle.get("caption_position"))
+                    if subtitle.get("caption_position") in {"bottom", "center"}
+                    else "bottom"
+                )
             audio = audio_by_shot.get(clip_code)
             if audio is not None:
                 shot["voice_gain_db"] = float(audio.get("gain_db") or 0)
@@ -1116,7 +1136,7 @@ class FunctionalVideoService:
         story = {"source": "content_project_revision", "project_code": detail["project_code"], "objective": detail["generation_goal"], "content": detail["story_brief"]["content"], "format": {"orientation": "vertical", "width": 1080, "height": 1920, "target_duration_seconds": duration, "shot_count": 6}}
         script = {"source": "content_project_revision", "title": detail["title"], "spoken_script": "".join(chunks), "sections": [{"section_index": index, "section_type": "content_project", "narration": chunk, "tts_text": chunk.replace("PRO", "P R O"), "screen_text": chunk[:28]} for index, chunk in enumerate(chunks)], "section_count": len(chunks)}
         shots = {"source": "content_project_revision", "canvas": {"width": 1080, "height": 1920, "fps": 30}, "duration_seconds": duration, "shot_count": len(compiled), "shots": compiled}
-        timeline = {"schema_version": "otio-compatible-production-timeline.v1", "global_start_ms": 0, "global_end_ms": duration * 1000, "tracks": [{"track_kind": "video", "clips": [{"clip_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "source_range": {"asset_code": shot["asset_code"], "start_seconds": shot["source_start_seconds"], "end_seconds": shot["source_end_seconds"], "available_start_seconds": shot["source_start_seconds"], "available_end_seconds": shot["source_end_seconds"]}, "fit": shot["fit"], "crop_x": 0.5, "crop_y": 0.5, "playback_rate": shot["playback_rate"], "transition": shot["transition"]} for shot in compiled]}, {"track_kind": "audio", "clips": [{"clip_code": f"VOICE-{shot['shot_code']}", "linked_shot_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "gain_db": 0.0} for shot in compiled]}, {"track_kind": "subtitle", "clips": [{"clip_code": f"SUBTITLE-{shot['shot_code']}", "linked_shot_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "subtitle_text": shot["narration"], "headline_text": shot["screen_text"]} for shot in compiled]}]}
+        timeline = {"schema_version": "otio-compatible-production-timeline.v1", "global_start_ms": 0, "global_end_ms": duration * 1000, "tracks": [{"track_kind": "video", "clips": [{"clip_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "source_range": {"asset_code": shot["asset_code"], "start_seconds": shot["source_start_seconds"], "end_seconds": shot["source_end_seconds"], "available_start_seconds": shot["source_start_seconds"], "available_end_seconds": shot["source_end_seconds"]}, "fit": shot["fit"], "crop_x": 0.5, "crop_y": 0.5, "playback_rate": shot["playback_rate"], "transition": shot["transition"]} for shot in compiled]}, {"track_kind": "audio", "clips": [{"clip_code": f"VOICE-{shot['shot_code']}", "linked_shot_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "gain_db": 0.0} for shot in compiled]}, {"track_kind": "subtitle", "clips": [{"clip_code": f"SUBTITLE-{shot['shot_code']}", "linked_shot_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "subtitle_text": shot["narration"], "headline_text": shot["screen_text"], "caption_position": "bottom"} for shot in compiled]}]}
         return story, script, shots, timeline
 
     @staticmethod

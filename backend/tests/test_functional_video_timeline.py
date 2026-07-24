@@ -151,7 +151,7 @@ def test_timeline_subtitle_updates_remain_bound_to_fixed_shots() -> None:
             {"clip_code": "SHOT-02", "duration_ms": 30_000, "transition": "cut"},
         ],
         [
-            {"clip_code": "SUBTITLE-SHOT-01", "subtitle_text": "更新后的第一段字幕", "headline_text": "更新标题"},
+            {"clip_code": "SUBTITLE-SHOT-01", "subtitle_text": "更新后的第一段字幕", "headline_text": "更新标题", "caption_position": "center"},
             {"clip_code": "SUBTITLE-SHOT-02", "subtitle_text": "更新后的第二段字幕", "headline_text": ""},
         ],
     )
@@ -159,6 +159,7 @@ def test_timeline_subtitle_updates_remain_bound_to_fixed_shots() -> None:
     subtitle_track = next(track for track in updated["tracks"] if track["track_kind"] == "subtitle")
     assert subtitle_track["clips"][0]["subtitle_text"] == "更新后的第一段字幕"
     assert subtitle_track["clips"][0]["headline_text"] == "更新标题"
+    assert subtitle_track["clips"][0]["caption_position"] == "center"
 
     from app.domain.errors import DomainValidationError
 
@@ -185,11 +186,13 @@ def test_timeline_subtitle_update_payload_preserves_historical_text() -> None:
             "clip_code": "SUBTITLE-SHOT-01",
             "subtitle_text": "第一段字幕",
             "headline_text": "第一段标题",
+            "caption_position": "bottom",
         },
         {
             "clip_code": "SUBTITLE-SHOT-02",
             "subtitle_text": "第二段字幕",
             "headline_text": "第二段标题",
+            "caption_position": "bottom",
         },
     ]
 

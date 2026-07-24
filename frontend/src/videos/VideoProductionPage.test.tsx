@@ -62,6 +62,7 @@ describe("VideoProductionPage", () => {
     await user.selectOptions(screen.getByRole("combobox", { name: "播放速度 SHOT-02" }), "1.5");
     await user.clear(screen.getByRole("textbox", { name: "字幕文本 SHOT-02" }));
     await user.type(screen.getByRole("textbox", { name: "字幕文本 SHOT-02" }), "更新后的第二段字幕");
+    await user.selectOptions(screen.getByRole("combobox", { name: "字幕位置 SHOT-02" }), "center");
     fireEvent.change(screen.getByRole("slider", { name: "配音增益 SHOT-02" }), { target: { value: "1" } });
     await user.click(screen.getByRole("button", { name: "保存时间轴修订" }));
 
@@ -70,8 +71,8 @@ describe("VideoProductionPage", () => {
       { clip_code: "SHOT-02", duration_ms: 30_000, transition: "cut", source_start_seconds: 12, source_end_seconds: 50, fit: "cover", crop_x: 0.25, crop_y: 0.75, playback_rate: 1.5 },
       { clip_code: "SHOT-01", duration_ms: 30_000, transition: "cut", source_start_seconds: 0, source_end_seconds: 40 },
     ], subtitle_clips: [
-      { clip_code: "SUBTITLE-SHOT-01", subtitle_text: "第一段字幕", headline_text: "第一段标题" },
-      { clip_code: "SUBTITLE-SHOT-02", subtitle_text: "更新后的第二段字幕", headline_text: "第二段标题" },
+      { clip_code: "SUBTITLE-SHOT-01", subtitle_text: "第一段字幕", headline_text: "第一段标题", caption_position: "bottom" },
+      { clip_code: "SUBTITLE-SHOT-02", subtitle_text: "更新后的第二段字幕", headline_text: "第二段标题", caption_position: "center" },
     ], audio_clips: [
       { clip_code: "VOICE-SHOT-01", gain_db: 0 },
       { clip_code: "VOICE-SHOT-02", gain_db: 1 },

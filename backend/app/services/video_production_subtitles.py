@@ -14,6 +14,7 @@ ScaledBorderAndShadow: yes
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Caption,Noto Sans CJK SC,52,&H00FFFFFF,&H00FFFFFF,&H00202020,&H90000000,0,0,0,0,100,100,0,0,1,3,0,2,72,72,160,1
+Style: CaptionCenter,Noto Sans CJK SC,58,&H00FFFFFF,&H00FFFFFF,&H00202020,&H90000000,-1,0,0,0,100,100,0,0,1,3,0,5,96,96,0,1
 Style: Headline,Noto Sans CJK SC,60,&H00FFFFFF,&H00FFFFFF,&H00181030,&HC0181030,-1,0,0,0,100,100,0,0,3,2,0,8,90,90,220,1
 
 [Events]
@@ -47,6 +48,10 @@ def build_ass_subtitles(
             or (shot_end - shot_start)
         )
         caption_end = min(shot_end, shot_start + max(0.1, speech_duration))
+        caption_position = str(shot.get("caption_position") or "bottom")
+        if caption_position not in {"bottom", "center"}:
+            raise ValueError("subtitle caption position is unsupported")
+        caption_style = "CaptionCenter" if caption_position == "center" else "Caption"
         weights = [_text_weight(text) for text in captions]
         total_weight = sum(weights) or 1.0
         cursor = shot_start
@@ -64,9 +69,10 @@ def build_ass_subtitles(
                 "end_seconds": round(end, 3),
                 "text": wrapped.replace("\\N", "\n"),
                 "source_text": caption,
+                "caption_position": caption_position,
             }
             events.append(event)
-            lines.append(_dialogue_line(cursor, end, "Caption", wrapped))
+            lines.append(_dialogue_line(cursor, end, caption_style, wrapped))
             cursor = end
 
         headline = str(shot.get("screen_text") or "").strip()
@@ -94,6 +100,10 @@ def build_ass_subtitles(
         "font": "Noto Sans CJK SC",
         "play_resolution": {"width": 1080, "height": 1920},
         "safe_margins": {"left": 72, "right": 72, "bottom": 160, "headline_top": 220},
+        "caption_position_counts": {
+            "bottom": sum(event.get("caption_position") == "bottom" for event in events),
+            "center": sum(event.get("caption_position") == "center" for event in events),
+        },
         "events": events,
     }
 

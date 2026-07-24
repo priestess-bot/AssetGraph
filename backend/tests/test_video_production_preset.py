@@ -130,6 +130,20 @@ def test_ass_subtitles_stop_at_real_speech_duration() -> None:
         assert captions[-1]["end_seconds"] == pytest.approx(shot["start_seconds"] + 4.25, abs=0.001)
 
 
+def test_ass_subtitles_honor_the_fixed_caption_position() -> None:
+    brief = generate_story_brief(DEFAULT_TOPIC)
+    script = generate_commercial_script(brief)
+    shot_list = plan_shots(brief, script)
+    shot_list["shots"][0]["caption_position"] = "center"
+
+    content, manifest = build_ass_subtitles(shot_list)
+
+    first_caption = next(event for event in manifest["events"] if event["kind"] == "caption")
+    assert first_caption["caption_position"] == "center"
+    assert manifest["caption_position_counts"]["center"] > 0
+    assert ",CaptionCenter," in content
+
+
 def test_render_manifest_fixes_input_and_output_checksums_without_local_paths(tmp_path: Path) -> None:
     store = ArtifactStore(tmp_path / "output", "VIDJOB-000001", 1)
     store.write_text("subtitles", "subtitles/subtitles.ass", "[Events]\n", mime_type="text/x-ssa")
