@@ -8,7 +8,13 @@ export interface FunctionalVideoPlan {
   productionTimeline: { global_end_ms: number; tracks: Array<{ track_kind: string; clips: Array<{ clip_code: string; timeline_range: { start_ms: number; duration_ms: number }; source_range?: { asset_code: string; start_seconds?: number; end_seconds?: number; available_start_seconds?: number; available_end_seconds?: number }; transition?: string; linked_shot_code?: string; subtitle_text?: string; headline_text?: string }> }> };
   renderProfile: { visual_asset_mode?: string; target_duration_seconds?: number; canvas?: { width: number; height: number; fps: number } };
   jobStatus: string; currentStage?: string; progressPercent: number; errorMessage?: string; finalAssetId?: string;
-  qualityReport: { passed?: boolean; checks: Record<string, boolean> };
+  qualityReport: {
+    passed?: boolean;
+    checks: Record<string, boolean>;
+    media?: { durationSeconds: number; width: number; height: number; videoCodec?: string; audioCodec?: string; audioSampleRate?: number };
+    loudness?: { integratedLufs?: number; truePeakDb?: number; lra?: number };
+    diagnostics: { blackSegments: VideoQualitySegment[]; silenceSegments: VideoQualitySegment[]; freezeSegments: VideoQualitySegment[] };
+  };
   workflowStages: Array<{ stageName: string; stageOrder: number; status: string; attempt: number; errorCode?: string; errorMessage?: string }>;
   artifacts: Array<{ artifact_key: string; stage_name?: string; download_url?: string; mime_type?: string; file_size?: number; checksum_sha256?: string }>;
   releaseCode?: string; releaseSnapshotArtifactCode?: string; releaseManifestFingerprint?: string;
@@ -17,6 +23,45 @@ export interface FunctionalVideoPlan {
 
 export interface VideoTimelineRevision {
   revisionNumber: number; productionTimeline: FunctionalVideoPlan["productionTimeline"]; actorId: string; createdAt: string;
+}
+
+export interface VideoQualitySegment {
+  startSeconds: number;
+  endSeconds: number;
+  durationSeconds: number;
+}
+
+function qualitySegments(value: unknown): VideoQualitySegment[] {
+  return asArray(value).flatMap((segment) => isRecord(segment) ? [{
+    startSeconds: asNumber(segment.start_seconds),
+    endSeconds: asNumber(segment.end_seconds),
+    durationSeconds: asNumber(segment.duration_seconds),
+  }] : []);
+}
+
+function qualityReport(value: unknown): FunctionalVideoPlan["qualityReport"] {
+  const report = isRecord(value) ? value : {};
+  const media = isRecord(report.media) ? report.media : undefined;
+  const loudness = isRecord(report.loudness) ? report.loudness : undefined;
+  return {
+    passed: typeof report.passed === "boolean" ? report.passed : undefined,
+    checks: isRecord(report.checks) ? Object.fromEntries(Object.entries(report.checks).flatMap(([key, check]) => typeof check === "boolean" ? [[key, check]] : [])) : {},
+    media: media ? {
+      durationSeconds: asNumber(media.duration_seconds), width: asNumber(media.width), height: asNumber(media.height),
+      videoCodec: asOptionalString(media.video_codec), audioCodec: asOptionalString(media.audio_codec),
+      audioSampleRate: typeof media.audio_sample_rate === "number" ? media.audio_sample_rate : undefined,
+    } : undefined,
+    loudness: loudness ? {
+      integratedLufs: typeof loudness.integrated_lufs === "number" ? loudness.integrated_lufs : undefined,
+      truePeakDb: typeof loudness.true_peak_db === "number" ? loudness.true_peak_db : undefined,
+      lra: typeof loudness.lra === "number" ? loudness.lra : undefined,
+    } : undefined,
+    diagnostics: {
+      blackSegments: qualitySegments(report.black_segments),
+      silenceSegments: qualitySegments(report.silence_segments),
+      freezeSegments: qualitySegments(report.freeze_segments),
+    },
+  };
 }
 
 function productionTimeline(value: unknown): FunctionalVideoPlan["productionTimeline"] {
@@ -30,7 +75,7 @@ function plan(value: unknown): FunctionalVideoPlan {
   const profile = isRecord(value.render_profile) ? value.render_profile : {};
   const quality = isRecord(value.quality_report) ? value.quality_report : {};
   const release = isRecord(value.release) ? value.release : undefined;
-  return { planCode: code, projectCode: asString(value.project_code), variantCode: asString(value.variant_code), videoJobCode: asString(value.video_job_code), title: asString(value.title), timelineRevision: asNumber(value.timeline_revision, 1), productionTimeline: productionTimeline(value.production_timeline), renderProfile: { visual_asset_mode: asOptionalString(profile.visual_asset_mode), target_duration_seconds: typeof profile.target_duration_seconds === "number" ? profile.target_duration_seconds : undefined, canvas: isRecord(profile.canvas) ? { width: asNumber(profile.canvas.width), height: asNumber(profile.canvas.height), fps: asNumber(profile.canvas.fps) } : undefined }, jobStatus: asString(value.job_status), currentStage: asOptionalString(value.current_stage), progressPercent: asNumber(value.progress_percent), errorMessage: asOptionalString(value.error_message), finalAssetId: asOptionalString(value.final_asset_id), qualityReport: { passed: typeof quality.passed === "boolean" ? quality.passed : undefined, checks: isRecord(quality.checks) ? Object.fromEntries(Object.entries(quality.checks).flatMap(([key, check]) => typeof check === "boolean" ? [[key, check]] : [])) : {} }, workflowStages: asArray(value.workflow_stages).flatMap((stage) => isRecord(stage) ? [{ stageName: asString(stage.stage_name), stageOrder: asNumber(stage.stage_order), status: asString(stage.status), attempt: asNumber(stage.attempt, 1), errorCode: asOptionalString(stage.error_code), errorMessage: asOptionalString(stage.error_message) }] : []), artifacts: asArray(value.artifacts).flatMap((artifact) => isRecord(artifact) ? [{ artifact_key: asString(artifact.artifact_key), stage_name: asOptionalString(artifact.stage_name), download_url: asOptionalString(artifact.download_url), mime_type: asOptionalString(artifact.mime_type), file_size: typeof artifact.file_size === "number" ? artifact.file_size : undefined, checksum_sha256: asOptionalString(artifact.checksum_sha256) }] : []), releaseCode: asOptionalString(value.release_code), releaseSnapshotArtifactCode: asOptionalString(value.release_snapshot_artifact_code), releaseManifestFingerprint: asOptionalString(value.release_manifest_fingerprint), release: release ? { releaseCode: asString(release.release_code), status: asString(release.status), manifestCode: asString(release.manifest_code), manifestFingerprint: asString(release.manifest_fingerprint), snapshotArtifactCode: asString(release.snapshot_artifact_code) } : undefined };
+  return { planCode: code, projectCode: asString(value.project_code), variantCode: asString(value.variant_code), videoJobCode: asString(value.video_job_code), title: asString(value.title), timelineRevision: asNumber(value.timeline_revision, 1), productionTimeline: productionTimeline(value.production_timeline), renderProfile: { visual_asset_mode: asOptionalString(profile.visual_asset_mode), target_duration_seconds: typeof profile.target_duration_seconds === "number" ? profile.target_duration_seconds : undefined, canvas: isRecord(profile.canvas) ? { width: asNumber(profile.canvas.width), height: asNumber(profile.canvas.height), fps: asNumber(profile.canvas.fps) } : undefined }, jobStatus: asString(value.job_status), currentStage: asOptionalString(value.current_stage), progressPercent: asNumber(value.progress_percent), errorMessage: asOptionalString(value.error_message), finalAssetId: asOptionalString(value.final_asset_id), qualityReport: qualityReport(quality), workflowStages: asArray(value.workflow_stages).flatMap((stage) => isRecord(stage) ? [{ stageName: asString(stage.stage_name), stageOrder: asNumber(stage.stage_order), status: asString(stage.status), attempt: asNumber(stage.attempt, 1), errorCode: asOptionalString(stage.error_code), errorMessage: asOptionalString(stage.error_message) }] : []), artifacts: asArray(value.artifacts).flatMap((artifact) => isRecord(artifact) ? [{ artifact_key: asString(artifact.artifact_key), stage_name: asOptionalString(artifact.stage_name), download_url: asOptionalString(artifact.download_url), mime_type: asOptionalString(artifact.mime_type), file_size: typeof artifact.file_size === "number" ? artifact.file_size : undefined, checksum_sha256: asOptionalString(artifact.checksum_sha256) }] : []), releaseCode: asOptionalString(value.release_code), releaseSnapshotArtifactCode: asOptionalString(value.release_snapshot_artifact_code), releaseManifestFingerprint: asOptionalString(value.release_manifest_fingerprint), release: release ? { releaseCode: asString(release.release_code), status: asString(release.status), manifestCode: asString(release.manifest_code), manifestFingerprint: asString(release.manifest_fingerprint), snapshotArtifactCode: asString(release.snapshot_artifact_code) } : undefined };
 }
 
 function timelineRevision(value: unknown): VideoTimelineRevision {

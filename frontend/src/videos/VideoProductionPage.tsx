@@ -11,6 +11,7 @@ function jobTone(status: string): "success" | "warning" | "danger" | "info" | "n
 function jobLabel(status: string): string { return ({ queued: "等待渲染 Worker", running: "正在渲染", succeeded: "渲染完成", failed: "渲染失败" } as Record<string, string>)[status] ?? status; }
 function stageLabel(stage: string): string { return ({ brief_generation: "内容摘要", script_generation: "脚本", shot_planning: "镜头规划", asset_selection: "素材选择", voice_synthesis: "配音", subtitle_generation: "字幕", rendering: "渲染", quality_check: "质量检查" } as Record<string, string>)[stage] ?? stage; }
 function stageTone(status: string): "success" | "warning" | "danger" | "info" | "neutral" { return status === "succeeded" ? "success" : status === "failed" ? "danger" : status === "running" ? "info" : "neutral"; }
+function decimal(value: number | undefined, suffix = ""): string { return typeof value === "number" ? `${value.toFixed(1)}${suffix}` : "--"; }
 function timelineClips(timeline: FunctionalVideoPlan["productionTimeline"]) { return timeline.tracks.find((track) => track.track_kind === "video")?.clips ?? []; }
 function timelineDiff(current: FunctionalVideoPlan["productionTimeline"], previous?: VideoTimelineRevision["productionTimeline"]): string[] {
   if (!previous) return ["首个时间轴修订"];
@@ -139,7 +140,14 @@ function ReleaseCandidatePanel({ plan }: { plan: FunctionalVideoPlan }) {
 function QualityPanel({ plan }: { plan: FunctionalVideoPlan }) {
   const checks = Object.entries(plan.qualityReport.checks);
   const passed = plan.qualityReport.passed === true;
-  return <>{checks.length ? <section className="wb-section"><SectionHeader kicker="QC REPORT" title="质量检查" actions={<StatusBadge label={passed ? "通过" : "未通过"} tone={passed ? "success" : "danger"} />} /><ul className="video-quality-checks">{checks.map(([key, passedCheck]) => <li key={key}>{passedCheck ? <CheckCircle2 size={15} aria-hidden="true" /> : <CircleX size={15} aria-hidden="true" />}<code>{key}</code><StatusBadge label={passedCheck ? "pass" : "blocked"} tone={passedCheck ? "success" : "danger"} /></li>)}</ul></section> : null}<ReleaseCandidatePanel plan={plan} /></>;
+  const { media, loudness, diagnostics } = plan.qualityReport;
+  const anomalyGroups = [
+    { label: "黑帧", segments: diagnostics.blackSegments },
+    { label: "静音", segments: diagnostics.silenceSegments },
+    { label: "冻结", segments: diagnostics.freezeSegments },
+  ].filter((group) => group.segments.length);
+  const hasDetails = Boolean(media || loudness || anomalyGroups.length);
+  return <>{checks.length || hasDetails ? <section className="wb-section"><SectionHeader kicker="QC REPORT" title="质量检查" actions={<StatusBadge label={passed ? "通过" : "未通过"} tone={passed ? "success" : "danger"} />} /><ul className="video-quality-checks">{checks.map(([key, passedCheck]) => <li key={key}>{passedCheck ? <CheckCircle2 size={15} aria-hidden="true" /> : <CircleX size={15} aria-hidden="true" />}<code>{key}</code><StatusBadge label={passedCheck ? "pass" : "blocked"} tone={passedCheck ? "success" : "danger"} /></li>)}</ul>{hasDetails ? <div className="video-quality-diagnostics">{media ? <div><span>媒体</span><strong>{decimal(media.durationSeconds, " 秒")} · {media.width}x{media.height}</strong><small>{media.videoCodec ?? "--"} / {media.audioCodec ?? "--"}{media.audioSampleRate ? ` · ${media.audioSampleRate} Hz` : ""}</small></div> : null}{loudness ? <div><span>响度</span><strong>{decimal(loudness.integratedLufs, " LUFS")} · 峰值 {decimal(loudness.truePeakDb, " dB")}</strong><small>LRA {decimal(loudness.lra)}</small></div> : null}{anomalyGroups.map((group) => <div key={group.label}><span>{group.label}</span><strong>{group.segments.length} 段</strong><small>{group.segments.map((segment) => `${decimal(segment.startSeconds, "s")}-${decimal(segment.endSeconds, "s")} (${decimal(segment.durationSeconds, "s")})`).join(" · ")}</small></div>)}</div> : null}</section> : null}<ReleaseCandidatePanel plan={plan} /></>;
 }
 
 function Detail({ plan, onBranchCreated }: { plan: FunctionalVideoPlan; onBranchCreated: (plan: FunctionalVideoPlan) => void }) {
