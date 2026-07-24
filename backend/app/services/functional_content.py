@@ -357,6 +357,96 @@ class FunctionalContentService:
         self.connection.commit()
         return self.get_detail(project_code) or {}
 
+    def revise_script(
+        self,
+        project_code: str,
+        *,
+        expected_revision: int,
+        blocks: list[dict[str, Any]],
+        actor_id: str,
+    ) -> dict[str, Any]:
+        current = self.core.get_project(project_code)
+        if current is None:
+            raise KeyError(project_code)
+        if int(current["revision_number"]) != expected_revision:
+            raise DomainConflictError(
+                "REVISION_CONFLICT",
+                "Content project changed since it was loaded",
+                details={"expected_revision": expected_revision, "actual_revision": current["revision_number"]},
+            )
+        if current["status"] != "confirmed":
+            raise DomainConflictError("CONTENT_PROJECT_CONFIRM_REQUIRED", "Confirm the content project before revising its script")
+        content = dict(current["content"] or {})
+        self._pin_fact_cards(content, require_existing_pins=True)
+        self._pin_template_refs(content, require_existing_pins=True)
+        design_brief = self._confirmed_design_brief(current["project_id"], expected_revision)
+        if design_brief is None:
+            raise DomainConflictError("DESIGN_BRIEF_CONFIRM_REQUIRED", "Confirm a DesignBrief before revising its script")
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT story.*
+                FROM story_brief_revisions AS story
+                JOIN content_project_revisions AS project_revision ON project_revision.id = story.source_project_revision_id
+                WHERE story.story_brief_id IN (SELECT id FROM story_briefs WHERE project_id = %s)
+                  AND project_revision.revision_number = %s
+                  AND story.source_design_brief_revision = %s
+                  AND story.status = 'confirmed'
+                ORDER BY story.revision_number DESC LIMIT 1
+                """,
+                (current["project_id"], expected_revision, f"{design_brief['design_brief_code']}:r{design_brief['revision_number']}"),
+            )
+            story = cursor.fetchone()
+        if story is None:
+            raise KeyError(f"{project_code}@{expected_revision}:story_brief")
+        approved_facts = self._generation_context(current, design_brief, content)["approved_facts"]
+        self._validate_fact_citations(blocks, approved_facts)
+        script_draft = self.production.create_script_revision(
+            story_brief_code=story["story_brief_code"],
+            story_brief_revision=int(story["revision_number"]),
+            expected_revision=self._current_project_revision("content_script_revisions", current["project_id"]),
+            title=f"{current['title']} 人工修订脚本",
+            content={
+                "generation_mode": "human_script_revision",
+                "theme": content.get("theme"),
+                "story": content.get("story"),
+                "source_design_brief": f"{design_brief['design_brief_code']}:r{design_brief['revision_number']}",
+            },
+            blocks=blocks,
+            model_strategy_ref="human_override",
+            prompt_revision="human-script-editor.v1",
+            producer_strategy_revision="human-script-editor.v1",
+            actor_id=actor_id,
+            producer_role="human_editor",
+        )
+        script = self.production.confirm_script_revision(
+            script_draft["script_revision_code"], revision_number=int(script_draft["revision_number"]), actor_id=actor_id
+        )
+        program_draft = self.production.create_program_revision(
+            script_revision_code=script["script_revision_code"],
+            expected_revision=self._current_project_revision("content_program_revisions", current["project_id"]),
+            segments=self._segments(script_draft["blocks"]),
+            producer_strategy_revision="human-script-editor.v1",
+            actor_id=actor_id,
+            producer_role="human_editor",
+        )
+        program = self.production.confirm_program_revision(
+            program_draft["program_revision_code"], revision_number=int(program_draft["revision_number"]), actor_id=actor_id
+        )
+        shots = self._shots(program_draft["segments"], script_draft["blocks"], content)
+        shot_list = self.production.create_shot_list_revision(
+            program_revision_code=program["program_revision_code"],
+            expected_revision=self._current_project_revision("shot_list_revisions", current["project_id"]),
+            shots=shots,
+            producer_strategy_revision="human-script-editor.v1",
+            actor_id=actor_id,
+            producer_role="human_editor",
+        )
+        self.production.confirm_shot_list_revision(
+            shot_list["shot_list_revision_code"], revision_number=int(shot_list["revision_number"]), actor_id=actor_id
+        )
+        return self.get_detail(project_code) or {}
+
     def list_projects(self) -> list[dict[str, Any]]:
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(

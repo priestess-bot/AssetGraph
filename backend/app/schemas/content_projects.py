@@ -154,6 +154,21 @@ class DesignBriefConfirm(BaseModel):
     expected_revision: int = Field(ge=1)
 
 
+class ScriptBlockRevisionInput(BaseModel):
+    module_type: str = Field(min_length=1, max_length=64)
+    content: str = Field(min_length=1, max_length=8000)
+    estimated_duration_ms: int | None = Field(default=None, ge=0, le=3_600_000)
+    fact_citations: list[dict[str, Any]] = Field(default_factory=list, max_length=50)
+    template_sources: list[dict[str, Any]] = Field(default_factory=list, max_length=50)
+    interaction_intent: dict[str, Any] = Field(default_factory=dict)
+    cta_intent: dict[str, Any] = Field(default_factory=dict)
+
+
+class ScriptRevisionCreate(BaseModel):
+    expected_revision: int = Field(ge=1)
+    blocks: list[ScriptBlockRevisionInput] = Field(min_length=1, max_length=50)
+
+
 class ContentProjectSummary(BaseModel):
     project_code: str
     title: str

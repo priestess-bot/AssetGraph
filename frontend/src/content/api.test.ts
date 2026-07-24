@@ -90,6 +90,32 @@ describe("content projects api", () => {
     expect(revisions).toEqual([expect.objectContaining({ objectType: "script", objectCode: "SCRIPT-001", revisionNumber: 2, sources: ["STORY STORY-001 r2"] })]);
   });
 
+  it("submits a human script revision as structured blocks", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response({
+      project_code: "CONTENT-001", title: "选酒直播", revision_number: 1, status: "confirmed", generation_goal: "帮助观众选酒",
+      updated_at: "2026-07-25T00:00:00Z", content: {}, generated: true,
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await contentProjectsApi.reviseScript("CONTENT-001", 1, [{ module_type: "opening", content: "先说明选择场景。", estimated_duration_ms: 30_000, fact_citations: [], template_sources: [] }]);
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/api/content-projects/CONTENT-001/script-revision");
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({ expected_revision: 1, blocks: [{ module_type: "opening", content: "先说明选择场景。", estimated_duration_ms: 30_000, fact_citations: [], template_sources: [] }] });
+  });
+
+  it("retains fact citation character ranges while reading script blocks", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response({
+      project_code: "CONTENT-001", title: "选酒直播", revision_number: 1, status: "confirmed", generation_goal: "帮助观众选酒",
+      updated_at: "2026-07-25T00:00:00Z", content: {}, generated: true,
+      script: { script_revision_code: "SCRIPT-001", revision_number: 1, title: "脚本", blocks: [{ block_code: "BLOCK-1", module_type: "product_fact", content: "库存充足。", fact_citations: [{ fact_card_code: "FACT-001", version_number: 1, claim_text: "库存充足", start_offset: 0, end_offset: 4 }], template_sources: [] }] },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const detail = await contentProjectsApi.get("CONTENT-001");
+
+    expect(detail.script?.blocks[0]?.fact_citations[0]).toMatchObject({ start_offset: 0, end_offset: 4 });
+  });
+
   it("explains mismatched fact-card scope and product metadata before confirmation", () => {
     const fact = (code: string, positioning: string, platforms: string[]): ProductFactCard => ({
       factCardCode: code, title: code, productCode: "WINE-001", status: "active", currentApprovedVersion: 1,

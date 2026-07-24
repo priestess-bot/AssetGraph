@@ -135,6 +135,30 @@ def test_content_chain_revision_history_links_direct_sources() -> None:
         assert script["sources"] and script["sources"][0].startswith("STORY ")
 
 
+def test_human_script_revision_rebuilds_program_and_shot_list() -> None:
+    with psycopg.connect(DATABASE_URL) as connection:
+        service = FunctionalContentService(connection)
+        created = service.create_project(
+            {"title": f"Human script {uuid4().hex}", "generation_goal": "Explain a product choice"},
+            actor_id="test-operator",
+        )
+        service.confirm_project(created["project_code"], expected_revision=1, actor_id="test-operator")
+        service.parse_design_brief(created["project_code"], expected_revision=1, raw_input="Keep a clear structure.", actor_id="test-operator")
+        service.confirm_design_brief(created["project_code"], expected_revision=1, actor_id="test-operator")
+        first = service.generate_chain(created["project_code"], actor_id="test-operator")
+        blocks = [dict(block) for block in first["script"]["blocks"]]
+        blocks[0]["content"] = "先说明观众的选择场景，再给出观看预期。"
+
+        revised = service.revise_script(
+            created["project_code"], expected_revision=1, blocks=blocks, actor_id="test-operator"
+        )
+
+        assert revised["script"]["revision_number"] == 2
+        assert revised["script"]["blocks"][0]["content"] == "先说明观众的选择场景，再给出观看预期。"
+        assert revised["program"]["revision_number"] == 2
+        assert revised["shot_list"]["revision_number"] == 2
+
+
 def test_fact_citation_guard_blocks_restricted_claim_without_approved_source() -> None:
     with pytest.raises(DomainValidationError) as invalid:
         FunctionalContentService._validate_fact_citations(
