@@ -174,3 +174,15 @@ class ContentProjectDetail(ContentProjectSummary):
     script: dict[str, Any] | None = None
     program: dict[str, Any] | None = None
     shot_list: dict[str, Any] | None = None
+
+
+class ContentChainRevisionRead(BaseModel):
+    object_type: str
+    object_code: str
+    revision_number: int
+    status: str
+    created_at: datetime
+    created_by: str | None = None
+    confirmed_at: datetime | None = None
+    fingerprint_sha256: str | None = None
+    sources: list[str] = Field(default_factory=list)

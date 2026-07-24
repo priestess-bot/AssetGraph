@@ -116,6 +116,25 @@ def test_design_brief_override_creates_a_new_draft_revision() -> None:
         assert confirmed["design_brief"]["status"] == "confirmed"
 
 
+def test_content_chain_revision_history_links_direct_sources() -> None:
+    with psycopg.connect(DATABASE_URL) as connection:
+        service = FunctionalContentService(connection)
+        created = service.create_project(
+            {"title": f"Revision history {uuid4().hex}", "generation_goal": "Explain a product choice"},
+            actor_id="test-operator",
+        )
+        service.confirm_project(created["project_code"], expected_revision=1, actor_id="test-operator")
+        service.parse_design_brief(created["project_code"], expected_revision=1, raw_input="Keep a clear structure.", actor_id="test-operator")
+        service.confirm_design_brief(created["project_code"], expected_revision=1, actor_id="test-operator")
+        service.generate_chain(created["project_code"], actor_id="test-operator")
+
+        history = service.list_chain_revisions(created["project_code"])
+
+        assert {row["object_type"] for row in history} >= {"content_project", "design_brief", "story_brief", "script", "program", "shot_list"}
+        script = next(row for row in history if row["object_type"] == "script")
+        assert script["sources"] and script["sources"][0].startswith("STORY ")
+
+
 def test_fact_citation_guard_blocks_restricted_claim_without_approved_source() -> None:
     with pytest.raises(DomainValidationError) as invalid:
         FunctionalContentService._validate_fact_citations(

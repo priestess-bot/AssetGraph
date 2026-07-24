@@ -373,6 +373,83 @@ class FunctionalContentService:
             rows = cursor.fetchall()
         return [self._summary(row) for row in rows]
 
+    def list_chain_revisions(self, project_code: str) -> list[dict[str, Any]]:
+        """Return immutable content-chain revisions with their direct source links."""
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute("SELECT id FROM content_projects WHERE project_code = %s", (project_code,))
+            project = cursor.fetchone()
+            if project is None:
+                raise KeyError(project_code)
+            project_id = project["id"]
+            cursor.execute(
+                """
+                SELECT project_code AS object_code, revision_number, status, created_at, created_by,
+                       confirmed_at, fingerprint_sha256, 'content_project' AS object_type
+                FROM content_project_revisions WHERE project_id = %s
+                """,
+                (project_id,),
+            )
+            rows = [self._chain_revision_view(row, []) for row in cursor.fetchall()]
+            cursor.execute(
+                """
+                SELECT design_brief_code AS object_code, revision_number, status, created_at, created_by,
+                       confirmed_at, response_fingerprint_sha256 AS fingerprint_sha256,
+                       'design_brief' AS object_type, source_project_revision_number
+                FROM functional_design_briefs WHERE project_id = %s
+                """,
+                (project_id,),
+            )
+            rows.extend(self._chain_revision_view(row, [f"CONTENT {project_code} r{row['source_project_revision_number']}"]) for row in cursor.fetchall())
+            cursor.execute(
+                """
+                SELECT story.story_brief_code AS object_code, story.revision_number, story.status, story.created_at,
+                       story.created_by, story.confirmed_at, story.fingerprint_sha256, 'story_brief' AS object_type,
+                       project_revision.revision_number AS source_revision_number
+                FROM story_brief_revisions AS story
+                JOIN content_project_revisions AS project_revision ON project_revision.id = story.source_project_revision_id
+                WHERE story.story_brief_id IN (SELECT id FROM story_briefs WHERE project_id = %s)
+                """,
+                (project_id,),
+            )
+            rows.extend(self._chain_revision_view(row, [f"CONTENT {project_code} r{row['source_revision_number']}"]) for row in cursor.fetchall())
+            cursor.execute(
+                """
+                SELECT script.script_revision_code AS object_code, script.revision_number, script.status, script.created_at,
+                       script.created_by, script.confirmed_at, script.fingerprint_sha256, 'script' AS object_type,
+                       story.story_brief_code AS source_code, story.revision_number AS source_revision_number
+                FROM content_script_revisions AS script
+                JOIN story_brief_revisions AS story ON story.id = script.source_story_brief_revision_id
+                WHERE script.project_id = %s
+                """,
+                (project_id,),
+            )
+            rows.extend(self._chain_revision_view(row, [f"STORY {row['source_code']} r{row['source_revision_number']}"]) for row in cursor.fetchall())
+            cursor.execute(
+                """
+                SELECT program.program_revision_code AS object_code, program.revision_number, program.status, program.created_at,
+                       program.created_by, program.confirmed_at, program.fingerprint_sha256, 'program' AS object_type,
+                       script.script_revision_code AS source_code, script.revision_number AS source_revision_number
+                FROM content_program_revisions AS program
+                JOIN content_script_revisions AS script ON script.id = program.source_script_revision_id
+                WHERE program.project_id = %s
+                """,
+                (project_id,),
+            )
+            rows.extend(self._chain_revision_view(row, [f"SCRIPT {row['source_code']} r{row['source_revision_number']}"]) for row in cursor.fetchall())
+            cursor.execute(
+                """
+                SELECT shots.shot_list_revision_code AS object_code, shots.revision_number, shots.status, shots.created_at,
+                       shots.created_by, shots.confirmed_at, shots.fingerprint_sha256, 'shot_list' AS object_type,
+                       program.program_revision_code AS source_code, program.revision_number AS source_revision_number
+                FROM shot_list_revisions AS shots
+                JOIN content_program_revisions AS program ON program.id = shots.source_program_revision_id
+                WHERE shots.project_id = %s
+                """,
+                (project_id,),
+            )
+            rows.extend(self._chain_revision_view(row, [f"PROGRAM {row['source_code']} r{row['source_revision_number']}"]) for row in cursor.fetchall())
+        return sorted(rows, key=lambda row: (row["created_at"], row["object_type"], row["revision_number"]), reverse=True)
+
     def get_detail(self, project_code: str) -> dict[str, Any] | None:
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
@@ -1228,6 +1305,16 @@ class FunctionalContentService:
             "project_code": row["project_code"], "title": row["title"], "revision_number": row["revision_number"],
             "status": row["status"], "generation_goal": row["generation_goal"],
             "created_at": row["created_at"], "updated_at": row["updated_at"],
+        }
+
+    @staticmethod
+    def _chain_revision_view(row: dict[str, Any], sources: list[str]) -> dict[str, Any]:
+        return {
+            "object_type": row["object_type"], "object_code": row["object_code"],
+            "revision_number": int(row["revision_number"]), "status": row["status"],
+            "created_at": row["created_at"], "created_by": row.get("created_by"),
+            "confirmed_at": row.get("confirmed_at"), "fingerprint_sha256": row.get("fingerprint_sha256"),
+            "sources": sources,
         }
 
     @staticmethod

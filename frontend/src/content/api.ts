@@ -24,6 +24,18 @@ export interface ContentProjectDetail extends ContentProjectSummary {
   shotList?: { shot_list_revision_code: string; revision_number: number; shots: Array<{ shot_code: string; shot_goal: string; material_role_requirements: string[]; estimated_duration_ms?: number }> };
 }
 
+export interface ContentChainRevision {
+  objectType: string;
+  objectCode: string;
+  revisionNumber: number;
+  status: string;
+  createdAt: string;
+  createdBy?: string;
+  confirmedAt?: string;
+  fingerprintSha256?: string;
+  sources: string[];
+}
+
 function summary(value: unknown): ContentProjectSummary | undefined {
   if (!isRecord(value)) return undefined;
   const projectCode = asString(value.project_code);
@@ -54,9 +66,20 @@ function detail(value: unknown): ContentProjectDetail {
   return { ...base, content, templateContributionDecisions, factCards, designBrief, generated: value.generated === true, generationMode: asOptionalString(value.generation_mode), storyBrief, script, program, shotList };
 }
 
+function chainRevision(value: unknown): ContentChainRevision {
+  if (!isRecord(value)) throw new Error("内容链修订响应无效");
+  return {
+    objectType: asString(value.object_type), objectCode: asString(value.object_code), revisionNumber: asNumber(value.revision_number),
+    status: asString(value.status), createdAt: asString(value.created_at), createdBy: asOptionalString(value.created_by),
+    confirmedAt: asOptionalString(value.confirmed_at), fingerprintSha256: asOptionalString(value.fingerprint_sha256),
+    sources: asArray(value.sources).flatMap((source) => typeof source === "string" ? [source] : []),
+  };
+}
+
 export const contentProjectsApi = {
   list: () => requestJson<unknown[]>(ROOT).then((rows) => rows.flatMap((row) => summary(row) ?? [])),
   get: (projectCode: string) => requestJson<unknown>(`${ROOT}/${projectCode}`).then(detail),
+  listChainRevisions: (projectCode: string) => requestJson<unknown[]>(`${ROOT}/${projectCode}/content-chain-revisions`).then((rows) => rows.map(chainRevision)),
   create: (payload: Record<string, unknown>) => postJson<unknown>(ROOT, payload).then((value) => {
     const result = summary(value);
     if (!result) throw new Error("内容项目创建响应无效");

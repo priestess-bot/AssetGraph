@@ -13,6 +13,7 @@ from app.schemas.content_projects import (
     ContentProjectDetail,
     ContentProjectSummary,
     ContentProjectUpdate,
+    ContentChainRevisionRead,
     DesignBriefConfirm,
     DesignBriefParse,
     DesignBriefUpdate,
@@ -46,6 +47,17 @@ def get_content_project(project_code: str, service: Annotated[FunctionalContentS
     if detail is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Content project not found")
     return detail
+
+
+@router.get("/{project_code}/content-chain-revisions", response_model=list[ContentChainRevisionRead])
+def list_content_chain_revisions(
+    project_code: str,
+    service: Annotated[FunctionalContentService, Depends(get_service)],
+) -> list[dict]:
+    try:
+        return service.list_chain_revisions(project_code)
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Content project not found") from exc
 
 
 @router.patch("/{project_code}", response_model=ContentProjectDetail)

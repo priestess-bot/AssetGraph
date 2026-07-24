@@ -75,6 +75,20 @@ describe("content projects api", () => {
     expect(detail.designBrief).toMatchObject({ revision_number: 2, user_overrides: { audience: "聚会组织者" } });
   });
 
+  it("reads immutable content-chain revision lineage", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response([{
+      object_type: "script", object_code: "SCRIPT-001", revision_number: 2, status: "confirmed",
+      created_at: "2026-07-25T00:00:00Z", created_by: "writer", fingerprint_sha256: "abcdef0123456789",
+      sources: ["STORY STORY-001 r2"],
+    }]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const revisions = await contentProjectsApi.listChainRevisions("CONTENT-001");
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/api/content-projects/CONTENT-001/content-chain-revisions");
+    expect(revisions).toEqual([expect.objectContaining({ objectType: "script", objectCode: "SCRIPT-001", revisionNumber: 2, sources: ["STORY STORY-001 r2"] })]);
+  });
+
   it("ranks content strategies only from explicit category, module, and compatibility matches", () => {
     const template = (code: string, category: string, title: string, compatibilityTags: string[]): RoomTemplate => ({
       template_code: code, title: code, source_session_code: "CAP-001", source_type: "external_flat_video", templateKind: "content_strategy", latest_revision: 1, published_revision: 1, status: "published", layout_fidelity: "none", buildability: "reference_only", contentReadiness: "ready", scenes: [],
