@@ -3,6 +3,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import LiveResearchApp from "./LiveResearchApp";
+import { sourceEvidenceHref } from "./ContentStrategiesPage";
 import { productionHandoffHref } from "./TemplatesPage";
 
 function renderApp() {
@@ -56,5 +57,14 @@ describe("live template research workbench", () => {
       warnings: [],
       scenes: [],
     })).toBe(`/production/live-rooms?reference_template_code=TPL-001&reference_template_revision_number=3&reference_template_projection_fingerprint=${"a".repeat(64)}`);
+  });
+
+  it("opens source evidence at its fixed recording interval", async () => {
+    expect(sourceEvidenceHref("DY-CAP-001", 12_500, 44_000)).toBe("/research/live-sources?view=sessions&session=DY-CAP-001&in=12.5&out=44");
+    window.history.replaceState(null, "", "/live-research/?view=sessions&session=DY-CAP-DEMO-001&in=12.5&out=44");
+    renderApp();
+    expect(await screen.findByText("已定位到模板证据区间")).toBeInTheDocument();
+    expect(screen.getByLabelText("IN（秒）")).toHaveValue(12.5);
+    expect(screen.getByLabelText("OUT（秒）")).toHaveValue(44);
   });
 });

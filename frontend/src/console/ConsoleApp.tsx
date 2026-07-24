@@ -248,7 +248,7 @@ function ResearchWorkspace({ search, demoMode }: { search: string; demoMode: boo
     <div className="wb-tabs" role="tablist" aria-label="直播研究视图">
       {[ ["watch", "来源直播间"], ["sessions", "录屏场次"], ["strategies", "内容策略"], ["drafts", "模板草稿"], ["published", "已发布模板"] ].map(([key, label]) => <button key={key} type="button" role="tab" aria-selected={view === key} className={view === key ? "active" : undefined} onClick={() => change(key)}>{label}</button>)}
     </div>
-    {view === "watch" ? <WatchPage /> : view === "sessions" ? <SessionsPage /> : view === "strategies" ? <ContentStrategiesPage /> : <TemplatesPage published={view === "published"} />}
+    {view === "watch" ? <WatchPage /> : view === "sessions" ? <SessionsPage key={`sessions:${search}`} /> : view === "strategies" ? <ContentStrategiesPage /> : <TemplatesPage published={view === "published"} />}
   </>;
 }
 

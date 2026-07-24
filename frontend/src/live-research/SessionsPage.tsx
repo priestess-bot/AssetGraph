@@ -10,9 +10,23 @@ function initialSessionCode(): string {
   return new URLSearchParams(window.location.search).get("session")?.trim() ?? "";
 }
 
+export interface EvidenceRange {
+  inSeconds: number;
+  outSeconds: number;
+}
+
+export function evidenceRangeFromSearch(search = window.location.search): EvidenceRange | undefined {
+  const params = new URLSearchParams(search);
+  const inSeconds = Number(params.get("in"));
+  const outSeconds = Number(params.get("out"));
+  return Number.isFinite(inSeconds) && Number.isFinite(outSeconds) && inSeconds >= 0 && outSeconds > inSeconds ? { inSeconds, outSeconds } : undefined;
+}
+
 function writeSessionCode(sessionCode: string) {
   const url = new URL(window.location.href);
   url.searchParams.set("session", sessionCode);
+  url.searchParams.delete("in");
+  url.searchParams.delete("out");
   window.history.replaceState(null, "", url);
 }
 
@@ -86,7 +100,7 @@ function ClipJobs({ jobs, sessionCode }: { jobs: ClipJob[]; sessionCode: string 
   return <section className="wb-section"><SectionHeader kicker="PERMANENT CLIPS" title={`人工片段 · ${rows.length}`} />{rows.length ? <div className="wb-table-wrap"><table className="wb-table"><thead><tr><th>片段</th><th>范围</th><th>状态</th><th>校验</th></tr></thead><tbody>{rows.map((job) => <tr key={job.clip_job_code}><td><strong>{job.title}</strong><code>{job.clip_code ?? job.clip_job_code}</code></td><td>{formatDuration(job.in_seconds)} - {formatDuration(job.out_seconds)}</td><td><StatusBadge label={job.status === "succeeded" ? "永久保存" : job.status === "failed" ? "生成失败" : "正在固化"} tone={job.status === "succeeded" ? "success" : job.status === "failed" ? "danger" : "warning"} /></td><td>{job.checksum_sha256 ? <code title={job.checksum_sha256}>{job.checksum_sha256.slice(0, 12)}</code> : <span>等待 checksum</span>}</td></tr>)}</tbody></table></div> : <EmptyBlock icon={Scissors} title="尚无永久片段" detail="在播放器设置 IN / OUT 后生成独立媒体对象。" />}</section>;
 }
 
-function SessionPlayer({ session, timeline, clipJobs, onClipCreated }: { session: CaptureSession; timeline: CaptureTimeline; clipJobs: ClipJob[]; onClipCreated: (job: ClipJob) => void }) {
+function SessionPlayer({ session, timeline, clipJobs, evidenceRange, onClipCreated }: { session: CaptureSession; timeline: CaptureTimeline; clipJobs: ClipJob[]; evidenceRange?: EvidenceRange; onClipCreated: (job: ClipJob) => void }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const pendingChunkSeek = useRef<number | undefined>(undefined);
   const pendingAutoplay = useRef(false);
@@ -98,7 +112,21 @@ function SessionPlayer({ session, timeline, clipJobs, onClipCreated }: { session
   const mediaChunks = useMemo(() => session.media_chunks?.length ? session.media_chunks : session.playback_url ? [{ chunk_code: "playback", media_url: session.playback_url, global_start_seconds: 0, global_end_seconds: session.duration_seconds, chunk_start_seconds: 0 }] : [], [session.duration_seconds, session.media_chunks, session.playback_url]);
   const [activeChunkIndex, setActiveChunkIndex] = useState(0);
   const activeChunk = mediaChunks[activeChunkIndex];
-  useEffect(() => { setCurrentTime(0); setInPoint(0); setOutPoint(Math.min(60, session.duration_seconds)); setLooping(false); setActiveChunkIndex(0); }, [session.duration_seconds, session.session_code]);
+  useEffect(() => {
+    const fallbackOut = Math.min(60, session.duration_seconds);
+    const requestedIn = evidenceRange ? Math.min(session.duration_seconds, Math.max(0, evidenceRange.inSeconds)) : 0;
+    const requestedOut = evidenceRange ? Math.min(session.duration_seconds, Math.max(0, evidenceRange.outSeconds)) : fallbackOut;
+    const hasRequestedRange = Boolean(evidenceRange && requestedOut > requestedIn);
+    const initialTime = hasRequestedRange ? requestedIn : 0;
+    const chunkIndex = Math.max(0, mediaChunks.findIndex((chunk, index) => initialTime >= chunk.global_start_seconds && (initialTime < chunk.global_end_seconds || index === mediaChunks.length - 1)));
+    const chunk = mediaChunks[chunkIndex];
+    setCurrentTime(initialTime);
+    setInPoint(hasRequestedRange ? requestedIn : 0);
+    setOutPoint(hasRequestedRange ? requestedOut : fallbackOut);
+    setLooping(false);
+    setActiveChunkIndex(chunkIndex);
+    pendingChunkSeek.current = chunk ? chunk.chunk_start_seconds + initialTime - chunk.global_start_seconds : undefined;
+  }, [evidenceRange?.inSeconds, evidenceRange?.outSeconds, mediaChunks, session.duration_seconds, session.session_code]);
   const seek = (seconds: number, autoplay = false) => {
     const safe = Math.min(session.duration_seconds, Math.max(0, seconds));
     setCurrentTime(safe);
@@ -140,6 +168,7 @@ function SessionPlayer({ session, timeline, clipJobs, onClipCreated }: { session
           <div className="research-player-status"><span><Clock3 size={14} aria-hidden="true" />{formatDuration(currentTime)}</span><span>录屏 {session.recorder_health === "healthy" ? "完整" : "存在缺口"}</span><span>互动 {session.interaction_health === "healthy" ? "已对齐" : "降级"}</span></div>
         </div>
         <div className="research-clip-panel">
+          {evidenceRange ? <InlineNotice tone="info" title="已定位到模板证据区间">可直接复核该策略模块或清洗例证对应的录屏片段。</InlineNotice> : null}
           <InlineNotice title="设置永久片段范围">保存时会复制媒体并校验 checksum；不会把时间引用伪装成永久素材。</InlineNotice>
           <div className="research-mark-buttons"><button type="button" className="wb-button" onClick={() => setInPoint(Math.min(currentTime, outPoint - .1))}><Flag size={14} aria-hidden="true" />设为 IN</button><button type="button" className="wb-button" onClick={() => setOutPoint(Math.max(currentTime, inPoint + .1))}><Flag size={14} aria-hidden="true" />设为 OUT</button></div>
           <div className="research-time-fields"><div className="wb-field"><label htmlFor="clip-in">IN（秒）</label><input id="clip-in" className="wb-input" type="number" min={0} max={session.duration_seconds} step="0.1" value={inPoint} onChange={(event) => setInPoint(Number(event.target.value))} /></div><div className="wb-field"><label htmlFor="clip-out">OUT（秒）</label><input id="clip-out" className="wb-input" type="number" min={0} max={session.duration_seconds} step="0.1" value={outPoint} onChange={(event) => setOutPoint(Number(event.target.value))} /></div></div>
@@ -170,6 +199,7 @@ export function SessionsPage() {
   const timelineQuery = useQuery({ queryKey: ["live-research", "timeline", sessionCode], queryFn: () => liveResearchApi.getTimeline(sessionCode), enabled: Boolean(sessionCode) && !demoMode });
   const session = detailQuery.data ?? summary;
   const timeline = timelineQuery.data ?? (demoMode && session ? { ...DEMO_TIMELINE, session_code: session.session_code, duration_seconds: session.duration_seconds } : undefined);
+  const evidenceRange = evidenceRangeFromSearch();
   const select = (code: string) => { setSessionCode(code); writeSessionCode(code); };
   const onClipCreated = (job: ClipJob) => {
     queryClient.setQueryData<ClipJob[]>(["live-research", "clip-jobs"], (current) => [job, ...(current ?? [])]);
@@ -180,7 +210,7 @@ export function SessionsPage() {
     {demoMode ? <InlineNotice tone="warning" title="当前展示场次演示数据">真实播放地址、连续分片映射和分析轨道会从 `/api/live-research` 读取。</InlineNotice> : null}
     <div className="wb-grid research-session-grid">
       <aside className="wb-section research-session-rail"><SectionHeader kicker="CAPTURE SESSIONS" title="采集场次" />{sessionsQuery.isLoading ? <LoadingBlock /> : <SessionList sessions={sessions} selected={sessionCode} onSelect={select} />}</aside>
-      <div className="research-session-detail">{detailQuery.isLoading || timelineQuery.isLoading ? <section className="wb-section"><LoadingBlock label="正在加载录屏与时间线" /></section> : session && timeline ? <SessionPlayer session={session} timeline={timeline} clipJobs={clipJobs} onClipCreated={onClipCreated} /> : <section className="wb-section"><EmptyBlock icon={TimerReset} title="选择一个采集场次" detail="完成后的场次可以审阅时间线并固化永久片段。" /></section>}</div>
+      <div className="research-session-detail">{detailQuery.isLoading || timelineQuery.isLoading ? <section className="wb-section"><LoadingBlock label="正在加载录屏与时间线" /></section> : session && timeline ? <SessionPlayer session={session} timeline={timeline} clipJobs={clipJobs} evidenceRange={evidenceRange} onClipCreated={onClipCreated} /> : <section className="wb-section"><EmptyBlock icon={TimerReset} title="选择一个采集场次" detail="完成后的场次可以审阅时间线并固化永久片段。" /></section>}</div>
     </div>
     <div className="research-session-policy"><ShieldCheck size={17} aria-hidden="true" /><span>时间线只展示脱敏互动聚合。完整事件 payload 和外部用户标识不会发送到浏览器。</span>{timeline?.media_gaps.length ? <StatusBadge label={`${timeline.media_gaps.length} 个媒体缺口`} tone="warning" /> : <StatusBadge label="时间轴连续" tone="success" />}</div>
   </div>;
