@@ -97,10 +97,16 @@ describe("content projects api", () => {
     }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await contentProjectsApi.reviseScript("CONTENT-001", 1, [{ module_type: "opening", content: "先说明选择场景。", estimated_duration_ms: 30_000, fact_citations: [], template_sources: [] }]);
+    await contentProjectsApi.reviseScript("CONTENT-001", 1, [
+      { module_type: "story", content: "先补充场景化建议。", estimated_duration_ms: 25_000, fact_citations: [], template_sources: [] },
+      { module_type: "opening", content: "再说明选择场景。", estimated_duration_ms: 30_000, fact_citations: [], template_sources: [] },
+    ]);
 
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/api/content-projects/CONTENT-001/script-revision");
-    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({ expected_revision: 1, blocks: [{ module_type: "opening", content: "先说明选择场景。", estimated_duration_ms: 30_000, fact_citations: [], template_sources: [] }] });
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({ expected_revision: 1, blocks: [
+      { module_type: "story", content: "先补充场景化建议。", estimated_duration_ms: 25_000, fact_citations: [], template_sources: [] },
+      { module_type: "opening", content: "再说明选择场景。", estimated_duration_ms: 30_000, fact_citations: [], template_sources: [] },
+    ] });
   });
 
   it("retains fact citation character ranges while reading script blocks", async () => {

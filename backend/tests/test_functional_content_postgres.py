@@ -148,15 +148,30 @@ def test_human_script_revision_rebuilds_program_and_shot_list() -> None:
         first = service.generate_chain(created["project_code"], actor_id="test-operator")
         blocks = [dict(block) for block in first["script"]["blocks"]]
         blocks[0]["content"] = "先说明观众的选择场景，再给出观看预期。"
+        blocks.append(
+            {
+                "module_type": "story",
+                "content": "补充一段不含产品事实的场景化建议。",
+                "estimated_duration_ms": 25_000,
+                "fact_citations": [],
+                "template_sources": [],
+                "interaction_intent": {},
+                "cta_intent": {},
+            }
+        )
+        blocks = [blocks[-1], *blocks[:-1]]
 
         revised = service.revise_script(
             created["project_code"], expected_revision=1, blocks=blocks, actor_id="test-operator"
         )
 
         assert revised["script"]["revision_number"] == 2
-        assert revised["script"]["blocks"][0]["content"] == "先说明观众的选择场景，再给出观看预期。"
+        assert revised["script"]["blocks"][0]["content"] == "补充一段不含产品事实的场景化建议。"
+        assert revised["script"]["blocks"][1]["content"] == "先说明观众的选择场景，再给出观看预期。"
         assert revised["program"]["revision_number"] == 2
         assert revised["shot_list"]["revision_number"] == 2
+        assert len(revised["program"]["segments"]) == len(blocks)
+        assert len(revised["shot_list"]["shots"]) == len(blocks)
 
 
 def test_fact_citation_guard_blocks_restricted_claim_without_approved_source() -> None:
