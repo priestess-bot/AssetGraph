@@ -257,6 +257,10 @@
 .knowledge-usage-list strong { font-size: 10px; overflow-wrap: anywhere; }
 .knowledge-usage-list small, .knowledge-usage-list code { margin-top: 3px; color: var(--wb-muted); font-size: 8px; overflow-wrap: anywhere; }
 .knowledge-usage-list code { color: var(--console-cyan); }
+.knowledge-graph-nav { display: grid; gap: 8px; padding: 0 12px 12px; }
+.knowledge-graph-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 12px; border-top: 1px solid var(--wb-line); }
+.knowledge-graph-meta code { color: var(--console-cyan); font-size: 9px; overflow-wrap: anywhere; }
+.knowledge-graph-meta small { color: var(--wb-muted); font-size: 9px; }
 .knowledge-source-actions { display: flex; align-items: center; justify-content: end; gap: 7px; flex-wrap: wrap; }
 .content-project-rail { position: sticky; top: 84px; align-self: start; max-height: calc(100vh - 105px); overflow-y: auto; }
 .content-project-rail > .content-project-form { padding: 12px; border-bottom: 1px solid var(--wb-line); }

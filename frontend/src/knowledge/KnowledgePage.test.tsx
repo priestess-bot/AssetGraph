@@ -49,6 +49,39 @@ describe("KnowledgePage", () => {
     expect(screen.getByText("uses_fact_card")).toBeInTheDocument();
   });
 
+  it("rebuilds and displays the local relation projection explicitly", async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    let rebuilt = false;
+    const projection = {
+      projection_code: "GRAPH-001", revision_number: 1, status: "completed", ontology_version: "knowledge-lineage.v1",
+      source_watermark: { source_fingerprint: "a".repeat(64), node_count: 2, edge_count: 1 },
+      current_source_watermark: { source_fingerprint: "a".repeat(64), node_count: 2, edge_count: 1 },
+      snapshot_fingerprint_sha256: "b".repeat(64), node_count: 2, edge_count: 1, is_stale: false,
+      created_at: "2026-07-25T00:00:00Z",
+      nodes: [{ node_type: "source_evidence", node_code: "EVIDENCE-001", revision_number: 0, status: "approved", properties: {}, source_fingerprint_sha256: "c".repeat(64) }],
+      edges: [{ source_node_type: "source_evidence", source_node_code: "EVIDENCE-001", source_revision_number: 0, target_node_type: "fact_claim", target_node_code: "CLAIM-001", target_revision_number: 0, relationship_type: "SUPPORTS", assertion_kind: "recorded_fact", evidence: {} }],
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); requests.push({ url, init });
+      if (url === "/api/maitu/workbench/product-fact-cards") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/functional-knowledge/graph-projections/current") return new Response(JSON.stringify(rebuilt ? projection : null), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/functional-knowledge/graph-projections/rebuild" && init?.method === "POST") { rebuilt = true; return new Response(JSON.stringify(projection), { status: 201, headers: { "Content-Type": "application/json" } }); }
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    const user = userEvent.setup();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    render(<QueryClientProvider client={client}><KnowledgePage /></QueryClientProvider>);
+
+    await screen.findByText("尚无事实卡");
+    await user.click(screen.getByRole("button", { name: "关系图谱" }));
+    expect(await screen.findByText("尚未构建关系投影")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "重建本地关系投影" }));
+
+    expect(await screen.findByRole("heading", { name: "投影快照" })).toBeInTheDocument();
+    expect(screen.getAllByText(/EVIDENCE-001/)).toHaveLength(2);
+    await waitFor(() => expect(requests.some((request) => request.url === "/api/functional-knowledge/graph-projections/rebuild" && request.init?.method === "POST")).toBe(true));
+  });
+
   it("registers local source evidence before creating a fact claim", async () => {
     const requests: Array<{ url: string; init?: RequestInit }> = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

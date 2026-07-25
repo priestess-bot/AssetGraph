@@ -277,3 +277,57 @@ class FactClaimRead(BaseModel):
     fingerprint_sha256: str
     created_at: datetime
     updated_at: datetime
+
+
+class KnowledgeGraphProjectionRebuild(BaseModel):
+    actor: str = Field(default="console_operator", min_length=1, max_length=128)
+
+    @model_validator(mode="after")
+    def validate_actor(self) -> "KnowledgeGraphProjectionRebuild":
+        if not self.actor.strip():
+            raise ValueError("actor must not be blank")
+        return self
+
+
+class KnowledgeGraphNodeRead(BaseModel):
+    node_type: str
+    node_code: str
+    revision_number: int
+    status: str | None = None
+    properties: dict[str, object] = Field(default_factory=dict)
+    source_fingerprint_sha256: str
+    created_at: datetime
+
+
+class KnowledgeGraphEdgeRead(BaseModel):
+    source_node_type: str
+    source_node_code: str
+    source_revision_number: int
+    target_node_type: str
+    target_node_code: str
+    target_revision_number: int
+    relationship_type: str
+    assertion_kind: str
+    confidence: float | None = None
+    valid_from: datetime | None = None
+    valid_until: datetime | None = None
+    evidence: dict[str, object] = Field(default_factory=dict)
+    created_at: datetime
+
+
+class KnowledgeGraphProjectionRead(BaseModel):
+    projection_code: str
+    revision_number: int
+    status: str
+    ontology_version: str
+    embedding_version: str | None = None
+    source_watermark: dict[str, object] = Field(default_factory=dict)
+    current_source_watermark: dict[str, object] = Field(default_factory=dict)
+    snapshot_fingerprint_sha256: str
+    node_count: int
+    edge_count: int
+    created_by: str | None = None
+    created_at: datetime
+    is_stale: bool
+    nodes: list[KnowledgeGraphNodeRead] = Field(default_factory=list)
+    edges: list[KnowledgeGraphEdgeRead] = Field(default_factory=list)

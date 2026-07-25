@@ -299,6 +299,7 @@ def test_migration_discovery_is_contiguous() -> None:
                 "content_script_block_rule_refs.sql",
                 "knowledge_source_extraction_runs.sql",
                 "functional_live_room_execution_readback.sql",
+                "functional_knowledge_graph_projections.sql",
             ],
             start=1,
         )

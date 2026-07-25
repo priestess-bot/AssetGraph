@@ -257,6 +257,50 @@ export interface FactClaimLineage {
   uses: FactClaimLineageUse[];
 }
 
+export interface KnowledgeGraphNode {
+  nodeType: string;
+  nodeCode: string;
+  revisionNumber: number;
+  status?: string;
+  properties: Record<string, unknown>;
+  sourceFingerprint: string;
+  createdAt?: string;
+}
+
+export interface KnowledgeGraphEdge {
+  sourceNodeType: string;
+  sourceNodeCode: string;
+  sourceRevisionNumber: number;
+  targetNodeType: string;
+  targetNodeCode: string;
+  targetRevisionNumber: number;
+  relationshipType: string;
+  assertionKind: string;
+  confidence?: number;
+  validFrom?: string;
+  validUntil?: string;
+  evidence: Record<string, unknown>;
+  createdAt?: string;
+}
+
+export interface KnowledgeGraphProjection {
+  projectionCode: string;
+  revisionNumber: number;
+  status: string;
+  ontologyVersion: string;
+  embeddingVersion?: string;
+  sourceWatermark: Record<string, unknown>;
+  currentSourceWatermark: Record<string, unknown>;
+  snapshotFingerprint: string;
+  nodeCount: number;
+  edgeCount: number;
+  createdBy?: string;
+  createdAt?: string;
+  isStale: boolean;
+  nodes: KnowledgeGraphNode[];
+  edges: KnowledgeGraphEdge[];
+}
+
 function card(value: unknown): ProductFactCard {
   if (!isRecord(value)) throw new Error("事实卡响应无效");
   const factCardCode = asString(value.fact_card_code);
@@ -472,6 +516,46 @@ function factClaimLineage(value: unknown): FactClaimLineage {
   };
 }
 
+function graphProjection(value: unknown): KnowledgeGraphProjection {
+  if (!isRecord(value)) throw new Error("知识图谱投影响应无效");
+  const projectionCode = asString(value.projection_code);
+  if (!projectionCode) throw new Error("知识图谱投影缺少编码");
+  return {
+    projectionCode,
+    revisionNumber: asNumber(value.revision_number),
+    status: asString(value.status),
+    ontologyVersion: asString(value.ontology_version),
+    embeddingVersion: asOptionalString(value.embedding_version),
+    sourceWatermark: isRecord(value.source_watermark) ? value.source_watermark : {},
+    currentSourceWatermark: isRecord(value.current_source_watermark) ? value.current_source_watermark : {},
+    snapshotFingerprint: asString(value.snapshot_fingerprint_sha256),
+    nodeCount: asNumber(value.node_count),
+    edgeCount: asNumber(value.edge_count),
+    createdBy: asOptionalString(value.created_by),
+    createdAt: asOptionalString(value.created_at),
+    isStale: value.is_stale === true,
+    nodes: asArray(value.nodes).flatMap((item) => {
+      if (!isRecord(item) || !asString(item.node_type) || !asString(item.node_code)) return [];
+      return [{
+        nodeType: asString(item.node_type), nodeCode: asString(item.node_code), revisionNumber: asNumber(item.revision_number),
+        status: asOptionalString(item.status), properties: isRecord(item.properties) ? item.properties : {},
+        sourceFingerprint: asString(item.source_fingerprint_sha256), createdAt: asOptionalString(item.created_at),
+      }];
+    }),
+    edges: asArray(value.edges).flatMap((item) => {
+      if (!isRecord(item) || !asString(item.source_node_code) || !asString(item.target_node_code)) return [];
+      return [{
+        sourceNodeType: asString(item.source_node_type), sourceNodeCode: asString(item.source_node_code), sourceRevisionNumber: asNumber(item.source_revision_number),
+        targetNodeType: asString(item.target_node_type), targetNodeCode: asString(item.target_node_code), targetRevisionNumber: asNumber(item.target_revision_number),
+        relationshipType: asString(item.relationship_type), assertionKind: asString(item.assertion_kind),
+        confidence: typeof item.confidence === "number" ? item.confidence : undefined,
+        validFrom: asOptionalString(item.valid_from), validUntil: asOptionalString(item.valid_until),
+        evidence: isRecord(item.evidence) ? item.evidence : {}, createdAt: asOptionalString(item.created_at),
+      }];
+    }),
+  };
+}
+
 export const knowledgeApi = {
   listProductFactCards: () => requestJson<unknown[]>(ROOT).then((items) => items.map(card)),
   createProductFactCard: (payload: ProductFactCardCreateInput) => postJson<unknown>(ROOT, payload).then(card),
@@ -500,6 +584,9 @@ export const knowledgeApi = {
   listFactClaims: () => requestJson<unknown[]>(`${FUNCTIONAL_ROOT}/fact-claims`).then((items) => items.map(factClaim)),
   searchFactClaims: (query: string) => requestJson<unknown[]>(`${FUNCTIONAL_ROOT}/fact-claims?q=${encodeURIComponent(query.trim())}`).then((items) => items.map(factClaim)),
   getFactClaimLineage: (claimCode: string) => requestJson<unknown>(`${FUNCTIONAL_ROOT}/fact-claims/${encodeURIComponent(claimCode)}/lineage`).then(factClaimLineage),
+  currentGraphProjection: () => requestJson<unknown>(`${FUNCTIONAL_ROOT}/graph-projections/current`).then((value) => value === null ? null : graphProjection(value)),
+  getGraphProjection: (projectionCode: string) => requestJson<unknown>(`${FUNCTIONAL_ROOT}/graph-projections/${encodeURIComponent(projectionCode)}`).then(graphProjection),
+  rebuildGraphProjection: (actor = "console_operator") => postJson<unknown>(`${FUNCTIONAL_ROOT}/graph-projections/rebuild`, { actor }).then(graphProjection),
   createFactClaim: (payload: FactClaimCreateInput) => postJson<unknown>(`${FUNCTIONAL_ROOT}/fact-claims`, payload).then(factClaim),
   approveFactClaim: (claimCode: string, approvedBy: string) => postJson<unknown>(`${FUNCTIONAL_ROOT}/fact-claims/${encodeURIComponent(claimCode)}/approve`, { approved_by: approvedBy }).then(factClaim),
   rejectFactClaim: (claimCode: string, actor: string, reason: string) => postJson<unknown>(`${FUNCTIONAL_ROOT}/fact-claims/${encodeURIComponent(claimCode)}/reject`, { actor, reason }).then(factClaim),

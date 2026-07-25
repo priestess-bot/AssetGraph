@@ -336,6 +336,19 @@ def test_live_room_execution_readback_migration_has_explicit_worker_states() -> 
     assert "maitu_failed" in sql
 
 
+def test_knowledge_graph_projection_migration_has_rebuildable_snapshots() -> None:
+    migration = MIGRATIONS_DIR / "097_functional_knowledge_graph_projections.sql"
+
+    assert migration.exists()
+    sql = migration.read_text(encoding="utf-8")
+    assert "functional_knowledge_graph_projections" in sql
+    assert "functional_knowledge_graph_nodes" in sql
+    assert "functional_knowledge_graph_edges" in sql
+    assert "source_watermark JSONB" in sql
+    assert "snapshot_fingerprint_sha256" in sql
+    assert "assertion_kind" in sql
+
+
 def test_constraint_profile_promotion_migration_keeps_room_override_provenance() -> None:
     migration = MIGRATIONS_DIR / "081_constraint_profile_promotion_provenance.sql"
 

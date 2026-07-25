@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BookOpen, CheckCircle2, FilePlus2, Search, XCircle } from "lucide-react";
+import { BookOpen, CheckCircle2, FilePlus2, Network, RefreshCw, Search, XCircle } from "lucide-react";
 import { EmptyBlock, InlineNotice, LoadingBlock, SectionHeader, StatusBadge, formatDate } from "../workbench/components";
 import { knowledgeApi, type ContentRule, type FactClaimLineage, type KnowledgeSearchHit, type ProductFactCard, type ProductFactCardContentInput } from "./api";
 
@@ -153,6 +153,50 @@ function FactClaimLineagePanel({ claimCode }: { claimCode: string }) {
       {data.uses.length ? <div className="knowledge-usage-list">{data.uses.map((item) => <article key={`${item.relationType}:${item.objectType}:${item.objectCode}:${item.revisionNumber ?? "current"}`}><span><strong>{item.objectType}</strong><small>{item.relationType}</small><code>{item.objectCode}{item.revisionNumber ? ` · r${item.revisionNumber}` : ""} · {formatDate(item.createdAt)}</code></span><StatusBadge label={item.status} tone={versionTone(item.status)} /></article>)}</div> : <EmptyBlock icon={BookOpen} title="该声明尚未被内容修订固定引用" />}
     </> : null}
   </section>;
+}
+
+function KnowledgeGraphWorkspace({ onShowFactCards, onShowEvidence, onShowRules, onShowSearch }: {
+  onShowFactCards: () => void;
+  onShowEvidence: () => void;
+  onShowRules: () => void;
+  onShowSearch: () => void;
+}) {
+  const client = useQueryClient();
+  const projection = useQuery({ queryKey: ["knowledge-graph-projection"], queryFn: knowledgeApi.currentGraphProjection });
+  const rebuild = useMutation({
+    mutationFn: () => knowledgeApi.rebuildGraphProjection(),
+    onSuccess: async () => { await client.invalidateQueries({ queryKey: ["knowledge-graph-projection"] }); },
+  });
+  const data = projection.data;
+  const problem = projection.error ?? rebuild.error;
+  return <div className="knowledge-layout">
+    <aside className="wb-section knowledge-rail">
+      <SectionHeader kicker="LOCAL PROJECTION" title="关系图谱" actions={<button type="button" className="wb-button" onClick={onShowFactCards}><BookOpen size={14} aria-hidden="true" />商品事实卡</button>} />
+      <div className="knowledge-create knowledge-editor">
+        <button type="button" className="wb-button wb-button-primary" disabled={rebuild.isPending} onClick={() => rebuild.mutate()}><RefreshCw size={15} aria-hidden="true" />重建本地关系投影</button>
+      </div>
+      <div className="knowledge-graph-nav">
+        <button type="button" className="wb-button" onClick={onShowEvidence}>来源证据</button>
+        <button type="button" className="wb-button" onClick={onShowRules}>内容规则</button>
+        <button type="button" className="wb-button" onClick={onShowSearch}>知识检索</button>
+      </div>
+    </aside>
+    <main className="knowledge-main">
+      {problem ? <InlineNotice tone="danger" title="关系投影操作失败">{errorMessage(problem)}</InlineNotice> : null}
+      {projection.isLoading ? <LoadingBlock label="正在读取关系投影" /> : !data ? <EmptyBlock icon={Network} title="尚未构建关系投影" /> : <>
+        <section className="wb-section"><SectionHeader kicker={data.projectionCode} title="投影快照" />
+          <div className="knowledge-summary"><div><span>版本</span><strong>r{data.revisionNumber}</strong></div><div><span>节点 / 边</span><strong>{data.nodeCount} / {data.edgeCount}</strong></div><div><span>状态</span><StatusBadge label={data.isStale ? "stale" : "current"} tone={data.isStale ? "warning" : "success"} /></div></div>
+          <div className="knowledge-graph-meta"><code>{data.ontologyVersion} · {data.snapshotFingerprint.slice(0, 12)}</code><small>{data.createdAt ? formatDate(data.createdAt) : "未记录构建时间"}</small></div>
+        </section>
+        <section className="wb-section"><SectionHeader kicker="NODES" title="实体" />
+          {data.nodes.length ? <div className="knowledge-usage-list">{data.nodes.map((node) => <article key={`${node.nodeType}:${node.nodeCode}:${node.revisionNumber}`}><span><strong>{node.nodeCode}{node.revisionNumber ? ` · r${node.revisionNumber}` : ""}</strong><small>{node.nodeType}</small><code>{node.sourceFingerprint.slice(0, 12)}</code></span><StatusBadge label={node.status ?? "recorded"} tone={versionTone(node.status ?? "approved")} /></article>)}</div> : <EmptyBlock icon={Network} title="投影中没有实体" />}
+        </section>
+        <section className="wb-section"><SectionHeader kicker="EDGES" title="关系" />
+          {data.edges.length ? <div className="knowledge-usage-list">{data.edges.map((edge) => <article key={`${edge.sourceNodeType}:${edge.sourceNodeCode}:${edge.sourceRevisionNumber}:${edge.relationshipType}:${edge.targetNodeType}:${edge.targetNodeCode}:${edge.targetRevisionNumber}`}><span><strong>{edge.sourceNodeCode}{edge.sourceRevisionNumber ? ` · r${edge.sourceRevisionNumber}` : ""} → {edge.targetNodeCode}{edge.targetRevisionNumber ? ` · r${edge.targetRevisionNumber}` : ""}</strong><small>{edge.relationshipType} · {edge.assertionKind}</small><code>{edge.sourceNodeType} → {edge.targetNodeType}</code></span><StatusBadge label={edge.assertionKind} tone={edge.assertionKind === "recorded_fact" ? "success" : "warning"} /></article>)}</div> : <EmptyBlock icon={Network} title="投影中没有关系" />}
+        </section>
+      </>}
+    </main>
+  </div>;
 }
 
 function KnowledgeSearchWorkspace({ onShowFactCards, onShowEvidence, onShowRules }: { onShowFactCards: () => void; onShowEvidence: () => void; onShowRules: () => void }) {
@@ -341,7 +385,7 @@ function EvidenceWorkspace({ onShowFactCards, onShowSearch }: { onShowFactCards:
 
 export function KnowledgePage() {
   const queryClient = useQueryClient();
-  const [workspace, setWorkspace] = useState<"fact_cards" | "evidence" | "rules" | "search">("fact_cards");
+  const [workspace, setWorkspace] = useState<"fact_cards" | "evidence" | "rules" | "search" | "graph">("fact_cards");
   const [query, setQuery] = useState("");
   const [selectedCode, setSelectedCode] = useState("");
   const [showCreate, setShowCreate] = useState(false);
@@ -393,10 +437,11 @@ export function KnowledgePage() {
   if (workspace === "evidence") return <EvidenceWorkspace onShowFactCards={() => setWorkspace("fact_cards")} onShowSearch={() => setWorkspace("search")} />;
   if (workspace === "rules") return <ContentRuleWorkspace onShowFactCards={() => setWorkspace("fact_cards")} onShowEvidence={() => setWorkspace("evidence")} onShowSearch={() => setWorkspace("search")} />;
   if (workspace === "search") return <KnowledgeSearchWorkspace onShowFactCards={() => setWorkspace("fact_cards")} onShowEvidence={() => setWorkspace("evidence")} onShowRules={() => setWorkspace("rules")} />;
+  if (workspace === "graph") return <KnowledgeGraphWorkspace onShowFactCards={() => setWorkspace("fact_cards")} onShowEvidence={() => setWorkspace("evidence")} onShowRules={() => setWorkspace("rules")} onShowSearch={() => setWorkspace("search")} />;
   if (cards.isLoading) return <LoadingBlock />;
   return <div className="knowledge-layout">
     <aside className="wb-section knowledge-rail">
-      <SectionHeader kicker="FACT CARDS" title="事实卡" actions={<><button type="button" className="wb-button" onClick={() => setWorkspace("evidence")}>来源证据</button><button type="button" className="wb-button" onClick={() => setWorkspace("rules")}>内容规则</button><button type="button" className="wb-button" onClick={() => setWorkspace("search")}>知识检索</button><button type="button" className="wb-button wb-button-primary" onClick={() => setShowCreate((current) => !current)}><FilePlus2 size={14} aria-hidden="true" />新建</button></>} />
+      <SectionHeader kicker="FACT CARDS" title="事实卡" actions={<><button type="button" className="wb-button" onClick={() => setWorkspace("evidence")}>来源证据</button><button type="button" className="wb-button" onClick={() => setWorkspace("rules")}>内容规则</button><button type="button" className="wb-button" onClick={() => setWorkspace("search")}>知识检索</button><button type="button" className="wb-button" onClick={() => setWorkspace("graph")}><Network size={14} aria-hidden="true" />关系图谱</button><button type="button" className="wb-button wb-button-primary" onClick={() => setShowCreate((current) => !current)}><FilePlus2 size={14} aria-hidden="true" />新建</button></>} />
       {showCreate ? <div className="knowledge-create"><FactEditor values={createValues} setValues={setCreateValues} includeTitle submitLabel="创建草稿" pending={create.isPending} onSubmit={() => create.mutate()} />{create.error ? <InlineNotice tone="danger" title="事实卡创建失败">{errorMessage(create.error)}</InlineNotice> : null}</div> : null}
       <label className="asset-search"><Search size={15} aria-hidden="true" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索事实卡" /></label>
       {cards.error ? <InlineNotice tone="danger" title="事实卡读取失败">{errorMessage(cards.error)}</InlineNotice> : filtered.length ? <div className="knowledge-card-list">{filtered.map((card) => <button type="button" key={card.factCardCode} className={card.factCardCode === selectedCode ? "active" : undefined} onClick={() => { setSelectedCode(card.factCardCode); setShowRevision(false); }}><span><strong>{card.title}</strong><small>{stringValue(versionContent(card), "product_name") || "未填写商品名称"}</small><code>{card.factCardCode}{card.currentApprovedVersion ? ` · 已批准 v${card.currentApprovedVersion}` : " · 尚无已批准版本"}</code></span><StatusBadge label={card.status} tone="info" /></button>)}</div> : <EmptyBlock icon={BookOpen} title="尚无事实卡" />}

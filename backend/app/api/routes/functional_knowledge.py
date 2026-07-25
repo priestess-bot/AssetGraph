@@ -18,6 +18,8 @@ from app.schemas.functional_knowledge import (
     FactClaimRevoke,
     FactCreate,
     FactRead,
+    KnowledgeGraphProjectionRead,
+    KnowledgeGraphProjectionRebuild,
     KnowledgeSearchHitRead,
     SourceEvidenceApprove,
     SourceEvidenceCreate,
@@ -27,12 +29,17 @@ from app.schemas.functional_knowledge import (
     SourceEvidenceRevoke,
 )
 from app.services.functional_knowledge import FunctionalKnowledgeConflictError, FunctionalKnowledgeService
+from app.services.functional_knowledge_graph import FunctionalKnowledgeGraphProjectionService
 
 router = APIRouter(prefix="/functional-knowledge", tags=["functional-knowledge"])
 
 
 def svc(c: Annotated[Connection, Depends(get_db)]) -> FunctionalKnowledgeService:
     return FunctionalKnowledgeService(c)
+
+
+def graph_svc(c: Annotated[Connection, Depends(get_db)]) -> FunctionalKnowledgeGraphProjectionService:
+    return FunctionalKnowledgeGraphProjectionService(c)
 
 
 @router.post("/facts", response_model=FactRead)
@@ -81,6 +88,32 @@ def search_knowledge(
     if as_of and as_of.tzinfo is None:
         raise HTTPException(status_code=422, detail="as_of must include a timezone")
     return service.search_knowledge(q, as_of=as_of, platform=platform)
+
+
+@router.get("/graph-projections/current", response_model=KnowledgeGraphProjectionRead | None)
+def current_graph_projection(
+    service: Annotated[FunctionalKnowledgeGraphProjectionService, Depends(graph_svc)],
+) -> dict | None:
+    return service.current()
+
+
+@router.post("/graph-projections/rebuild", response_model=KnowledgeGraphProjectionRead, status_code=201)
+def rebuild_graph_projection(
+    payload: KnowledgeGraphProjectionRebuild,
+    service: Annotated[FunctionalKnowledgeGraphProjectionService, Depends(graph_svc)],
+) -> dict:
+    return service.rebuild(payload.actor.strip())
+
+
+@router.get("/graph-projections/{projection_code}", response_model=KnowledgeGraphProjectionRead)
+def get_graph_projection(
+    projection_code: str,
+    service: Annotated[FunctionalKnowledgeGraphProjectionService, Depends(graph_svc)],
+) -> dict:
+    result = service.get(projection_code)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Knowledge graph projection not found")
+    return result
 
 
 @router.get(

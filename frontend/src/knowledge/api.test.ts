@@ -138,4 +138,26 @@ describe("knowledge api", () => {
     expect(rule).toMatchObject({ ruleCode: "RULE-001", ruleKind: "expression_ban", directive: "must_avoid", sourceStatus: "approved" });
     expect(fetch).toHaveBeenCalledWith("/api/functional-knowledge/content-rules", expect.objectContaining({ method: "POST" }));
   });
+
+  it("reads and rebuilds a local graph projection without treating it as a source of truth", async () => {
+    const projection = {
+      projection_code: "GRAPH-001", revision_number: 1, status: "completed", ontology_version: "knowledge-lineage.v1",
+      source_watermark: { source_fingerprint: "a".repeat(64), node_count: 2, edge_count: 1 },
+      current_source_watermark: { source_fingerprint: "a".repeat(64), node_count: 2, edge_count: 1 },
+      snapshot_fingerprint_sha256: "b".repeat(64), node_count: 2, edge_count: 1, is_stale: false,
+      nodes: [{ node_type: "source_evidence", node_code: "EVIDENCE-001", revision_number: 0, status: "approved", properties: {}, source_fingerprint_sha256: "c".repeat(64) }],
+      edges: [{ source_node_type: "source_evidence", source_node_code: "EVIDENCE-001", source_revision_number: 0, target_node_type: "fact_claim", target_node_code: "CLAIM-001", target_revision_number: 0, relationship_type: "SUPPORTS", assertion_kind: "recorded_fact", evidence: {} }],
+    };
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(response(null))
+      .mockResolvedValueOnce(response(projection, 201));
+    vi.stubGlobal("fetch", fetch);
+
+    expect(await knowledgeApi.currentGraphProjection()).toBeNull();
+    const rebuilt = await knowledgeApi.rebuildGraphProjection("graph_operator");
+
+    expect(rebuilt).toMatchObject({ projectionCode: "GRAPH-001", nodeCount: 2, edges: [{ relationshipType: "SUPPORTS", assertionKind: "recorded_fact" }] });
+    expect(fetch).toHaveBeenNthCalledWith(1, "/api/functional-knowledge/graph-projections/current", expect.any(Object));
+    expect(fetch).toHaveBeenNthCalledWith(2, "/api/functional-knowledge/graph-projections/rebuild", expect.objectContaining({ method: "POST", body: JSON.stringify({ actor: "graph_operator" }) }));
+  });
 });
