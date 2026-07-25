@@ -117,6 +117,112 @@ function timelineDiff(
   return changes;
 }
 
+function timelineSeconds(value: number): string {
+  return `${(value / 1000).toFixed(1)} 秒`;
+}
+
+function FixedInputTrace({ plan }: { plan: FunctionalVideoPlan }) {
+  const videoClips = timelineClips(plan.productionTimeline);
+  const subtitleTrack = plan.productionTimeline.tracks.find(
+    (track) => track.track_kind === "subtitle",
+  );
+  const audioTrack = plan.productionTimeline.tracks.find(
+    (track) => track.track_kind === "audio",
+  );
+  const subtitlesByShot = new Map(
+    (subtitleTrack?.clips ?? [])
+      .filter((clip) => clip.linked_shot_code)
+      .map((clip) => [clip.linked_shot_code!, clip]),
+  );
+  const voicesByShot = new Map(
+    (audioTrack?.clips ?? [])
+      .filter((clip) => clip.linked_shot_code)
+      .map((clip) => [clip.linked_shot_code!, clip]),
+  );
+  const backgroundMusic = plan.renderProfile.backgroundMusic;
+
+  if (!videoClips.length && !backgroundMusic) return null;
+
+  return (
+    <section className="wb-section">
+      <SectionHeader
+        kicker={`INPUT r${plan.timelineRevision}`}
+        title="固定镜头输入"
+        actions={
+          <StatusBadge label={`${videoClips.length} 个镜头`} tone="info" />
+        }
+      />
+      <div className="video-input-trace">
+        {videoClips.map((clip) => {
+          const subtitle = subtitlesByShot.get(clip.clip_code);
+          const voice = voicesByShot.get(clip.clip_code);
+          const source = clip.source_range;
+          return (
+            <article key={clip.clip_code}>
+              <header>
+                <code>{clip.clip_code}</code>
+                <small>
+                  {timelineSeconds(clip.timeline_range.start_ms)} - {timelineSeconds(
+                    clip.timeline_range.start_ms + clip.timeline_range.duration_ms,
+                  )}
+                </small>
+              </header>
+              <dl>
+                <div>
+                  <dt>画面源</dt>
+                  <dd>
+                    <code>{source?.asset_code || "基线视觉源"}</code>
+                    {typeof source?.start_seconds === "number" &&
+                    typeof source.end_seconds === "number"
+                      ? ` · ${source.start_seconds.toFixed(2)}-${source.end_seconds.toFixed(2)} 秒`
+                      : null}
+                  </dd>
+                </div>
+                <div>
+                  <dt>转场</dt>
+                  <dd>{clip.transition ?? "cut"}</dd>
+                </div>
+                <div>
+                  <dt>标题</dt>
+                  <dd>{subtitle?.headline_text || "--"}</dd>
+                </div>
+                <div className="video-input-trace-wide">
+                  <dt>字幕</dt>
+                  <dd>{subtitle?.subtitle_text || "--"}</dd>
+                </div>
+                <div>
+                  <dt>旁白增益</dt>
+                  <dd>{decimal(voice?.gain_db, " dB")}</dd>
+                </div>
+              </dl>
+            </article>
+          );
+        })}
+        {backgroundMusic ? (
+          <article className="video-input-trace-bgm">
+            <header>
+              <code>BGM-01</code>
+              <small>背景音乐</small>
+            </header>
+            <dl>
+              <div className="video-input-trace-wide">
+                <dt>音乐源</dt>
+                <dd>
+                  <code>{backgroundMusic.assetCode}</code> · {backgroundMusic.checksumSha256.slice(0, 12)}
+                </dd>
+              </div>
+              <div>
+                <dt>增益</dt>
+                <dd>{backgroundMusic.gainDb.toFixed(1)} dB</dd>
+              </div>
+            </dl>
+          </article>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
 function TimelineRevisionHistory({ plan }: { plan: FunctionalVideoPlan }) {
   const queryClient = useQueryClient();
   const revisions = useQuery({
@@ -1142,6 +1248,7 @@ function Detail({
           </InlineNotice>
         )}
       </section>
+      <FixedInputTrace plan={plan} />
       {videoUrl || posterUrl ? (
         <section className="wb-section">
           <SectionHeader kicker="RENDER PREVIEW" title="成片预览" />

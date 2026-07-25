@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { VideoProductionPage } from "./VideoProductionPage";
@@ -53,6 +53,10 @@ describe("VideoProductionPage", () => {
 
     expect(await screen.findByText("BGM AG-AUD-000001 · cccccccccccc · -20.0 dB")).toBeInTheDocument();
     expect(screen.getByText(/当前素材输入已经冻结/)).toBeInTheDocument();
+    const trace = screen.getByRole("heading", { name: "固定镜头输入" }).closest("section");
+    expect(trace).not.toBeNull();
+    expect(within(trace!).getByText("BGM-01")).toBeInTheDocument();
+    expect(within(trace!).getByText("AG-AUD-000001")).toBeInTheDocument();
   });
 
   it("saves the operator-selected clip order as a timeline revision", async () => {
@@ -85,6 +89,11 @@ describe("VideoProductionPage", () => {
     expect(screen.getByText("分组 商品讲解组 · AG-GRP-001 · 1 项")).toBeInTheDocument();
     expect(screen.getByText("素材包 AG-PACK-001 · r1 · bbbbbbbbbbbb")).toBeInTheDocument();
     expect(screen.getByText("BGM AG-AUD-000001 · cccccccccccc · -20.0 dB")).toBeInTheDocument();
+    const trace = screen.getByRole("heading", { name: "固定镜头输入" }).closest("section");
+    expect(trace).not.toBeNull();
+    expect(within(trace!).getByText("SHOT-01")).toBeInTheDocument();
+    expect(within(trace!).getByText("第一段字幕")).toBeInTheDocument();
+    expect(within(trace!).getByText("ASSET-01")).toBeInTheDocument();
     expect(await screen.findByText("修订历史")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "上移 SHOT-02" }));
     await user.clear(screen.getByRole("spinbutton", { name: "素材入点 SHOT-02" }));
