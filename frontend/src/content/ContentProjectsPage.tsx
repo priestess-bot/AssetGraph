@@ -360,6 +360,11 @@ function ProjectCreate({ onCreated }: { onCreated: (code: string) => void }) {
   const [mustInclude, setMustInclude] = useState("");
   const [mustAvoid, setMustAvoid] = useState("");
   const [interactions, setInteractions] = useState("");
+  const [productOrder, setProductOrder] = useState("");
+  const [conversion, setConversion] = useState("");
+  const [staging, setStaging] = useState("");
+  const [visual, setVisual] = useState("");
+  const [audio, setAudio] = useState("");
   const [factCodes, setFactCodes] = useState<string[]>([]);
   const [claimCodes, setClaimCodes] = useState<string[]>([]);
   const [primaryTemplate, setPrimaryTemplate] = useState("");
@@ -481,6 +486,11 @@ function ProjectCreate({ onCreated }: { onCreated: (code: string) => void }) {
         must_include: list(mustInclude),
         must_avoid: list(mustAvoid),
         interaction_requirements: list(interactions),
+        product_order: list(productOrder),
+        conversion_requirements: list(conversion),
+        staging_requirements: list(staging),
+        visual_requirements: list(visual),
+        audio_requirements: list(audio),
         fact_card_codes: factCodes,
         fact_claim_codes: claimCodes,
         primary_template_code: primaryTemplate || undefined,
@@ -602,6 +612,51 @@ function ProjectCreate({ onCreated }: { onCreated: (code: string) => void }) {
             className="wb-textarea"
             value={interactions}
             onChange={(event) => setInteractions(event.target.value)}
+            placeholder="每行一项"
+          />
+        </label>
+        <label className="wb-field">
+          <span>商品讲解顺序</span>
+          <textarea
+            className="wb-textarea"
+            value={productOrder}
+            onChange={(event) => setProductOrder(event.target.value)}
+            placeholder="每行一个商品编码或名称"
+          />
+        </label>
+        <label className="wb-field">
+          <span>促单要求</span>
+          <textarea
+            className="wb-textarea"
+            value={conversion}
+            onChange={(event) => setConversion(event.target.value)}
+            placeholder="每行一项"
+          />
+        </label>
+        <label className="wb-field">
+          <span>舞台要求</span>
+          <textarea
+            className="wb-textarea"
+            value={staging}
+            onChange={(event) => setStaging(event.target.value)}
+            placeholder="每行一项"
+          />
+        </label>
+        <label className="wb-field">
+          <span>视觉要求</span>
+          <textarea
+            className="wb-textarea"
+            value={visual}
+            onChange={(event) => setVisual(event.target.value)}
+            placeholder="每行一项"
+          />
+        </label>
+        <label className="wb-field">
+          <span>音频要求</span>
+          <textarea
+            className="wb-textarea"
+            value={audio}
+            onChange={(event) => setAudio(event.target.value)}
             placeholder="每行一项"
           />
         </label>
@@ -1228,6 +1283,7 @@ function ProjectInputEditor({
       ? String(content.target_duration_seconds)
       : "",
   );
+  const [productOrder, setProductOrder] = useState(lines(content.product_order));
   const [mustInclude, setMustInclude] = useState(lines(content.must_include));
   const [mustAvoid, setMustAvoid] = useState(lines(content.must_avoid));
   const [interactions, setInteractions] = useState(
@@ -1254,6 +1310,7 @@ function ProjectInputEditor({
         ? String(content.target_duration_seconds)
         : "",
     );
+    setProductOrder(lines(content.product_order));
     setMustInclude(lines(content.must_include));
     setMustAvoid(lines(content.must_avoid));
     setInteractions(lines(content.interaction_requirements));
@@ -1277,6 +1334,7 @@ function ProjectInputEditor({
       persona: persona.trim() || null,
       tone: tone.trim() || null,
       target_duration_seconds: duration ? Number(duration) : null,
+      product_order: list(productOrder),
       must_include: list(mustInclude),
       must_avoid: list(mustAvoid),
       interaction_requirements: list(interactions),
@@ -1384,6 +1442,15 @@ function ProjectInputEditor({
               className="wb-textarea"
               value={design}
               onChange={(event) => setDesign(event.target.value)}
+            />
+          </label>
+          <label className="wb-field">
+            <span>商品讲解顺序</span>
+            <textarea
+              className="wb-textarea"
+              value={productOrder}
+              onChange={(event) => setProductOrder(event.target.value)}
+              placeholder="每行一个商品编码或名称"
             />
           </label>
           <label className="wb-field">

@@ -119,6 +119,100 @@ const detail = {
 };
 
 describe("ContentProjectsPage", () => {
+  it("creates a content project with complete production constraints", async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        requests.push({ url, init });
+        if (url === "/api/content-projects") {
+          if (init?.method === "POST")
+            return response({
+              project_code: "CONTENT-NEW",
+              title: "新品讲解",
+              revision_number: 1,
+              status: "draft",
+              generation_goal: "完成新品讲解",
+              updated_at: "2026-07-25T00:00:00Z",
+            });
+          return response([detail]);
+        }
+        if (url === "/api/content-projects/CONTENT-001")
+          return response(detail);
+        if (url === "/api/content-projects/CONTENT-001/content-chain-revisions")
+          return response([]);
+        if (
+          url === "/api/live-research/room-templates" ||
+          url === "/api/maitu/workbench/product-fact-cards" ||
+          url === "/api/functional-knowledge/fact-claims"
+        )
+          return response([]);
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    const user = userEvent.setup();
+    render(
+      <QueryClientProvider client={client}>
+        <ContentProjectsPage />
+      </QueryClientProvider>,
+    );
+
+    await screen.findByRole("heading", { name: "人工编排节目段与镜头" });
+    await user.click(screen.getByRole("button", { name: "新建" }));
+    fireEvent.change(screen.getAllByLabelText("内容项目名称")[0], {
+      target: { value: "新品讲解" },
+    });
+    fireEvent.change(screen.getAllByLabelText("生成目标")[0], {
+      target: { value: "完成新品讲解" },
+    });
+    fireEvent.change(screen.getAllByLabelText("商品讲解顺序")[0], {
+      target: { value: "PRODUCT-001\nPRODUCT-002" },
+    });
+    fireEvent.change(screen.getAllByLabelText("促单要求")[0], {
+      target: { value: "引导加入购物车" },
+    });
+    fireEvent.change(screen.getAllByLabelText("舞台要求")[0], {
+      target: { value: "商品置于桌面" },
+    });
+    fireEvent.change(screen.getAllByLabelText("视觉要求")[0], {
+      target: { value: "保持商品完整可见" },
+    });
+    fireEvent.change(screen.getAllByLabelText("音频要求")[0], {
+      target: { value: "降低背景音乐" },
+    });
+    await user.click(screen.getByRole("button", { name: "创建内容项目" }));
+
+    await waitFor(() =>
+      expect(
+        requests.some(
+          (request) =>
+            request.url === "/api/content-projects" &&
+            request.init?.method === "POST",
+        ),
+      ).toBe(true),
+    );
+    const request = requests.find(
+      (item) =>
+        item.url === "/api/content-projects" && item.init?.method === "POST",
+    );
+    expect(JSON.parse(String(request?.init?.body))).toMatchObject({
+      title: "新品讲解",
+      generation_goal: "完成新品讲解",
+      product_order: ["PRODUCT-001", "PRODUCT-002"],
+      conversion_requirements: ["引导加入购物车"],
+      staging_requirements: ["商品置于桌面"],
+      visual_requirements: ["保持商品完整可见"],
+      audio_requirements: ["降低背景音乐"],
+    });
+  });
+
   it("keeps Shot mappings valid when adding and reordering program segments", async () => {
     const requests: Array<{ url: string; init?: RequestInit }> = [];
     vi.stubGlobal(

@@ -417,6 +417,7 @@ class FunctionalContentService:
                 "generation_mode": "human_script_revision",
                 "theme": content.get("theme"),
                 "story": content.get("story"),
+                "product_order": content.get("product_order") or [],
                 "source_design_brief": f"{design_brief['design_brief_code']}:r{design_brief['revision_number']}",
             },
             blocks=blocks,
@@ -432,7 +433,7 @@ class FunctionalContentService:
         program_draft = self.production.create_program_revision(
             script_revision_code=script["script_revision_code"],
             expected_revision=self._current_project_revision("content_program_revisions", current["project_id"]),
-            segments=self._segments(script_draft["blocks"]),
+            segments=self._segments(script_draft["blocks"], content.get("product_order") or []),
             producer_strategy_revision="human-script-editor.v1",
             actor_id=actor_id,
             producer_role="human_editor",
@@ -834,6 +835,7 @@ class FunctionalContentService:
                 "generation_mode": "deterministic_demo",
                 "theme": content.get("theme"),
                 "story": content.get("story"),
+                "product_order": content.get("product_order") or [],
                 "generation_context_fingerprint": canonical_fingerprint(generation_context),
                 "generation_context_sections": list(generation_context),
             },
@@ -847,7 +849,7 @@ class FunctionalContentService:
             script_draft["script_revision_code"], revision_number=int(script_draft["revision_number"]), actor_id=actor_id
         )
         script["blocks"] = script_draft["blocks"]
-        segments = self._segments(script_draft["blocks"])
+        segments = self._segments(script_draft["blocks"], content.get("product_order") or [])
         program_draft = self.production.create_program_revision(
             script_revision_code=script["script_revision_code"],
             expected_revision=self._current_project_revision("content_program_revisions", current["project_id"]),
@@ -1403,6 +1405,7 @@ class FunctionalContentService:
             "user_goal": {
                 "title": project["title"],
                 "generation_goal": project["generation_goal"],
+                "product_order": content.get("product_order") or [],
                 "design_brief_code": design_brief["design_brief_code"],
                 "design_brief_revision": design_brief["revision_number"],
                 "parsed_design_brief": design_brief["parsed_brief"],
@@ -1493,6 +1496,7 @@ class FunctionalContentService:
             "story": design_brief.get("story") or content.get("story") or "通过清晰的场景和节奏帮助观众完成选择。",
             "audience": design_brief.get("audience") or content.get("audience") or "目标直播间观众",
             "tone": design_brief.get("tone") or content.get("tone") or "自然、可信、直接",
+            "product_order": content.get("product_order") or [],
             "must_include": design_brief.get("must_include") or content.get("must_include") or [],
             "must_avoid": design_brief.get("must_avoid") or content.get("must_avoid") or [],
             "design_brief_fingerprint": canonical_fingerprint(design_brief),
@@ -1626,7 +1630,9 @@ class FunctionalContentService:
         return blocks
 
     @staticmethod
-    def _segments(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _segments(
+        blocks: list[dict[str, Any]], product_order: list[str] | tuple[str, ...] = ()
+    ) -> list[dict[str, Any]]:
         phase_by_module = {"opening": "opening", "story": "body", "product_fact": "body", "conversion": "conversion"}
         goal_by_module = {
             "opening": "建立主题和观看预期",
@@ -1634,15 +1640,25 @@ class FunctionalContentService:
             "product_fact": "说明已批准的产品事实",
             "conversion": "引导互动与下一步",
         }
-        return [
-            {
-                "semantic_goal": goal_by_module.get(str(block.get("module_type")), "传达内容模块"),
-                "program_phase": phase_by_module.get(str(block.get("module_type")), "body"),
-                "estimated_duration_ms": block.get("estimated_duration_ms"),
-                "script_block_adoptions": [{"block_code": block["block_code"], "content_action": "deliver"}],
-            }
-            for index, block in enumerate(blocks)
-        ]
+        ordered_products = [str(code).strip() for code in product_order if str(code).strip()]
+        product_index = 0
+        segments: list[dict[str, Any]] = []
+        for block in blocks:
+            module_type = str(block.get("module_type"))
+            product_refs: list[str] = []
+            if module_type == "product_fact" and product_index < len(ordered_products):
+                product_refs = [ordered_products[product_index]]
+                product_index += 1
+            segments.append(
+                {
+                    "semantic_goal": goal_by_module.get(module_type, "传达内容模块"),
+                    "program_phase": phase_by_module.get(module_type, "body"),
+                    "estimated_duration_ms": block.get("estimated_duration_ms"),
+                    "product_refs": product_refs,
+                    "script_block_adoptions": [{"block_code": block["block_code"], "content_action": "deliver"}],
+                }
+            )
+        return segments
 
     @staticmethod
     def _shots(segments: list[dict[str, Any]], blocks: list[dict[str, Any]], content: dict[str, Any]) -> list[dict[str, Any]]:
