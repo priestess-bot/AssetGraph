@@ -69,6 +69,7 @@ def test_functional_video_plan_seeds_content_stages_and_queues_renderer() -> Non
         assert {segment["source_shot_code"] for segment in plan["timeline_segments"]}
         assert all(segment["source_script_block_codes"] for segment in plan["timeline_segments"])
         assert plan["render_profile"]["visual_asset_mode"] == "baseline_verified_video_assets"
+        assert plan["material_selection_decision_code"].startswith("DEC-")
         job = VideoProductionRepository(connection).get_by_code(plan["video_job_code"])
         assert job is not None
         assert job["shot_list"]["production_timeline"] == plan["production_timeline"]
@@ -148,6 +149,11 @@ def test_functional_video_plan_seeds_content_stages_and_queues_renderer() -> Non
         assert branch["production_timeline"] == restored["production_timeline"]
         assert branch["render_profile"]["branched_from_plan_code"] == plan["plan_code"]
         assert branch["job_status"] == "queued"
+        assert branch["material_selection_decision_code"].startswith("DEC-")
+        assert (
+            branch["material_selection_decision_code"]
+            != plan["material_selection_decision_code"]
+        )
 
         with connection.cursor() as cursor:
             cursor.execute(
@@ -160,6 +166,19 @@ def test_functional_video_plan_seeds_content_stages_and_queues_renderer() -> Non
                 (plan["video_job_code"],),
             )
             assert cursor.fetchone()[0] is True
+            cursor.execute(
+                """SELECT decision_type, decision_payload->>'plan_code', source_revision_refs
+                   FROM functional_decision_logs
+                   WHERE decision_code = %s""",
+                (plan["material_selection_decision_code"],),
+            )
+            selection_decision = cursor.fetchone()
+            assert selection_decision[0] == "rendered_video_material_selection"
+            assert selection_decision[1] == plan["plan_code"]
+            assert any(
+                ref["relation_type"] == "selection_output_variant"
+                for ref in selection_decision[2]
+            )
             cursor.execute("SELECT count(*) FROM functional_video_timeline_revisions WHERE plan_id = (SELECT id FROM functional_video_plans WHERE plan_code = %s)", (plan["plan_code"],))
             assert cursor.fetchone()[0] == 3
             cursor.execute(

@@ -185,6 +185,7 @@ class FunctionalVideoPlanRead(BaseModel):
     production_timeline: dict[str, Any]
     timeline_revision: int
     render_profile: dict[str, Any]
+    material_selection_decision_code: str | None = None
     job_status: str
     current_stage: str | None = None
     progress_percent: int

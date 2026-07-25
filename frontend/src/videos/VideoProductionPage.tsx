@@ -1911,6 +1911,10 @@ function Detail({
                 : "--"}
             </strong>
           </div>
+          <div>
+            <span>选材决策</span>
+            <code>{plan.materialSelectionDecisionCode ?? "历史计划未记录"}</code>
+          </div>
         </div>
         <div className="video-progress">
           <i style={{ width: `${plan.progressPercent}%` }} />

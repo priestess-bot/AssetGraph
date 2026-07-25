@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { VideoProductionPage } from "./VideoProductionPage";
 
 const plan = {
-  plan_code: "VIDPLAN-001", project_code: "CONTENT-001", variant_code: "VAR-001", video_job_code: "VIDJOB-001", title: "镜头重排", timeline_revision: 1,
+  plan_code: "VIDPLAN-001", project_code: "CONTENT-001", variant_code: "VAR-001", video_job_code: "VIDJOB-001", title: "镜头重排", timeline_revision: 1, material_selection_decision_code: "DEC-001",
   production_timeline: { global_end_ms: 60_000, poster_time_ms: 2_000, tracks: [
     { track_kind: "video", clips: [
       { clip_code: "SHOT-01", source_shot_code: "CONTENT-SHOT-01", timeline_range: { start_ms: 0, duration_ms: 30_000 }, source_range: { asset_code: "ASSET-01", start_seconds: 0, end_seconds: 40, available_start_seconds: 0, available_end_seconds: 40 }, transition: "cut" },
@@ -89,6 +89,7 @@ describe("VideoProductionPage", () => {
     expect(screen.getByText("subtitle_text_complete")).toBeInTheDocument();
     expect(screen.getByText("55.0 秒 · 1080x1920")).toBeInTheDocument();
     expect(screen.getByText("h264 / aac · 48000 Hz · 30.0 fps · A/V 0.040s")).toBeInTheDocument();
+    expect(screen.getByText("DEC-001")).toBeInTheDocument();
     expect(screen.getByText("字幕证据")).toBeInTheDocument();
     expect(screen.getByText("2/2 项通过")).toBeInTheDocument();
     expect(screen.getByText("-16.2 LUFS · 峰值 -1.4 dB")).toBeInTheDocument();

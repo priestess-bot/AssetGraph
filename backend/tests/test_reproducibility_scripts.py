@@ -293,6 +293,7 @@ def test_migration_discovery_is_contiguous() -> None:
                 "functional_video_timeline_segment_source_media_probes.sql",
                 "video_render_manifest_retry_diff.sql",
                 "video_delivery_metadata_sidecar.sql",
+                "functional_video_material_selection_decisions.sql",
             ],
             start=1,
         )

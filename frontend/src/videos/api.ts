@@ -17,6 +17,7 @@ export interface FunctionalVideoPlan {
   videoJobCode: string;
   title: string;
   timelineRevision: number;
+  materialSelectionDecisionCode?: string;
   productionTimeline: {
     global_end_ms: number;
     poster_time_ms?: number;
@@ -513,6 +514,9 @@ function plan(value: unknown): FunctionalVideoPlan {
     videoJobCode: asString(value.video_job_code),
     title: asString(value.title),
     timelineRevision: asNumber(value.timeline_revision, 1),
+    materialSelectionDecisionCode: asOptionalString(
+      value.material_selection_decision_code,
+    ),
     productionTimeline: productionTimeline(value.production_timeline),
     renderProfile: {
       visual_asset_mode: asOptionalString(profile.visual_asset_mode),

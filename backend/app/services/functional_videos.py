@@ -193,6 +193,25 @@ class FunctionalVideoService:
                 timeline=timeline,
                 actor_id=actor_id,
             )
+            decision_code = self._record_material_selection_decision(
+                cursor,
+                plan_code=code,
+                project_code=detail["project_code"],
+                project_revision=int(detail["revision_number"]),
+                variant=variant,
+                timeline_revision=int(row["timeline_revision"]),
+                material_snapshot_ref=variant["material_snapshot_ref"],
+                constraint_snapshot_ref=variant["constraint_snapshot_ref"],
+                actor_id=actor_id,
+            )
+            cursor.execute(
+                """UPDATE functional_video_plans
+                   SET material_selection_decision_code = %s
+                   WHERE id = %s
+                   RETURNING *""",
+                (decision_code, row["id"]),
+            )
+            row = cursor.fetchone()
         self.connection.commit()
         return self._enrich(row)
 
@@ -858,6 +877,26 @@ class FunctionalVideoService:
                     timeline=timeline,
                     actor_id=actor_id,
                 )
+                decision_code = self._record_material_selection_decision(
+                    cursor,
+                    plan_code=code,
+                    project_code=str(source["project_code"]),
+                    project_revision=int(source["source_project_revision"]),
+                    variant=variant,
+                    timeline_revision=int(row["timeline_revision"]),
+                    material_snapshot_ref=variant["material_snapshot_ref"],
+                    constraint_snapshot_ref=variant["constraint_snapshot_ref"],
+                    actor_id=actor_id,
+                    branched_from_plan_code=plan_code,
+                )
+                cursor.execute(
+                    """UPDATE functional_video_plans
+                       SET material_selection_decision_code = %s
+                       WHERE id = %s
+                       RETURNING *""",
+                    (decision_code, row["id"]),
+                )
+                row = cursor.fetchone()
             self.connection.commit()
         except Exception:
             self.connection.rollback()
@@ -1613,6 +1652,104 @@ class FunctionalVideoService:
             plan["id"], int(plan["timeline_revision"])
         )
         return self._with_release(plan)
+
+    def _record_material_selection_decision(
+        self,
+        cursor: Any,
+        *,
+        plan_code: str,
+        project_code: str,
+        project_revision: int,
+        variant: dict[str, Any],
+        timeline_revision: int,
+        material_snapshot_ref: dict[str, Any],
+        constraint_snapshot_ref: dict[str, Any],
+        actor_id: str,
+        branched_from_plan_code: str | None = None,
+    ) -> str:
+        """Persist one explicit, frozen selection as a reusable DecisionLog record."""
+
+        material_snapshot = deepcopy(dict(material_snapshot_ref or {}))
+        constraint_snapshot = deepcopy(dict(constraint_snapshot_ref or {}))
+        decision_code = self._next_sequence_code(
+            cursor,
+            prefix="DEC",
+            object_type="functional_decision_log",
+        )
+        asset_refs: list[dict[str, Any]] = []
+        for asset in material_snapshot.get("assets") or []:
+            if isinstance(asset, dict) and str(asset.get("asset_code") or "").strip():
+                asset_refs.append(
+                    {
+                        "object_type": "asset",
+                        "asset_code": str(asset["asset_code"]),
+                        "fingerprint_sha256": str(asset.get("checksum_sha256") or ""),
+                        "relation_type": "selected_visual_source",
+                    }
+                )
+        for role in ("brand_logo", "product_sticker", "background_music", "sound_effect"):
+            asset = material_snapshot.get(role)
+            if isinstance(asset, dict) and str(asset.get("asset_code") or "").strip():
+                asset_refs.append(
+                    {
+                        "object_type": "asset",
+                        "asset_code": str(asset["asset_code"]),
+                        "fingerprint_sha256": str(asset.get("checksum_sha256") or ""),
+                        "relation_type": role,
+                    }
+                )
+        source_refs = [
+            {
+                "object_type": "content_project",
+                "project_code": project_code,
+                "revision": project_revision,
+                "relation_type": "selection_content_source",
+            },
+            {
+                "object_type": "production_variant",
+                "variant_code": str(variant["variant_code"]),
+                "revision": int(variant["revision_number"]),
+                "fingerprint_sha256": str(variant.get("fingerprint_sha256") or ""),
+                "relation_type": "selection_output_variant",
+            },
+            *asset_refs,
+        ]
+        decision_payload = {
+            "schema_version": "functional-video-material-selection-decision.v1",
+            "plan_code": plan_code,
+            "timeline_revision": timeline_revision,
+            "actor_id": actor_id,
+            "branched_from_plan_code": branched_from_plan_code,
+            "material_snapshot_ref": material_snapshot,
+            "constraint_snapshot_ref": constraint_snapshot,
+            "selection_kind": "explicit_local_material_selection",
+        }
+        fingerprint = canonical_fingerprint(
+            {
+                "decision_code": decision_code,
+                "project_code": project_code,
+                "decision_type": "rendered_video_material_selection",
+                "decision_payload": decision_payload,
+                "source_revision_refs": source_refs,
+            }
+        )
+        cursor.execute(
+            """INSERT INTO functional_decision_logs
+               (decision_code, project_code, observation, recommendation, decision_type,
+                decision_payload, source_revision_refs, fingerprint_sha256)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+            (
+                decision_code,
+                project_code,
+                f"Material selection frozen for rendered-video plan {plan_code}.",
+                "Use only this frozen selection for the current plan; evaluate later branches independently.",
+                "rendered_video_material_selection",
+                Jsonb(decision_payload),
+                Jsonb(source_refs),
+                fingerprint,
+            ),
+        )
+        return decision_code
 
     @staticmethod
     def _timeline_video_updates(timeline: dict[str, Any]) -> list[dict[str, Any]]:
@@ -2686,9 +2823,24 @@ class FunctionalVideoService:
 
     @staticmethod
     def _next_code(cursor: Any) -> str:
+        return FunctionalVideoService._next_sequence_code(
+            cursor,
+            prefix="VIDPLAN",
+            object_type="functional_video_plan",
+        )
+
+    @staticmethod
+    def _next_sequence_code(cursor: Any, *, prefix: str, object_type: str) -> str:
         date = datetime.now(UTC).date()
-        cursor.execute("""INSERT INTO domain_sequences (sequence_date, object_type, current_value) VALUES (%s, 'functional_video_plan', 1) ON CONFLICT (sequence_date, object_type) DO UPDATE SET current_value = domain_sequences.current_value + 1, updated_at = now() RETURNING current_value""", (date,))
-        return f"VIDPLAN-{date:%Y%m%d}-{int(cursor.fetchone()['current_value']):06d}"
+        cursor.execute(
+            """INSERT INTO domain_sequences (sequence_date, object_type, current_value)
+               VALUES (%s, %s, 1)
+               ON CONFLICT (sequence_date, object_type)
+               DO UPDATE SET current_value = domain_sequences.current_value + 1, updated_at = now()
+               RETURNING current_value""",
+            (date, object_type),
+        )
+        return f"{prefix}-{date:%Y%m%d}-{int(cursor.fetchone()['current_value']):06d}"
 
     @staticmethod
     def _next_release_snapshot_artifact_code(cursor: Any) -> str:
