@@ -100,6 +100,27 @@ def test_materialize_preserves_recorded_and_descriptive_relationships() -> None:
                 "plan_node_type": "live_room_plan", "plan_node_code": "ROOM-PLAN-001",
             }
         ],
+        "metric_definitions": [
+            {
+                "metric_code": "METRIC-CONVERSION", "revision_number": 1, "status": "active",
+                "name": "Conversion", "unit": "ratio", "value_type": "ratio", "aggregation": "ratio",
+                "fingerprint_sha256": "h" * 64,
+            }
+        ],
+        "session_metric_snapshots": [
+            {
+                "snapshot_code": "METRIC-SNAP-001", "session_code": "SESSION-001", "session_import_version": 1,
+                "metric_key": "conversion", "metric_code": "METRIC-CONVERSION", "metric_revision": 1,
+                "aggregation": "ratio", "status": "ready", "source_event_count": 12, "fingerprint_sha256": "i" * 64,
+            }
+        ],
+        "attribution_reports": [
+            {
+                "report_code": "REPORT-001", "metric_key": "conversion", "evidence_level": "descriptive",
+                "status": "published_descriptive", "session_refs": [{"session_code": "SESSION-001", "import_version": 1}],
+                "supersedes_report_code": None, "fingerprint_sha256": "j" * 64,
+            }
+        ],
         "effect_estimates": [
             {
                 "effect_code": "EFFECT-001",
@@ -128,6 +149,9 @@ def test_materialize_preserves_recorded_and_descriptive_relationships() -> None:
         ("release", "RELEASE-001", 1),
         ("operation_session", "SESSION-001", 1),
         ("content_exposure", "EXPOSURE-001", 0),
+        ("metric_definition", "METRIC-CONVERSION", 1),
+        ("session_metric_snapshot", "METRIC-SNAP-001", 0),
+        ("attribution_report", "REPORT-001", 0),
         ("effect_estimate", "EFFECT-001", 1),
     }
     edge_types = {(edge.relationship_type, edge.assertion_kind, edge.source, edge.target) for edge in edges}
@@ -137,6 +161,9 @@ def test_materialize_preserves_recorded_and_descriptive_relationships() -> None:
     assert ("PROJECTED_AS", "recorded_fact", ("production_variant", "VARIANT-001", 1), ("live_room_plan", "ROOM-PLAN-001", 0)) in edge_types
     assert ("RELEASED_AS", "recorded_fact", ("live_room_plan", "ROOM-PLAN-001", 0), ("release", "RELEASE-001", 1)) in edge_types
     assert ("EXPOSED_DURING", "recorded_fact", ("live_room_plan", "ROOM-PLAN-001", 0), ("operation_session", "SESSION-001", 1)) in edge_types
+    assert ("MEASURED_BY", "recorded_fact", ("operation_session", "SESSION-001", 1), ("session_metric_snapshot", "METRIC-SNAP-001", 0)) in edge_types
+    assert ("USES_METRIC_DEFINITION", "recorded_fact", ("session_metric_snapshot", "METRIC-SNAP-001", 0), ("metric_definition", "METRIC-CONVERSION", 1)) in edge_types
+    assert ("DERIVED_FROM", "recorded_fact", ("effect_estimate", "EFFECT-001", 1), ("attribution_report", "REPORT-001", 0)) in edge_types
     assert ("ESTIMATED_EFFECT_ON", "descriptive_association", ("effect_estimate", "EFFECT-001", 1), ("content_project", "CONTENT-001", 2)) in edge_types
 
 
@@ -156,6 +183,9 @@ def test_materialize_drops_edges_without_an_authoritative_target() -> None:
         "releases": [],
         "operation_sessions": [],
         "content_exposures": [],
+        "metric_definitions": [],
+        "session_metric_snapshots": [],
+        "attribution_reports": [],
         "effect_estimates": [],
     }
 

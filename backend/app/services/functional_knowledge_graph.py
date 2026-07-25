@@ -349,6 +349,47 @@ class FunctionalKnowledgeGraphProjectionService:
                     row["started_at"], row["ended_at"],
                     {"source_table": "functional_content_exposures", "source_code": row["exposure_code"], "scene_code": row["scene_code"], "source_kind": row["source_kind"]},
                 ))
+        for row in rows.get("metric_definitions", []):
+            add_node(
+                "metric_definition", row["metric_code"], int(row["revision_number"]), row["status"],
+                {"name": row["name"], "unit": row["unit"], "aggregation": row["aggregation"], "value_type": row["value_type"]},
+                row["fingerprint_sha256"],
+            )
+        for row in rows.get("session_metric_snapshots", []):
+            snapshot_key = ("session_metric_snapshot", row["snapshot_code"], 0)
+            session_key = ("operation_session", row["session_code"], int(row["session_import_version"]))
+            metric_key = ("metric_definition", row["metric_code"], int(row["metric_revision"]))
+            add_node(
+                *snapshot_key, row["status"],
+                {"metric_key": row["metric_key"], "metric_code": row["metric_code"], "metric_revision": row["metric_revision"], "aggregation": row["aggregation"], "source_event_count": row["source_event_count"]},
+                row["fingerprint_sha256"],
+            )
+            edges.extend([
+                GraphEdgeInput(
+                    session_key, snapshot_key, "MEASURED_BY", "recorded_fact", 1.0, None, None,
+                    {"source_table": "functional_session_metric_snapshots", "source_code": row["snapshot_code"]},
+                ),
+                GraphEdgeInput(
+                    snapshot_key, metric_key, "USES_METRIC_DEFINITION", "recorded_fact", 1.0, None, None,
+                    {"source_table": "functional_session_metric_snapshots", "source_code": row["snapshot_code"]},
+                ),
+            ])
+        for row in rows.get("attribution_reports", []):
+            report_key = ("attribution_report", row["report_code"], 0)
+            add_node(
+                *report_key, row["status"],
+                {"metric_key": row["metric_key"], "evidence_level": row["evidence_level"], "publication_scope": "descriptive_only", "supersedes_report_code": row.get("supersedes_report_code")},
+                row.get("fingerprint_sha256") or canonical_fingerprint(row),
+            )
+            for session_ref in row.get("session_refs") or []:
+                if not isinstance(session_ref, dict) or not session_ref.get("session_code"):
+                    continue
+                edges.append(GraphEdgeInput(
+                    report_key,
+                    ("operation_session", str(session_ref["session_code"]), int(session_ref.get("import_version") or 1)),
+                    "DERIVED_FROM", "recorded_fact", 1.0, None, None,
+                    {"source_table": "functional_attribution_reports", "source_code": row["report_code"], "session_code": session_ref["session_code"]},
+                ))
         for row in rows.get("effect_estimates", []):
             effect_key = ("effect_estimate", row["effect_code"], int(row["revision_number"]))
             add_node(
@@ -363,6 +404,11 @@ class FunctionalKnowledgeGraphProjectionService:
                     None, None, None,
                     {"source_table": "functional_effect_estimates", "source_code": row["effect_code"], "source_revision": row["revision_number"], "attribution_report_code": row["attribution_report_code"]},
                 ))
+            edges.append(GraphEdgeInput(
+                effect_key, ("attribution_report", row["attribution_report_code"], 0), "DERIVED_FROM",
+                "recorded_fact", 1.0, None, None,
+                {"source_table": "functional_effect_estimates", "source_code": row["effect_code"], "source_revision": row["revision_number"]},
+            ))
 
         known = {node.key for node in nodes}
         nodes = sorted(nodes, key=lambda node: node.key)
@@ -418,11 +464,32 @@ class FunctionalKnowledgeGraphProjectionService:
                                      LEFT JOIN functional_video_plans AS video ON video.plan_code = exposure.plan_code
                                      WHERE exposure.status = 'active'
                                      ORDER BY exposure.exposure_code""",
+            "metric_definitions": "SELECT metric_code, revision_number, status, name, unit, value_type, aggregation, fingerprint_sha256 FROM metric_definition_revisions ORDER BY metric_code, revision_number",
+            "session_metric_snapshots": """SELECT snapshot.snapshot_code, snapshot.session_code, session.import_version AS session_import_version,
+                                               snapshot.metric_key, snapshot.metric_code, snapshot.metric_revision, snapshot.aggregation,
+                                               snapshot.status, snapshot.source_event_count, snapshot.fingerprint_sha256
+                                        FROM functional_session_metric_snapshots AS snapshot
+                                        JOIN functional_operation_sessions AS session ON session.id = snapshot.session_id
+                                        ORDER BY snapshot.snapshot_code""",
+            "attribution_reports": """SELECT report_code, metric_key, evidence_level, status, session_codes,
+                                               input_snapshot, fingerprint_sha256, supersedes_report_code, created_at
+                                        FROM functional_attribution_reports
+                                        ORDER BY report_code""",
         }
         rows: dict[str, list[dict[str, Any]]] = {}
         for key, query in queries.items():
             cur.execute(query)
             rows[key] = [dict(row) for row in cur.fetchall()]
+        for report in rows["attribution_reports"]:
+            input_snapshot = report.get("input_snapshot") or {}
+            frozen_sessions = input_snapshot.get("sessions") if isinstance(input_snapshot, dict) else None
+            report["session_refs"] = [
+                {"session_code": str(item["session_code"]), "import_version": int(item["import_version"])}
+                for item in (frozen_sessions or [])
+                if isinstance(item, dict)
+                and item.get("session_code")
+                and isinstance(item.get("import_version"), int)
+            ]
         return cls.materialize(rows)
 
     @staticmethod
