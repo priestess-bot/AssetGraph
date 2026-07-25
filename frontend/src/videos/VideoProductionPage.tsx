@@ -436,6 +436,7 @@ type EditableTimelineClip = {
   cropY?: number;
   playbackRate?: number;
   productSticker?: boolean;
+  overlayZOrder?: { brandLogo?: number; productSticker?: number };
   productStickerX?: number;
   productStickerY?: number;
   productStickerWidthRatio?: number;
@@ -470,6 +471,12 @@ function editableTimelineClips(
       cropY: clip.crop_y,
       playbackRate: clip.playback_rate,
       productSticker: clip.overlay_roles?.includes("product_sticker"),
+      overlayZOrder: clip.overlay_z_order
+        ? {
+            brandLogo: clip.overlay_z_order.brand_logo,
+            productSticker: clip.overlay_z_order.product_sticker,
+          }
+        : undefined,
       productStickerX: clip.product_sticker_layout?.x,
       productStickerY: clip.product_sticker_layout?.y,
       productStickerWidthRatio: clip.product_sticker_layout?.width_ratio,
@@ -900,6 +907,16 @@ function TimelineEditor({ plan }: { plan: FunctionalVideoPlan }) {
                       {clip.productStickerSuggestion.approximate
                         ? "（近似）"
                         : ""}
+                    </small>
+                  ) : null}
+                  {typeof clip.overlayZOrder?.productSticker === "number" ? (
+                    <small className="video-product-sticker-suggestion">
+                      商品图层：
+                      {clip.overlayZOrder.productSticker >= 1000
+                        ? "顶部"
+                        : clip.overlayZOrder.productSticker <= -1000
+                          ? "底部"
+                          : "默认"}
                     </small>
                   ) : null}
                   <label className="wb-field">

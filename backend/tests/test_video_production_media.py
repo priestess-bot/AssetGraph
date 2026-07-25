@@ -433,6 +433,42 @@ def test_shot_render_command_uses_the_frozen_product_sticker_layout(tmp_path: Pa
     assert "overlay=x=(W-w)*0.200:y=(H-h)*0.700:shortest=1" in filters
 
 
+def test_shot_render_command_applies_bottom_overlays_before_top_overlays(tmp_path: Path) -> None:
+    class RecordingRunner:
+        def __init__(self) -> None:
+            self.calls: list[list[str]] = []
+
+        def run(self, args, **_kwargs):  # type: ignore[no-untyped-def]
+            command = [str(value) for value in args]
+            self.calls.append(command)
+            Path(command[-1]).write_bytes(b"video")
+            return SimpleNamespace(stdout="")
+
+    runner = RecordingRunner()
+    renderer = FFmpegRenderer(tmp_path, runner)  # type: ignore[arg-type]
+    destination = tmp_path / "shot-z-order.mp4"
+    renderer._render_shot(
+        tmp_path / "source.mp4",
+        tmp_path / "logo.png",
+        tmp_path / "sticker.png",
+        {
+            "shot_code": "SHOT-01",
+            "duration_seconds": 5,
+            "source_start_seconds": 0,
+            "source_end_seconds": 5,
+            "fit": "cover",
+            "overlay_roles": ["brand_logo", "product_sticker"],
+            "overlay_z_order": {"brand_logo": 1000, "product_sticker": -1000},
+        },
+        destination,
+    )
+
+    filters = runner.calls[0][runner.calls[0].index("-filter_complex") + 1]
+    assert filters.index("[presented][sticker]") < filters.index(
+        "[with_product_sticker][logo]"
+    )
+
+
 def test_narration_filter_controls_dynamics_before_loudness_normalization() -> None:
     assert NARRATION_AUDIO_FILTER.startswith("acompressor=")
     assert NARRATION_AUDIO_FILTER.endswith("loudnorm=I=-16:TP=-1.5:LRA=11")

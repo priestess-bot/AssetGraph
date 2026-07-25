@@ -9,7 +9,7 @@ const plan = {
   production_timeline: { global_end_ms: 60_000, poster_time_ms: 2_000, tracks: [
     { track_kind: "video", clips: [
       { clip_code: "SHOT-01", timeline_range: { start_ms: 0, duration_ms: 30_000 }, source_range: { asset_code: "ASSET-01", start_seconds: 0, end_seconds: 40, available_start_seconds: 0, available_end_seconds: 40 }, transition: "cut" },
-      { clip_code: "SHOT-02", timeline_range: { start_ms: 30_000, duration_ms: 30_000 }, source_range: { asset_code: "ASSET-02", start_seconds: 10, end_seconds: 50, available_start_seconds: 10, available_end_seconds: 50 }, transition: "cut", product_sticker_layout_suggestion: { x: .2, y: .7, width_ratio: .4, source: "table_surface", table_surface_name: "hero_table", approximate: true } },
+      { clip_code: "SHOT-02", timeline_range: { start_ms: 30_000, duration_ms: 30_000 }, source_range: { asset_code: "ASSET-02", start_seconds: 10, end_seconds: 50, available_start_seconds: 10, available_end_seconds: 50 }, transition: "cut", overlay_z_order: { brand_logo: 1000, product_sticker: -1000 }, product_sticker_layout_suggestion: { x: .2, y: .7, width_ratio: .4, source: "table_surface", table_surface_name: "hero_table", approximate: true } },
     ] },
     { track_kind: "audio", clips: [
       { clip_code: "VOICE-SHOT-01", linked_shot_code: "SHOT-01", timeline_range: { start_ms: 0, duration_ms: 30_000 }, gain_db: 0 },
@@ -113,6 +113,7 @@ describe("VideoProductionPage", () => {
     await user.selectOptions(screen.getByRole("combobox", { name: "播放速度 SHOT-02" }), "1.5");
     await user.click(screen.getByRole("checkbox", { name: "商品贴片 SHOT-02" }));
     expect(screen.getByText("桌面区域建议：hero_table（近似）")).toBeInTheDocument();
+    expect(screen.getByText("商品图层：底部")).toBeInTheDocument();
     fireEvent.change(screen.getByRole("slider", { name: "商品位置 X SHOT-02" }), { target: { value: "20" } });
     fireEvent.change(screen.getByRole("slider", { name: "商品位置 Y SHOT-02" }), { target: { value: "70" } });
     fireEvent.change(screen.getByRole("slider", { name: "商品宽度 SHOT-02" }), { target: { value: "40" } });

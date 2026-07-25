@@ -253,6 +253,7 @@ class AssetSelector:
                     "product_sticker_layout_suggestion": shot.get(
                         "product_sticker_layout_suggestion"
                     ),
+                    "overlay_z_order": shot.get("overlay_z_order"),
                     "selection_reason": "operator-selected material-library video" if str(shot.get("visual_role")) == "selected_library_video" else f"preset role: {shot['visual_role']}",
                 }
                 for shot in shot_list.get("shots") or []
@@ -976,16 +977,31 @@ class FFmpegRenderer:
         presented_label = "presented"
         filter_parts.append(f"[base]{','.join(presentation_filters)}[{presented_label}]")
         current_label = presented_label
+        overlay_z_order = shot.get("overlay_z_order")
+
+        def z_order(role: str, default: int) -> int:
+            if not isinstance(overlay_z_order, dict):
+                return default
+            value = overlay_z_order.get(role)
+            if value is None:
+                return default
+            if not isinstance(value, int) or isinstance(value, bool):
+                raise VideoProductionError(
+                    "OVERLAY_Z_ORDER_INVALID",
+                    "Overlay z-order must be an integer",
+                )
+            resolved = value
+            if not -10_000 <= resolved <= 10_000:
+                raise VideoProductionError(
+                    "OVERLAY_Z_ORDER_INVALID",
+                    "Overlay z-order is outside the supported range",
+                )
+            return resolved
+
+        overlays: list[tuple[int, str, int]] = []
         if has_logo:
             assert logo_input_index is not None
-            filter_parts.extend(
-                [
-                    f"[{logo_input_index}:v]scale=108:108:force_original_aspect_ratio=decrease,"
-                    "format=rgba,colorchannelmixer=aa=0.96[logo]",
-                    f"[{current_label}][logo]overlay=x=54:y=54:shortest=1[with_logo]",
-                ]
-            )
-            current_label = "with_logo"
+            overlays.append((z_order("brand_logo", 100), "brand_logo", logo_input_index))
         if has_sticker:
             assert sticker_input_index is not None
             sticker_layout = shot.get("product_sticker_layout")
@@ -1023,14 +1039,25 @@ class FFmpegRenderer:
                     "PRODUCT_STICKER_LAYOUT_INVALID",
                     "Product sticker layout must be an object",
                 )
-            filter_parts.extend(
-                [
-                    f"[{sticker_input_index}:v]scale={sticker_width}:{sticker_width}:force_original_aspect_ratio=decrease,"
-                    "format=rgba[sticker]",
-                    f"[{current_label}][sticker]overlay=x={sticker_x_expression}:y={sticker_y_expression}:shortest=1[with_sticker]",
-                ]
-            )
-            current_label = "with_sticker"
+            overlays.append((z_order("product_sticker", 200), "product_sticker", sticker_input_index))
+        for _z_order, role, input_index in sorted(overlays, key=lambda item: (item[0], item[1])):
+            if role == "brand_logo":
+                filter_parts.extend(
+                    [
+                        f"[{input_index}:v]scale=108:108:force_original_aspect_ratio=decrease,"
+                        "format=rgba,colorchannelmixer=aa=0.96[logo]",
+                        f"[{current_label}][logo]overlay=x=54:y=54:shortest=1[with_brand_logo]",
+                    ]
+                )
+            else:
+                filter_parts.extend(
+                    [
+                        f"[{input_index}:v]scale={sticker_width}:{sticker_width}:force_original_aspect_ratio=decrease,"
+                        "format=rgba[sticker]",
+                        f"[{current_label}][sticker]overlay=x={sticker_x_expression}:y={sticker_y_expression}:shortest=1[with_product_sticker]",
+                    ]
+                )
+            current_label = f"with_{role}"
         filter_parts.append(f"[{current_label}]null[v]")
         args.extend(["-filter_complex", ";".join(filter_parts), "-map", "[v]"])
         args.extend(

@@ -38,6 +38,10 @@ export interface FunctionalVideoPlan {
         crop_y?: number;
         playback_rate?: number;
         overlay_roles?: string[];
+        overlay_z_order?: {
+          brand_logo?: number;
+          product_sticker?: number;
+        };
         product_sticker_layout?: {
           x: number;
           y: number;
@@ -288,6 +292,24 @@ function productionTimeline(
                           ? asArray(clip.overlay_roles).flatMap((role) =>
                               typeof role === "string" ? [role] : [],
                             )
+                          : undefined,
+                        overlay_z_order: isRecord(clip.overlay_z_order)
+                          ? {
+                              ...(typeof clip.overlay_z_order.brand_logo ===
+                              "number"
+                                ? {
+                                    brand_logo:
+                                      clip.overlay_z_order.brand_logo,
+                                  }
+                                : {}),
+                              ...(typeof clip.overlay_z_order
+                                .product_sticker === "number"
+                                ? {
+                                    product_sticker:
+                                      clip.overlay_z_order.product_sticker,
+                                  }
+                                : {}),
+                            }
                           : undefined,
                         product_sticker_layout: isRecord(
                           clip.product_sticker_layout,

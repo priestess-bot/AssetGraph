@@ -104,6 +104,7 @@ class FunctionalVideoService:
             constraint_snapshot_ref=self._video_constraint_snapshot(
                 visual_assets=visual_assets,
                 product_sticker=product_sticker,
+                brand_logo=brand_logo,
             ),
             actor_id=actor_id, producer_strategy_revision="functional-video.v1",
         )
@@ -543,17 +544,25 @@ class FunctionalVideoService:
             "constraint_profile": self._constraint_profile_from_row(row),
         }
 
-    def _resolve_brand_logo_asset(self, asset_code: Any) -> dict[str, str] | None:
+    def _resolve_brand_logo_asset(self, asset_code: Any) -> dict[str, Any] | None:
         code = str(asset_code or "").strip()
         if not code:
             return None
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
                 """
-                SELECT asset_code, media_kind, material_roles, execution_capability,
-                       local_relative_path, checksum_sha256
-                FROM assets
-                WHERE asset_code = %s AND deleted_at IS NULL
+                SELECT asset.asset_code, asset.media_kind, asset.material_roles,
+                       asset.execution_capability, asset.local_relative_path,
+                       asset.checksum_sha256, profile.profile_code AS constraint_profile_code,
+                       revision.revision_number AS constraint_profile_revision,
+                       revision.constraints AS constraint_profile_constraints,
+                       revision.fingerprint_sha256 AS constraint_profile_fingerprint
+                FROM assets AS asset
+                LEFT JOIN asset_constraint_profiles AS profile ON profile.asset_id = asset.id
+                LEFT JOIN asset_constraint_profile_revisions AS revision
+                  ON revision.profile_id = profile.id
+                 AND revision.revision_number = profile.current_revision
+                WHERE asset.asset_code = %s AND asset.deleted_at IS NULL
                 """,
                 (code,),
             )
@@ -590,6 +599,7 @@ class FunctionalVideoService:
             "asset_code": code,
             "relative_path": relative_path,
             "checksum_sha256": checksum,
+            "constraint_profile": self._constraint_profile_from_row(row),
         }
 
     def _live_room_source_detail(self, live_room_plan_code: str) -> dict[str, Any] | None:
@@ -1735,6 +1745,15 @@ class FunctionalVideoService:
                     for role in clip["overlay_roles"]
                     if str(role) in {"brand_logo", "product_sticker"}
                 ]
+            overlay_z_order = clip.get("overlay_z_order")
+            if isinstance(overlay_z_order, dict):
+                normalized_z_order: dict[str, int] = {}
+                for role in ("brand_logo", "product_sticker"):
+                    value = overlay_z_order.get(role)
+                    if isinstance(value, int) and not isinstance(value, bool):
+                        normalized_z_order[role] = value
+                if normalized_z_order:
+                    shot["overlay_z_order"] = normalized_z_order
             product_sticker_layout = clip.get("product_sticker_layout")
             if isinstance(product_sticker_layout, dict):
                 try:
@@ -1871,6 +1890,10 @@ class FunctionalVideoService:
             )
             if sticker_suggestion is not None:
                 shot["product_sticker_layout_suggestion"] = sticker_suggestion
+            shot["overlay_z_order"] = FunctionalVideoService._overlay_z_order(
+                product_sticker=product_sticker,
+                brand_logo=brand_logo,
+            )
             compiled.append(shot)
             cursor = end
         if sound_effect is not None and compiled:
@@ -1917,7 +1940,7 @@ class FunctionalVideoService:
         audio_clips = [{"clip_code": f"VOICE-{shot['shot_code']}", "linked_shot_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "gain_db": 0.0} for shot in compiled]
         if background_music is not None:
             audio_clips.append({"clip_code": "BGM-01", "timeline_range": {"start_ms": 0, "duration_ms": duration * 1000}, "asset_code": background_music["asset_code"], "gain_db": background_music["gain_db"]})
-        timeline = {"schema_version": "otio-compatible-production-timeline.v1", "global_start_ms": 0, "global_end_ms": duration * 1000, "poster_time_ms": poster_time_ms, "tracks": [{"track_kind": "video", "clips": [{"clip_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "source_range": {"asset_code": shot["asset_code"], "start_seconds": shot["source_start_seconds"], "end_seconds": shot["source_end_seconds"], "available_start_seconds": shot["source_start_seconds"], "available_end_seconds": shot["source_end_seconds"]}, "fit": shot["fit"], "crop_x": 0.5, "crop_y": 0.5, "playback_rate": shot["playback_rate"], "overlay_roles": shot["overlay_roles"], "product_sticker_layout_suggestion": shot.get("product_sticker_layout_suggestion"), "audio_roles": shot.get("audio_roles", []), "transition": shot["transition"]} for shot in compiled]}, {"track_kind": "audio", "clips": audio_clips}, {"track_kind": "subtitle", "clips": [{"clip_code": f"SUBTITLE-{shot['shot_code']}", "linked_shot_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "subtitle_text": shot["narration"], "headline_text": shot["screen_text"], "caption_position": "bottom"} for shot in compiled]}]}
+        timeline = {"schema_version": "otio-compatible-production-timeline.v1", "global_start_ms": 0, "global_end_ms": duration * 1000, "poster_time_ms": poster_time_ms, "tracks": [{"track_kind": "video", "clips": [{"clip_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "source_range": {"asset_code": shot["asset_code"], "start_seconds": shot["source_start_seconds"], "end_seconds": shot["source_end_seconds"], "available_start_seconds": shot["source_start_seconds"], "available_end_seconds": shot["source_end_seconds"]}, "fit": shot["fit"], "crop_x": 0.5, "crop_y": 0.5, "playback_rate": shot["playback_rate"], "overlay_roles": shot["overlay_roles"], "overlay_z_order": shot["overlay_z_order"], "product_sticker_layout_suggestion": shot.get("product_sticker_layout_suggestion"), "audio_roles": shot.get("audio_roles", []), "transition": shot["transition"]} for shot in compiled]}, {"track_kind": "audio", "clips": audio_clips}, {"track_kind": "subtitle", "clips": [{"clip_code": f"SUBTITLE-{shot['shot_code']}", "linked_shot_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "subtitle_text": shot["narration"], "headline_text": shot["screen_text"], "caption_position": "bottom"} for shot in compiled]}]}
         return story, script, shots, timeline
 
     @staticmethod
@@ -1946,9 +1969,14 @@ class FunctionalVideoService:
         *,
         visual_assets: list[dict[str, Any]],
         product_sticker: dict[str, Any] | None,
+        brand_logo: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         profiles: list[dict[str, Any]] = []
-        for asset in [*visual_assets, *([product_sticker] if product_sticker else [])]:
+        for asset in [
+            *visual_assets,
+            *([product_sticker] if product_sticker else []),
+            *([brand_logo] if brand_logo else []),
+        ]:
             profile = asset.get("constraint_profile")
             if not isinstance(profile, dict):
                 continue
@@ -1965,6 +1993,29 @@ class FunctionalVideoService:
             "schema_version": "functional-video-asset-constraints.v1",
             "profiles": profiles,
         }
+
+    @staticmethod
+    def _overlay_z_order(
+        *,
+        product_sticker: dict[str, Any] | None,
+        brand_logo: dict[str, Any] | None,
+    ) -> dict[str, int]:
+        values = {"brand_logo": 100, "product_sticker": 200}
+        for role, asset in (
+            ("brand_logo", brand_logo),
+            ("product_sticker", product_sticker),
+        ):
+            profile = asset.get("constraint_profile") if isinstance(asset, dict) else None
+            if not isinstance(profile, dict):
+                continue
+            for rule in profile.get("constraints") or []:
+                if not isinstance(rule, dict):
+                    continue
+                if str(rule.get("kind") or "") == "pin_layer_top":
+                    values[role] = 1000
+                elif str(rule.get("kind") or "") == "pin_layer_bottom":
+                    values[role] = -1000
+        return values
 
     @staticmethod
     def _product_sticker_layout_suggestion(

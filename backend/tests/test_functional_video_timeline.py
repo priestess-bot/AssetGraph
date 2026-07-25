@@ -365,6 +365,57 @@ def test_compiled_video_exposes_a_table_surface_product_layout_suggestion() -> N
     )["x"] == 0.2
 
 
+def test_compiled_video_freezes_top_and_bottom_overlay_constraints() -> None:
+    detail = {
+        "project_code": "CONTENT-001",
+        "title": "Overlay order",
+        "generation_goal": "Keep the brand on top",
+        "story_brief": {"content": "A compact product story."},
+        "script": {"blocks": [{"content": "Show the product and brand."}]},
+    }
+    product_sticker = {
+        "asset_code": "AG-IMG-000001",
+        "relative_path": "image/product.png",
+        "checksum_sha256": "a" * 64,
+        "constraint_profile": {
+            "profile_code": "AG-CP-001",
+            "revision_number": 1,
+            "fingerprint_sha256": "b" * 64,
+            "constraints": [{"kind": "pin_layer_bottom", "hard": True}],
+        },
+    }
+    brand_logo = {
+        "asset_code": "AG-IMG-000002",
+        "relative_path": "image/brand.png",
+        "checksum_sha256": "c" * 64,
+        "constraint_profile": {
+            "profile_code": "AG-CP-002",
+            "revision_number": 1,
+            "fingerprint_sha256": "d" * 64,
+            "constraints": [{"kind": "pin_layer_top", "hard": True}],
+        },
+    }
+
+    _, _, shots, timeline = FunctionalVideoService._compile_content(
+        detail,
+        60,
+        product_sticker=product_sticker,
+        brand_logo=brand_logo,
+    )
+
+    assert shots["shots"][0]["overlay_z_order"] == {
+        "brand_logo": 1000,
+        "product_sticker": -1000,
+    }
+    assert timeline["tracks"][0]["clips"][0]["overlay_z_order"] == {
+        "brand_logo": 1000,
+        "product_sticker": -1000,
+    }
+    assert FunctionalVideoService._timeline_shot_list(shots, timeline)["shots"][0][
+        "overlay_z_order"
+    ] == {"brand_logo": 1000, "product_sticker": -1000}
+
+
 def test_timeline_poster_time_must_remain_inside_the_rendered_duration() -> None:
     from app.domain.errors import DomainValidationError
 
