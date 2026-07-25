@@ -176,6 +176,24 @@ class FunctionalKnowledgeService:
             )
             source_rows = [dict(row) for row in cur.fetchall()]
             cur.execute(
+                """
+                SELECT card.fact_card_code, card.title, card.status AS fact_card_status,
+                       version.version_number, version.status AS version_status,
+                       version.content, version.content_sha256, version.created_at
+                FROM maitu_workbench_product_fact_cards AS card
+                JOIN maitu_workbench_product_fact_card_versions AS version
+                  ON version.fact_card_id = card.id
+                 AND version.version_number = card.current_approved_version
+                WHERE card.fact_card_code ILIKE %s
+                   OR card.title ILIKE %s
+                   OR version.content::text ILIKE %s
+                ORDER BY version.created_at DESC, card.fact_card_code DESC
+                LIMIT 30
+                """,
+                (pattern, pattern, pattern),
+            )
+            fact_card_rows = [dict(row) for row in cur.fetchall()]
+            cur.execute(
                 self._claim_query(
                     "WHERE claim.claim_code ILIKE %s OR fact.title ILIKE %s "
                     "OR claim.claim ILIKE %s OR claim.citation_excerpt ILIKE %s"
@@ -199,6 +217,12 @@ class FunctionalKnowledgeService:
             )
             for row in source_rows
         ]
+        hits.extend(
+            self._knowledge_search_hit(
+                "product_fact_card", row, checked_at=checked_at, platform=normalized_platform
+            )
+            for row in fact_card_rows
+        )
         hits.extend(
             self._knowledge_search_hit(
                 "fact_claim", row, checked_at=checked_at, platform=normalized_platform
@@ -994,7 +1018,21 @@ class FunctionalKnowledgeService:
         checked_at: datetime,
         platform: str | None,
     ) -> dict[str, Any]:
-        if entity_type == "source_evidence":
+        if entity_type == "product_fact_card":
+            content = dict(row.get("content") or {})
+            entity_code = row["fact_card_code"]
+            title = row["title"]
+            verified_facts = content.get("verified_facts")
+            summary = "; ".join(str(item) for item in verified_facts) if isinstance(verified_facts, list) else str(content.get("positioning") or title)
+            source_code = None
+            source_status = None
+            valid_from = FunctionalKnowledgeService._search_timestamp(content.get("valid_from"))
+            valid_until = FunctionalKnowledgeService._search_timestamp(content.get("valid_until"))
+            scope = {"platforms": content.get("applicable_platforms") or []}
+            access_scope = None
+            status = row["version_status"] if row["fact_card_status"] == "active" else "archived"
+            revision_number = row["version_number"]
+        elif entity_type == "source_evidence":
             entity_code = row["evidence_code"]
             title = row["title"]
             summary = row["excerpt"]
@@ -1004,6 +1042,8 @@ class FunctionalKnowledgeService:
             valid_until = None
             scope = {"access_scope": row["access_scope"]}
             access_scope = row["access_scope"]
+            status = row["status"]
+            revision_number = None
         elif entity_type == "fact_claim":
             entity_code = row["claim_code"]
             title = row["fact_title"]
@@ -1014,6 +1054,8 @@ class FunctionalKnowledgeService:
             valid_until = row.get("valid_until")
             scope = {}
             access_scope = None
+            status = row["status"]
+            revision_number = None
         else:
             entity_code = row["rule_code"]
             title = row["title"]
@@ -1024,8 +1066,10 @@ class FunctionalKnowledgeService:
             valid_until = row.get("valid_until")
             scope = dict(row.get("scope") or {})
             access_scope = None
+            status = row["status"]
+            revision_number = None
 
-        lifecycle_ok = row["status"] == "approved"
+        lifecycle_ok = status == "approved"
         source_required = entity_type in {"fact_claim", "content_rule"} and source_code is not None
         source_ok = not source_required or source_status == "approved"
         validity_ok = (
@@ -1052,7 +1096,8 @@ class FunctionalKnowledgeService:
             "entity_code": entity_code,
             "title": title,
             "summary": summary,
-            "status": row["status"],
+            "status": status,
+            "revision_number": revision_number,
             "source_evidence_code": source_code,
             "source_status": source_status,
             "valid_from": valid_from,
@@ -1097,6 +1142,19 @@ class FunctionalKnowledgeService:
         if platform is None:
             return "context_required"
         return "match" if platform in allowed or "all" in allowed else "mismatch"
+
+    @staticmethod
+    def _search_timestamp(value: Any) -> datetime | None:
+        if value is None or value == "":
+            return None
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, str):
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                raise ValueError("knowledge fact-card timestamp must include a timezone")
+            return parsed
+        raise ValueError("knowledge fact-card timestamp is invalid")
 
     def _source_evidence(
         self, cur: Any, evidence_code: str

@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api.routes import functional_knowledge
+from app.services.functional_knowledge import FunctionalKnowledgeService
 
 
 NOW = datetime(2026, 7, 25, tzinfo=UTC)
@@ -133,6 +134,19 @@ class FakeFunctionalKnowledgeService:
         self, query: str, *, as_of: datetime | None = None, platform: str | None = None
     ) -> list[dict[str, Any]]:
         self.search_request = (query, as_of, platform)
+        if query == "fact":
+            return [
+                _search_hit(
+                    entity_type="product_fact_card",
+                    entity_code="MT-FACT-001",
+                    title="Verified product facts",
+                    summary="Verified warranty",
+                    revision_number=2,
+                    source_evidence_code=None,
+                    source_status=None,
+                    scope={"platforms": ["douyin"]},
+                )
+            ]
         return [_search_hit()] if query != "none" else []
 
     def create_source_evidence(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -386,6 +400,57 @@ def test_knowledge_search_returns_revalidation_state_without_granting_authorizat
         "/api/functional-knowledge/search",
         params={"q": "price", "as_of": "2026-07-25T00:00:00"},
     ).status_code == 422
+
+    product_fact = test_client.get(
+        "/api/functional-knowledge/search",
+        params={"q": "fact", "platform": "douyin"},
+    )
+    assert product_fact.status_code == 200
+    assert product_fact.json()[0]["entity_type"] == "product_fact_card"
+    assert product_fact.json()[0]["revision_number"] == 2
+
+
+def test_product_fact_card_search_hit_applies_its_fixed_version_scope() -> None:
+    hit = FunctionalKnowledgeService._knowledge_search_hit(
+        "product_fact_card",
+        {
+            "fact_card_code": "MT-FACT-001",
+            "title": "Verified product facts",
+            "fact_card_status": "active",
+            "version_number": 2,
+            "version_status": "approved",
+            "content": {
+                "verified_facts": ["Verified warranty"],
+                "valid_from": "2026-07-24T00:00:00Z",
+                "valid_until": "2026-07-26T00:00:00Z",
+                "applicable_platforms": ["douyin"],
+            },
+            "created_at": NOW,
+        },
+        checked_at=NOW,
+        platform="douyin",
+    )
+
+    assert hit["revision_number"] == 2
+    assert hit["validation"]["content_eligible"] is True
+    assert hit["validation"]["authorization_eligible"] is False
+
+    archived = FunctionalKnowledgeService._knowledge_search_hit(
+        "product_fact_card",
+        {
+            "fact_card_code": "MT-FACT-001",
+            "title": "Verified product facts",
+            "fact_card_status": "archived",
+            "version_number": 2,
+            "version_status": "approved",
+            "content": {"verified_facts": ["Verified warranty"]},
+            "created_at": NOW,
+        },
+        checked_at=NOW,
+        platform="douyin",
+    )
+    assert archived["validation"]["content_eligible"] is False
+    assert "KNOWLEDGE_LIFECYCLE_NOT_APPROVED" in archived["validation"]["blocking_rule_codes"]
 
 
 def test_fact_claim_route_rejects_naive_datetimes(

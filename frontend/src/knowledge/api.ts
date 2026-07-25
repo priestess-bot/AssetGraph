@@ -125,11 +125,12 @@ export interface KnowledgeSearchValidation {
 }
 
 export interface KnowledgeSearchHit {
-  entityType: "fact_claim" | "content_rule" | "source_evidence";
+  entityType: "product_fact_card" | "fact_claim" | "content_rule" | "source_evidence";
   entityCode: string;
   title: string;
   summary: string;
   status: string;
+  revisionNumber?: number;
   sourceEvidenceCode?: string;
   sourceStatus?: string;
   validFrom?: string;
@@ -342,7 +343,7 @@ function knowledgeSearchHit(value: unknown): KnowledgeSearchHit {
   if (!isRecord(value)) throw new Error("知识检索响应无效");
   const entityCode = asString(value.entity_code);
   const rawType = asString(value.entity_type);
-  if (!entityCode || !["fact_claim", "content_rule", "source_evidence"].includes(rawType)) {
+  if (!entityCode || !["product_fact_card", "fact_claim", "content_rule", "source_evidence"].includes(rawType)) {
     throw new Error("知识检索结果缺少实体标识");
   }
   const rawValidation = isRecord(value.validation) ? value.validation : {};
@@ -352,6 +353,7 @@ function knowledgeSearchHit(value: unknown): KnowledgeSearchHit {
     title: asString(value.title),
     summary: asString(value.summary),
     status: asString(value.status),
+    revisionNumber: typeof value.revision_number === "number" ? value.revision_number : undefined,
     sourceEvidenceCode: asOptionalString(value.source_evidence_code),
     sourceStatus: asOptionalString(value.source_status),
     validFrom: asOptionalString(value.valid_from),

@@ -61,11 +61,12 @@ class KnowledgeSearchValidationRead(BaseModel):
 
 
 class KnowledgeSearchHitRead(BaseModel):
-    entity_type: Literal["fact_claim", "content_rule", "source_evidence"]
+    entity_type: Literal["product_fact_card", "fact_claim", "content_rule", "source_evidence"]
     entity_code: str
     title: str
     summary: str
     status: str
+    revision_number: int | None = None
     source_evidence_code: str | None = None
     source_status: str | None = None
     valid_from: datetime | None = None

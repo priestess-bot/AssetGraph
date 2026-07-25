@@ -5,6 +5,7 @@ import psycopg
 import pytest
 from app.services.functional_knowledge import FunctionalKnowledgeService
 from app.services.functional_content import FunctionalContentService
+from app.repositories.maitu_workbench import MaituWorkbenchRepository
 
 DATABASE_URL = os.getenv("ASSETGRAPH_TEST_DATABASE_URL")
 pytestmark = pytest.mark.skipif(
@@ -181,6 +182,41 @@ def test_knowledge_search_revalidates_lifecycle_time_and_scope_without_authorizi
         assert "KNOWLEDGE_SOURCE_EVIDENCE_NOT_SELECTABLE" in source_hit["validation"]["blocking_rule_codes"]
         assert "KNOWLEDGE_SCOPE_MISMATCH" in mismatched_rule["validation"]["blocking_rule_codes"]
         assert "KNOWLEDGE_OUTSIDE_VALIDITY_WINDOW" in expired_claim["validation"]["blocking_rule_codes"]
+
+
+def test_knowledge_search_includes_the_current_approved_product_fact_card_revision() -> None:
+    with psycopg.connect(DATABASE_URL) as c:
+        repository = MaituWorkbenchRepository(c)
+        card = repository.create_product_fact_card(
+            {
+                "title": "Searchable verified product facts",
+                "product_code": "SEARCH-FACT-001",
+                "content": {
+                    "product_name": "Searchable product",
+                    "positioning": "Verified daily product",
+                    "verified_facts": ["The product has a verified 12-month warranty."],
+                    "valid_from": "2026-07-24T00:00:00Z",
+                    "valid_until": "2026-07-26T00:00:00Z",
+                    "applicable_platforms": ["douyin"],
+                },
+                "approve": True,
+                "approved_by": "reviewer",
+            },
+            content_sha256="d" * 64,
+        )
+        service = FunctionalKnowledgeService(c)
+        hit = next(
+            item
+            for item in service.search_knowledge(
+                "verified 12-month", as_of=datetime(2026, 7, 25, tzinfo=UTC), platform="douyin"
+            )
+            if item["entity_code"] == card["fact_card_code"]
+        )
+
+        assert hit["entity_type"] == "product_fact_card"
+        assert hit["revision_number"] == 1
+        assert hit["validation"]["content_eligible"] is True
+        assert hit["validation"]["authorization_eligible"] is False
 
 
 def test_fact_claim_lineage_follows_only_immutable_pinned_content_revisions() -> None:
