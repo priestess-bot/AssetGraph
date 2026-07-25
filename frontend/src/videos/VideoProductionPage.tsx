@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowDown,
@@ -1707,6 +1707,96 @@ function QualityPanel({ plan }: { plan: FunctionalVideoPlan }) {
   );
 }
 
+function RenderPreview({
+  plan,
+  videoUrl,
+  posterUrl,
+  contactSheetUrl,
+}: {
+  plan: FunctionalVideoPlan;
+  videoUrl?: string;
+  posterUrl?: string;
+  contactSheetUrl?: string;
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [positionSeconds, setPositionSeconds] = useState(0);
+  const clips = timelineClips(plan.productionTimeline);
+  const durationSeconds = Math.max(
+    0,
+    Number(plan.productionTimeline.global_end_ms ?? 0) / 1000,
+  );
+  const seek = (seconds: number) => {
+    const bounded = Math.min(durationSeconds, Math.max(0, seconds));
+    if (videoRef.current) videoRef.current.currentTime = bounded;
+    setPositionSeconds(bounded);
+  };
+  return (
+    <section className="wb-section">
+      <SectionHeader kicker="RENDER PREVIEW" title="成片预览" />
+      <div className="video-render-preview-grid">
+        {videoUrl ? (
+          <div className="video-render-player">
+            <video
+              ref={videoRef}
+              aria-label="成片播放预览"
+              className="video-render-preview"
+              controls
+              playsInline
+              src={videoUrl}
+              onTimeUpdate={(event) => setPositionSeconds(event.currentTarget.currentTime)}
+            />
+            {durationSeconds > 0 ? (
+              <div className="video-preview-timeline">
+                <label className="wb-field">
+                  <span>播放位置 {positionSeconds.toFixed(1)} 秒</span>
+                  <input
+                    aria-label="预览时间轴"
+                    type="range"
+                    min="0"
+                    max={durationSeconds}
+                    step="0.1"
+                    value={Math.min(durationSeconds, positionSeconds)}
+                    onChange={(event) => seek(Number(event.target.value))}
+                  />
+                </label>
+                <div className="video-preview-shots">
+                  {clips.map((clip) => {
+                    const start = Number(clip.timeline_range.start_ms) / 1000;
+                    return (
+                      <button
+                        key={clip.clip_code}
+                        className="wb-button wb-button-secondary"
+                        type="button"
+                        title={`跳转到 ${clip.clip_code} 起点`}
+                        aria-label={`跳转至 ${clip.clip_code}`}
+                        onClick={() => seek(start)}
+                      >
+                        {clip.clip_code} {start.toFixed(1)}s
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+        {posterUrl ? (
+          <figure className="video-poster-preview">
+            <img src={posterUrl} alt="成片海报" />
+            <figcaption>已渲染海报帧</figcaption>
+          </figure>
+        ) : null}
+        {contactSheetUrl ? (
+          <figure className="video-poster-preview">
+            <img src={contactSheetUrl} alt="成片镜头联系表" />
+            <figcaption>等间隔镜头联系表</figcaption>
+          </figure>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
 function Detail({
   plan,
   onBranchCreated,
@@ -1852,31 +1942,12 @@ function Detail({
       </section>
       <FixedInputTrace plan={plan} />
       {videoUrl || posterUrl || contactSheetUrl ? (
-        <section className="wb-section">
-          <SectionHeader kicker="RENDER PREVIEW" title="成片预览" />
-          <div className="video-render-preview-grid">
-            {videoUrl ? (
-              <video
-                className="video-render-preview"
-                controls
-                playsInline
-                src={videoUrl}
-              />
-            ) : null}
-            {posterUrl ? (
-              <figure className="video-poster-preview">
-                <img src={posterUrl} alt="成片海报" />
-                <figcaption>已渲染海报帧</figcaption>
-              </figure>
-            ) : null}
-            {contactSheetUrl ? (
-              <figure className="video-poster-preview">
-                <img src={contactSheetUrl} alt="成片镜头联系表" />
-                <figcaption>等间隔镜头联系表</figcaption>
-              </figure>
-            ) : null}
-          </div>
-        </section>
+        <RenderPreview
+          plan={plan}
+          videoUrl={videoUrl}
+          posterUrl={posterUrl}
+          contactSheetUrl={contactSheetUrl}
+        />
       ) : null}
       <WorkflowPanel plan={plan} />
       <TimelineEditor plan={plan} />

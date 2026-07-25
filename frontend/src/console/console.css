@@ -548,6 +548,11 @@
 .video-artifacts small { overflow-wrap: anywhere; color: var(--wb-muted); font-size: 7px; }
 .video-render-preview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 13px; padding: 13px; }
 .video-render-preview { display: block; width: 100%; max-height: 680px; margin: 0; background: #101310; }
+.video-render-player { display: grid; min-width: 0; gap: 8px; }
+.video-preview-timeline { display: grid; gap: 7px; }
+.video-preview-timeline .wb-field { gap: 4px; }
+.video-preview-shots { display: flex; flex-wrap: wrap; gap: 5px; }
+.video-preview-shots .wb-button { min-height: 28px; padding: 4px 7px; font-size: 10px; }
 .video-poster-preview { display: grid; min-width: 0; max-width: 440px; gap: 6px; margin: 0; justify-self: center; }
 .video-poster-preview img { display: block; width: 100%; max-height: 680px; object-fit: contain; background: #101310; }
 .video-poster-preview figcaption { color: var(--wb-muted); font-size: 8px; }
