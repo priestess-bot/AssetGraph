@@ -111,6 +111,20 @@ class FakeDataGovernanceService:
     def list_quality_batches(self) -> list[dict[str, Any]]:
         return [self._batch()]
 
+    def list_quality_violations(self, batch_code: str) -> list[dict[str, Any]]:
+        return [
+            {
+                "violation_id": "11111111-1111-4111-8111-111111111111",
+                "batch_code": batch_code,
+                "event_id": "22222222-2222-4222-8222-222222222222",
+                "rule_code": "DATA_CONTRACT_PAYLOAD_INVALID",
+                "severity": "error",
+                "field_path": "/amount",
+                "details": {"message": "amount must be numeric"},
+                "created_at": NOW,
+            }
+        ]
+
     def ingest_event_batch(self, payload: Any) -> dict[str, Any]:
         result = self._batch()
         result["source_batch_id"] = payload.source_batch_id
@@ -263,3 +277,27 @@ def test_quality_batch_routes_list_and_delegate_typed_event_rows(
     assert created.status_code == 201
     assert created.json()["source_batch_id"] == "export-20260725-001"
     assert created.json()["row_count"] == 1
+
+
+def test_quality_batch_violations_are_available_for_operator_drill_down(
+    client: tuple[TestClient, FakeDataGovernanceService],
+) -> None:
+    test_client, _service = client
+
+    response = test_client.get(
+        "/api/data-governance/batches/DQB-20260725-000001/violations"
+    )
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {
+            "violation_id": "11111111-1111-4111-8111-111111111111",
+            "batch_code": "DQB-20260725-000001",
+            "event_id": "22222222-2222-4222-8222-222222222222",
+            "rule_code": "DATA_CONTRACT_PAYLOAD_INVALID",
+            "severity": "error",
+            "field_path": "/amount",
+            "details": {"message": "amount must be numeric"},
+            "created_at": "2026-07-25T00:00:00Z",
+        }
+    ]

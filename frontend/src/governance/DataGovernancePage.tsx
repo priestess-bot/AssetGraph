@@ -5,6 +5,7 @@ import { EmptyBlock, InlineNotice, LoadingBlock, SectionHeader, StatusBadge, for
 import {
   dataGovernanceApi,
   type DataQualityBatch,
+  type DataQualityViolation,
   type DataContractRevision,
   type MetricRevision,
 } from "./dataApi";
@@ -263,6 +264,7 @@ export function DataGovernancePage() {
   const [showMetricForm, setShowMetricForm] = useState(false);
   const [showContractForm, setShowContractForm] = useState(false);
   const [showBatchForm, setShowBatchForm] = useState(false);
+  const [selectedBatchCode, setSelectedBatchCode] = useState<string>();
   const [metricValues, setMetricValues] = useState<MetricEditorValues>(EMPTY_METRIC);
   const [contractValues, setContractValues] = useState<ContractEditorValues>(EMPTY_CONTRACT);
   const [sourceBatchId, setSourceBatchId] = useState("");
@@ -276,6 +278,7 @@ export function DataGovernancePage() {
   const contractRevisions = useQuery({ queryKey: ["data-governance", "contract-revisions", selectedContract?.contractCode], queryFn: () => dataGovernanceApi.listContractRevisions(selectedContract!.contractCode), enabled: Boolean(selectedContract) });
   const consumers = useQuery({ queryKey: ["data-governance", "contract-consumers", selectedContract?.contractCode], queryFn: () => dataGovernanceApi.listContractConsumers(selectedContract!.contractCode), enabled: Boolean(selectedContract) });
   const batches = useQuery({ queryKey: ["data-governance", "batches"], queryFn: dataGovernanceApi.listQualityBatches });
+  const violations = useQuery({ queryKey: ["data-governance", "batch-violations", selectedBatchCode], queryFn: () => dataGovernanceApi.listQualityBatchViolations(selectedBatchCode!), enabled: Boolean(selectedBatchCode) });
 
   useEffect(() => {
     if (!selectedMetricCode && metrics.data?.[0]) setSelectedMetricCode(metrics.data[0].metricCode);
@@ -362,7 +365,7 @@ export function DataGovernancePage() {
       {showBatchForm && selectedContract ? <div className="governance-form-panel"><h3>导入 {selectedContract.contractCode} r{selectedContract.revisionNumber} 事件批次</h3><BatchImportForm sourceBatchId={sourceBatchId} rows={batchRows} pending={batchMutation.isPending} onSourceBatchIdChange={setSourceBatchId} onRowsChange={setBatchRows} onSubmit={() => { setFormError(undefined); batchMutation.mutate(); }} /></div> : null}
       {formError ? <InlineNotice tone="danger" title="修订未创建">{formError}</InlineNotice> : null}
       {!showMetricForm && !showContractForm && !showBatchForm && kind === "metrics" && selectedMetric ? <MetricDetail metric={selectedMetric} revisions={metricRevisions.data ?? []} changes={changes} /> : null}
-      {!showMetricForm && !showContractForm && !showBatchForm && kind === "contracts" && selectedContract ? <><ContractDetail contract={selectedContract} revisions={contractRevisions.data ?? []} consumers={consumers.data ?? []} changes={changes} /><BatchHistory batches={(batches.data ?? []).filter((batch) => batch.contractCode === selectedContract.contractCode && batch.contractRevision === selectedContract.revisionNumber)} /></> : null}
+      {!showMetricForm && !showContractForm && !showBatchForm && kind === "contracts" && selectedContract ? <><ContractDetail contract={selectedContract} revisions={contractRevisions.data ?? []} consumers={consumers.data ?? []} changes={changes} /><BatchHistory batches={(batches.data ?? []).filter((batch) => batch.contractCode === selectedContract.contractCode && batch.contractRevision === selectedContract.revisionNumber)} selectedBatchCode={selectedBatchCode} violations={violations.data ?? []} violationsLoading={violations.isLoading} violationsError={errorMessage(violations.error)} onSelectBatch={setSelectedBatchCode} /></> : null}
       {!showMetricForm && !showContractForm && !showBatchForm && !(kind === "metrics" ? selectedMetric : selectedContract) ? <EmptyBlock icon={Database} title="选择或创建目录项" /> : null}
     </section>
   </div>;
@@ -378,11 +381,29 @@ function BatchImportForm({ sourceBatchId, rows, pending, onSourceBatchIdChange, 
   </form>;
 }
 
-function BatchHistory({ batches }: { batches: DataQualityBatch[] }) {
+function BatchHistory({ batches, selectedBatchCode, violations, violationsLoading, violationsError, onSelectBatch }: {
+  batches: DataQualityBatch[];
+  selectedBatchCode?: string;
+  violations: DataQualityViolation[];
+  violationsLoading: boolean;
+  violationsError?: string;
+  onSelectBatch: (batchCode: string | undefined) => void;
+}) {
   return <section className="governance-consumers">
     <header><FileUp size={15} aria-hidden="true" /><strong>事件批次</strong></header>
-    {batches.length ? <ul>{batches.map((batch) => <li key={batch.batchCode}><span><strong>{batch.sourceBatchId}</strong><code>{batch.batchCode} · {batch.sourceChecksum?.slice(0, 12) ?? "历史批次"}</code><small>行 {batch.rowCount} · 接受 {batch.acceptedCount} · 隔离 {batch.quarantinedCount} · 拒绝 {batch.rejectedCount}{batch.replayed ? " · 重放" : ""}</small>{Object.keys(batch.qualitySummary).length ? <small>{JSON.stringify(batch.qualitySummary)}</small> : null}</span><StatusBadge label={batch.status} tone={statusTone(batch.status)} /></li>)}</ul> : <span>尚未导入此契约修订的事件批次。</span>}
+    {batches.length ? <ul>{batches.map((batch) => {
+      const hasViolations = batch.quarantinedCount + batch.rejectedCount > 0;
+      const selected = selectedBatchCode === batch.batchCode;
+      return <li key={batch.batchCode} className={selected ? "governance-batch-selected" : undefined}><span><strong>{batch.sourceBatchId}</strong><code>{batch.batchCode} · {batch.sourceChecksum?.slice(0, 12) ?? "历史批次"}</code><small>行 {batch.rowCount} · 接受 {batch.acceptedCount} · 隔离 {batch.quarantinedCount} · 拒绝 {batch.rejectedCount}{batch.replayed ? " · 重放" : ""}</small>{Object.keys(batch.qualitySummary).length ? <small>{JSON.stringify(batch.qualitySummary)}</small> : null}{selected ? <BatchViolations violations={violations} loading={violationsLoading} error={violationsError} /> : null}</span><div className="governance-batch-actions"><StatusBadge label={batch.status} tone={statusTone(batch.status)} />{hasViolations ? <button className="wb-button" type="button" onClick={() => onSelectBatch(selected ? undefined : batch.batchCode)}>{selected ? "收起违规" : `查看 ${batch.quarantinedCount + batch.rejectedCount} 条违规`}</button> : null}</div></li>;
+    })}</ul> : <span>尚未导入此契约修订的事件批次。</span>}
   </section>;
+}
+
+function BatchViolations({ violations, loading, error }: { violations: DataQualityViolation[]; loading: boolean; error?: string }) {
+  if (loading) return <small className="governance-batch-message">正在读取违规明细...</small>;
+  if (error) return <small className="governance-batch-message">违规明细读取失败：{error}</small>;
+  if (!violations.length) return <small className="governance-batch-message">该批次没有可读取的违规明细。</small>;
+  return <ul className="governance-violation-list">{violations.map((violation) => <li key={violation.violationId}><strong>{violation.ruleCode}</strong><small>{violation.severity} · 字段 {violation.fieldPath ?? "根路径"}{violation.eventId ? ` · 事件 ${violation.eventId.slice(0, 8)}` : ""}</small>{Object.keys(violation.details).length ? <code>{JSON.stringify(violation.details)}</code> : null}</li>)}</ul>;
 }
 
 function MetricDetail({ metric, revisions, changes }: { metric: MetricRevision; revisions: MetricRevision[]; changes: string[] }) {

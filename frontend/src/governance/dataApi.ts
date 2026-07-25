@@ -81,6 +81,17 @@ export interface DataQualityBatch {
   replayed: boolean;
 }
 
+export interface DataQualityViolation {
+  violationId: string;
+  batchCode: string;
+  eventId?: string;
+  ruleCode: string;
+  severity: string;
+  fieldPath?: string;
+  details: Record<string, unknown>;
+  createdAt?: string;
+}
+
 export interface MetricRevisionWrite {
   owner_principal: string;
   expected_revision: number;
@@ -202,6 +213,20 @@ function batch(value: unknown): DataQualityBatch {
   };
 }
 
+function qualityViolation(value: unknown): DataQualityViolation {
+  if (!isRecord(value)) throw new Error("事件批次违规响应无效");
+  return {
+    violationId: asString(value.violation_id),
+    batchCode: asString(value.batch_code),
+    eventId: asOptionalString(value.event_id),
+    ruleCode: asString(value.rule_code),
+    severity: asString(value.severity),
+    fieldPath: asOptionalString(value.field_path),
+    details: record(value.details),
+    createdAt: asOptionalString(value.created_at),
+  };
+}
+
 const ROOT = "/api/data-governance";
 
 export const dataGovernanceApi = {
@@ -213,5 +238,6 @@ export const dataGovernanceApi = {
   listContractConsumers: (contractCode: string) => requestJson<unknown[]>(`${ROOT}/contracts/${encodeURIComponent(contractCode)}/consumers`).then((items) => items.map(consumer)),
   createContractRevision: (contractCode: string, revision: number, payload: DataContractRevisionWrite) => postJson<unknown>(`${ROOT}/contracts/${encodeURIComponent(contractCode)}/revisions/${revision}`, payload).then(contract),
   listQualityBatches: () => requestJson<unknown[]>(`${ROOT}/batches`).then((items) => items.map(batch)),
+  listQualityBatchViolations: (batchCode: string) => requestJson<unknown[]>(`${ROOT}/batches/${encodeURIComponent(batchCode)}/violations`).then((items) => items.map(qualityViolation)),
   ingestEventBatch: (payload: Record<string, unknown>) => postJson<unknown>(`${ROOT}/batches`, payload).then(batch),
 };

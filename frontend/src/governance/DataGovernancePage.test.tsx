@@ -59,12 +59,12 @@ const batch = {
   contract_revision: 1,
   source_batch_id: "export-001",
   source_checksum: "c".repeat(64),
-  status: "accepted",
+  status: "partial_failed",
   row_count: 1,
   accepted_count: 1,
   quarantined_count: 0,
-  rejected_count: 0,
-  quality_summary: {},
+  rejected_count: 1,
+  quality_summary: { violation_codes: { DATA_CONTRACT_PAYLOAD_INVALID: 1 } },
   source_watermark: "2026-07-25T00:00:00Z",
   validated_at: "2026-07-25T00:00:00Z",
   created_at: "2026-07-25T00:00:00Z",
@@ -86,8 +86,9 @@ describe("DataGovernancePage", () => {
         : url.endsWith("/metrics/orders/revisions") ? [metric]
         : url.endsWith("/contracts/commerce-orders/revisions") ? [contract]
         : url.endsWith("/contracts/commerce-orders/consumers") ? [{ metric_code: "orders", revision_number: 1, status: "active", owner_principal: "data-owner", name: "成交订单", event_contract_refs: [{ code: "commerce-orders", revision: 1 }] }]
+        : url.endsWith("/batches/DQB-20260725-000001/violations") ? [{ violation_id: "11111111-1111-4111-8111-111111111111", batch_code: batch.batch_code, event_id: "22222222-2222-4222-8222-222222222222", rule_code: "DATA_CONTRACT_PAYLOAD_INVALID", severity: "error", field_path: "/amount", details: { message: "amount must be numeric" }, created_at: "2026-07-25T00:00:00Z" }]
         : init?.method === "POST" && url.endsWith("/batches") ? batch
-        : url.endsWith("/batches") ? []
+        : url.endsWith("/batches") ? [batch]
         : init?.method === "POST" && url.includes("/metrics/") ? metric
         : init?.method === "POST" && url.includes("/contracts/") ? contract
         : [];
@@ -162,5 +163,17 @@ describe("DataGovernancePage", () => {
       contract_revision: 1,
       source_batch_id: "export-20260725-001",
     });
+  });
+
+  it("loads persisted violation details only when an operator expands a failed batch", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findAllByText("成交订单");
+    await user.click(screen.getByRole("button", { name: "数据契约" }));
+    await user.click(await screen.findByRole("button", { name: "查看 1 条违规" }));
+
+    expect(await screen.findByText("DATA_CONTRACT_PAYLOAD_INVALID")).toBeInTheDocument();
+    expect(screen.getByText(/字段 \/amount/)).toBeInTheDocument();
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith("/data-governance/batches/DQB-20260725-000001/violations"))).toBe(true);
   });
 });

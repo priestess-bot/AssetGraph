@@ -13,6 +13,7 @@ from app.schemas.data_governance import (
     DataContractRead,
     DataContractRevisionWrite,
     DataQualityBatchRead,
+    DataQualityViolationRead,
     MetricRevisionRead,
     MetricRevisionWrite,
     StandardEventBatchIngest,
@@ -122,6 +123,16 @@ def list_quality_batches(
     instance: Annotated[DataGovernanceService, Depends(get_service)],
 ) -> list[dict]:
     return instance.list_quality_batches()
+
+
+@router.get(
+    "/batches/{batch_code}/violations", response_model=list[DataQualityViolationRead]
+)
+def list_quality_violations(
+    batch_code: str,
+    instance: Annotated[DataGovernanceService, Depends(get_service)],
+) -> list[dict]:
+    return instance.list_quality_violations(batch_code)
 
 
 @router.post(

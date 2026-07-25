@@ -88,6 +88,19 @@ class DataGovernanceService:
         prepared = self._prepare_ingest(request)
         return self.repository.ingest_standard_event(**prepared)
 
+    @staticmethod
+    def _violation_field_path(details: dict[str, Any]) -> str | None:
+        violations = details.get("violations")
+        if not isinstance(violations, list) or not violations:
+            return None
+        first = violations[0]
+        if not isinstance(first, dict):
+            return None
+        path = first.get("path")
+        if not isinstance(path, str) or not path:
+            return None
+        return path if path.startswith("/") else f"/{path}"
+
     def _prepare_ingest(
         self,
         request: StandardEventIngest,
@@ -263,6 +276,7 @@ class DataGovernanceService:
                             event_id=event_id,
                             rule_code=exc.code,
                             severity="error",
+                            field_path=self._violation_field_path(exc.details),
                             details={
                                 "message": exc.message,
                                 "source_event_id": row.envelope.source_event_id,
@@ -295,6 +309,9 @@ class DataGovernanceService:
 
     def list_quality_batches(self) -> list[dict[str, Any]]:
         return self.repository.list_quality_batches()
+
+    def list_quality_violations(self, batch_code: str) -> list[dict[str, Any]]:
+        return self.repository.list_quality_violations(batch_code)
 
 
 def validate_evidence_assignment(assignment: EvidenceAssignment) -> EvidenceLevel:

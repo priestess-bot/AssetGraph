@@ -426,13 +426,14 @@ class DataGovernanceRepository:
         event_id: UUID | None,
         rule_code: str,
         severity: str,
+        field_path: str | None = None,
         details: dict[str, Any],
     ) -> None:
         cursor.execute(
             """INSERT INTO data_quality_violations
-               (batch_id, event_id, rule_code, severity, details)
-               VALUES (%s, %s, %s, %s, %s)""",
-            (batch_id, event_id, rule_code, severity, Jsonb(details)),
+               (batch_id, event_id, rule_code, severity, field_path, details)
+               VALUES (%s, %s, %s, %s, %s, %s)""",
+            (batch_id, event_id, rule_code, severity, field_path, Jsonb(details)),
         )
 
     def finish_quality_batch(
@@ -480,6 +481,23 @@ class DataGovernanceRepository:
                    FROM data_quality_batches AS batches
                    JOIN data_contracts AS contracts ON contracts.id = batches.contract_id
                    ORDER BY batches.created_at DESC, batches.batch_code DESC"""
+            )
+            rows = cursor.fetchall()
+        return [self._serialize(row) for row in rows]
+
+    def list_quality_violations(self, batch_code: str) -> list[dict[str, Any]]:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT violations.id AS violation_id, batches.batch_code, violations.event_id,
+                       violations.rule_code, violations.severity, violations.field_path,
+                       violations.details, violations.created_at
+                FROM data_quality_violations AS violations
+                JOIN data_quality_batches AS batches ON batches.id = violations.batch_id
+                WHERE batches.batch_code = %s
+                ORDER BY violations.created_at, violations.id
+                """,
+                (batch_code,),
             )
             rows = cursor.fetchall()
         return [self._serialize(row) for row in rows]

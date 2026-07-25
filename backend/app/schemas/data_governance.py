@@ -108,6 +108,17 @@ class DataQualityBatchRead(StrictModel):
     replayed: bool = False
 
 
+class DataQualityViolationRead(StrictModel):
+    violation_id: str
+    batch_code: str
+    event_id: str | None = None
+    rule_code: str
+    severity: str
+    field_path: str | None = None
+    details: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+
+
 class EvidenceAssignment(StrictModel):
     declared_level: EvidenceLevel
     method: str = Field(..., min_length=1, max_length=64)

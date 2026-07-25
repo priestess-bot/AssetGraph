@@ -226,7 +226,7 @@ def test_event_batches_seal_a_checksum_and_isolate_rejected_rows() -> None:
             f"invalid-{suffix}",
             event_time=now,
             processing_time=now,
-            payload={"order_id": f"invalid-{suffix}", "amount": 1, "extra": True},
+            payload={"order_id": f"invalid-{suffix}", "amount": "invalid"},
         ).model_copy(update={"contract_code": contract_code})
         request = StandardEventBatchIngest(
             contract_code=contract_code,
@@ -261,6 +261,14 @@ def test_event_batches_seal_a_checksum_and_isolate_rejected_rows() -> None:
         assert batch["source_checksum"]
         assert replay["batch_code"] == batch["batch_code"]
         assert replay["replayed"] is True
+        violations = service.list_quality_violations(batch["batch_code"])
+        assert len(violations) == 2
+        invalid_violation = next(
+            item for item in violations
+            if item["rule_code"] == "DATA_CONTRACT_PAYLOAD_INVALID"
+        )
+        assert invalid_violation["field_path"] == "/amount"
+        assert invalid_violation["event_id"] == str(invalid.envelope.event_id)
         with connection.cursor() as cursor:
             cursor.execute(
                 "SELECT count(*) FROM standard_events WHERE quality_batch_id IS NOT NULL"
