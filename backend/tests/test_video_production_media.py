@@ -587,3 +587,46 @@ def test_quality_gate_uses_public_demo_duration_contract(
     result = inspector.inspect(Path("demo.mp4"), target_duration_seconds=duration)
 
     assert result["checks"]["duration_in_demo_range"] is accepted
+
+
+def test_quality_gate_reports_frame_rate_and_audio_video_sync(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.services.video_production_media.probe_media",
+        lambda *_args: {
+            "streams": [
+                {
+                    "codec_type": "video",
+                    "codec_name": "h264",
+                    "width": 1080,
+                    "height": 1920,
+                    "avg_frame_rate": "30/1",
+                    "duration": "55.000",
+                },
+                {
+                    "codec_type": "audio",
+                    "codec_name": "aac",
+                    "sample_rate": "48000",
+                    "duration": "55.075",
+                },
+            ],
+            "format": {"duration": "55"},
+        },
+    )
+    inspector = VideoQualityInspector(SimpleNamespace())
+    monkeypatch.setattr(inspector, "_black_segments", lambda _video: [])
+    monkeypatch.setattr(inspector, "_silence_segments", lambda _video, _duration: [])
+    monkeypatch.setattr(inspector, "_freeze_segments", lambda _video, _duration: [])
+    monkeypatch.setattr(
+        inspector,
+        "_loudness",
+        lambda _video: {"integrated_lufs": -16.0, "true_peak_db": -1.5, "lra": 4.0},
+    )
+
+    result = inspector.inspect(Path("demo.mp4"), target_duration_seconds=55)
+
+    assert result["checks"]["frame_rate_30fps"] is True
+    assert result["checks"]["audio_video_sync"] is True
+    assert result["media"]["frame_rate"] == 30.0
+    assert result["media"]["audio_video_delta_seconds"] == pytest.approx(0.075)

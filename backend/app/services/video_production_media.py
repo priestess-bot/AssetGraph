@@ -1248,6 +1248,14 @@ class VideoQualityInspector:
         video_stream = next((stream for stream in streams if stream.get("codec_type") == "video"), {})
         audio_stream = next((stream for stream in streams if stream.get("codec_type") == "audio"), {})
         duration = float((probe.get("format") or {}).get("duration") or video_stream.get("duration") or 0)
+        frame_rate = _frame_rate(video_stream.get("avg_frame_rate") or video_stream.get("r_frame_rate"))
+        video_stream_duration = _finite_optional_float(video_stream.get("duration"))
+        audio_stream_duration = _finite_optional_float(audio_stream.get("duration"))
+        audio_video_delta = (
+            abs(video_stream_duration - audio_stream_duration)
+            if video_stream_duration is not None and audio_stream_duration is not None
+            else None
+        )
         black_segments = self._black_segments(video)
         silence_segments = self._silence_segments(video, duration)
         freeze_segments = self._freeze_segments(video, duration)
@@ -1260,6 +1268,8 @@ class VideoQualityInspector:
             "video_codec_h264": video_stream.get("codec_name") == "h264",
             "audio_codec_aac": audio_stream.get("codec_name") == "aac",
             "audio_present": bool(audio_stream),
+            "frame_rate_30fps": frame_rate is not None and abs(frame_rate - 30.0) <= 0.01,
+            "audio_video_sync": audio_video_delta is not None and audio_video_delta <= 0.1,
             "no_long_black_frame": not any(float(item.get("duration_seconds") or 0) >= 2 for item in black_segments),
             "no_long_silence": not any(float(item.get("duration_seconds") or 0) >= 4 for item in silence_segments),
             "no_long_freeze": not any(float(item.get("duration_seconds") or 0) >= 2 for item in freeze_segments),
@@ -1277,6 +1287,10 @@ class VideoQualityInspector:
                 "pixel_format": video_stream.get("pix_fmt"),
                 "audio_codec": audio_stream.get("codec_name"),
                 "audio_sample_rate": int(audio_stream.get("sample_rate") or 0),
+                "frame_rate": frame_rate,
+                "video_stream_duration_seconds": video_stream_duration,
+                "audio_stream_duration_seconds": audio_stream_duration,
+                "audio_video_delta_seconds": audio_video_delta,
             },
             "black_segments": black_segments,
             "silence_segments": silence_segments,
@@ -1425,6 +1439,18 @@ def _loudness_passes(loudness: dict[str, float | None]) -> bool:
     integrated = loudness.get("integrated_lufs")
     true_peak = loudness.get("true_peak_db")
     return integrated is not None and true_peak is not None and -18 <= integrated <= -14 and true_peak <= -1.0
+
+
+def _frame_rate(value: Any) -> float | None:
+    text = str(value or "").strip()
+    if not text or text == "N/A":
+        return None
+    try:
+        numerator, denominator = text.split("/", maxsplit=1)
+        rate = float(numerator) / float(denominator)
+    except (TypeError, ValueError, ZeroDivisionError):
+        return None
+    return rate if math.isfinite(rate) and rate > 0 else None
 
 
 def _temporary_media_path(destination: Path) -> Path:

@@ -1667,6 +1667,10 @@ function QualityPanel({ plan }: { plan: FunctionalVideoPlan }) {
                     {media.audioSampleRate
                       ? ` · ${media.audioSampleRate} Hz`
                       : ""}
+                    {media.frameRate ? ` · ${decimal(media.frameRate, " fps")}` : ""}
+                    {media.audioVideoDeltaSeconds !== undefined
+                      ? ` · A/V ${media.audioVideoDeltaSeconds.toFixed(3)}s`
+                      : ""}
                   </small>
                 </div>
               ) : null}

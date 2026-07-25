@@ -113,6 +113,10 @@ export interface FunctionalVideoPlan {
       videoCodec?: string;
       audioCodec?: string;
       audioSampleRate?: number;
+      frameRate?: number;
+      videoStreamDurationSeconds?: number;
+      audioStreamDurationSeconds?: number;
+      audioVideoDeltaSeconds?: number;
     };
     loudness?: { integratedLufs?: number; truePeakDb?: number; lra?: number };
     diagnostics: {
@@ -224,6 +228,20 @@ function qualityReport(value: unknown): FunctionalVideoPlan["qualityReport"] {
           audioSampleRate:
             typeof media.audio_sample_rate === "number"
               ? media.audio_sample_rate
+              : undefined,
+          frameRate:
+            typeof media.frame_rate === "number" ? media.frame_rate : undefined,
+          videoStreamDurationSeconds:
+            typeof media.video_stream_duration_seconds === "number"
+              ? media.video_stream_duration_seconds
+              : undefined,
+          audioStreamDurationSeconds:
+            typeof media.audio_stream_duration_seconds === "number"
+              ? media.audio_stream_duration_seconds
+              : undefined,
+          audioVideoDeltaSeconds:
+            typeof media.audio_video_delta_seconds === "number"
+              ? media.audio_video_delta_seconds
               : undefined,
         }
       : undefined,
