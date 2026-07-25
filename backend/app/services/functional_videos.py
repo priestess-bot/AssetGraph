@@ -1243,6 +1243,11 @@ class FunctionalVideoService:
                     ),
                     **({"playback_rate": float(clip["playback_rate"])} if clip.get("playback_rate") is not None else {}),
                     **(
+                        {"show_brand_logo": "brand_logo" in (clip.get("overlay_roles") or [])}
+                        if clip.get("overlay_roles") is not None
+                        else {}
+                    ),
+                    **(
                         {"show_product_sticker": "product_sticker" in (clip.get("overlay_roles") or [])}
                         if clip.get("overlay_roles") is not None
                         else {}
@@ -1387,6 +1392,22 @@ class FunctionalVideoService:
                         details={"clip_code": clip["clip_code"]},
                     )
                 clip["playback_rate"] = playback_rate
+            show_brand_logo = update.get("show_brand_logo")
+            if show_brand_logo is not None:
+                if type(show_brand_logo) is not bool:
+                    raise DomainValidationError(
+                        "VIDEO_TIMELINE_BRAND_LOGO_INVALID",
+                        "Brand logo selection must be a boolean",
+                        details={"clip_code": clip["clip_code"]},
+                    )
+                roles = [
+                    str(role)
+                    for role in clip.get("overlay_roles") or []
+                    if str(role) != "brand_logo"
+                ]
+                if show_brand_logo:
+                    roles.insert(0, "brand_logo")
+                clip["overlay_roles"] = roles
             show_product_sticker = update.get("show_product_sticker")
             if show_product_sticker is not None:
                 if type(show_product_sticker) is not bool:

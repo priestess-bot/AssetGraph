@@ -55,6 +55,7 @@ class FunctionalVideoTimelineClipUpdate(BaseModel):
     crop_x: float | None = Field(default=None, ge=0, le=1)
     crop_y: float | None = Field(default=None, ge=0, le=1)
     playback_rate: float | None = Field(default=None, ge=0.5, le=2)
+    show_brand_logo: bool | None = None
     show_product_sticker: bool | None = None
     product_sticker_x: float | None = Field(default=None, ge=0, le=1)
     product_sticker_y: float | None = Field(default=None, ge=0, le=1)

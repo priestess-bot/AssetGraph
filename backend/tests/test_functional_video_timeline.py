@@ -144,6 +144,26 @@ def test_timeline_removes_product_sticker_layout_when_the_sticker_is_disabled() 
     assert "product_sticker_layout" not in clip
 
 
+def test_timeline_can_enable_the_brand_logo_for_an_individual_shot() -> None:
+    updated = FunctionalVideoService._apply_timeline_update(
+        _timeline(),
+        [
+            {
+                "clip_code": "SHOT-01",
+                "duration_ms": 30_000,
+                "show_brand_logo": True,
+            },
+            {"clip_code": "SHOT-02", "duration_ms": 30_000},
+        ],
+    )
+
+    assert updated["tracks"][0]["clips"][0]["overlay_roles"] == ["brand_logo"]
+    assert FunctionalVideoService._timeline_shot_list(
+        {"shots": [{"shot_code": "SHOT-01"}, {"shot_code": "SHOT-02"}]},
+        updated,
+    )["shots"][0]["overlay_roles"] == ["brand_logo"]
+
+
 def test_timeline_rebinds_a_shot_only_to_its_frozen_visual_source_pool() -> None:
     updated = FunctionalVideoService._apply_timeline_update(
         _timeline(),

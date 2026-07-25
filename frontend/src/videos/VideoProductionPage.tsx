@@ -435,6 +435,7 @@ type EditableTimelineClip = {
   cropX?: number;
   cropY?: number;
   playbackRate?: number;
+  brandLogo?: boolean;
   productSticker?: boolean;
   overlayZOrder?: { brandLogo?: number; productSticker?: number };
   productStickerX?: number;
@@ -470,6 +471,7 @@ function editableTimelineClips(
       cropX: clip.crop_x,
       cropY: clip.crop_y,
       playbackRate: clip.playback_rate,
+      brandLogo: clip.overlay_roles?.includes("brand_logo"),
       productSticker: clip.overlay_roles?.includes("product_sticker"),
       overlayZOrder: clip.overlay_z_order
         ? {
@@ -608,6 +610,9 @@ function TimelineEditor({ plan }: { plan: FunctionalVideoPlan }) {
             : {}),
           ...(typeof clip.playbackRate === "number"
             ? { playback_rate: clip.playbackRate }
+            : {}),
+          ...(typeof clip.brandLogo === "boolean"
+            ? { show_brand_logo: clip.brandLogo }
             : {}),
           ...(typeof clip.productSticker === "boolean"
             ? { show_product_sticker: clip.productSticker }
@@ -865,6 +870,18 @@ function TimelineEditor({ plan }: { plan: FunctionalVideoPlan }) {
                   <option value="1.5">1.5x</option>
                   <option value="2">2x</option>
                 </select>
+              </label>
+              <label className="wb-field video-overlay-toggle">
+                <span>品牌标识</span>
+                <input
+                  aria-label={`品牌标识 ${clip.clipCode}`}
+                  type="checkbox"
+                  checked={clip.brandLogo ?? false}
+                  disabled={!editable}
+                  onChange={(event) =>
+                    updateClip(index, { brandLogo: event.target.checked })
+                  }
+                />
               </label>
               <label className="wb-field video-overlay-toggle">
                 <span>商品贴片</span>

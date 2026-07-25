@@ -591,6 +591,7 @@ export const functionalVideosApi = {
         crop_x?: number;
         crop_y?: number;
         playback_rate?: number;
+        show_brand_logo?: boolean;
         show_product_sticker?: boolean;
         product_sticker_x?: number;
         product_sticker_y?: number;
