@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import mimetypes
 import os
 import socket
@@ -376,7 +377,8 @@ class VideoProductionPipeline:
             subtitles_path=context["subtitles_path"],
             store=store,
         )
-        poster_path = self._poster(video_path, store)
+        poster_time_seconds = float(context["shot_list"].get("poster_time_seconds") or 0)
+        poster_path = self._poster(video_path, store, at_seconds=poster_time_seconds)
         command_log = store.write_json(
             "render_log",
             "render/commands.json",
@@ -401,6 +403,7 @@ class VideoProductionPipeline:
             subtitles_path=context["subtitles_path"],
             video_path=video_path,
             poster_path=poster_path,
+            poster_time_seconds=poster_time_seconds,
             command_log=command_log,
             toolchain=self._tool_versions(),
             store=store,
@@ -419,14 +422,24 @@ class VideoProductionPipeline:
             mime_type="video/mp4",
             metadata=manifest["video"],
         )
-        poster_artifact = store.describe("poster", poster_path, mime_type="image/jpeg", metadata={"at_seconds": 2})
+        poster_artifact = store.describe(
+            "poster",
+            poster_path,
+            mime_type="image/jpeg",
+            metadata={"at_seconds": poster_time_seconds},
+        )
         context["video_artifact"] = video_artifact
         return StageExecutionResult(
             manifest,
             [video_artifact, poster_artifact, command_log, render_manifest],
         )
 
-    def _poster(self, video: Path, store: ArtifactStore) -> Path:
+    def _poster(self, video: Path, store: ArtifactStore, *, at_seconds: float) -> Path:
+        if not math.isfinite(at_seconds) or at_seconds < 0:
+            raise VideoProductionError(
+                "POSTER_TIME_INVALID",
+                "Poster time must be a finite non-negative value",
+            )
         destination = store.path("poster.jpg")
         temporary = destination.with_name(f".{destination.stem}.{os.getpid()}.part{destination.suffix}")
         try:
@@ -439,7 +452,7 @@ class VideoProductionPipeline:
                     "warning",
                     "-y",
                     "-ss",
-                    "2",
+                    f"{at_seconds:.3f}",
                     "-i",
                     video,
                     "-frames:v",
@@ -734,6 +747,7 @@ def build_render_manifest(
     subtitles_path: Path,
     video_path: Path,
     poster_path: Path,
+    poster_time_seconds: float,
     command_log: Artifact,
     toolchain: dict[str, str],
     store: ArtifactStore,
@@ -791,6 +805,7 @@ def build_render_manifest(
             "poster": {
                 "relative_path": store.relative_to_output_root(poster_path),
                 "checksum_sha256": sha256_file(poster_path),
+                "at_seconds": poster_time_seconds,
             },
         },
         "video": dict(render_result.get("video") or {}),

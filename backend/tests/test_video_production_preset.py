@@ -152,7 +152,11 @@ def test_render_manifest_fixes_input_and_output_checksums_without_local_paths(tm
     poster = store.path("poster.jpg")
     video.write_bytes(b"video")
     poster.write_bytes(b"poster")
-    shot_list = {"duration_seconds": 55, "shots": [{"shot_code": "SHOT-01"}]}
+    shot_list = {
+        "duration_seconds": 55,
+        "poster_time_seconds": 7.5,
+        "shots": [{"shot_code": "SHOT-01"}],
+    }
     asset_plan = {"assets": [{"asset_code": "ASSET-01", "relative_path": "videos/a.mp4", "checksum_sha256": "a" * 64}]}
     voice_manifest = {"segments": [{"shot_index": 0, "relative_path": "VIDJOB-000001/attempt-1/voice/1.wav", "checksum_sha256": "b" * 64}]}
 
@@ -165,6 +169,7 @@ def test_render_manifest_fixes_input_and_output_checksums_without_local_paths(tm
         subtitles_path=store.job_root / "subtitles/subtitles.ass",
         video_path=video,
         poster_path=poster,
+        poster_time_seconds=7.5,
         command_log=commands,
         toolchain={"ffmpeg": "ffmpeg version fixture", "ffprobe": "ffprobe version fixture"},
         store=store,
@@ -175,6 +180,7 @@ def test_render_manifest_fixes_input_and_output_checksums_without_local_paths(tm
     assert manifest["inputs"]["assets"][0]["checksum_sha256"] == "a" * 64
     assert manifest["outputs"]["video"]["relative_path"].startswith("VIDJOB-000001/")
     assert manifest["toolchain"]["ffmpeg"] == "ffmpeg version fixture"
+    assert manifest["outputs"]["poster"]["at_seconds"] == 7.5
     assert str(tmp_path) not in str(manifest)
     assert VideoProductionArtifactRegistration(
         artifact_key="render_manifest",
@@ -183,6 +189,32 @@ def test_render_manifest_fixes_input_and_output_checksums_without_local_paths(tm
         file_size=1,
         checksum_sha256="c" * 64,
     ).artifact_key == "render_manifest"
+
+
+def test_poster_generation_uses_the_selected_timeline_time(tmp_path: Path) -> None:
+    class PosterRunner:
+        def __init__(self) -> None:
+            self.commands: list[list[str]] = []
+
+        def run(self, args, **_kwargs):  # type: ignore[no-untyped-def]
+            command = [str(argument) for argument in args]
+            self.commands.append(command)
+            Path(command[-1]).write_bytes(b"poster")
+            return SimpleNamespace(stdout="")
+
+    runner = PosterRunner()
+    pipeline = VideoProductionPipeline(
+        assets_root=tmp_path / "materials",
+        output_root=tmp_path / "output",
+        tts=SimpleNamespace(),
+        runner=runner,
+    )
+    store = ArtifactStore(tmp_path / "output", "VIDJOB-000001", 1)
+
+    poster = pipeline._poster(tmp_path / "final.mp4", store, at_seconds=7.5)
+
+    assert poster.read_bytes() == b"poster"
+    assert runner.commands[0][runner.commands[0].index("-ss") + 1] == "7.500"
 
 
 def test_render_pipeline_caches_its_local_tool_versions(tmp_path: Path) -> None:

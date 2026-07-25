@@ -64,6 +64,7 @@ class FunctionalVideoAudioClipUpdate(BaseModel):
 
 class FunctionalVideoTimelineUpdate(BaseModel):
     expected_revision: int = Field(ge=1)
+    poster_time_ms: int | None = Field(default=None, ge=0)
     video_clips: list[FunctionalVideoTimelineClipUpdate] = Field(min_length=1, max_length=100)
     subtitle_clips: list[FunctionalVideoSubtitleClipUpdate] = Field(default_factory=list, max_length=100)
     audio_clips: list[FunctionalVideoAudioClipUpdate] = Field(default_factory=list, max_length=100)

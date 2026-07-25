@@ -437,6 +437,7 @@
 .video-progress > i { display: block; height: 100%; background: var(--wb-accent); transition: width 160ms ease; }
 .video-plan-detail .wb-notice { margin: 11px 13px 0; }
 .video-timeline { display: flex; min-height: 110px; gap: 3px; padding: 13px; overflow-x: auto; }
+.video-poster-control { display: grid; max-width: 180px; gap: 4px; padding: 0 13px 13px; }
 .video-timeline > div { display: flex; min-width: 78px; flex-basis: 0; flex-direction: column; justify-content: end; gap: 4px; padding: 8px; border: 1px solid var(--wb-line-strong); background: var(--wb-subtle); }
 .video-timeline span { color: var(--console-cyan); font-size: 8px; font-weight: 900; }
 .video-timeline strong { font-size: 12px; }

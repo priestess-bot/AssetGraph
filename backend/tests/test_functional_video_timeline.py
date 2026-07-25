@@ -41,6 +41,7 @@ def test_timeline_update_preserves_requested_clip_order_across_tracks_and_shots(
             {"clip_code": "SHOT-02", "duration_ms": 35_000, "transition": "fade", "source_start_seconds": 12, "source_end_seconds": 45, "fit": "cover", "crop_x": 0.2, "crop_y": 0.8, "playback_rate": 1.5, "show_product_sticker": True},
             {"clip_code": "SHOT-01", "duration_ms": 25_000, "transition": "fade_out"},
         ],
+        poster_time_ms=12_000,
     )
     video_track, audio_track, subtitle_track = updated["tracks"]
     assert [clip["clip_code"] for clip in video_track["clips"]] == ["SHOT-02", "SHOT-01"]
@@ -84,6 +85,26 @@ def test_timeline_update_preserves_requested_clip_order_across_tracks_and_shots(
     assert rendered_input["shots"][0]["subtitle_text"] == "第二段字幕"
     assert rendered_input["shots"][0]["screen_text"] == "第二段标题"
     assert rendered_input["shots"][0]["voice_gain_db"] == 0.0
+    assert updated["poster_time_ms"] == 12_000
+    assert rendered_input["poster_time_seconds"] == 12.0
+
+
+def test_timeline_poster_time_must_remain_inside_the_rendered_duration() -> None:
+    from app.domain.errors import DomainValidationError
+
+    try:
+        FunctionalVideoService._apply_timeline_update(
+            _timeline(),
+            [
+                {"clip_code": "SHOT-01", "duration_ms": 30_000, "transition": "cut"},
+                {"clip_code": "SHOT-02", "duration_ms": 30_000, "transition": "cut"},
+            ],
+            poster_time_ms=60_000,
+        )
+    except DomainValidationError as exc:
+        assert exc.code == "VIDEO_TIMELINE_POSTER_TIME_INVALID"
+    else:
+        raise AssertionError("poster time at or beyond the rendered duration must be rejected")
 
 
 def test_timeline_voice_gains_remain_bound_to_fixed_shots() -> None:
