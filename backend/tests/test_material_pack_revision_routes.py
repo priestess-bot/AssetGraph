@@ -42,6 +42,24 @@ class FakeMaterialLibraryRepository:
                 "created_at": "2026-07-25T00:00:00Z",
             }
         ]
+        self.constraint_revisions = [
+            {
+                "profile_code": "AG-CP-001",
+                "asset_code": "AG-IMG-001",
+                "revision_number": 2,
+                "constraints": [{"kind": "table_surface", "hard": True, "parameters": {"name": "table_surface"}}],
+                "fingerprint_sha256": "c" * 64,
+                "created_at": "2026-07-25T00:00:00Z",
+            },
+            {
+                "profile_code": "AG-CP-001",
+                "asset_code": "AG-IMG-001",
+                "revision_number": 1,
+                "constraints": [],
+                "fingerprint_sha256": "a" * 64,
+                "created_at": "2026-07-24T00:00:00Z",
+            },
+        ]
 
     def update_asset_classifications(
         self,
@@ -75,6 +93,9 @@ class FakeMaterialLibraryRepository:
 
     def list_pack_revisions(self, pack_code: str) -> list[dict]:
         return deepcopy(self.revisions) if pack_code == self.pack["pack_code"] else []
+
+    def list_constraint_profile_revisions(self, asset_code: str) -> list[dict]:
+        return deepcopy(self.constraint_revisions) if asset_code == "AG-IMG-001" else []
 
     def create_pack_revision(self, pack_code: str, *, expected_revision: int, entries: list[dict]) -> dict | None:
         if pack_code != self.pack["pack_code"]:
@@ -183,3 +204,13 @@ def test_material_pack_revision_history_returns_not_found_for_unknown_pack(clien
     response = client.get("/api/assets/material-packs/AG-PACK-MISSING/revisions")
 
     assert response.status_code == 404
+
+
+def test_constraint_profile_revisions_are_immutable_and_listed_newest_first(client: TestClient) -> None:
+    listed = client.get("/api/assets/AG-IMG-001/constraint-profile/revisions")
+    missing = client.get("/api/assets/AG-IMG-MISSING/constraint-profile/revisions")
+
+    assert listed.status_code == 200
+    assert [row["revision_number"] for row in listed.json()] == [2, 1]
+    assert listed.json()[0]["constraints"][0]["kind"] == "table_surface"
+    assert missing.status_code == 404

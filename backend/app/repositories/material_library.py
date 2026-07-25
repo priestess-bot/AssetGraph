@@ -198,6 +198,23 @@ class MaterialLibraryRepository:
             row = cursor.fetchone()
         return self._stringify(row) if row else None
 
+    def list_constraint_profile_revisions(self, asset_code: str) -> list[dict[str, Any]]:
+        """Read immutable constraint revisions without treating the latest row as mutable."""
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT p.profile_code, p.asset_code, r.revision_number, r.constraints,
+                       r.fingerprint_sha256, r.created_at
+                FROM asset_constraint_profiles p
+                JOIN asset_constraint_profile_revisions r ON r.profile_id = p.id
+                WHERE p.asset_code = %s
+                ORDER BY r.revision_number DESC
+                """,
+                (asset_code,),
+            )
+            rows = cursor.fetchall()
+        return [self._stringify(row) for row in rows]
+
     def create_pack(self, payload: dict[str, Any]) -> dict[str, Any]:
         entries = payload.get("entries") or []
         self._validate_pack_entries(entries)

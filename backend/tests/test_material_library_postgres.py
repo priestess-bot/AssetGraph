@@ -61,6 +61,9 @@ def test_material_library_groups_constraints_packs_and_gaps() -> None:
         assert first_profile["revision_number"] == 1
         assert second_profile["revision_number"] == 2
         assert first_profile["fingerprint_sha256"] != second_profile["fingerprint_sha256"]
+        profile_revisions = library.list_constraint_profile_revisions(background["asset_code"])
+        assert [revision["revision_number"] for revision in profile_revisions] == [2, 1]
+        assert profile_revisions[0]["constraints"] == second_profile["constraints"]
 
         pack = library.create_pack(
             {

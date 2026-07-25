@@ -25,6 +25,7 @@ from app.repositories.material_library import (
 from app.schemas.assets import AssetCreate, AssetFileRead, AssetMaituMaterialBindingUpdate, AssetRead
 from app.schemas.material_library import (
     AssetConstraintProfileRead,
+    AssetConstraintProfileRevisionRead,
     AssetConstraintProfileWrite,
     AssetClassificationBatchUpdate,
     AssetClassificationUpdate,
@@ -278,6 +279,23 @@ def get_asset_constraint_profile(
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset constraint profile not found")
     return row
+
+
+@router.get(
+    "/{asset_code}/constraint-profile/revisions",
+    response_model=list[AssetConstraintProfileRevisionRead],
+)
+def list_asset_constraint_profile_revisions(
+    asset_code: str,
+    repository: Annotated[MaterialLibraryRepository, Depends(get_material_library_repository)],
+) -> list[dict]:
+    rows = repository.list_constraint_profile_revisions(asset_code)
+    if not rows:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Asset constraint profile not found",
+        )
+    return rows
 
 
 @router.post("/material-packs", response_model=MaterialPackRead, status_code=status.HTTP_201_CREATED)

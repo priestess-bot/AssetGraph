@@ -71,6 +71,7 @@ describe("AssetLibraryPage", () => {
       const url = String(input); requests.push({ url, init });
       if (url === "/api/assets") return response([{ asset_code: "AG-IMG-001", title: "餐桌背景", original_filename: "table.png", asset_type: "IMG", material_roles: ["background"], execution_capability: "maitu_bound" }]);
       if (url === "/api/assets/groups" || url === "/api/assets/material-packs" || url === "/api/assets/gaps") return response([]);
+      if (url === "/api/assets/AG-IMG-001/constraint-profile/revisions" && !init?.method) return response([{ profile_code: "AG-CP-001", asset_code: "AG-IMG-001", revision_number: 1, constraints: [], fingerprint_sha256: "a".repeat(64), created_at: "2026-07-25T00:00:00Z" }]);
       if (url === "/api/assets/AG-IMG-001/constraint-profile" && !init?.method) return response({ profile_code: "AG-CP-001", asset_code: "AG-IMG-001", revision_number: 1, constraints: [], fingerprint_sha256: "a".repeat(64), created_at: "2026-07-25T00:00:00Z" });
       if (url === "/api/assets/AG-IMG-001/constraint-profile" && init?.method === "POST") return response({ profile_code: "AG-CP-001", asset_code: "AG-IMG-001", revision_number: 2, constraints: [], fingerprint_sha256: "b".repeat(64), created_at: "2026-07-25T00:00:00Z" });
       throw new Error(`Unexpected request: ${url}`);
@@ -79,6 +80,7 @@ describe("AssetLibraryPage", () => {
     renderPage();
 
     await screen.findByText("位置与图层约束");
+    expect(await screen.findByText("约束修订历史")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "添加约束" }));
     await user.selectOptions(screen.getByLabelText("约束类型"), "table_surface");
     expect(screen.getByLabelText("归一化区域预览")).toBeInTheDocument();
@@ -142,6 +144,7 @@ describe("AssetLibraryPage", () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input); requests.push({ url, init });
       if (url === "/api/assets" || url === "/api/assets/groups" || url === "/api/assets/material-packs" || url === "/api/assets/gaps") return response(url === "/api/assets" ? assets : []);
+      if (url === "/api/assets/AG-IMG-001/constraint-profile/revisions" && !init?.method) return response([{ profile_code: "AG-CP-001", asset_code: "AG-IMG-001", revision_number: 1, constraints: [], fingerprint_sha256: "a".repeat(64), created_at: "2026-07-25T00:00:00Z" }]);
       if (url === "/api/assets/AG-IMG-001/constraint-profile" && !init?.method) return response({ profile_code: "AG-CP-001", asset_code: "AG-IMG-001", revision_number: 1, constraints: [], fingerprint_sha256: "a".repeat(64), created_at: "2026-07-25T00:00:00Z" });
       if (url === "/api/assets/batch-classification") return response(assets.map((asset) => ({ ...asset, media_kind: "image", material_roles: ["background"], execution_capability: "local_only", id: `id-${asset.asset_code}` })));
       throw new Error(`Unexpected request: ${url}`);
@@ -180,5 +183,25 @@ describe("AssetLibraryPage", () => {
 
     const request = requests.find((item) => item.url === "/api/assets/gaps/AG-GAP-001" && item.init?.method === "PATCH");
     expect(JSON.parse(String(request?.init?.body))).toEqual({ status: "obsolete", resolution_evidence: { obsolete_reason: "Campaign scope changed." }, actor: "material_library" });
+  });
+
+  it("shows constraint revision differences without replacing the current Profile", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/assets") return response([{ asset_code: "AG-IMG-001", title: "餐桌背景", original_filename: "table.png", asset_type: "IMG", material_roles: ["background"], execution_capability: "maitu_bound" }]);
+      if (url === "/api/assets/groups" || url === "/api/assets/material-packs" || url === "/api/assets/gaps") return response([]);
+      if (url === "/api/assets/AG-IMG-001/constraint-profile" && !init?.method) return response({ profile_code: "AG-CP-001", asset_code: "AG-IMG-001", revision_number: 2, constraints: [{ kind: "table_surface", hard: true, parameters: { name: "table_surface" } }], fingerprint_sha256: "b".repeat(64), created_at: "2026-07-25T00:00:00Z" });
+      if (url === "/api/assets/AG-IMG-001/constraint-profile/revisions" && !init?.method) return response([
+        { profile_code: "AG-CP-001", asset_code: "AG-IMG-001", revision_number: 2, constraints: [{ kind: "table_surface", hard: true, parameters: { name: "table_surface" } }], fingerprint_sha256: "b".repeat(64), created_at: "2026-07-25T00:00:00Z" },
+        { profile_code: "AG-CP-001", asset_code: "AG-IMG-001", revision_number: 1, constraints: [{ kind: "preserve_aspect_ratio", hard: true, parameters: {} }], fingerprint_sha256: "a".repeat(64), created_at: "2026-07-24T00:00:00Z" },
+      ]);
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    renderPage();
+
+    expect(await screen.findByText("约束修订历史")).toBeInTheDocument();
+    expect(screen.getByText(/r2 · 当前/)).toBeInTheDocument();
+    expect(screen.getByText(/与 r1 差异：新增 桌面摆放区域/)).toBeInTheDocument();
+    expect(screen.getByText(/移除 保持等比例/)).toBeInTheDocument();
   });
 });

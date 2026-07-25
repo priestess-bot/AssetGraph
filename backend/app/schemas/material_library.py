@@ -120,6 +120,10 @@ class AssetConstraintProfileRead(BaseModel):
     created_at: datetime
 
 
+class AssetConstraintProfileRevisionRead(AssetConstraintProfileRead):
+    """An immutable constraint-profile revision projection."""
+
+
 class MaterialPackEntryMode(StrEnum):
     REQUIRED = "required"
     OPTIONAL = "optional"

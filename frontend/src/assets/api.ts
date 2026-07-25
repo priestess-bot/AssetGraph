@@ -30,6 +30,15 @@ export interface ConstraintRule {
   parameters: Record<string, unknown>;
 }
 
+export interface ConstraintProfileRevision {
+  profileCode: string;
+  assetCode: string;
+  revisionNumber: number;
+  constraints: ConstraintRule[];
+  fingerprintSha256: string;
+  createdAt?: string;
+}
+
 export interface MaterialPack {
   packCode: string;
   title: string;
@@ -152,6 +161,21 @@ function selectionPreview(value: unknown): MaterialSelectionPreview {
   };
 }
 
+function constraintProfileRevision(value: unknown): ConstraintProfileRevision {
+  if (!isRecord(value)) throw new Error("约束 Profile 响应无效");
+  const profileCode = asString(value.profile_code);
+  const assetCode = asString(value.asset_code);
+  if (!profileCode || !assetCode) throw new Error("约束 Profile 缺少编码");
+  return {
+    profileCode,
+    assetCode,
+    revisionNumber: asNumber(value.revision_number),
+    constraints: asArray(value.constraints).flatMap((rule) => isRecord(rule) && asString(rule.kind) ? [{ kind: asString(rule.kind), hard: rule.hard !== false, parameters: isRecord(rule.parameters) ? rule.parameters : {} }] : []),
+    fingerprintSha256: asString(value.fingerprint_sha256),
+    createdAt: asOptionalString(value.created_at),
+  };
+}
+
 export const assetLibraryApi = {
   listAssets: () => requestJson<unknown[]>(ROOT).then((rows) => rows.flatMap((row) => asset(row) ?? [])),
   createAsset: (payload: { title: string; original_filename: string; asset_type: string; media_kind?: string; material_roles: string[]; execution_capability: ExecutionCapability }) => postJson<unknown>(ROOT, payload).then((value) => {
@@ -176,8 +200,9 @@ export const assetLibraryApi = {
     if (!result) throw new Error("分组成员响应无效");
     return result;
   }),
-  getConstraintProfile: (assetCode: string) => requestJson<{ constraints: ConstraintRule[] }>(`${ROOT}/${assetCode}/constraint-profile`),
-  writeConstraintProfile: (assetCode: string, constraints: ConstraintRule[]) => postJson<{ constraints: ConstraintRule[] }>(`${ROOT}/${assetCode}/constraint-profile`, { constraints }),
+  getConstraintProfile: (assetCode: string) => requestJson<unknown>(`${ROOT}/${assetCode}/constraint-profile`).then(constraintProfileRevision),
+  listConstraintProfileRevisions: (assetCode: string) => requestJson<unknown[]>(`${ROOT}/${assetCode}/constraint-profile/revisions`).then((rows) => rows.map(constraintProfileRevision)),
+  writeConstraintProfile: (assetCode: string, constraints: ConstraintRule[]) => postJson<unknown>(`${ROOT}/${assetCode}/constraint-profile`, { constraints }).then(constraintProfileRevision),
   previewSelection: (payload: { role: string; carrier_kind: "live_room" | "rendered_video" }) => postJson<unknown>(`${ROOT}/selection-preview`, payload).then(selectionPreview),
   listPacks: () => requestJson<unknown[]>(`${ROOT}/material-packs`).then((rows) => rows.flatMap((row) => pack(row) ?? [])),
   createPack: (payload: { title: string; role: string; description?: string; entries: MaterialPack["entries"] }) => postJson<unknown>(`${ROOT}/material-packs`, payload).then((value) => {
