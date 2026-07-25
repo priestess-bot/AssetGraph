@@ -22,7 +22,7 @@ from app.services.video_production_preset import (
     generate_story_brief,
     plan_shots,
 )
-from app.services.video_production_subtitles import build_ass_subtitles
+from app.services.video_production_subtitles import build_ass_subtitles, evaluate_subtitle_quality
 
 
 def test_demo_preset_generates_verified_script_and_six_contiguous_shots() -> None:
@@ -196,6 +196,99 @@ def test_ass_subtitles_honor_the_frozen_preset_and_safe_bottom_margin() -> None:
     assert ",72,72,240,1" in content
     assert manifest["subtitle_style"] == {"preset": "large", "safe_bottom_px": 240}
     assert manifest["safe_margins"]["bottom"] == 240
+
+
+def test_subtitle_quality_requires_safe_readable_events_and_source_block_coverage() -> None:
+    shot_list = {
+        "shots": [
+            {
+                "shot_index": 0,
+                "source_script_block_codes": ["BLOCK-001"],
+                "start_seconds": 0.0,
+                "end_seconds": 4.0,
+                "narration": "这是完整且可读的一段字幕。",
+            }
+        ]
+    }
+    _, manifest = build_ass_subtitles(shot_list)
+
+    result = evaluate_subtitle_quality(shot_list, manifest)
+
+    assert result["passed"] is True
+    assert result["required_script_block_codes"] == ["BLOCK-001"]
+    assert result["covered_script_block_codes"] == ["BLOCK-001"]
+
+
+def test_subtitle_quality_reports_missing_source_block_and_unsafe_caption_duration() -> None:
+    shot_list = {
+        "shots": [
+            {
+                "shot_index": 0,
+                "source_script_block_codes": ["BLOCK-001"],
+                "start_seconds": 0.0,
+                "end_seconds": 4.0,
+                "narration": "这是完整且可读的一段字幕。",
+            }
+        ]
+    }
+    _, manifest = build_ass_subtitles(shot_list)
+    caption = next(event for event in manifest["events"] if event["kind"] == "caption")
+    caption["end_seconds"] = 0.1
+    caption["source_script_block_codes"] = []
+    manifest["safe_margins"]["bottom"] = 40
+
+    result = evaluate_subtitle_quality(shot_list, manifest)
+
+    assert result["passed"] is False
+    assert result["checks"]["subtitle_safe_area"] is False
+    assert result["checks"]["subtitle_readable_duration"] is False
+    assert result["checks"]["required_script_blocks_covered"] is False
+    assert {issue["code"] for issue in result["issues"]} >= {
+        "subtitle_safe_area_invalid",
+        "subtitle_caption_too_short",
+        "required_script_blocks_missing_from_subtitles",
+    }
+
+
+def test_quality_stage_merges_static_subtitle_gates_into_the_release_report(tmp_path: Path) -> None:
+    shot_list = {
+        "shots": [
+            {
+                "shot_index": 0,
+                "source_script_block_codes": ["BLOCK-001"],
+                "start_seconds": 0.0,
+                "end_seconds": 4.0,
+                "narration": "这是完整且可读的一段字幕。",
+            }
+        ]
+    }
+    _, subtitle_manifest = build_ass_subtitles(shot_list)
+    pipeline = VideoProductionPipeline(
+        assets_root=tmp_path / "assets",
+        output_root=tmp_path / "output",
+        tts=SimpleNamespace(),
+        enforce_demo_duration=False,
+    )
+    pipeline.quality_inspector = SimpleNamespace(
+        inspect=lambda *_args, **_kwargs: {"passed": True, "checks": {"media_profile": True}}
+    )
+    store = ArtifactStore(tmp_path / "output", "VIDJOB-QUALITY", 1)
+
+    result = pipeline._quality_check(
+        {
+            "job": {"target_duration_seconds": 4},
+            "video_path": tmp_path / "final.mp4",
+            "shot_list": shot_list,
+            "subtitle_manifest": subtitle_manifest,
+            "store": store,
+        }
+    )
+
+    assert result.output_payload["passed"] is True
+    assert result.output_payload["checks"]["subtitle_safe_area"] is True
+    assert result.output_payload["checks"]["required_script_blocks_covered"] is True
+    assert result.output_payload["subtitle_layout"]["schema_version"] == "subtitle-quality-v1"
+    assert result.artifacts[0].relative_path.endswith("quality_report.json")
 
 
 def test_render_manifest_fixes_input_and_output_checksums_without_local_paths(tmp_path: Path) -> None:

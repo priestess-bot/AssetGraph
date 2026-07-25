@@ -34,7 +34,7 @@ from app.services.video_production_preset import (
     generate_story_brief,
     plan_shots,
 )
-from app.services.video_production_subtitles import build_ass_subtitles
+from app.services.video_production_subtitles import build_ass_subtitles, evaluate_subtitle_quality
 from app.services.video_production_tts import TTSProvider
 
 
@@ -621,18 +621,14 @@ class VideoProductionPipeline:
             enforce_demo_duration=self.enforce_demo_duration,
         )
         subtitle_manifest = context.get("subtitle_manifest", {})
-        subtitle_passed = bool(subtitle_manifest.get("text_complete")) and not int(
-            subtitle_manifest.get("truncated_event_count") or 0
-        )
+        subtitle_quality = evaluate_subtitle_quality(context["shot_list"], subtitle_manifest)
         report["subtitle_layout"] = {
-            "passed": subtitle_passed,
+            **subtitle_quality,
             "font": subtitle_manifest.get("font"),
-            "safe_margins": subtitle_manifest.get("safe_margins"),
-            "event_count": subtitle_manifest.get("event_count"),
             "text_complete": subtitle_manifest.get("text_complete"),
             "truncated_event_count": subtitle_manifest.get("truncated_event_count"),
         }
-        report["checks"]["subtitle_text_complete"] = subtitle_passed
+        report["checks"].update(subtitle_quality["checks"])
         report["passed"] = all(report["checks"].values())
         context["quality_report"] = report
         artifact = context["store"].write_json("quality_report", "quality_report.json", report)

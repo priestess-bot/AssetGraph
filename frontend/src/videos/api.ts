@@ -124,6 +124,15 @@ export interface FunctionalVideoPlan {
       silenceSegments: VideoQualitySegment[];
       freezeSegments: VideoQualitySegment[];
     };
+    subtitleLayout?: {
+      passed?: boolean;
+      checks: Record<string, boolean>;
+      safeMargins?: { left?: number; right?: number; bottom?: number; headlineTop?: number };
+      requiredScriptBlockCodes: string[];
+      coveredScriptBlockCodes: string[];
+      missingScriptBlockCodes: string[];
+      issues: Array<{ code: string; shotIndex?: number }>;
+    };
   };
   workflowStages: Array<{
     stageName: string;
@@ -209,6 +218,10 @@ function qualityReport(value: unknown): FunctionalVideoPlan["qualityReport"] {
   const report = isRecord(value) ? value : {};
   const media = isRecord(report.media) ? report.media : undefined;
   const loudness = isRecord(report.loudness) ? report.loudness : undefined;
+  const subtitleLayout = isRecord(report.subtitle_layout) ? report.subtitle_layout : undefined;
+  const safeMargins = subtitleLayout && isRecord(subtitleLayout.safe_margins)
+    ? subtitleLayout.safe_margins
+    : undefined;
   return {
     passed: typeof report.passed === "boolean" ? report.passed : undefined,
     checks: isRecord(report.checks)
@@ -263,6 +276,45 @@ function qualityReport(value: unknown): FunctionalVideoPlan["qualityReport"] {
       silenceSegments: qualitySegments(report.silence_segments),
       freezeSegments: qualitySegments(report.freeze_segments),
     },
+    subtitleLayout: subtitleLayout
+      ? {
+          passed:
+            typeof subtitleLayout.passed === "boolean" ? subtitleLayout.passed : undefined,
+          checks: isRecord(subtitleLayout.checks)
+            ? Object.fromEntries(
+                Object.entries(subtitleLayout.checks).flatMap(([key, check]) =>
+                  typeof check === "boolean" ? [[key, check]] : [],
+                ),
+              )
+            : {},
+          safeMargins: safeMargins
+            ? {
+                left: typeof safeMargins.left === "number" ? safeMargins.left : undefined,
+                right: typeof safeMargins.right === "number" ? safeMargins.right : undefined,
+                bottom: typeof safeMargins.bottom === "number" ? safeMargins.bottom : undefined,
+                headlineTop:
+                  typeof safeMargins.headline_top === "number"
+                    ? safeMargins.headline_top
+                    : undefined,
+              }
+            : undefined,
+          requiredScriptBlockCodes: asArray(subtitleLayout.required_script_block_codes)
+            .filter((code): code is string => typeof code === "string"),
+          coveredScriptBlockCodes: asArray(subtitleLayout.covered_script_block_codes)
+            .filter((code): code is string => typeof code === "string"),
+          missingScriptBlockCodes: asArray(subtitleLayout.missing_script_block_codes)
+            .filter((code): code is string => typeof code === "string"),
+          issues: asArray(subtitleLayout.issues).flatMap((issue) =>
+            isRecord(issue) && typeof issue.code === "string"
+              ? [{
+                  code: issue.code,
+                  shotIndex:
+                    typeof issue.shot_index === "number" ? issue.shot_index : undefined,
+                }]
+              : [],
+          ),
+        }
+      : undefined,
   };
 }
 

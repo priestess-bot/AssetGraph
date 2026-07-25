@@ -1616,13 +1616,13 @@ function ReleaseCandidatePanel({ plan }: { plan: FunctionalVideoPlan }) {
 function QualityPanel({ plan }: { plan: FunctionalVideoPlan }) {
   const checks = Object.entries(plan.qualityReport.checks);
   const passed = plan.qualityReport.passed === true;
-  const { media, loudness, diagnostics } = plan.qualityReport;
+  const { media, loudness, diagnostics, subtitleLayout } = plan.qualityReport;
   const anomalyGroups = [
     { label: "黑帧", segments: diagnostics.blackSegments },
     { label: "静音", segments: diagnostics.silenceSegments },
     { label: "冻结", segments: diagnostics.freezeSegments },
   ].filter((group) => group.segments.length);
-  const hasDetails = Boolean(media || loudness || anomalyGroups.length);
+  const hasDetails = Boolean(media || loudness || anomalyGroups.length || subtitleLayout);
   return (
     <>
       {checks.length || hasDetails ? (
@@ -1682,6 +1682,29 @@ function QualityPanel({ plan }: { plan: FunctionalVideoPlan }) {
                     {decimal(loudness.truePeakDb, " dB")}
                   </strong>
                   <small>LRA {decimal(loudness.lra)}</small>
+                </div>
+              ) : null}
+              {subtitleLayout ? (
+                <div>
+                  <span>字幕证据</span>
+                  <strong>
+                    {Object.values(subtitleLayout.checks).filter(Boolean).length}/
+                    {Object.keys(subtitleLayout.checks).length} 项通过
+                  </strong>
+                  <small>
+                    {subtitleLayout.safeMargins
+                      ? `安全区 L${subtitleLayout.safeMargins.left ?? "--"} R${subtitleLayout.safeMargins.right ?? "--"} B${subtitleLayout.safeMargins.bottom ?? "--"}`
+                      : "安全区未声明"}
+                    {subtitleLayout.requiredScriptBlockCodes.length
+                      ? ` · ScriptBlock ${subtitleLayout.coveredScriptBlockCodes.length}/${subtitleLayout.requiredScriptBlockCodes.length}`
+                      : ""}
+                    {subtitleLayout.missingScriptBlockCodes.length
+                      ? ` · 缺失 ${subtitleLayout.missingScriptBlockCodes.join(", ")}`
+                      : ""}
+                    {subtitleLayout.issues.length
+                      ? ` · ${subtitleLayout.issues.map((issue) => issue.code).join(", ")}`
+                      : ""}
+                  </small>
                 </div>
               ) : null}
               {anomalyGroups.map((group) => (
