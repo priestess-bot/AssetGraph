@@ -286,6 +286,8 @@
 .content-flow-list li > div { display: flex; min-width: 0; flex-direction: column; }
 .content-flow-list strong { overflow-wrap: anywhere; font-size: 11px; line-height: 1.5; }
 .content-flow-list small { margin-top: 4px; color: var(--wb-muted); font-size: 8px; }
+.content-template-evidence-links { display: flex; flex-wrap: wrap; gap: 4px 8px; margin-top: 5px; }
+.content-template-evidence-links a { color: var(--console-cyan); font-size: 8px; overflow-wrap: anywhere; text-decoration: underline; }
 .content-program-timeline { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--wb-line); background: var(--wb-subtle); }
 .content-program-timeline-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .content-program-timeline-heading h3 { margin: 0; font-size: 12px; }

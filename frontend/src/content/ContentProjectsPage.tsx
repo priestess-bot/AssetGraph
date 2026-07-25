@@ -102,6 +102,39 @@ function actionPolicySummary(value?: Record<string, unknown>): string {
   const parts = Object.entries(policy).flatMap(([key, item]) => typeof item === "string" || typeof item === "number" ? [`${key}: ${item}`] : []);
   return parts.join(" / ");
 }
+function templateEvidenceHref(
+  sourceSessionCode: string,
+  startMs: number,
+  endMs: number,
+): string {
+  const query = new URLSearchParams({
+    view: "sessions",
+    session: sourceSessionCode,
+    in: String(startMs / 1000),
+    out: String(endMs / 1000),
+  });
+  return `/research/live-sources?${query.toString()}`;
+}
+function templateEvidenceLinks(
+  sources: NonNullable<ContentProjectDetail["script"]>["blocks"][number]["template_sources"],
+): Array<{ key: string; label: string; sourceSessionCode: string; startMs: number; endMs: number }> {
+  return sources.flatMap((source) => [
+    ...(source.strategyStage ? [{
+      key: `stage:${source.template_code}:${source.strategyStage.moduleKey}:${source.strategyStage.startMs}`,
+      label: `阶段证据：${source.strategyStage.title}`,
+      sourceSessionCode: source.strategyStage.sourceSessionCode,
+      startMs: source.strategyStage.startMs,
+      endMs: source.strategyStage.endMs,
+    }] : []),
+    ...source.referenceExamples.map((example, index) => ({
+      key: `example:${source.template_code}:${example.moduleKey}:${example.startMs}:${index}`,
+      label: `例证：${example.exampleText}`,
+      sourceSessionCode: example.sourceSessionCode,
+      startMs: example.startMs,
+      endMs: example.endMs,
+    })),
+  ]);
+}
 function toggleBranch(
   value: string[],
   branch: "live_room" | "rendered_video",
@@ -3287,6 +3320,22 @@ function Chain({
                         ? ` · 转化：${actionPolicySummary(block.cta_intent)}`
                         : ""}
                     </small>
+                    {templateEvidenceLinks(block.template_sources).length ? (
+                      <span className="content-template-evidence-links">
+                        {templateEvidenceLinks(block.template_sources).map((evidence) => (
+                          <a
+                            key={evidence.key}
+                            href={templateEvidenceHref(
+                              evidence.sourceSessionCode,
+                              evidence.startMs,
+                              evidence.endMs,
+                            )}
+                          >
+                            {evidence.label}
+                          </a>
+                        ))}
+                      </span>
+                    ) : null}
                   </div>
                 </li>
               ))}

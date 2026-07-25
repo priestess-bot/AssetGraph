@@ -226,6 +226,14 @@ describe("ContentProjectsPage", () => {
     expect(screen.getByText(/阶段：开场 \(CAPTURE-001 0-30000ms\)/)).toBeInTheDocument();
     expect(screen.getByText("清洗例证")).toBeInTheDocument();
     expect(screen.getByText(/例证：先用选择问题建立代入。 \(CAPTURE-001 1000-8000ms\)/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "阶段证据：开场" })).toHaveAttribute(
+      "href",
+      "/research/live-sources?view=sessions&session=CAPTURE-001&in=0&out=30",
+    );
+    expect(screen.getByRole("link", { name: "例证：先用选择问题建立代入。" })).toHaveAttribute(
+      "href",
+      "/research/live-sources?view=sessions&session=CAPTURE-001&in=1&out=8",
+    );
     await user.click(screen.getByRole("button", { name: "新建" }));
     fireEvent.change(screen.getAllByLabelText("内容项目名称")[0], {
       target: { value: "新品讲解" },
