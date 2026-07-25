@@ -315,6 +315,17 @@ def test_script_block_rule_reference_migration_preserves_frozen_rule_evidence() 
     assert "chk_content_script_block_content_rule_refs" in sql
 
 
+def test_source_extraction_run_migration_freezes_capture_fingerprints() -> None:
+    migration = MIGRATIONS_DIR / "095_knowledge_source_extraction_runs.sql"
+
+    assert migration.exists()
+    sql = migration.read_text(encoding="utf-8")
+    assert "functional_knowledge_source_extraction_runs" in sql
+    assert "input_fingerprint_sha256 CHAR(64)" in sql
+    assert "output_checksum_sha256 CHAR(64)" in sql
+    assert "extraction_metadata JSONB" in sql
+
+
 def test_constraint_profile_promotion_migration_keeps_room_override_provenance() -> None:
     migration = MIGRATIONS_DIR / "081_constraint_profile_promotion_provenance.sql"
 

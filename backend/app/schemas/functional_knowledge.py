@@ -25,13 +25,28 @@ class SourceEvidenceCreate(BaseModel):
     excerpt: str = Field(min_length=1, max_length=20000)
     captured_at: datetime | None = None
     access_scope: str = Field(default="internal", min_length=1, max_length=64)
+    extractor_strategy_ref: str = Field(default="manual_excerpt.v1", min_length=1, max_length=128)
+    extraction_metadata: dict[str, object] = Field(default_factory=dict)
     created_by: str | None = Field(default=None, max_length=128)
 
     @model_validator(mode="after")
     def validate_captured_at(self) -> "SourceEvidenceCreate":
         if self.captured_at and self.captured_at.tzinfo is None:
             raise ValueError("captured_at must include a timezone")
+        if not self.extractor_strategy_ref.strip():
+            raise ValueError("extractor_strategy_ref must not be blank")
         return self
+
+
+class SourceExtractionRunRead(BaseModel):
+    extraction_run_code: str
+    evidence_code: str
+    extractor_strategy_ref: str
+    input_fingerprint_sha256: str
+    output_checksum_sha256: str
+    extraction_metadata: dict[str, object] = Field(default_factory=dict)
+    created_by: str | None = None
+    created_at: datetime
 
 
 class SourceEvidenceApprove(BaseModel):
@@ -71,6 +86,7 @@ class SourceEvidenceRead(SourceEvidenceCreate):
     rejected_by: str | None = None
     rejected_at: datetime | None = None
     rejection_reason: str | None = None
+    extraction_runs: list[SourceExtractionRunRead] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 

@@ -85,6 +85,9 @@ export interface SourceEvidence {
   contentChecksum: string;
   capturedAt?: string;
   accessScope: string;
+  extractorStrategyRef: string;
+  extractionMetadata: Record<string, unknown>;
+  extractionRuns: SourceExtractionRun[];
   status: string;
   createdBy?: string;
   approvedBy?: string;
@@ -99,6 +102,17 @@ export interface SourceEvidence {
   updatedAt?: string;
 }
 
+export interface SourceExtractionRun {
+  extractionRunCode: string;
+  evidenceCode: string;
+  extractorStrategyRef: string;
+  inputFingerprint: string;
+  outputChecksum: string;
+  extractionMetadata: Record<string, unknown>;
+  createdBy?: string;
+  createdAt?: string;
+}
+
 export interface SourceEvidenceCreateInput {
   source_type: "human" | "document" | "webpage" | "export";
   title: string;
@@ -106,6 +120,8 @@ export interface SourceEvidenceCreateInput {
   excerpt: string;
   captured_at?: string;
   access_scope: string;
+  extractor_strategy_ref?: string;
+  extraction_metadata?: Record<string, unknown>;
   created_by?: string;
 }
 
@@ -268,6 +284,18 @@ function sourceEvidence(value: unknown): SourceEvidence {
     contentChecksum: asString(value.content_sha256),
     capturedAt: asOptionalString(value.captured_at),
     accessScope: asString(value.access_scope, "internal"),
+    extractorStrategyRef: asString(value.extractor_strategy_ref, "manual_excerpt.v1"),
+    extractionMetadata: isRecord(value.extraction_metadata) ? value.extraction_metadata : {},
+    extractionRuns: asArray(value.extraction_runs).flatMap((run) => isRecord(run) && asString(run.extraction_run_code) && asString(run.evidence_code) ? [{
+      extractionRunCode: asString(run.extraction_run_code),
+      evidenceCode: asString(run.evidence_code),
+      extractorStrategyRef: asString(run.extractor_strategy_ref, "manual_excerpt.v1"),
+      inputFingerprint: asString(run.input_fingerprint_sha256),
+      outputChecksum: asString(run.output_checksum_sha256),
+      extractionMetadata: isRecord(run.extraction_metadata) ? run.extraction_metadata : {},
+      createdBy: asOptionalString(run.created_by),
+      createdAt: asOptionalString(run.created_at),
+    }] : []),
     status: asString(value.status),
     createdBy: asOptionalString(value.created_by),
     approvedBy: asOptionalString(value.approved_by),
@@ -389,6 +417,7 @@ export const knowledgeApi = {
   rejectProductFactCardVersion: (factCardCode: string, versionNumber: number, rejectedBy: string, reason: string) => postJson<unknown>(`${ROOT}/${encodeURIComponent(factCardCode)}/versions/${versionNumber}/reject`, { rejected_by: rejectedBy, reason }),
   listProductFactCardUsage: (factCardCode: string, versionNumber: number) => requestJson<unknown[]>(`${ROOT}/${encodeURIComponent(factCardCode)}/versions/${versionNumber}/usage`).then((items) => items.map(usage)),
   listSourceEvidences: () => requestJson<unknown[]>(`${FUNCTIONAL_ROOT}/source-evidences`).then((items) => items.map(sourceEvidence)),
+  listSourceExtractionRuns: (evidenceCode: string) => requestJson<unknown[]>(`${FUNCTIONAL_ROOT}/source-evidences/${encodeURIComponent(evidenceCode)}/extraction-runs`).then((items) => items.flatMap((item) => isRecord(item) && asString(item.extraction_run_code) && asString(item.evidence_code) ? [{ extractionRunCode: asString(item.extraction_run_code), evidenceCode: asString(item.evidence_code), extractorStrategyRef: asString(item.extractor_strategy_ref, "manual_excerpt.v1"), inputFingerprint: asString(item.input_fingerprint_sha256), outputChecksum: asString(item.output_checksum_sha256), extractionMetadata: isRecord(item.extraction_metadata) ? item.extraction_metadata : {}, createdBy: asOptionalString(item.created_by), createdAt: asOptionalString(item.created_at) }] : [])),
   createSourceEvidence: (payload: SourceEvidenceCreateInput) => postJson<unknown>(`${FUNCTIONAL_ROOT}/source-evidences`, payload).then(sourceEvidence),
   approveSourceEvidence: (evidenceCode: string, approvedBy: string) => postJson<unknown>(`${FUNCTIONAL_ROOT}/source-evidences/${encodeURIComponent(evidenceCode)}/approve`, { approved_by: approvedBy }).then(sourceEvidence),
   rejectSourceEvidence: (evidenceCode: string, actor: string, reason: string) => postJson<unknown>(`${FUNCTIONAL_ROOT}/source-evidences/${encodeURIComponent(evidenceCode)}/reject`, { actor, reason }).then(sourceEvidence),

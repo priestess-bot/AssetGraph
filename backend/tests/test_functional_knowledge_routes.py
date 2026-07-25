@@ -109,6 +109,23 @@ class FakeFunctionalKnowledgeService:
         return [_source(status="approved", approved_by="reviewer", approved_at=NOW)]
 
     @staticmethod
+    def list_source_extraction_runs(code: str) -> list[dict[str, Any]] | None:
+        if code == "missing":
+            return None
+        return [
+            {
+                "extraction_run_code": "EXTRACT-001",
+                "evidence_code": code,
+                "extractor_strategy_ref": "manual_excerpt.v1",
+                "input_fingerprint_sha256": "a" * 64,
+                "output_checksum_sha256": "b" * 64,
+                "extraction_metadata": {"capture_mode": "manual"},
+                "created_by": "author",
+                "created_at": NOW,
+            }
+        ]
+
+    @staticmethod
     def approve_source_evidence(code: str, approved_by: str) -> dict[str, Any] | None:
         return _source(evidence_code=code, status="approved", approved_by=approved_by, approved_at=NOW)
 
@@ -274,6 +291,34 @@ def test_source_evidence_and_fact_claim_routes_keep_citation_explicit(
     assert service.claim_payload is not None
     assert service.claim_payload["citation_excerpt"] == "The product has a verified 12-month warranty."
     assert claim_approved.json()["approved_by"] == "reviewer"
+
+
+def test_source_extraction_run_route_keeps_capture_fingerprints_explicit(
+    client: tuple[TestClient, FakeFunctionalKnowledgeService],
+) -> None:
+    test_client, _service = client
+
+    response = test_client.get(
+        "/api/functional-knowledge/source-evidences/EVIDENCE-001/extraction-runs"
+    )
+    missing = test_client.get(
+        "/api/functional-knowledge/source-evidences/missing/extraction-runs"
+    )
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {
+            "extraction_run_code": "EXTRACT-001",
+            "evidence_code": "EVIDENCE-001",
+            "extractor_strategy_ref": "manual_excerpt.v1",
+            "input_fingerprint_sha256": "a" * 64,
+            "output_checksum_sha256": "b" * 64,
+            "extraction_metadata": {"capture_mode": "manual"},
+            "created_by": "author",
+            "created_at": "2026-07-25T00:00:00Z",
+        }
+    ]
+    assert missing.status_code == 404
 
 
 def test_fact_claim_route_rejects_naive_datetimes(

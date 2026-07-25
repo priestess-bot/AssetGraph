@@ -73,6 +73,40 @@ def test_source_evidence_must_be_approved_before_a_claim_can_be_approved() -> No
         assert approved["source_evidence_code"] == source["evidence_code"]
 
 
+def test_source_evidence_creates_an_immutable_local_extraction_run() -> None:
+    with psycopg.connect(DATABASE_URL) as c:
+        service = FunctionalKnowledgeService(c)
+        source = service.create_source_evidence(
+            {
+                "source_type": "export",
+                "title": "Controlled source export",
+                "excerpt": "The source export states an approved warranty boundary.",
+                "access_scope": "internal",
+                "extractor_strategy_ref": "controlled_export_excerpt.v1",
+                "extraction_metadata": {
+                    "capture_mode": "manual_import",
+                    "schema_version": "source-export.v1",
+                },
+                "created_by": "author",
+            }
+        )
+
+        runs = service.list_source_extraction_runs(source["evidence_code"])
+
+        assert source["extractor_strategy_ref"] == "controlled_export_excerpt.v1"
+        assert source["extraction_runs"] == runs
+        assert runs is not None
+        assert len(runs) == 1
+        assert runs[0]["evidence_code"] == source["evidence_code"]
+        assert runs[0]["extractor_strategy_ref"] == "controlled_export_excerpt.v1"
+        assert runs[0]["input_fingerprint_sha256"] == source["content_sha256"]
+        assert len(runs[0]["output_checksum_sha256"]) == 64
+        assert runs[0]["extraction_metadata"] == {
+            "capture_mode": "manual_import",
+            "schema_version": "source-export.v1",
+        }
+
+
 def test_fact_claim_lineage_follows_only_immutable_pinned_content_revisions() -> None:
     with psycopg.connect(DATABASE_URL) as c:
         knowledge = FunctionalKnowledgeService(c)

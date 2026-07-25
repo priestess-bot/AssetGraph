@@ -69,6 +69,7 @@ class FunctionalKnowledgeService:
             "access_scope": payload["access_scope"],
         }
         checksum = canonical_fingerprint(fingerprint_input)
+        output_checksum = canonical_fingerprint({"excerpt": payload["excerpt"]})
         try:
             with self.c.cursor(row_factory=dict_row) as cur:
                 code = self._next(cur, "functional_knowledge_source_evidence", "EVIDENCE")
@@ -88,19 +89,56 @@ class FunctionalKnowledgeService:
                         payload.get("created_by"),
                     ),
                 )
-                row = cur.fetchone()
+                cur.fetchone()
+                extraction_run_code = self._next(
+                    cur, "functional_knowledge_source_extraction_run", "EXTRACT"
+                )
+                cur.execute(
+                    """
+                    INSERT INTO functional_knowledge_source_extraction_runs (
+                        extraction_run_code, evidence_code, extractor_strategy_ref,
+                        input_fingerprint_sha256, output_checksum_sha256,
+                        extraction_metadata, created_by
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        extraction_run_code,
+                        code,
+                        payload.get("extractor_strategy_ref", "manual_excerpt.v1").strip(),
+                        checksum,
+                        output_checksum,
+                        Jsonb(payload.get("extraction_metadata") or {}),
+                        payload.get("created_by"),
+                    ),
+                )
+                row = self._source_evidence(cur, code)
             self.c.commit()
         except Exception:
             self.c.rollback()
             raise
-        return dict(row)
+        if row is None:
+            raise RuntimeError("created source evidence could not be read")
+        return row
 
     def list_source_evidences(self) -> list[dict[str, Any]]:
         with self.c.cursor(row_factory=dict_row) as cur:
             cur.execute(
-                "SELECT * FROM functional_knowledge_source_evidences ORDER BY created_at DESC, evidence_code DESC"
+                "SELECT evidence_code FROM functional_knowledge_source_evidences ORDER BY created_at DESC, evidence_code DESC"
             )
-            return [dict(row) for row in cur.fetchall()]
+            codes = [str(row["evidence_code"]) for row in cur.fetchall()]
+            return [
+                source
+                for code in codes
+                if (source := self._source_evidence(cur, code)) is not None
+            ]
+
+    def list_source_extraction_runs(
+        self, evidence_code: str
+    ) -> list[dict[str, Any]] | None:
+        with self.c.cursor(row_factory=dict_row) as cur:
+            if self._source_evidence(cur, evidence_code) is None:
+                return None
+            return self._source_extraction_runs(cur, evidence_code)
 
     def create_content_rule(self, payload: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -276,8 +314,9 @@ class FunctionalKnowledgeService:
                     self.c.rollback()
                     return None
                 if source["status"] == "approved":
+                    result = self._source_evidence(cur, evidence_code)
                     self.c.commit()
-                    return dict(source)
+                    return result
                 if source["status"] != "draft":
                     raise FunctionalKnowledgeConflictError("Only draft source evidence can be approved")
                 cur.execute(
@@ -286,12 +325,13 @@ class FunctionalKnowledgeService:
                        WHERE evidence_code = %s RETURNING *""",
                     (approved_by, evidence_code),
                 )
-                row = cur.fetchone()
+                cur.fetchone()
+                row = self._source_evidence(cur, evidence_code)
             self.c.commit()
         except Exception:
             self.c.rollback()
             raise
-        return dict(row)
+        return row
 
     def reject_source_evidence(
         self, evidence_code: str, actor: str, reason: str
@@ -307,7 +347,7 @@ class FunctionalKnowledgeService:
                     self.c.rollback()
                     return None
                 if source["status"] == "rejected":
-                    result = dict(source)
+                    result = self._source_evidence(cur, evidence_code)
                 elif source["status"] == "draft":
                     cur.execute(
                         """UPDATE functional_knowledge_source_evidences
@@ -316,7 +356,8 @@ class FunctionalKnowledgeService:
                            WHERE evidence_code = %s RETURNING *""",
                         (actor.strip(), reason.strip(), evidence_code),
                     )
-                    result = dict(cur.fetchone())
+                    cur.fetchone()
+                    result = self._source_evidence(cur, evidence_code)
                 else:
                     raise FunctionalKnowledgeConflictError(
                         "Only draft source evidence can be rejected"
@@ -341,7 +382,7 @@ class FunctionalKnowledgeService:
                     self.c.rollback()
                     return None
                 if source["status"] == "revoked":
-                    result = dict(source)
+                    result = self._source_evidence(cur, evidence_code)
                 elif source["status"] == "approved":
                     cur.execute(
                         """UPDATE functional_knowledge_source_evidences
@@ -350,7 +391,7 @@ class FunctionalKnowledgeService:
                            WHERE evidence_code = %s RETURNING *""",
                         (actor.strip(), reason.strip(), evidence_code),
                     )
-                    result = dict(cur.fetchone())
+                    cur.fetchone()
                     cur.execute(
                         """SELECT fact_code FROM functional_knowledge_fact_claims
                            WHERE source_evidence_code = %s FOR UPDATE""",
@@ -358,6 +399,7 @@ class FunctionalKnowledgeService:
                     )
                     for fact_code in {row["fact_code"] for row in cur.fetchall()}:
                         self._refresh_fact_status(cur, fact_code)
+                    result = self._source_evidence(cur, evidence_code)
                 else:
                     raise FunctionalKnowledgeConflictError(
                         "Only approved source evidence can be revoked"
@@ -866,6 +908,39 @@ class FunctionalKnowledgeService:
                      ON source.evidence_code = rule.source_evidence_code
                    {where}
                    ORDER BY rule.created_at DESC, rule.rule_code DESC"""
+
+    def _source_evidence(
+        self, cur: Any, evidence_code: str
+    ) -> dict[str, Any] | None:
+        cur.execute(
+            "SELECT * FROM functional_knowledge_source_evidences WHERE evidence_code = %s",
+            (evidence_code,),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return None
+        source = dict(row)
+        runs = self._source_extraction_runs(cur, evidence_code)
+        source["extraction_runs"] = runs
+        if runs:
+            source["extractor_strategy_ref"] = runs[0]["extractor_strategy_ref"]
+            source["extraction_metadata"] = runs[0]["extraction_metadata"]
+        return source
+
+    @staticmethod
+    def _source_extraction_runs(cur: Any, evidence_code: str) -> list[dict[str, Any]]:
+        cur.execute(
+            """
+            SELECT extraction_run_code, evidence_code, extractor_strategy_ref,
+                   input_fingerprint_sha256, output_checksum_sha256,
+                   extraction_metadata, created_by, created_at
+            FROM functional_knowledge_source_extraction_runs
+            WHERE evidence_code = %s
+            ORDER BY created_at DESC, extraction_run_code DESC
+            """,
+            (evidence_code,),
+        )
+        return [dict(row) for row in cur.fetchall()]
 
     def _claim(self, cur: Any, claim_code: str, *, lock: bool = False) -> dict[str, Any] | None:
         lock_clause = " FOR UPDATE OF claim, source, fact" if lock else ""

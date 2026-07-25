@@ -19,6 +19,7 @@ from app.schemas.functional_knowledge import (
     FactRead,
     SourceEvidenceApprove,
     SourceEvidenceCreate,
+    SourceExtractionRunRead,
     SourceEvidenceReject,
     SourceEvidenceRead,
     SourceEvidenceRevoke,
@@ -66,6 +67,20 @@ def list_source_evidences(
     service: Annotated[FunctionalKnowledgeService, Depends(svc)],
 ) -> list[dict]:
     return service.list_source_evidences()
+
+
+@router.get(
+    "/source-evidences/{evidence_code}/extraction-runs",
+    response_model=list[SourceExtractionRunRead],
+)
+def list_source_extraction_runs(
+    evidence_code: str,
+    service: Annotated[FunctionalKnowledgeService, Depends(svc)],
+) -> list[dict]:
+    result = service.list_source_extraction_runs(evidence_code)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Source evidence not found")
+    return result
 
 
 @router.post("/source-evidences/{evidence_code}/approve", response_model=SourceEvidenceRead)

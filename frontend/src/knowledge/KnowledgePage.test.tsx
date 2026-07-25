@@ -74,7 +74,7 @@ describe("KnowledgePage", () => {
 
     await waitFor(() => expect(requests.some((request) => request.url === "/api/functional-knowledge/source-evidences" && request.init?.method === "POST")).toBe(true));
     const request = requests.find((item) => item.url === "/api/functional-knowledge/source-evidences" && item.init?.method === "POST");
-    expect(JSON.parse(String(request?.init?.body))).toMatchObject({ source_type: "document", title: "Product sheet", excerpt: "Verified warranty is 12 months.", access_scope: "internal" });
+    expect(JSON.parse(String(request?.init?.body))).toMatchObject({ source_type: "document", title: "Product sheet", excerpt: "Verified warranty is 12 months.", access_scope: "internal", extractor_strategy_ref: "manual_excerpt.v1" });
   });
 
   it("opens the fixed content usage chain for a fact claim", async () => {
@@ -134,7 +134,7 @@ describe("KnowledgePage", () => {
   it("revokes approved local evidence with an explicit reason", async () => {
     const requests: Array<{ url: string; init?: RequestInit }> = [];
     const approvedSource = {
-      evidence_code: "EVIDENCE-001", source_type: "document", title: "Product sheet", source_url: null, excerpt: "Verified warranty is 12 months.", content_sha256: "a".repeat(64), access_scope: "internal", status: "approved", created_at: "2026-07-25T00:00:00Z", updated_at: "2026-07-25T00:00:00Z",
+      evidence_code: "EVIDENCE-001", source_type: "document", title: "Product sheet", source_url: null, excerpt: "Verified warranty is 12 months.", content_sha256: "a".repeat(64), access_scope: "internal", extractor_strategy_ref: "manual_excerpt.v1", extraction_metadata: {}, extraction_runs: [{ extraction_run_code: "EXTRACT-001", evidence_code: "EVIDENCE-001", extractor_strategy_ref: "manual_excerpt.v1", input_fingerprint_sha256: "a".repeat(64), output_checksum_sha256: "c".repeat(64), extraction_metadata: {}, created_at: "2026-07-25T00:00:00Z" }], status: "approved", created_at: "2026-07-25T00:00:00Z", updated_at: "2026-07-25T00:00:00Z",
     };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input); requests.push({ url, init });
@@ -151,6 +151,8 @@ describe("KnowledgePage", () => {
     await screen.findByText("尚无事实卡");
     await user.click(screen.getByRole("button", { name: "来源证据" }));
     await screen.findByRole("heading", { name: "来源证据" });
+    expect(await screen.findByText("抽取：manual_excerpt.v1 · 1 次")).toBeInTheDocument();
+    expect(screen.getByText("输出 checksum：cccccccccccc")).toBeInTheDocument();
     await user.type(screen.getByLabelText("EVIDENCE-001 撤销原因"), "The source was corrected.");
     await user.click(screen.getByRole("button", { name: "撤销来源" }));
 

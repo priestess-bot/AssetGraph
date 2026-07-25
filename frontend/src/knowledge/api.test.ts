@@ -30,7 +30,7 @@ describe("knowledge api", () => {
   it("keeps source evidence checksum and claim citation explicit", async () => {
     const fetch = vi.fn()
       .mockResolvedValueOnce(response([{
-        evidence_code: "EVIDENCE-001", source_type: "document", title: "Product sheet", excerpt: "Verified warranty is 12 months.", content_sha256: "a".repeat(64), access_scope: "internal", status: "approved",
+        evidence_code: "EVIDENCE-001", source_type: "document", title: "Product sheet", excerpt: "Verified warranty is 12 months.", content_sha256: "a".repeat(64), access_scope: "internal", extractor_strategy_ref: "manual_excerpt.v1", extraction_runs: [{ extraction_run_code: "EXTRACT-001", evidence_code: "EVIDENCE-001", extractor_strategy_ref: "manual_excerpt.v1", input_fingerprint_sha256: "a".repeat(64), output_checksum_sha256: "c".repeat(64), extraction_metadata: { capture_mode: "manual" } }], status: "approved",
       }]))
       .mockResolvedValueOnce(response({
         claim_code: "CLAIM-001", fact_code: "FACT-001", fact_title: "Warranty", source_evidence_code: "EVIDENCE-001", source_title: "Product sheet", source_status: "approved", claim: "Warranty is 12 months.", citation_excerpt: "Verified warranty is 12 months.", citation_start_offset: 0, citation_end_offset: 31, status: "draft", fingerprint_sha256: "b".repeat(64), created_at: "2026-07-25T00:00:00Z", updated_at: "2026-07-25T00:00:00Z",
@@ -38,7 +38,7 @@ describe("knowledge api", () => {
     vi.stubGlobal("fetch", fetch);
     const sources = await knowledgeApi.listSourceEvidences();
     const claim = await knowledgeApi.createFactClaim({ fact_title: "Warranty", claim: "Warranty is 12 months.", source_evidence_code: "EVIDENCE-001", citation_excerpt: "Verified warranty is 12 months." });
-    expect(sources[0]).toMatchObject({ evidenceCode: "EVIDENCE-001", contentChecksum: "a".repeat(64), status: "approved" });
+    expect(sources[0]).toMatchObject({ evidenceCode: "EVIDENCE-001", contentChecksum: "a".repeat(64), extractorStrategyRef: "manual_excerpt.v1", extractionRuns: [{ extractionRunCode: "EXTRACT-001", outputChecksum: "c".repeat(64) }], status: "approved" });
     expect(claim).toMatchObject({ claimCode: "CLAIM-001", sourceEvidenceCode: "EVIDENCE-001", citationExcerpt: "Verified warranty is 12 months.", citationStartOffset: 0, citationEndOffset: 31 });
     expect(fetch).toHaveBeenLastCalledWith("/api/functional-knowledge/fact-claims", expect.objectContaining({ method: "POST" }));
   });
