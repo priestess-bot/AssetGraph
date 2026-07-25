@@ -55,6 +55,10 @@ class SourceEvidenceRevoke(KnowledgeRevocation):
     pass
 
 
+class SourceEvidenceReject(KnowledgeRevocation):
+    pass
+
+
 class SourceEvidenceRead(SourceEvidenceCreate):
     evidence_code: str
     content_sha256: str
@@ -64,6 +68,9 @@ class SourceEvidenceRead(SourceEvidenceCreate):
     revoked_by: str | None = None
     revoked_at: datetime | None = None
     revoked_reason: str | None = None
+    rejected_by: str | None = None
+    rejected_at: datetime | None = None
+    rejection_reason: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -98,6 +105,10 @@ class FactClaimRevoke(KnowledgeRevocation):
     pass
 
 
+class FactClaimReject(KnowledgeRevocation):
+    pass
+
+
 class FactClaimRead(BaseModel):
     claim_code: str
     fact_code: str
@@ -117,6 +128,9 @@ class FactClaimRead(BaseModel):
     revoked_by: str | None = None
     revoked_at: datetime | None = None
     revoked_reason: str | None = None
+    rejected_by: str | None = None
+    rejected_at: datetime | None = None
+    rejection_reason: str | None = None
     fingerprint_sha256: str
     created_at: datetime
     updated_at: datetime

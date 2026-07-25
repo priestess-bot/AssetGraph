@@ -92,6 +92,9 @@ export interface SourceEvidence {
   revokedBy?: string;
   revokedAt?: string;
   revokedReason?: string;
+  rejectedBy?: string;
+  rejectedAt?: string;
+  rejectionReason?: string;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -125,6 +128,9 @@ export interface FactClaim {
   revokedBy?: string;
   revokedAt?: string;
   revokedReason?: string;
+  rejectedBy?: string;
+  rejectedAt?: string;
+  rejectionReason?: string;
   fingerprint: string;
   createdAt?: string;
   updatedAt?: string;
@@ -204,6 +210,9 @@ function sourceEvidence(value: unknown): SourceEvidence {
     revokedBy: asOptionalString(value.revoked_by),
     revokedAt: asOptionalString(value.revoked_at),
     revokedReason: asOptionalString(value.revoked_reason),
+    rejectedBy: asOptionalString(value.rejected_by),
+    rejectedAt: asOptionalString(value.rejected_at),
+    rejectionReason: asOptionalString(value.rejection_reason),
     createdAt: asOptionalString(value.created_at),
     updatedAt: asOptionalString(value.updated_at),
   };
@@ -232,6 +241,9 @@ function factClaim(value: unknown): FactClaim {
     revokedBy: asOptionalString(value.revoked_by),
     revokedAt: asOptionalString(value.revoked_at),
     revokedReason: asOptionalString(value.revoked_reason),
+    rejectedBy: asOptionalString(value.rejected_by),
+    rejectedAt: asOptionalString(value.rejected_at),
+    rejectionReason: asOptionalString(value.rejection_reason),
     fingerprint: asString(value.fingerprint_sha256),
     createdAt: asOptionalString(value.created_at),
     updatedAt: asOptionalString(value.updated_at),
@@ -248,10 +260,12 @@ export const knowledgeApi = {
   listSourceEvidences: () => requestJson<unknown[]>(`${FUNCTIONAL_ROOT}/source-evidences`).then((items) => items.map(sourceEvidence)),
   createSourceEvidence: (payload: SourceEvidenceCreateInput) => postJson<unknown>(`${FUNCTIONAL_ROOT}/source-evidences`, payload).then(sourceEvidence),
   approveSourceEvidence: (evidenceCode: string, approvedBy: string) => postJson<unknown>(`${FUNCTIONAL_ROOT}/source-evidences/${encodeURIComponent(evidenceCode)}/approve`, { approved_by: approvedBy }).then(sourceEvidence),
+  rejectSourceEvidence: (evidenceCode: string, actor: string, reason: string) => postJson<unknown>(`${FUNCTIONAL_ROOT}/source-evidences/${encodeURIComponent(evidenceCode)}/reject`, { actor, reason }).then(sourceEvidence),
   revokeSourceEvidence: (evidenceCode: string, actor: string, reason: string) => postJson<unknown>(`${FUNCTIONAL_ROOT}/source-evidences/${encodeURIComponent(evidenceCode)}/revoke`, { actor, reason }).then(sourceEvidence),
   listFactClaims: () => requestJson<unknown[]>(`${FUNCTIONAL_ROOT}/fact-claims`).then((items) => items.map(factClaim)),
   searchFactClaims: (query: string) => requestJson<unknown[]>(`${FUNCTIONAL_ROOT}/fact-claims?q=${encodeURIComponent(query.trim())}`).then((items) => items.map(factClaim)),
   createFactClaim: (payload: FactClaimCreateInput) => postJson<unknown>(`${FUNCTIONAL_ROOT}/fact-claims`, payload).then(factClaim),
   approveFactClaim: (claimCode: string, approvedBy: string) => postJson<unknown>(`${FUNCTIONAL_ROOT}/fact-claims/${encodeURIComponent(claimCode)}/approve`, { approved_by: approvedBy }).then(factClaim),
+  rejectFactClaim: (claimCode: string, actor: string, reason: string) => postJson<unknown>(`${FUNCTIONAL_ROOT}/fact-claims/${encodeURIComponent(claimCode)}/reject`, { actor, reason }).then(factClaim),
   revokeFactClaim: (claimCode: string, actor: string, reason: string) => postJson<unknown>(`${FUNCTIONAL_ROOT}/fact-claims/${encodeURIComponent(claimCode)}/revoke`, { actor, reason }).then(factClaim),
 };

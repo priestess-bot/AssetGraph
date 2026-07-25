@@ -6,12 +6,14 @@ from app.core.database import get_db
 from app.schemas.functional_knowledge import (
     FactClaimApprove,
     FactClaimCreate,
+    FactClaimReject,
     FactClaimRead,
     FactClaimRevoke,
     FactCreate,
     FactRead,
     SourceEvidenceApprove,
     SourceEvidenceCreate,
+    SourceEvidenceReject,
     SourceEvidenceRead,
     SourceEvidenceRevoke,
 )
@@ -75,6 +77,23 @@ def approve_source_evidence(
     return result
 
 
+@router.post("/source-evidences/{evidence_code}/reject", response_model=SourceEvidenceRead)
+def reject_source_evidence(
+    evidence_code: str,
+    payload: SourceEvidenceReject,
+    service: Annotated[FunctionalKnowledgeService, Depends(svc)],
+) -> dict:
+    try:
+        result = service.reject_source_evidence(
+            evidence_code, payload.actor, payload.reason
+        )
+    except FunctionalKnowledgeConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if result is None:
+        raise HTTPException(status_code=404, detail="Source evidence not found")
+    return result
+
+
 @router.post("/source-evidences/{evidence_code}/revoke", response_model=SourceEvidenceRead)
 def revoke_source_evidence(
     evidence_code: str,
@@ -121,6 +140,21 @@ def approve_fact_claim(
 ) -> dict:
     try:
         result = service.approve_fact_claim(claim_code, payload.approved_by)
+    except FunctionalKnowledgeConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if result is None:
+        raise HTTPException(status_code=404, detail="Fact claim not found")
+    return result
+
+
+@router.post("/fact-claims/{claim_code}/reject", response_model=FactClaimRead)
+def reject_fact_claim(
+    claim_code: str,
+    payload: FactClaimReject,
+    service: Annotated[FunctionalKnowledgeService, Depends(svc)],
+) -> dict:
+    try:
+        result = service.reject_fact_claim(claim_code, payload.actor, payload.reason)
     except FunctionalKnowledgeConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if result is None:

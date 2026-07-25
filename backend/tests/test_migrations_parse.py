@@ -263,3 +263,20 @@ def test_knowledge_evidence_revocation_migration_requires_attributed_details() -
     assert "revoked_reason TEXT" in sql
     assert "chk_functional_knowledge_evidence_revocation_details" in sql
     assert "chk_functional_knowledge_claim_revocation_details" in sql
+
+
+def test_knowledge_evidence_rejection_migration_requires_attributed_details() -> None:
+    migration = MIGRATIONS_DIR / "080_knowledge_evidence_rejections.sql"
+
+    assert migration.exists()
+    sql = migration.read_text(encoding="utf-8")
+    assert "functional_knowledge_source_evidences" in sql
+    assert "functional_knowledge_fact_claims" in sql
+    assert "rejected_by VARCHAR(128)" in sql
+    assert "rejected_at TIMESTAMPTZ" in sql
+    assert "rejection_reason TEXT" in sql
+    assert "DROP CONSTRAINT IF EXISTS chk_functional_fact_status" in sql
+    assert "'rejected'" in sql
+    assert "'revoked'" in sql
+    assert "chk_functional_knowledge_evidence_rejection_details" in sql
+    assert "chk_functional_knowledge_claim_rejection_details" in sql

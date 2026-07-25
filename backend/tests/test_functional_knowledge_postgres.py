@@ -143,3 +143,63 @@ def test_knowledge_evidence_revocation_stops_future_claim_resolution() -> None:
                 (replacement_claim["fact_code"],),
             )
             assert cur.fetchone()[0] == "revoked"
+
+
+def test_knowledge_evidence_rejection_preserves_draft_review_history() -> None:
+    with psycopg.connect(DATABASE_URL) as c:
+        service = FunctionalKnowledgeService(c)
+        source = service.create_source_evidence(
+            {
+                "source_type": "document",
+                "title": "Incomplete product specification",
+                "excerpt": "The product warranty wording is incomplete.",
+                "access_scope": "internal",
+                "created_by": "author",
+            }
+        )
+        rejected_source = service.reject_source_evidence(
+            source["evidence_code"], "reviewer", "The document is incomplete."
+        )
+        assert rejected_source is not None
+        assert rejected_source["status"] == "rejected"
+        assert rejected_source["rejected_by"] == "reviewer"
+        assert rejected_source["rejection_reason"] == "The document is incomplete."
+        assert service.reject_source_evidence(
+            source["evidence_code"], "later-reviewer", "A stale callback."
+        )["rejection_reason"] == "The document is incomplete."
+        with pytest.raises(RuntimeError, match="Only draft source evidence"):
+            service.approve_source_evidence(source["evidence_code"], "reviewer")
+
+        approved_source = service.create_source_evidence(
+            {
+                "source_type": "document",
+                "title": "Reviewable product specification",
+                "excerpt": "The product includes a verified 12-month warranty.",
+                "access_scope": "internal",
+                "created_by": "author",
+            }
+        )
+        service.approve_source_evidence(approved_source["evidence_code"], "reviewer")
+        claim = service.create_fact_claim(
+            {
+                "fact_title": "Warranty",
+                "claim": "The product includes a 12-month warranty.",
+                "source_evidence_code": approved_source["evidence_code"],
+                "citation_excerpt": "The product includes a verified 12-month warranty.",
+                "created_by": "author",
+            }
+        )
+        assert claim is not None
+        rejected_claim = service.reject_fact_claim(
+            claim["claim_code"], "reviewer", "The citation needs a field reference."
+        )
+        assert rejected_claim is not None
+        assert rejected_claim["status"] == "rejected"
+        assert rejected_claim["rejection_reason"] == "The citation needs a field reference."
+        assert service.resolve_approved_fact_claim(claim["claim_code"]) is None
+        with c.cursor() as cur:
+            cur.execute(
+                "SELECT status FROM functional_knowledge_facts WHERE fact_code = %s",
+                (claim["fact_code"],),
+            )
+            assert cur.fetchone()[0] == "rejected"

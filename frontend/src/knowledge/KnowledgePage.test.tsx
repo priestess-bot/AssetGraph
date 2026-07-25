@@ -105,6 +105,34 @@ describe("KnowledgePage", () => {
     expect(JSON.parse(String(request?.init?.body))).toEqual({ actor: "console_reviewer", reason: "The source was corrected." });
   });
 
+  it("rejects draft local evidence with an explicit reason", async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    const draftSource = {
+      evidence_code: "EVIDENCE-001", source_type: "document", title: "Draft product sheet", source_url: null, excerpt: "Warranty wording is incomplete.", content_sha256: "a".repeat(64), access_scope: "internal", status: "draft", created_at: "2026-07-25T00:00:00Z", updated_at: "2026-07-25T00:00:00Z",
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); requests.push({ url, init });
+      if (url === "/api/maitu/workbench/product-fact-cards") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/functional-knowledge/source-evidences" && init?.method !== "POST") return new Response(JSON.stringify([draftSource]), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/functional-knowledge/fact-claims") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/functional-knowledge/source-evidences/EVIDENCE-001/reject") return new Response(JSON.stringify({ ...draftSource, status: "rejected", rejected_by: "console_reviewer", rejected_at: "2026-07-25T01:00:00Z", rejection_reason: "The document is incomplete." }), { status: 200, headers: { "Content-Type": "application/json" } });
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    const user = userEvent.setup();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    render(<QueryClientProvider client={client}><KnowledgePage /></QueryClientProvider>);
+
+    await screen.findByText("尚无事实卡");
+    await user.click(screen.getByRole("button", { name: "来源证据" }));
+    await screen.findByRole("heading", { name: "来源证据" });
+    await user.type(screen.getByLabelText("EVIDENCE-001 驳回原因"), "The document is incomplete.");
+    await user.click(screen.getByRole("button", { name: "驳回来源" }));
+
+    await waitFor(() => expect(requests.some((request) => request.url === "/api/functional-knowledge/source-evidences/EVIDENCE-001/reject")).toBe(true));
+    const request = requests.find((item) => item.url === "/api/functional-knowledge/source-evidences/EVIDENCE-001/reject");
+    expect(JSON.parse(String(request?.init?.body))).toEqual({ actor: "console_reviewer", reason: "The document is incomplete." });
+  });
+
   it("submits a searchable fact claim with its explicit validity window", async () => {
     const requests: Array<{ url: string; init?: RequestInit }> = [];
     const approvedSource = {

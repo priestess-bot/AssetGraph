@@ -62,6 +62,25 @@ describe("knowledge api", () => {
     expect(fetch).toHaveBeenNthCalledWith(2, "/api/functional-knowledge/fact-claims/CLAIM-001/revoke", expect.objectContaining({ method: "POST", body: JSON.stringify({ actor: "reviewer", reason: "Terms changed." }) }));
   });
 
+  it("keeps draft rejections attributable for local evidence and claims", async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(response({
+        evidence_code: "EVIDENCE-001", source_type: "document", title: "Product sheet", excerpt: "Verified warranty is 12 months.", content_sha256: "a".repeat(64), access_scope: "internal", status: "rejected", rejected_by: "reviewer", rejected_at: "2026-07-25T00:00:00Z", rejection_reason: "The document is incomplete.",
+      }))
+      .mockResolvedValueOnce(response({
+        claim_code: "CLAIM-001", fact_code: "FACT-001", fact_title: "Warranty", source_evidence_code: "EVIDENCE-001", source_title: "Product sheet", source_status: "approved", claim: "Warranty is 12 months.", citation_excerpt: "Verified warranty is 12 months.", status: "rejected", rejected_by: "reviewer", rejected_at: "2026-07-25T00:00:00Z", rejection_reason: "The citation is incomplete.", fingerprint_sha256: "b".repeat(64), created_at: "2026-07-25T00:00:00Z", updated_at: "2026-07-25T00:00:00Z",
+      }));
+    vi.stubGlobal("fetch", fetch);
+
+    const source = await knowledgeApi.rejectSourceEvidence("EVIDENCE-001", "reviewer", "The document is incomplete.");
+    const claim = await knowledgeApi.rejectFactClaim("CLAIM-001", "reviewer", "The citation is incomplete.");
+
+    expect(source).toMatchObject({ status: "rejected", rejectedBy: "reviewer", rejectionReason: "The document is incomplete." });
+    expect(claim).toMatchObject({ status: "rejected", rejectedBy: "reviewer", rejectionReason: "The citation is incomplete." });
+    expect(fetch).toHaveBeenNthCalledWith(1, "/api/functional-knowledge/source-evidences/EVIDENCE-001/reject", expect.objectContaining({ method: "POST", body: JSON.stringify({ actor: "reviewer", reason: "The document is incomplete." }) }));
+    expect(fetch).toHaveBeenNthCalledWith(2, "/api/functional-knowledge/fact-claims/CLAIM-001/reject", expect.objectContaining({ method: "POST", body: JSON.stringify({ actor: "reviewer", reason: "The citation is incomplete." }) }));
+  });
+
   it("queries fact claims by text without dropping validity metadata", async () => {
     const fetch = vi.fn().mockResolvedValue(response([{
       claim_code: "CLAIM-001", fact_code: "FACT-001", fact_title: "Warranty", source_evidence_code: "EVIDENCE-001", source_title: "Product sheet", source_status: "approved", claim: "Warranty is 12 months.", citation_excerpt: "Verified warranty is 12 months.", valid_from: "2026-07-25T00:00:00Z", valid_until: "2026-12-31T23:59:59Z", status: "approved", fingerprint_sha256: "b".repeat(64), created_at: "2026-07-25T00:00:00Z", updated_at: "2026-07-25T00:00:00Z",

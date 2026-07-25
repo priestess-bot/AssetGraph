@@ -63,6 +63,8 @@ class FakeFunctionalKnowledgeService:
         self.claim_payload: dict[str, Any] | None = None
         self.source_revocation: tuple[str, str, str] | None = None
         self.claim_revocation: tuple[str, str, str] | None = None
+        self.source_rejection: tuple[str, str, str] | None = None
+        self.claim_rejection: tuple[str, str, str] | None = None
 
     def create_source_evidence(self, payload: dict[str, Any]) -> dict[str, Any]:
         self.source_payload = payload
@@ -88,6 +90,18 @@ class FakeFunctionalKnowledgeService:
             revoked_reason=reason,
         )
 
+    def reject_source_evidence(self, code: str, actor: str, reason: str) -> dict[str, Any] | None:
+        if code == "missing":
+            return None
+        self.source_rejection = (code, actor, reason)
+        return _source(
+            evidence_code=code,
+            status="rejected",
+            rejected_by=actor,
+            rejected_at=NOW,
+            rejection_reason=reason,
+        )
+
     def create_fact_claim(self, payload: dict[str, Any]) -> dict[str, Any] | None:
         self.claim_payload = payload
         return _claim(**payload)
@@ -110,6 +124,18 @@ class FakeFunctionalKnowledgeService:
             revoked_by=actor,
             revoked_at=NOW,
             revoked_reason=reason,
+        )
+
+    def reject_fact_claim(self, code: str, actor: str, reason: str) -> dict[str, Any] | None:
+        if code == "missing":
+            return None
+        self.claim_rejection = (code, actor, reason)
+        return _claim(
+            claim_code=code,
+            status="rejected",
+            rejected_by=actor,
+            rejected_at=NOW,
+            rejection_reason=reason,
         )
 
 
@@ -219,6 +245,47 @@ def test_evidence_and_claim_revocation_require_attributed_reasons(
         "CLAIM-001",
         "reviewer",
         "The warranty claim is no longer valid.",
+    )
+    assert blank_reason.status_code == 422
+    assert missing.status_code == 404
+
+
+def test_evidence_and_claim_rejection_require_attributed_reasons(
+    client: tuple[TestClient, FakeFunctionalKnowledgeService],
+) -> None:
+    test_client, service = client
+
+    source = test_client.post(
+        "/api/functional-knowledge/source-evidences/EVIDENCE-001/reject",
+        json={"actor": "reviewer", "reason": "The document is incomplete."},
+    )
+    claim = test_client.post(
+        "/api/functional-knowledge/fact-claims/CLAIM-001/reject",
+        json={"actor": "reviewer", "reason": "The citation does not support the claim."},
+    )
+    blank_reason = test_client.post(
+        "/api/functional-knowledge/source-evidences/EVIDENCE-001/reject",
+        json={"actor": "reviewer", "reason": "   "},
+    )
+    missing = test_client.post(
+        "/api/functional-knowledge/fact-claims/missing/reject",
+        json={"actor": "reviewer", "reason": "Missing claim."},
+    )
+
+    assert source.status_code == 200
+    assert source.json()["status"] == "rejected"
+    assert source.json()["rejection_reason"] == "The document is incomplete."
+    assert claim.status_code == 200
+    assert claim.json()["rejected_by"] == "reviewer"
+    assert service.source_rejection == (
+        "EVIDENCE-001",
+        "reviewer",
+        "The document is incomplete.",
+    )
+    assert service.claim_rejection == (
+        "CLAIM-001",
+        "reviewer",
+        "The citation does not support the claim.",
     )
     assert blank_reason.status_code == 422
     assert missing.status_code == 404

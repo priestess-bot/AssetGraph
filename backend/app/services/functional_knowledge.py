@@ -131,6 +131,40 @@ class FunctionalKnowledgeService:
             raise
         return dict(row)
 
+    def reject_source_evidence(
+        self, evidence_code: str, actor: str, reason: str
+    ) -> dict[str, Any] | None:
+        try:
+            with self.c.cursor(row_factory=dict_row) as cur:
+                cur.execute(
+                    "SELECT * FROM functional_knowledge_source_evidences WHERE evidence_code = %s FOR UPDATE",
+                    (evidence_code,),
+                )
+                source = cur.fetchone()
+                if source is None:
+                    self.c.rollback()
+                    return None
+                if source["status"] == "rejected":
+                    result = dict(source)
+                elif source["status"] == "draft":
+                    cur.execute(
+                        """UPDATE functional_knowledge_source_evidences
+                           SET status = 'rejected', rejected_by = %s, rejected_at = now(),
+                               rejection_reason = %s, updated_at = now()
+                           WHERE evidence_code = %s RETURNING *""",
+                        (actor.strip(), reason.strip(), evidence_code),
+                    )
+                    result = dict(cur.fetchone())
+                else:
+                    raise FunctionalKnowledgeConflictError(
+                        "Only draft source evidence can be rejected"
+                    )
+            self.c.commit()
+        except Exception:
+            self.c.rollback()
+            raise
+        return result
+
     def revoke_source_evidence(
         self, evidence_code: str, actor: str, reason: str
     ) -> dict[str, Any] | None:
@@ -288,6 +322,40 @@ class FunctionalKnowledgeService:
                     (row["fact_code"],),
                 )
                 result = self._claim(cur, claim_code)
+            self.c.commit()
+        except Exception:
+            self.c.rollback()
+            raise
+        return result
+
+    def reject_fact_claim(
+        self, claim_code: str, actor: str, reason: str
+    ) -> dict[str, Any] | None:
+        try:
+            with self.c.cursor(row_factory=dict_row) as cur:
+                row = self._claim(cur, claim_code, lock=True)
+                if row is None:
+                    self.c.rollback()
+                    return None
+                if row["status"] == "rejected":
+                    result = row
+                elif row["status"] == "draft":
+                    cur.execute(
+                        """UPDATE functional_knowledge_fact_claims
+                           SET status = 'rejected', rejected_by = %s, rejected_at = now(),
+                               rejection_reason = %s, updated_at = now()
+                           WHERE claim_code = %s""",
+                        (actor.strip(), reason.strip(), claim_code),
+                    )
+                    cur.execute(
+                        "UPDATE functional_knowledge_facts SET status = 'rejected' WHERE fact_code = %s",
+                        (row["fact_code"],),
+                    )
+                    result = self._claim(cur, claim_code)
+                else:
+                    raise FunctionalKnowledgeConflictError(
+                        "Only draft fact claims can be rejected"
+                    )
             self.c.commit()
         except Exception:
             self.c.rollback()
