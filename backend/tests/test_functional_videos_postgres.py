@@ -10,6 +10,7 @@ from psycopg.types.json import Jsonb
 from app.domain.errors import DomainValidationError
 from app.repositories.assets import AssetRepository
 from app.repositories.material_library import MaterialLibraryRepository
+from app.repositories.video_productions import VideoProductionRepository
 from app.services.functional_content import FunctionalContentService
 from app.services.functional_live_rooms import FunctionalLiveRoomService
 from app.services.functional_videos import FunctionalVideoService
@@ -181,6 +182,116 @@ def test_functional_video_plan_seeds_content_stages_and_queues_renderer() -> Non
                 (plan["plan_code"],),
             )
             assert cursor.fetchall() == [(1, "cut"), (2, "fade"), (3, "cut")]
+
+
+def test_functional_video_timeline_segments_link_registered_voice_and_subtitle_artifacts() -> None:
+    suffix = uuid4().hex
+    with psycopg.connect(DATABASE_URL) as connection:
+        generated = _generated_project(connection, suffix)
+        service = FunctionalVideoService(connection)
+        plan = service.create_plan(
+            {"project_code": generated["project_code"], "target_duration_seconds": 55},
+            actor_id="test-operator",
+        )
+        repository = VideoProductionRepository(connection)
+        claimed = repository.claim_next("timeline-artifact-worker", 60)
+        assert claimed is not None
+        assert claimed["job_code"] == plan["video_job_code"]
+        lease_token = claimed["lease_token"]
+        job_code = plan["video_job_code"]
+
+        assert repository.start_stage(
+            job_code, "asset_selection", "timeline-artifact-worker", lease_token
+        ) is not None
+        assert repository.complete_stage(
+            job_code,
+            "asset_selection",
+            {"source": "fixture"},
+            [],
+            "timeline-artifact-worker",
+            lease_token,
+        ) is not None
+
+        voice_segments = [
+            {
+                "shot_index": index,
+                "shot_code": f"SHOT-{index + 1:02d}",
+                "relative_path": f"{job_code}/attempt-1/voice/segment-{index + 1:02d}.wav",
+                "checksum_sha256": "a" * 64,
+                "voice": "fixture-voice",
+                "gain_db": 0.0,
+                "target_duration_seconds": 8.0,
+            }
+            for index in range(6)
+        ]
+        assert repository.start_stage(
+            job_code, "voice_synthesis", "timeline-artifact-worker", lease_token
+        ) is not None
+        assert repository.complete_stage(
+            job_code,
+            "voice_synthesis",
+            {"segments": voice_segments},
+            [
+                {
+                    "artifact_key": "voice",
+                    "relative_path": f"{job_code}/attempt-1/voice/manifest.json",
+                    "mime_type": "application/json",
+                    "file_size": 128,
+                    "checksum_sha256": "b" * 64,
+                }
+            ],
+            "timeline-artifact-worker",
+            lease_token,
+        ) is not None
+
+        subtitle_events = [
+            {
+                "kind": "caption",
+                "shot_index": index,
+                "start_seconds": index * 8.0,
+                "end_seconds": (index + 1) * 8.0,
+            }
+            for index in range(6)
+        ]
+        assert repository.start_stage(
+            job_code, "subtitle_generation", "timeline-artifact-worker", lease_token
+        ) is not None
+        assert repository.complete_stage(
+            job_code,
+            "subtitle_generation",
+            {"events": subtitle_events, "text_complete": True},
+            [
+                {
+                    "artifact_key": "subtitles",
+                    "relative_path": f"{job_code}/attempt-1/subtitles/subtitles.ass",
+                    "mime_type": "text/x-ssa",
+                    "file_size": 128,
+                    "checksum_sha256": "c" * 64,
+                }
+            ],
+            "timeline-artifact-worker",
+            lease_token,
+        ) is not None
+
+        refreshed = service.get_plan(plan["plan_code"])
+        assert refreshed is not None
+        assert all(
+            {reference["artifact_role"] for reference in segment["execution_artifact_refs"]}
+            == {"voice_segment", "subtitle_track"}
+            for segment in refreshed["timeline_segments"]
+        )
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """SELECT count(*)
+                   FROM functional_video_timeline_segment_execution_artifacts AS link
+                   JOIN functional_video_timeline_segments AS segment
+                     ON segment.id = link.timeline_segment_id
+                   WHERE segment.plan_id = (
+                       SELECT id FROM functional_video_plans WHERE plan_code = %s
+                   )""",
+                (plan["plan_code"],),
+            )
+            assert cursor.fetchone()[0] == 12
 
 
 def test_functional_video_plan_freezes_selected_local_library_videos() -> None:

@@ -472,6 +472,7 @@ class VideoProductionRepository:
                 """,
                 (Jsonb(output_payload), stage["id"]),
             )
+            registered_artifacts: dict[str, dict[str, Any]] = {}
             for artifact in registrations:
                 cursor.execute(
                     """
@@ -489,6 +490,7 @@ class VideoProductionRepository:
                         checksum_sha256 = EXCLUDED.checksum_sha256,
                         metadata = EXCLUDED.metadata,
                         updated_at = now()
+                    RETURNING id
                     """,
                     (
                         job["id"],
@@ -502,6 +504,18 @@ class VideoProductionRepository:
                         Jsonb(artifact.get("metadata") or {}),
                     ),
                 )
+                registered_artifacts[artifact["artifact_key"]] = {
+                    **artifact,
+                    "id": cursor.fetchone()["id"],
+                }
+
+            self._persist_functional_timeline_execution_artifacts(
+                cursor,
+                job=job,
+                stage_name=stage_name,
+                output_payload=output_payload,
+                artifacts=registered_artifacts,
+            )
 
             output_column = self.STAGE_OUTPUT_COLUMNS.get(stage_name)
             if output_column:
@@ -537,6 +551,114 @@ class VideoProductionRepository:
             )
         self.connection.commit()
         return self.get_by_code(job_code)
+
+    @staticmethod
+    def _persist_functional_timeline_execution_artifacts(
+        cursor: Any,
+        *,
+        job: dict[str, Any],
+        stage_name: str,
+        output_payload: dict[str, Any],
+        artifacts: dict[str, dict[str, Any]],
+    ) -> None:
+        if stage_name not in {"voice_synthesis", "subtitle_generation"}:
+            return
+        artifact_key = "voice" if stage_name == "voice_synthesis" else "subtitles"
+        artifact = artifacts.get(artifact_key)
+        if artifact is None:
+            return
+        checksum = str(artifact.get("checksum_sha256") or "")
+        relative_path = str(artifact.get("relative_path") or "")
+        if not VideoProductionRepository._valid_checksum(checksum) or not relative_path:
+            return
+        cursor.execute(
+            """SELECT segment.id, segment.clip_code
+               FROM functional_video_timeline_segments AS segment
+               JOIN functional_video_plans AS plan ON plan.id = segment.plan_id
+               WHERE plan.video_job_code = %s
+                 AND segment.timeline_revision = plan.timeline_revision""",
+            (job["job_code"],),
+        )
+        timeline_segments = cursor.fetchall()
+        if not timeline_segments:
+            return
+        shot_codes = {
+            int(shot["shot_index"]): str(shot.get("shot_code") or "")
+            for shot in (job.get("shot_list") or {}).get("shots") or []
+            if isinstance(shot, dict) and isinstance(shot.get("shot_index"), int)
+        }
+        if stage_name == "voice_synthesis":
+            role = "voice_segment"
+            evidence_by_shot: dict[str, dict[str, Any]] = {}
+            for voice_segment in output_payload.get("segments") or []:
+                if not isinstance(voice_segment, dict):
+                    continue
+                shot_code = str(voice_segment.get("shot_code") or "")
+                if not shot_code and isinstance(voice_segment.get("shot_index"), int):
+                    shot_code = shot_codes.get(int(voice_segment["shot_index"]), "")
+                if not shot_code or not VideoProductionRepository._valid_checksum(
+                    str(voice_segment.get("checksum_sha256") or "")
+                ):
+                    continue
+                evidence_by_shot[shot_code] = {
+                    "schema_version": "functional-video-voice-segment-evidence.v1",
+                    "voice_relative_path": str(voice_segment.get("relative_path") or ""),
+                    "voice_checksum_sha256": str(voice_segment.get("checksum_sha256") or ""),
+                    "voice": str(voice_segment.get("voice") or ""),
+                    "gain_db": voice_segment.get("gain_db"),
+                    "target_duration_seconds": voice_segment.get("target_duration_seconds"),
+                }
+        else:
+            role = "subtitle_track"
+            events_by_shot: dict[str, list[dict[str, Any]]] = {}
+            for event in output_payload.get("events") or []:
+                if not isinstance(event, dict) or not isinstance(event.get("shot_index"), int):
+                    continue
+                shot_code = shot_codes.get(int(event["shot_index"]))
+                if not shot_code:
+                    continue
+                events_by_shot.setdefault(shot_code, []).append(
+                    {
+                        "kind": str(event.get("kind") or "caption"),
+                        "start_seconds": event.get("start_seconds"),
+                        "end_seconds": event.get("end_seconds"),
+                    }
+                )
+            evidence_by_shot = {
+                shot_code: {
+                    "schema_version": "functional-video-subtitle-track-evidence.v1",
+                    "event_count": len(events),
+                    "events": events,
+                    "text_complete": output_payload.get("text_complete") is True,
+                }
+                for shot_code, events in events_by_shot.items()
+            }
+        for timeline_segment in timeline_segments:
+            evidence = evidence_by_shot.get(str(timeline_segment["clip_code"]))
+            if evidence is None:
+                continue
+            cursor.execute(
+                """INSERT INTO functional_video_timeline_segment_execution_artifacts (
+                       timeline_segment_id, video_artifact_id, job_attempt,
+                       artifact_role, artifact_key, relative_path,
+                       checksum_sha256, evidence
+                   ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                   ON CONFLICT (timeline_segment_id, job_attempt, artifact_role) DO NOTHING""",
+                (
+                    timeline_segment["id"],
+                    artifact["id"],
+                    int(job["attempt"]),
+                    role,
+                    artifact_key,
+                    relative_path,
+                    checksum,
+                    Jsonb(evidence),
+                ),
+            )
+
+    @staticmethod
+    def _valid_checksum(value: str) -> bool:
+        return len(value) == 64 and all(character in "0123456789abcdef" for character in value)
 
     def fail_stage(
         self,

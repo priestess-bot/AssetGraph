@@ -323,6 +323,7 @@ class VideoProductionPipeline:
             segments.append(
                 {
                     "shot_index": index,
+                    "shot_code": str(shot.get("shot_code") or f"SHOT-{index + 1:02d}"),
                     "relative_path": store.relative_to_output_root(fitted),
                     "file_size": fitted.stat().st_size,
                     "checksum_sha256": _sha256(fitted),

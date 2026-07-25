@@ -1363,7 +1363,7 @@ class FunctionalVideoService:
     ) -> list[dict[str, Any]]:
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
-                """SELECT segment_code, clip_code, source_shot_code,
+                """SELECT id, segment_code, clip_code, source_shot_code,
                           timeline_start_ms, timeline_end_ms, source_script_block_codes, source_range,
                           transform, transition, artifact_refs,
                           fingerprint_sha256, created_at
@@ -1372,7 +1372,25 @@ class FunctionalVideoService:
                    ORDER BY timeline_start_ms, clip_code""",
                 (plan_id, timeline_revision),
             )
-            return [dict(row) for row in cursor.fetchall()]
+            segments = [dict(row) for row in cursor.fetchall()]
+            if not segments:
+                return []
+            cursor.execute(
+                """SELECT link.timeline_segment_id, link.job_attempt,
+                          link.artifact_role, link.artifact_key, link.relative_path,
+                          link.checksum_sha256, link.evidence, link.created_at
+                   FROM functional_video_timeline_segment_execution_artifacts AS link
+                   WHERE link.timeline_segment_id = ANY(%s)
+                   ORDER BY link.created_at, link.artifact_role""",
+                ([segment["id"] for segment in segments],),
+            )
+            links_by_segment: dict[Any, list[dict[str, Any]]] = {}
+            for link in cursor.fetchall():
+                values = dict(link)
+                links_by_segment.setdefault(values.pop("timeline_segment_id"), []).append(values)
+            for segment in segments:
+                segment["execution_artifact_refs"] = links_by_segment.get(segment.pop("id"), [])
+            return segments
 
     def update_timeline(self, plan_code: str, payload: dict[str, Any], *, actor_id: str) -> dict[str, Any] | None:
         """Apply a constrained edit and update the queued worker input atomically."""

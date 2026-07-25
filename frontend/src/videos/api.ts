@@ -146,6 +146,13 @@ export interface FunctionalVideoPlan {
     timelineEndMs: number;
     transition: string;
     fingerprintSha256: string;
+    executionArtifactRefs: Array<{
+      jobAttempt: number;
+      artifactRole: string;
+      artifactKey: string;
+      relativePath: string;
+      checksumSha256: string;
+    }>;
   }>;
   releaseCode?: string;
   releaseSnapshotArtifactCode?: string;
@@ -570,6 +577,23 @@ function plan(value: unknown): FunctionalVideoPlan {
               timelineEndMs: asNumber(segment.timeline_end_ms),
               transition: asString(segment.transition, "cut"),
               fingerprintSha256: asString(segment.fingerprint_sha256),
+              executionArtifactRefs: asArray(
+                segment.execution_artifact_refs,
+              ).flatMap((artifact) =>
+                isRecord(artifact) &&
+                asString(artifact.artifact_role) &&
+                asString(artifact.artifact_key) &&
+                asString(artifact.relative_path) &&
+                asString(artifact.checksum_sha256)
+                  ? [{
+                      jobAttempt: asNumber(artifact.job_attempt, 1),
+                      artifactRole: asString(artifact.artifact_role),
+                      artifactKey: asString(artifact.artifact_key),
+                      relativePath: asString(artifact.relative_path),
+                      checksumSha256: asString(artifact.checksum_sha256),
+                    }]
+                  : [],
+              ),
             },
           ]
         : [],

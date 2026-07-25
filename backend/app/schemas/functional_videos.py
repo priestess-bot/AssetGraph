@@ -170,6 +170,7 @@ class FunctionalVideoTimelineSegmentRead(BaseModel):
     transform: dict[str, Any] = Field(default_factory=dict)
     transition: str
     artifact_refs: list[dict[str, Any]] = Field(default_factory=list)
+    execution_artifact_refs: list[dict[str, Any]] = Field(default_factory=list)
     fingerprint_sha256: str
     created_at: datetime
 

@@ -339,6 +339,18 @@ function FixedInputTrace({ plan }: { plan: FunctionalVideoPlan }) {
                     </dd>
                   </div>
                 ) : null}
+                {segment?.executionArtifactRefs.length ? (
+                  <div>
+                    <dt>执行产物</dt>
+                    <dd>
+                      {segment.executionArtifactRefs.map((artifact) => (
+                        <code key={`${artifact.artifactRole}-${artifact.jobAttempt}`}>
+                          {artifact.artifactRole} r{artifact.jobAttempt} {artifact.checksumSha256.slice(0, 12)}
+                        </code>
+                      ))}
+                    </dd>
+                  </div>
+                ) : null}
                 <div>
                   <dt>转场</dt>
                   <dd>{clip.transition ?? "cut"}</dd>

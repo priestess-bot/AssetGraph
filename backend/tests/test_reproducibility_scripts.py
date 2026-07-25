@@ -287,6 +287,7 @@ def test_migration_discovery_is_contiguous() -> None:
                 "material_pack_resolution_contract.sql",
                 "functional_video_timeline_segments.sql",
                 "functional_video_timeline_segment_script_sources.sql",
+                "functional_video_timeline_segment_execution_artifacts.sql",
             ],
             start=1,
         )
