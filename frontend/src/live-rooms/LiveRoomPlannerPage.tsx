@@ -984,7 +984,31 @@ export function LiveRoomPlannerPage({
   search?: string;
 }) {
   const queryClient = useQueryClient();
-  const requestedPlanCode = new URLSearchParams(search).get("run") ?? "";
+  const handoffQuery = new URLSearchParams(search);
+  const requestedPlanCode = handoffQuery.get("run") ?? "";
+  const referenceTemplateCode =
+    handoffQuery.get("reference_template_code")?.trim() ?? "";
+  const referenceTemplateRevision = Number(
+    handoffQuery.get("reference_template_revision_number"),
+  );
+  const referenceTemplateFingerprint =
+    handoffQuery.get("reference_template_projection_fingerprint")?.trim() ?? "";
+  const hasReferenceTemplateHandoff = Boolean(
+    referenceTemplateCode ||
+    referenceTemplateFingerprint ||
+    handoffQuery.has("reference_template_revision_number"),
+  );
+  const referenceTemplateHandoff =
+    referenceTemplateCode &&
+    Number.isInteger(referenceTemplateRevision) &&
+    referenceTemplateRevision > 0 &&
+    referenceTemplateFingerprint.length === 64
+      ? {
+          templateCode: referenceTemplateCode,
+          revision: referenceTemplateRevision,
+          fingerprint: referenceTemplateFingerprint,
+        }
+      : undefined;
   const [selectedPlan, setSelectedPlan] = useState(requestedPlanCode);
   const [projectCode, setProjectCode] = useState("");
   const [roomId, setRoomId] = useState("");
@@ -1067,6 +1091,16 @@ export function LiveRoomPlannerPage({
       ),
     [selectedTemplates],
   );
+  const referenceTemplateMatched =
+    !hasReferenceTemplateHandoff ||
+    Boolean(
+      referenceTemplateHandoff &&
+      selectedTemplates.some(
+        (template) =>
+          template.templateCode === referenceTemplateHandoff.templateCode &&
+          template.revision === referenceTemplateHandoff.revision,
+      ),
+    );
   const roleCandidates = useMemo(() => {
     const selectedCodes = new Set(assetCodes);
     (groups.data ?? [])
@@ -1216,6 +1250,7 @@ export function LiveRoomPlannerPage({
     event.preventDefault();
     if (
       !hasIncompleteRoomOverride &&
+      referenceTemplateMatched &&
       projectCode &&
       roomId.trim() &&
       title.trim() &&
@@ -1310,6 +1345,22 @@ export function LiveRoomPlannerPage({
               模板只能在内容项目中修改；直播间计划会固定继承当前修订。
             </small>
           </div>
+          {hasReferenceTemplateHandoff ? (
+            referenceTemplateHandoff ? (
+              <InlineNotice
+                tone={referenceTemplateMatched ? "info" : "danger"}
+                title="固定参考模板交接"
+              >
+                {referenceTemplateMatched
+                  ? `当前内容项目已固定 ${referenceTemplateHandoff.templateCode} · r${referenceTemplateHandoff.revision}；参考投影只参与内容策略，不会写入可执行布局。`
+                  : `当前内容项目未固定 ${referenceTemplateHandoff.templateCode} · r${referenceTemplateHandoff.revision}；请先在内容项目中选择该发布模板。`}
+              </InlineNotice>
+            ) : (
+              <InlineNotice tone="danger" title="固定参考模板交接无效">
+                模板编码、修订号或投影指纹不完整，不能生成直播间计划。
+              </InlineNotice>
+            )
+          ) : null}
           <label className="wb-field">
             <span>直播间 ID</span>
             <input
@@ -1586,6 +1637,7 @@ export function LiveRoomPlannerPage({
               create.isPending ||
               selectedProject.isLoading ||
               hasIncompleteRoomOverride ||
+              !referenceTemplateMatched ||
               materialPackResolution.isFetching ||
               materialPackConflicts.length > 0 ||
               !projectCode ||
