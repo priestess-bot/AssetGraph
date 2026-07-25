@@ -1055,6 +1055,9 @@ function Detail({
   const videoUrl = plan.artifacts.find(
     (artifact) => artifact.artifact_key === "video",
   )?.download_url;
+  const posterUrl = plan.artifacts.find(
+    (artifact) => artifact.artifact_key === "poster",
+  )?.download_url;
   return (
     <div className="video-plan-detail">
       <section className="wb-section">
@@ -1108,15 +1111,25 @@ function Detail({
           </InlineNotice>
         )}
       </section>
-      {videoUrl ? (
+      {videoUrl || posterUrl ? (
         <section className="wb-section">
           <SectionHeader kicker="RENDER PREVIEW" title="成片预览" />
-          <video
-            className="video-render-preview"
-            controls
-            playsInline
-            src={videoUrl}
-          />
+          <div className="video-render-preview-grid">
+            {videoUrl ? (
+              <video
+                className="video-render-preview"
+                controls
+                playsInline
+                src={videoUrl}
+              />
+            ) : null}
+            {posterUrl ? (
+              <figure className="video-poster-preview">
+                <img src={posterUrl} alt="成片海报" />
+                <figcaption>已渲染海报帧</figcaption>
+              </figure>
+            ) : null}
+          </div>
         </section>
       ) : null}
       <WorkflowPanel plan={plan} />

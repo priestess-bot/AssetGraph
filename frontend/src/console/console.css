@@ -494,7 +494,11 @@
 .video-artifacts { display: flex; flex-wrap: wrap; gap: 7px; padding: 13px; }
 .video-artifacts > div { display: grid; min-width: 0; gap: 4px; }
 .video-artifacts small { overflow-wrap: anywhere; color: var(--wb-muted); font-size: 7px; }
-.video-render-preview { display: block; width: min(100%, 440px); max-height: 680px; margin: 13px auto; background: #101310; }
+.video-render-preview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 13px; padding: 13px; }
+.video-render-preview { display: block; width: 100%; max-height: 680px; margin: 0; background: #101310; }
+.video-poster-preview { display: grid; min-width: 0; max-width: 440px; gap: 6px; margin: 0; justify-self: center; }
+.video-poster-preview img { display: block; width: 100%; max-height: 680px; object-fit: contain; background: #101310; }
+.video-poster-preview figcaption { color: var(--wb-muted); font-size: 8px; }
 .video-branch-form { display: flex; align-items: end; gap: 8px; padding: 13px; }
 .video-branch-form .wb-field { flex: 1; }
 .video-release-candidate { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 13px; }
