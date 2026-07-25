@@ -321,42 +321,88 @@ class FunctionalLearningService:
         return self._experiment(dict(row))
 
     def record_outcome(self, code: str, p: dict[str, Any]) -> dict[str, Any] | None:
-        with self.connection.cursor(row_factory=dict_row) as c:
-            c.execute(
-                "SELECT * FROM functional_experiments WHERE experiment_code=%s", (code,)
-            )
-            e = c.fetchone()
-            if not e:
-                self.connection.rollback()
-                return None
-            variant = self._assigned_variant(e["variants"], p["subject_key"])
-            c.execute(
-                "INSERT INTO functional_experiment_outcomes (experiment_code,subject_key,variant_key,metric_value) VALUES (%s,%s,%s,%s) ON CONFLICT (experiment_code,subject_key) DO UPDATE SET metric_value=EXCLUDED.metric_value RETURNING id",
-                (code, p["subject_key"], variant, p["metric_value"]),
-            )
-        self.connection.commit()
+        try:
+            with self.connection.cursor(row_factory=dict_row) as c:
+                c.execute(
+                    "SELECT 1 FROM functional_experiments WHERE experiment_code=%s", (code,)
+                )
+                if c.fetchone() is None:
+                    self.connection.rollback()
+                    return None
+                c.execute(
+                    """SELECT variant_key FROM functional_experiment_assignments
+                       WHERE experiment_code=%s AND subject_key=%s FOR UPDATE""",
+                    (code, p["subject_key"]),
+                )
+                assignment = c.fetchone()
+                if assignment is None:
+                    raise DomainValidationError(
+                        "EXPERIMENT_ASSIGNMENT_REQUIRED",
+                        "A persisted experiment assignment is required before recording an outcome",
+                        details={"experiment_code": code, "subject_key": p["subject_key"]},
+                    )
+                c.execute(
+                    "INSERT INTO functional_experiment_outcomes (experiment_code,subject_key,variant_key,metric_value) VALUES (%s,%s,%s,%s) ON CONFLICT (experiment_code,subject_key) DO UPDATE SET metric_value=EXCLUDED.metric_value RETURNING id",
+                    (code, p["subject_key"], assignment["variant_key"], p["metric_value"]),
+                )
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
         return self.get_experiment(code)
 
-    def get_experiment_assignment(
+    def assign_experiment_subject(
         self, code: str, subject_key: str
     ) -> dict[str, Any] | None:
-        with self.connection.cursor(row_factory=dict_row) as c:
-            c.execute(
-                """SELECT experiment_code, variants, assignment_strategy,
-                          registration_fingerprint_sha256
-                   FROM functional_experiments WHERE experiment_code=%s""",
-                (code,),
-            )
-            row = c.fetchone()
-        if row is None:
-            return None
-        return {
-            "experiment_code": row["experiment_code"],
-            "subject_key": subject_key,
-            "variant_key": self._assigned_variant(row["variants"], subject_key),
-            "assignment_strategy": row["assignment_strategy"],
-            "registration_fingerprint_sha256": row["registration_fingerprint_sha256"],
-        }
+        try:
+            with self.connection.cursor(row_factory=dict_row) as c:
+                c.execute(
+                    "SELECT * FROM functional_experiments WHERE experiment_code=%s FOR UPDATE",
+                    (code,),
+                )
+                experiment = c.fetchone()
+                if experiment is None:
+                    self.connection.rollback()
+                    return None
+                c.execute(
+                    """SELECT * FROM functional_experiment_assignments
+                       WHERE experiment_code=%s AND subject_key=%s FOR UPDATE""",
+                    (code, subject_key),
+                )
+                assignment = c.fetchone()
+                if assignment is None:
+                    assignment_code = self._next(c, "ASSIGN", "functional_experiment_assignment")
+                    c.execute(
+                        """INSERT INTO functional_experiment_assignments
+                           (assignment_code,experiment_code,subject_key,variant_key,assignment_strategy,
+                            registration_fingerprint_sha256)
+                           VALUES (%s,%s,%s,%s,%s,%s) RETURNING *""",
+                        (
+                            assignment_code,
+                            code,
+                            subject_key,
+                            self._assigned_variant(experiment["variants"], subject_key),
+                            experiment["assignment_strategy"],
+                            experiment["registration_fingerprint_sha256"],
+                        ),
+                    )
+                    assignment = c.fetchone()
+                result = {
+                    "assignment_code": assignment["assignment_code"],
+                    "experiment_code": assignment["experiment_code"],
+                    "subject_key": assignment["subject_key"],
+                    "variant_key": assignment["variant_key"],
+                    "assignment_strategy": assignment["assignment_strategy"],
+                    "registration_fingerprint_sha256": assignment[
+                        "registration_fingerprint_sha256"
+                    ],
+                    "assigned_at": assignment["assigned_at"],
+                }
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+        return result
 
     def get_experiment(self, code: str) -> dict[str, Any] | None:
         with self.connection.cursor(row_factory=dict_row) as c:

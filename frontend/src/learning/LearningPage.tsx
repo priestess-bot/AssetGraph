@@ -76,12 +76,13 @@ type EffectReproduction = {
 
 function ExperimentOutcomeForm({ experiment, onRecorded }: { experiment: Experiment; onRecorded: () => void }) {
   const [subject, setSubject] = useState("");
-  const [assignmentSubject, setAssignmentSubject] = useState("");
+  const [assignment, setAssignment] = useState<ExperimentAssignment | null>(null);
   const [value, setValue] = useState(0);
-  const assignment = useQuery({
-    queryKey: ["learning", "experiment-assignment", experiment.experiment_code, assignmentSubject],
-    queryFn: () => requestJson<ExperimentAssignment>(`/api/functional-learning/experiments/${experiment.experiment_code}/assignment?subject_key=${encodeURIComponent(assignmentSubject)}`),
-    enabled: Boolean(assignmentSubject),
+  const assign = useMutation({
+    mutationFn: (subjectKey: string) => postJson<ExperimentAssignment>(`/api/functional-learning/experiments/${experiment.experiment_code}/assignments`, {
+      subject_key: subjectKey,
+    }),
+    onSuccess: setAssignment,
   });
   const outcome = useMutation({
     mutationFn: () => postJson(`/api/functional-learning/experiments/${experiment.experiment_code}/outcomes`, {
@@ -90,7 +91,7 @@ function ExperimentOutcomeForm({ experiment, onRecorded }: { experiment: Experim
     }),
     onSuccess: onRecorded,
   });
-  const assignmentMatchesSubject = assignment.data?.subject_key === subject.trim();
+  const assignmentMatchesSubject = assignment?.subject_key === subject.trim();
 
   return (
     <form className="operations-form" onSubmit={(event: FormEvent) => { event.preventDefault(); outcome.mutate(); }}>
@@ -98,14 +99,14 @@ function ExperimentOutcomeForm({ experiment, onRecorded }: { experiment: Experim
         className="wb-input"
         aria-label={`实验主体 ${experiment.experiment_code}`}
         value={subject}
-        onChange={(event) => { setSubject(event.target.value); setAssignmentSubject(""); }}
+        onChange={(event) => { setSubject(event.target.value); setAssignment(null); }}
         required
       />
-      <button type="button" className="wb-button" onClick={() => setAssignmentSubject(subject.trim())} disabled={!subject.trim() || assignment.isFetching}>确定分组</button>
-      {assignment.data && assignmentMatchesSubject ? <small>固定版本：{assignment.data.variant_key}</small> : null}
+      <button type="button" className="wb-button" onClick={() => assign.mutate(subject.trim())} disabled={!subject.trim() || assign.isPending}>确定分组</button>
+      {assignment && assignmentMatchesSubject ? <small>固定版本：{assignment.variant_key}</small> : null}
       <input className="wb-input" aria-label={`实验指标值 ${experiment.experiment_code}`} type="number" value={value} onChange={(event) => setValue(Number(event.target.value))} />
       <button className="wb-button" disabled={outcome.isPending || !assignmentMatchesSubject}>回填结果</button>
-      {assignment.error || outcome.error ? <InlineNotice tone="danger" title="实验结果未保存">{assignment.error instanceof Error ? assignment.error.message : outcome.error instanceof Error ? outcome.error.message : "请求失败"}</InlineNotice> : null}
+      {assign.error || outcome.error ? <InlineNotice tone="danger" title="实验结果未保存">{assign.error instanceof Error ? assign.error.message : outcome.error instanceof Error ? outcome.error.message : "请求失败"}</InlineNotice> : null}
     </form>
   );
 }

@@ -114,8 +114,8 @@ describe("LearningPage", () => {
         registration: { hypothesis: "A concise opening improves watchers.", observation_window: "one day" },
         assignment_strategy: "stable_hash_sha256_v1", results: { control: { average: 0, sample_size: 0 }, treatment: { average: 0, sample_size: 0 } },
       }]);
-      if (url === "/api/functional-learning/experiments/EXP-001/assignment?subject_key=session-001") {
-        return response({ experiment_code: "EXP-001", subject_key: "session-001", variant_key: "treatment", assignment_strategy: "stable_hash_sha256_v1" });
+      if (url === "/api/functional-learning/experiments/EXP-001/assignments") {
+        return response({ assignment_code: "ASSIGN-001", experiment_code: "EXP-001", subject_key: "session-001", variant_key: "treatment", assignment_strategy: "stable_hash_sha256_v1", assigned_at: "2026-07-25T00:00:00Z" });
       }
       if (url === "/api/functional-learning/experiments/EXP-001/outcomes") return response({});
       if (url === "/api/functional-operations/attribution-reports") return response([]);
@@ -134,8 +134,11 @@ describe("LearningPage", () => {
     await user.type(screen.getByLabelText("实验指标值 EXP-001"), "42");
     await user.click(screen.getByRole("button", { name: "回填结果" }));
 
+    await waitFor(() => expect(requests.some((request) => request.url === "/api/functional-learning/experiments/EXP-001/assignments" && request.init?.method === "POST")).toBe(true));
     await waitFor(() => expect(requests.some((request) => request.url === "/api/functional-learning/experiments/EXP-001/outcomes" && request.init?.method === "POST")).toBe(true));
+    const assignment = requests.find((item) => item.url === "/api/functional-learning/experiments/EXP-001/assignments" && item.init?.method === "POST");
     const request = requests.find((item) => item.url === "/api/functional-learning/experiments/EXP-001/outcomes" && item.init?.method === "POST");
+    expect(JSON.parse(String(assignment?.init?.body))).toEqual({ subject_key: "session-001" });
     expect(JSON.parse(String(request?.init?.body))).toEqual({ subject_key: "session-001", metric_value: 42 });
   });
 });

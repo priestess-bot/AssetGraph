@@ -129,8 +129,14 @@ def test_decisions_and_stable_experiment_outcomes() -> None:
         )
         assert e["registration"]["hypothesis"] == _registration()["hypothesis"]
         assert e["registration_fingerprint_sha256"]
-        assignment = s.get_experiment_assignment(e["experiment_code"], "viewer-1")
+        with pytest.raises(DomainValidationError) as missing_assignment:
+            s.record_outcome(
+                e["experiment_code"], {"subject_key": "viewer-1", "metric_value": 12}
+            )
+        assert missing_assignment.value.code == "EXPERIMENT_ASSIGNMENT_REQUIRED"
+        assignment = s.assign_experiment_subject(e["experiment_code"], "viewer-1")
         assert assignment is not None
+        assert assignment["assignment_code"].startswith("ASSIGN-")
         assert assignment["assignment_strategy"] == "stable_hash_sha256_v1"
         first = s.record_outcome(
             e["experiment_code"], {"subject_key": "viewer-1", "metric_value": 12}

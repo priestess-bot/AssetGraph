@@ -51,15 +51,17 @@ class FakeFunctionalLearningService:
         return _effect(effect_code=effect_code, revoked_by=actor, revoked_reason=reason)
 
     @staticmethod
-    def get_experiment_assignment(code: str, subject_key: str) -> dict[str, Any] | None:
+    def assign_experiment_subject(code: str, subject_key: str) -> dict[str, Any] | None:
         if code == "EXP-MISSING":
             return None
         return {
+            "assignment_code": "ASSIGN-001",
             "experiment_code": code,
             "subject_key": subject_key,
             "variant_key": "treatment",
             "assignment_strategy": "stable_hash_sha256_v1",
             "registration_fingerprint_sha256": "b" * 64,
+            "assigned_at": NOW,
         }
 
 
@@ -117,13 +119,13 @@ def test_experiment_assignment_route_returns_stable_assignment(
 ) -> None:
     test_client, _service = client
 
-    assigned = test_client.get(
-        "/api/functional-learning/experiments/EXP-001/assignment",
-        params={"subject_key": "session-001"},
+    assigned = test_client.post(
+        "/api/functional-learning/experiments/EXP-001/assignments",
+        json={"subject_key": "session-001"},
     )
-    missing = test_client.get(
-        "/api/functional-learning/experiments/EXP-MISSING/assignment",
-        params={"subject_key": "session-001"},
+    missing = test_client.post(
+        "/api/functional-learning/experiments/EXP-MISSING/assignments",
+        json={"subject_key": "session-001"},
     )
 
     assert assigned.status_code == 200

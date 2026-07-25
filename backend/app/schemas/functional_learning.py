@@ -47,12 +47,18 @@ class OutcomeCreate(BaseModel):
     metric_value: float
 
 
+class ExperimentAssignmentCreate(BaseModel):
+    subject_key: str = Field(min_length=1, max_length=255)
+
+
 class ExperimentAssignmentRead(BaseModel):
+    assignment_code: str
     experiment_code: str
     subject_key: str
     variant_key: str
     assignment_strategy: str
     registration_fingerprint_sha256: str | None = None
+    assigned_at: datetime
 
 
 class EffectEstimateCreate(BaseModel):
