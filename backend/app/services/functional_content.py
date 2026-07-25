@@ -14,6 +14,7 @@ from app.repositories.content_production import ContentProductionRepository
 from app.repositories.live_observations import LiveObservationRepository
 from app.repositories.maitu_workbench import MaituWorkbenchRepository
 from app.domain.errors import DomainConflictError, DomainValidationError
+from app.services.functional_knowledge import FunctionalKnowledgeService
 
 
 class FunctionalContentService:
@@ -24,11 +25,13 @@ class FunctionalContentService:
         self.core = ContentCoreRepository(connection)
         self.production = ContentProductionRepository(connection)
         self.facts = MaituWorkbenchRepository(connection)
+        self.knowledge = FunctionalKnowledgeService(connection)
         self.templates = LiveObservationRepository(connection)
 
     def create_project(self, payload: dict[str, Any], *, actor_id: str) -> dict[str, Any]:
         document = self._document(payload)
         self._pin_fact_cards(document)
+        self._pin_fact_claims(document)
         self._pin_template_refs(document)
         created = self.core.create_project(
             title=payload["title"],
@@ -60,6 +63,8 @@ class FunctionalContentService:
         updates = self._document(payload, include_defaults=False)
         if "fact_card_codes" in updates and "fact_card_refs" not in updates:
             document.pop("fact_card_refs", None)
+        if "fact_claim_codes" in updates and "fact_claim_refs" not in updates:
+            document.pop("fact_claim_refs", None)
         if (
             {"primary_template_code", "secondary_template_codes"} & set(updates)
             and "template_contribution_decisions" not in updates
@@ -67,6 +72,7 @@ class FunctionalContentService:
             document.pop("template_contribution_decisions", None)
         document.update(updates)
         self._pin_fact_cards(document)
+        self._pin_fact_claims(document)
         self._pin_template_refs(document)
         revision = self.core.create_project_revision(
             project_code,
@@ -106,6 +112,7 @@ class FunctionalContentService:
             )
         document = dict(current["content"] or {})
         self._pin_fact_cards(document, require_existing_pins=True)
+        self._pin_fact_claims(document, require_existing_pins=True)
         self._pin_template_refs(document, require_existing_pins=True)
         if document != current["content"]:
             revision = self.core.create_project_revision(
@@ -768,6 +775,7 @@ class FunctionalContentService:
                 **self._summary(project),
                 "content": content,
                 "fact_cards": self._fact_card_views(content),
+                "fact_claims": self._fact_claim_views(content),
                 "design_brief": self._design_brief_view(design_brief),
                 "generated": shot_list is not None,
                 "generation_mode": content.get("generation_mode"),
@@ -785,6 +793,7 @@ class FunctionalContentService:
         project_revision = int(current["revision_number"])
         frozen_inputs = dict(current["content"] or {})
         self._pin_fact_cards(frozen_inputs, require_existing_pins=True)
+        self._pin_fact_claims(frozen_inputs, require_existing_pins=True)
         self._pin_template_refs(frozen_inputs, require_existing_pins=True)
         if current["status"] != "confirmed":
             raise DomainConflictError(
@@ -870,6 +879,7 @@ class FunctionalContentService:
             "target_duration_seconds", "product_order", "must_include", "must_avoid",
             "interaction_requirements", "conversion_requirements", "staging_requirements",
             "visual_requirements", "audio_requirements", "fact_card_codes", "fact_card_refs",
+            "fact_claim_codes", "fact_claim_refs",
             "primary_template_code", "secondary_template_codes", "primary_template_ref",
             "secondary_template_refs", "template_contribution_decisions",
         )
@@ -878,7 +888,8 @@ class FunctionalContentService:
             for field in (
                 "product_order", "must_include", "must_avoid", "interaction_requirements",
                 "conversion_requirements", "staging_requirements", "visual_requirements",
-                "audio_requirements", "fact_card_codes", "fact_card_refs", "secondary_template_codes",
+                "audio_requirements", "fact_card_codes", "fact_card_refs", "fact_claim_codes",
+                "fact_claim_refs", "secondary_template_codes",
                 "secondary_template_refs", "template_contribution_decisions",
             ):
                 document[field] = document.get(field) or []
@@ -933,6 +944,71 @@ class FunctionalContentService:
             )
         document["fact_card_refs"] = pinned
         document["fact_card_codes"] = [ref["fact_card_code"] for ref in pinned]
+
+    def _pin_fact_claims(self, document: dict[str, Any], *, require_existing_pins: bool = False) -> None:
+        raw_refs = document.get("fact_claim_refs") or []
+        raw_codes = document.get("fact_claim_codes") or []
+        if require_existing_pins and raw_codes and not raw_refs:
+            raise DomainValidationError(
+                "FACT_CLAIM_PIN_REQUIRED",
+                "A content project must pin a fact claim before confirmation or generation",
+            )
+        requested: list[str] = []
+        if raw_refs:
+            for value in raw_refs:
+                if not isinstance(value, dict) or not str(value.get("claim_code") or "").strip():
+                    raise DomainValidationError("FACT_CLAIM_REFERENCE_INVALID", "Fact claim references must contain claim_code")
+                requested.append(str(value["claim_code"]).strip())
+        else:
+            requested = [str(code).strip() for code in raw_codes if str(code).strip()]
+        if len(requested) != len(set(requested)):
+            raise DomainValidationError("FACT_CLAIM_REFERENCE_DUPLICATE", "A fact claim can only be selected once")
+
+        now = datetime.now(UTC)
+        pinned: list[dict[str, Any]] = []
+        for claim_code in requested:
+            resolved = self.knowledge.resolve_approved_fact_claim(claim_code)
+            if resolved is None:
+                raise DomainValidationError(
+                    "FACT_CLAIM_NOT_APPROVED",
+                    "The selected fact claim or its source is unavailable or not approved",
+                    details={"claim_code": claim_code},
+                )
+            valid_from = resolved.get("valid_from")
+            valid_until = resolved.get("valid_until")
+            if valid_from and now < valid_from:
+                raise DomainValidationError("FACT_CLAIM_NOT_YET_VALID", "Fact claim is not effective yet", details={"claim_code": claim_code})
+            if valid_until and now >= valid_until:
+                raise DomainValidationError("FACT_CLAIM_EXPIRED", "Fact claim has expired", details={"claim_code": claim_code})
+            pinned.append(
+                {
+                    "claim_code": resolved["claim_code"],
+                    "fact_code": resolved["fact_code"],
+                    "source_evidence_code": resolved["source_evidence_code"],
+                    "source_content_sha256": resolved["content_sha256"],
+                    "claim": resolved["claim"],
+                    "citation_excerpt": resolved["citation_excerpt"],
+                    "field_path": resolved.get("field_path"),
+                    "valid_from": self._json_timestamp(valid_from),
+                    "valid_until": self._json_timestamp(valid_until),
+                    "fingerprint_sha256": resolved["fingerprint_sha256"],
+                }
+            )
+        document["fact_claim_refs"] = pinned
+        document["fact_claim_codes"] = [ref["claim_code"] for ref in pinned]
+
+    @staticmethod
+    def _json_timestamp(value: Any) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value.astimezone(UTC).isoformat()
+        if isinstance(value, str):
+            return value
+        raise DomainValidationError(
+            "FACT_CLAIM_VALIDITY_INVALID",
+            "Fact claim validity must be an ISO-8601 timestamp",
+        )
 
     def _pin_template_refs(self, document: dict[str, Any], *, require_existing_pins: bool = False) -> None:
         """Resolve template selections to immutable published revisions.
@@ -1158,6 +1234,9 @@ class FunctionalContentService:
             {"object_type": "fact_card", **ref, "relation_type": "approved_fact"}
             for ref in document.get("fact_card_refs") or []
         ] + [
+            {"object_type": "fact_claim", **ref, "relation_type": "approved_claim"}
+            for ref in document.get("fact_claim_refs") or []
+        ] + [
             {"object_type": "live_room_template", "template_code": ref["template_code"], "revision": ref["revision"], "relation_type": "reference_template"}
             for ref in FunctionalContentService._template_refs(document)
         ]
@@ -1167,6 +1246,9 @@ class FunctionalContentService:
         return [
             {"fact_card_code": ref["fact_card_code"], "revision": ref["version_number"], "version_code": ref["version_code"], "content_sha256": ref["content_sha256"]}
             for ref in content.get("fact_card_refs") or []
+        ] + [
+            {"claim_code": ref["claim_code"], "fact_code": ref["fact_code"], "source_evidence_code": ref["source_evidence_code"], "fingerprint_sha256": ref["fingerprint_sha256"]}
+            for ref in content.get("fact_claim_refs") or []
         ]
 
     @staticmethod
@@ -1174,6 +1256,18 @@ class FunctionalContentService:
         return [
             {"fact_card_code": ref.get("fact_card_code"), "version_number": ref.get("version_number"), "version_code": ref.get("version_code"), "content_sha256": ref.get("content_sha256")}
             for ref in content.get("fact_card_refs") or []
+            if isinstance(ref, dict)
+        ]
+
+    @staticmethod
+    def _fact_claim_views(content: dict[str, Any]) -> list[dict[str, Any]]:
+        return [
+            {
+                "claim_code": ref.get("claim_code"), "fact_code": ref.get("fact_code"),
+                "source_evidence_code": ref.get("source_evidence_code"), "claim": ref.get("claim"),
+                "citation_excerpt": ref.get("citation_excerpt"), "fingerprint_sha256": ref.get("fingerprint_sha256"),
+            }
+            for ref in content.get("fact_claim_refs") or []
             if isinstance(ref, dict)
         ]
 
@@ -1276,6 +1370,30 @@ class FunctionalContentService:
                     "content": resolved["content"],
                 }
             )
+        for ref in content.get("fact_claim_refs") or []:
+            if not isinstance(ref, dict):
+                continue
+            resolved = self.knowledge.resolve_approved_fact_claim(str(ref.get("claim_code") or ""))
+            if (
+                resolved is None
+                or resolved["fingerprint_sha256"] != ref.get("fingerprint_sha256")
+                or resolved["content_sha256"] != ref.get("source_content_sha256")
+            ):
+                raise DomainValidationError(
+                    "FACT_CLAIM_STALE_OR_UNAVAILABLE",
+                    "A pinned fact claim changed or is no longer approved before generation",
+                    details={"claim_code": ref.get("claim_code")},
+                )
+            approved_facts.append(
+                {
+                    "kind": "fact_claim",
+                    "claim_code": resolved["claim_code"],
+                    "fact_code": resolved["fact_code"],
+                    "source_evidence_code": resolved["source_evidence_code"],
+                    "fingerprint_sha256": resolved["fingerprint_sha256"],
+                    "content": {"verified_facts": [resolved["claim"]]},
+                }
+            )
         return {
             "system_baseline": {
                 "strategy_revision": "content-generation-baseline.v1",
@@ -1297,8 +1415,14 @@ class FunctionalContentService:
         fact_versions = {
             (str(fact["fact_card_code"]), int(fact["version_number"]))
             for fact in approved_facts
+            if fact.get("kind") != "fact_claim"
         }
         fact_codes = {code for code, _ in fact_versions}
+        fact_claim_codes = {
+            str(fact["claim_code"])
+            for fact in approved_facts
+            if fact.get("kind") == "fact_claim"
+        }
         restricted_markers = (
             "价格", "优惠", "促销", "库存", "赠品", "功效", "¥", "￥",
             "price", "discount", "inventory", "free gift", "benefit",
@@ -1315,11 +1439,14 @@ class FunctionalContentService:
                     )
                 code = str(citation.get("fact_card_code") or "")
                 version = citation.get("version_number")
-                if not code or not isinstance(version, int) or (code, version) not in fact_versions:
+                claim_code = str(citation.get("claim_code") or "")
+                card_valid = bool(code and isinstance(version, int) and (code, version) in fact_versions)
+                claim_valid = bool(claim_code and claim_code in fact_claim_codes)
+                if not card_valid and not claim_valid:
                     raise DomainValidationError(
                         "FACT_CITATION_NOT_APPROVED",
                         "A fact citation must point to an approved pinned fact-card revision",
-                        details={"module_type": block.get("module_type"), "fact_card_code": code, "version_number": version},
+                        details={"module_type": block.get("module_type"), "fact_card_code": code, "version_number": version, "claim_code": claim_code},
                     )
                 claim = citation.get("claim_text")
                 start = citation.get("start_offset")
@@ -1336,8 +1463,13 @@ class FunctionalContentService:
                 str(citation.get("fact_card_code"))
                 for citation in citations
                 if isinstance(citation, dict) and citation.get("fact_card_code")
+            } | {
+                str(citation.get("claim_code"))
+                for citation in citations
+                if isinstance(citation, dict) and citation.get("claim_code")
             }
-            if not cited_codes or not cited_codes.issubset(fact_codes):
+            allowed_codes = fact_codes | fact_claim_codes
+            if not cited_codes or not cited_codes.issubset(allowed_codes):
                 raise DomainValidationError(
                     "FACT_CITATION_REQUIRED",
                     "Price, promotion, inventory, gift, and efficacy claims require approved fact citations",
@@ -1464,14 +1596,21 @@ class FunctionalContentService:
                         "estimated_duration_ms": 30_000,
                         "template_sources": FunctionalContentService._template_sources_for_block(content, "product_fact"),
                         "fact_citations": [
-                            {
+                            ({
+                                "claim_code": fact["claim_code"],
+                                "fact_code": fact["fact_code"],
+                                "source_evidence_code": fact["source_evidence_code"],
+                                "claim_text": claim,
+                                "start_offset": 0,
+                                "end_offset": len(claim),
+                            } if fact.get("kind") == "fact_claim" else {
                                 "fact_card_code": fact["fact_card_code"],
                                 "version_number": fact["version_number"],
                                 "field_path": f"verified_facts[{fact_index}]",
                                 "claim_text": claim,
                                 "start_offset": 0,
                                 "end_offset": len(claim),
-                            }
+                            })
                         ],
                     }
                 )

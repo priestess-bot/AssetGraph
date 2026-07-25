@@ -210,6 +210,18 @@ class FunctionalKnowledgeService:
                 cur.execute(self._claim_query())
             return [dict(row) for row in cur.fetchall()]
 
+    def resolve_approved_fact_claim(self, claim_code: str) -> dict[str, Any] | None:
+        with self.c.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                self._claim_query(
+                    "WHERE claim.claim_code = %s AND claim.status = 'approved' "
+                    "AND source.status = 'approved' AND fact.status = 'approved'"
+                ),
+                (claim_code,),
+            )
+            row = cur.fetchone()
+        return dict(row) if row else None
+
     def approve_fact_claim(self, claim_code: str, approved_by: str) -> dict[str, Any] | None:
         try:
             with self.c.cursor(row_factory=dict_row) as cur:
@@ -243,7 +255,8 @@ class FunctionalKnowledgeService:
 
     @staticmethod
     def _claim_query(where: str = "") -> str:
-        return f"""SELECT claim.*, fact.title AS fact_title, source.title AS source_title, source.status AS source_status
+        return f"""SELECT claim.*, fact.title AS fact_title, source.title AS source_title,
+                          source.status AS source_status, source.content_sha256 AS content_sha256
                    FROM functional_knowledge_fact_claims AS claim
                    JOIN functional_knowledge_facts AS fact ON fact.fact_code = claim.fact_code
                    JOIN functional_knowledge_source_evidences AS source ON source.evidence_code = claim.source_evidence_code

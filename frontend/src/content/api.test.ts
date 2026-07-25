@@ -42,6 +42,21 @@ describe("content projects api", () => {
     expect(detail.factCards).toEqual([{ fact_card_code: "FACT-WINE", version_number: 4, version_code: "FACT-WINE-V4", content_sha256: "sha256" }]);
   });
 
+  it("reads pinned source-backed fact claims and their script citations", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response({
+      project_code: "CONTENT-001", title: "保修说明", revision_number: 1, status: "confirmed", generation_goal: "说明保修承诺",
+      updated_at: "2026-07-25T00:00:00Z", content: {}, generated: true,
+      fact_claims: [{ claim_code: "CLAIM-001", fact_code: "FACT-001", source_evidence_code: "EVIDENCE-001", claim: "提供 12 个月保修。", citation_excerpt: "规格书载明 12 个月保修。", fingerprint_sha256: "a".repeat(64) }],
+      script: { script_revision_code: "SCRIPT-001", revision_number: 1, title: "脚本", blocks: [{ block_code: "BLOCK-1", module_type: "product_fact", content: "提供 12 个月保修。", fact_citations: [{ claim_code: "CLAIM-001", fact_code: "FACT-001", source_evidence_code: "EVIDENCE-001", claim_text: "提供 12 个月保修", start_offset: 0, end_offset: 10 }], template_sources: [] }] },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const detail = await contentProjectsApi.get("CONTENT-001");
+
+    expect(detail.factClaims).toEqual([expect.objectContaining({ claim_code: "CLAIM-001", source_evidence_code: "EVIDENCE-001" })]);
+    expect(detail.script?.blocks[0]?.fact_citations[0]).toMatchObject({ claim_code: "CLAIM-001", source_evidence_code: "EVIDENCE-001" });
+  });
+
   it("updates template references with explicit module contribution decisions", async () => {
     const fetchMock = vi.fn().mockResolvedValue(response({
       project_code: "CONTENT-001", title: "选酒直播", revision_number: 4, status: "draft", generation_goal: "帮助观众选酒",

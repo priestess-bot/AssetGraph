@@ -361,6 +361,7 @@ function ProjectCreate({ onCreated }: { onCreated: (code: string) => void }) {
   const [mustAvoid, setMustAvoid] = useState("");
   const [interactions, setInteractions] = useState("");
   const [factCodes, setFactCodes] = useState<string[]>([]);
+  const [claimCodes, setClaimCodes] = useState<string[]>([]);
   const [primaryTemplate, setPrimaryTemplate] = useState("");
   const [secondaryTemplates, setSecondaryTemplates] = useState<string[]>([]);
   const [acceptedModules, setAcceptedModules] = useState<
@@ -373,6 +374,10 @@ function ProjectCreate({ onCreated }: { onCreated: (code: string) => void }) {
   const facts = useQuery({
     queryKey: ["product-fact-cards"],
     queryFn: knowledgeApi.listProductFactCards,
+  });
+  const claims = useQuery({
+    queryKey: ["knowledge-fact-claims"],
+    queryFn: knowledgeApi.listFactClaims,
   });
   const usableTemplates = useMemo(
     () =>
@@ -401,6 +406,9 @@ function ProjectCreate({ onCreated }: { onCreated: (code: string) => void }) {
           version.versionNumber === fact.currentApprovedVersion &&
           version.status === "approved",
       ),
+  );
+  const approvedClaims = (claims.data ?? []).filter(
+    (claim) => claim.status === "approved" && claim.sourceStatus === "approved",
   );
   const factConflicts = findFactCardConflicts(
     approvedFacts,
@@ -432,6 +440,12 @@ function ProjectCreate({ onCreated }: { onCreated: (code: string) => void }) {
       current.includes(factCardCode)
         ? current.filter((code) => code !== factCardCode)
         : [...current, factCardCode],
+    );
+  const toggleClaim = (claimCode: string) =>
+    setClaimCodes((current) =>
+      current.includes(claimCode)
+        ? current.filter((code) => code !== claimCode)
+        : [...current, claimCode],
     );
   const choosePrimary = (templateCode: string) => {
     setPrimaryTemplate(templateCode);
@@ -468,6 +482,7 @@ function ProjectCreate({ onCreated }: { onCreated: (code: string) => void }) {
         must_avoid: list(mustAvoid),
         interaction_requirements: list(interactions),
         fact_card_codes: factCodes,
+        fact_claim_codes: claimCodes,
         primary_template_code: primaryTemplate || undefined,
         secondary_template_codes: secondaryTemplates,
         template_contribution_decisions: selectedTemplateCodes.map(
@@ -625,6 +640,34 @@ function ProjectCreate({ onCreated }: { onCreated: (code: string) => void }) {
               {factConflicts.join("；")}
             </InlineNotice>
           ) : null}
+        </section>
+        <section className="wb-field wide">
+          <span>已批准事实声明</span>
+          {claims.isLoading ? (
+            <small>正在读取可用事实声明。</small>
+          ) : claims.error ? (
+            <InlineNotice tone="warning" title="事实声明列表暂不可用">
+              仍可创建无事实声明内容项目。
+            </InlineNotice>
+          ) : approvedClaims.length ? (
+            <div className="content-template-options">
+              {approvedClaims.map((claim) => (
+                <label key={claim.claimCode}>
+                  <input
+                    type="checkbox"
+                    checked={claimCodes.includes(claim.claimCode)}
+                    onChange={() => toggleClaim(claim.claimCode)}
+                  />
+                  {claim.factTitle} <code>{claim.claimCode}</code>
+                  <small>
+                    {claim.claim} · 证据 {claim.sourceEvidenceCode}
+                  </small>
+                </label>
+              ))}
+            </div>
+          ) : (
+            <small>暂无已批准事实声明。</small>
+          )}
         </section>
         <section className="wb-field wide">
           <span>内容策略参考模板</span>
@@ -1434,6 +1477,10 @@ function ProjectFactEditor({
     queryKey: ["product-fact-cards"],
     queryFn: knowledgeApi.listProductFactCards,
   });
+  const claims = useQuery({
+    queryKey: ["knowledge-fact-claims"],
+    queryFn: knowledgeApi.listFactClaims,
+  });
   const approvedFacts = useMemo(
     () =>
       (facts.data ?? []).filter(
@@ -1455,20 +1502,40 @@ function ProjectFactEditor({
     () => detail.factCards.map((fact) => fact.fact_card_code),
     [detail.factCards],
   );
+  const approvedClaims = useMemo(
+    () =>
+      (claims.data ?? []).filter(
+        (claim) =>
+          claim.status === "approved" && claim.sourceStatus === "approved",
+      ),
+    [claims.data],
+  );
+  const pinnedClaimCodes = useMemo(
+    () => detail.factClaims.map((claim) => claim.claim_code),
+    [detail.factClaims],
+  );
   const pinnedCodeKey = pinnedCodes.join("|");
   const approvedCodeKey = approvedFacts
     .map((fact) => fact.factCardCode)
     .join("|");
   const [factCodes, setFactCodes] = useState<string[]>([]);
+  const [claimCodes, setClaimCodes] = useState<string[]>([]);
   const [touched, setTouched] = useState(false);
   useEffect(() => {
     setFactCodes(pinnedCodes.filter((code) => approvedCodes.has(code)));
+    setClaimCodes(
+      pinnedClaimCodes.filter((code) =>
+        approvedClaims.some((claim) => claim.claimCode === code),
+      ),
+    );
     setTouched(false);
   }, [
     approvedCodeKey,
     detail.projectCode,
     detail.revisionNumber,
     pinnedCodeKey,
+    approvedClaims,
+    pinnedClaimCodes,
   ]);
   const unavailablePins = detail.factCards.filter(
     (fact) => !approvedCodes.has(fact.fact_card_code),
@@ -1486,10 +1553,19 @@ function ProjectFactEditor({
         : [...current, factCardCode],
     );
   };
+  const toggleClaim = (claimCode: string) => {
+    setTouched(true);
+    setClaimCodes((current) =>
+      current.includes(claimCode)
+        ? current.filter((code) => code !== claimCode)
+        : [...current, claimCode],
+    );
+  };
   const submit = () =>
     onSave({
       expected_revision: detail.revisionNumber,
       fact_card_codes: factCodes,
+      fact_claim_codes: claimCodes,
     });
   return (
     <section className="wb-section">
@@ -1554,6 +1630,33 @@ function ProjectFactEditor({
                   .join("；")}
               </InlineNotice>
             ) : null}
+            <div className="content-template-options">
+              <strong>已批准事实声明</strong>
+              {claims.isLoading ? (
+                <small>正在读取事实声明。</small>
+              ) : claims.error ? (
+                <InlineNotice tone="warning" title="事实声明暂不可用">
+                  无法修改声明选择。
+                </InlineNotice>
+              ) : approvedClaims.length ? (
+                approvedClaims.map((claim) => (
+                  <label key={claim.claimCode}>
+                    <input
+                      type="checkbox"
+                      checked={claimCodes.includes(claim.claimCode)}
+                      onChange={() => toggleClaim(claim.claimCode)}
+                    />
+                    {claim.factTitle}
+                    <code>
+                      {claim.claimCode} · {claim.sourceEvidenceCode}
+                    </code>
+                    <small>{claim.claim}</small>
+                  </label>
+                ))
+              ) : (
+                <small>暂无已批准事实声明。</small>
+              )}
+            </div>
             <div className="wb-form-actions">
               <button
                 type="button"
@@ -2087,6 +2190,7 @@ function ScriptRevisionEditor({
                     {block.fact_citations
                       .map(
                         (citation) =>
+                          citation.claim_code ??
                           `${citation.fact_card_code} v${citation.version_number}`,
                       )
                       .join("；")}
@@ -2963,14 +3067,12 @@ function Chain({
           <div>
             <span>事实版本</span>
             <strong>
-              {detail.factCards.length
-                ? detail.factCards
-                    .map(
-                      (fact) =>
-                        `${fact.fact_card_code} v${fact.version_number}`,
-                    )
-                    .join("；")
-                : "未选择"}
+              {[
+                ...detail.factCards.map(
+                  (fact) => `${fact.fact_card_code} v${fact.version_number}`,
+                ),
+                ...detail.factClaims.map((claim) => claim.claim_code),
+              ].join("；") || "未选择"}
             </strong>
           </div>
         </div>
@@ -3064,7 +3166,7 @@ function Chain({
                     <small>
                       {block.block_code}
                       {block.fact_citations.length
-                        ? ` · 事实：${block.fact_citations.map((citation) => `${citation.fact_card_code} v${citation.version_number}`).join("、")}`
+                        ? ` · 事实：${block.fact_citations.map((citation) => citation.claim_code ?? `${citation.fact_card_code} v${citation.version_number}`).join("、")}`
                         : ""}
                       {block.template_sources.length
                         ? ` · 模板：${block.template_sources.map((source) => `${source.template_code} r${source.revision}`).join("、")}`

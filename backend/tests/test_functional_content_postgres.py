@@ -10,6 +10,7 @@ import psycopg
 import pytest
 
 from app.services.functional_content import FunctionalContentService
+from app.services.functional_knowledge import FunctionalKnowledgeService
 from app.domain.errors import DomainConflictError, DomainValidationError
 from app.repositories.live_observations import LiveObservationRepository
 from app.services.live_observations import LiveObservationConflictError
@@ -227,6 +228,69 @@ def test_fact_citation_guard_blocks_restricted_claim_without_approved_source() -
         [{"module_type": "conversion", "content": "当前价格以批准事实为准。", "fact_citations": [{"fact_card_code": "MT-FACT-001", "version_number": 1}]}],
         [{"fact_card_code": "MT-FACT-001", "version_number": 1}],
     )
+    FunctionalContentService._validate_fact_citations(
+        [{"module_type": "conversion", "content": "当前价格以批准声明为准。", "fact_citations": [{"claim_code": "CLAIM-001"}]}],
+        [{"kind": "fact_claim", "claim_code": "CLAIM-001"}],
+    )
+
+
+def test_content_project_pins_source_backed_fact_claim_and_cites_it() -> None:
+    with psycopg.connect(DATABASE_URL) as connection:
+        knowledge = FunctionalKnowledgeService(connection)
+        source = knowledge.create_source_evidence(
+            {
+                "source_type": "document",
+                "title": f"Source-backed fact {uuid4().hex}",
+                "excerpt": "The product has a verified 12-month warranty.",
+                "access_scope": "internal",
+                "created_by": "test-author",
+            }
+        )
+        knowledge.approve_source_evidence(source["evidence_code"], "test-reviewer")
+        claim = knowledge.create_fact_claim(
+            {
+                "fact_title": "Warranty",
+                "claim": "The product has a 12-month warranty.",
+                "source_evidence_code": source["evidence_code"],
+                "citation_excerpt": "The product has a verified 12-month warranty.",
+                "created_by": "test-author",
+            }
+        )
+        assert claim is not None
+        approved_claim = knowledge.approve_fact_claim(claim["claim_code"], "test-reviewer")
+        assert approved_claim is not None
+
+        service = FunctionalContentService(connection)
+        project = service.create_project(
+            {
+                "title": f"Claim project {uuid4().hex}",
+                "generation_goal": "Explain an approved source-backed fact",
+                "fact_claim_codes": [claim["claim_code"]],
+            },
+            actor_id="test-operator",
+        )
+        detail = service.get_detail(project["project_code"])
+        assert detail is not None
+        assert detail["fact_claims"] == [
+            {
+                "claim_code": claim["claim_code"],
+                "fact_code": claim["fact_code"],
+                "source_evidence_code": source["evidence_code"],
+                "claim": "The product has a 12-month warranty.",
+                "citation_excerpt": "The product has a verified 12-month warranty.",
+                "fingerprint_sha256": approved_claim["fingerprint_sha256"],
+            }
+        ]
+        service.confirm_project(project["project_code"], expected_revision=1, actor_id="test-operator")
+        service.parse_design_brief(project["project_code"], expected_revision=1, raw_input="Use approved facts only.", actor_id="test-operator")
+        service.confirm_design_brief(project["project_code"], expected_revision=1, actor_id="test-operator")
+        generated = service.generate_chain(project["project_code"], actor_id="test-operator")
+
+        fact_block = next(block for block in generated["script"]["blocks"] if block["module_type"] == "product_fact")
+        citation = fact_block["fact_citations"][0]
+        assert fact_block["content"] == "The product has a 12-month warranty."
+        assert citation["claim_code"] == claim["claim_code"]
+        assert citation["source_evidence_code"] == source["evidence_code"]
 
 
 def test_content_project_update_requires_current_revision() -> None:

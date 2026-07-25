@@ -20,6 +20,10 @@ class FactCardReference(BaseModel):
     version_number: int | None = Field(default=None, ge=1)
 
 
+class FactClaimReference(BaseModel):
+    claim_code: str = Field(min_length=1, max_length=64)
+
+
 class TemplateContributionDecisionInput(BaseModel):
     template_code: str = Field(min_length=1, max_length=80)
     accepted_modules: list[str] = Field(default_factory=list, max_length=32)
@@ -54,6 +58,8 @@ class ContentProjectCreate(BaseModel):
     audio_requirements: list[str] = Field(default_factory=list)
     fact_card_codes: list[str] = Field(default_factory=list)
     fact_card_refs: list[FactCardReference] = Field(default_factory=list)
+    fact_claim_codes: list[str] = Field(default_factory=list)
+    fact_claim_refs: list[FactClaimReference] = Field(default_factory=list)
     primary_template_code: str | None = Field(default=None, max_length=80)
     # Secondary templates are narrowed by the context compiler, not by a UI
     # cardinality cap. The project must retain the complete selected set.
@@ -78,6 +84,9 @@ class ContentProjectCreate(BaseModel):
         fact_codes = [ref.fact_card_code for ref in self.fact_card_refs]
         if len(fact_codes) != len(set(fact_codes)):
             raise ValueError("fact card references must be unique")
+        claim_codes = [ref.claim_code for ref in self.fact_claim_refs]
+        if len(claim_codes) != len(set(claim_codes)):
+            raise ValueError("fact claim references must be unique")
         return self
 
 
@@ -103,6 +112,8 @@ class ContentProjectUpdate(BaseModel):
     audio_requirements: list[str] | None = None
     fact_card_codes: list[str] | None = None
     fact_card_refs: list[FactCardReference] | None = None
+    fact_claim_codes: list[str] | None = None
+    fact_claim_refs: list[FactClaimReference] | None = None
     primary_template_code: str | None = Field(default=None, max_length=80)
     secondary_template_codes: list[str] | None = None
     template_contribution_decisions: list[TemplateContributionDecisionInput] | None = Field(default=None, max_length=50)
@@ -119,6 +130,10 @@ class ContentProjectUpdate(BaseModel):
             fact_codes = [ref.fact_card_code for ref in self.fact_card_refs]
             if len(fact_codes) != len(set(fact_codes)):
                 raise ValueError("fact card references must be unique")
+        if self.fact_claim_refs is not None:
+            claim_codes = [ref.claim_code for ref in self.fact_claim_refs]
+            if len(claim_codes) != len(set(claim_codes)):
+                raise ValueError("fact claim references must be unique")
         return self
 
 
@@ -262,6 +277,7 @@ class ContentProjectSummary(BaseModel):
 class ContentProjectDetail(ContentProjectSummary):
     content: dict[str, Any]
     fact_cards: list[dict[str, Any]] = Field(default_factory=list)
+    fact_claims: list[dict[str, Any]] = Field(default_factory=list)
     design_brief: dict[str, Any] | None = None
     generated: bool
     generation_mode: str | None = None

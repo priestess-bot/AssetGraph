@@ -133,7 +133,8 @@ describe("ContentProjectsPage", () => {
           return response([]);
         if (
           url === "/api/live-research/room-templates" ||
-          url === "/api/maitu/workbench/product-fact-cards"
+          url === "/api/maitu/workbench/product-fact-cards" ||
+          url === "/api/functional-knowledge/fact-claims"
         )
           return response([]);
         if (
@@ -254,5 +255,95 @@ describe("ContentProjectsPage", () => {
         branch_applicability: ["live_room", "rendered_video"],
       }),
     );
+  });
+
+  it("pins an approved source-backed fact claim with a content revision", async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    const claim = {
+      claim_code: "CLAIM-001",
+      fact_code: "FACT-001",
+      fact_title: "保修承诺",
+      source_evidence_code: "EVIDENCE-001",
+      source_title: "产品规格书",
+      source_status: "approved",
+      claim: "该产品提供 12 个月保修。",
+      citation_excerpt: "规格书载明 12 个月保修。",
+      status: "approved",
+      fingerprint_sha256: "a".repeat(64),
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        requests.push({ url, init });
+        if (url === "/api/content-projects") return response([detail]);
+        if (url === "/api/content-projects/CONTENT-001") {
+          if (init?.method === "PATCH")
+            return response({
+              ...detail,
+              revision_number: 2,
+              fact_claims: [
+                {
+                  claim_code: claim.claim_code,
+                  fact_code: claim.fact_code,
+                  source_evidence_code: claim.source_evidence_code,
+                  claim: claim.claim,
+                  citation_excerpt: claim.citation_excerpt,
+                  fingerprint_sha256: claim.fingerprint_sha256,
+                },
+              ],
+            });
+          return response(detail);
+        }
+        if (url === "/api/content-projects/CONTENT-001/content-chain-revisions")
+          return response([]);
+        if (
+          url === "/api/live-research/room-templates" ||
+          url === "/api/maitu/workbench/product-fact-cards"
+        )
+          return response([]);
+        if (url === "/api/functional-knowledge/fact-claims")
+          return response([claim]);
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    const user = userEvent.setup();
+    render(
+      <QueryClientProvider client={client}>
+        <ContentProjectsPage />
+      </QueryClientProvider>,
+    );
+
+    const claimOption = await screen.findByRole("checkbox", {
+      name: /保修承诺 CLAIM-001/,
+    });
+    await user.click(claimOption);
+    await user.click(screen.getByRole("button", { name: "更新事实输入" }));
+
+    await waitFor(() =>
+      expect(
+        requests.some(
+          (request) =>
+            request.url === "/api/content-projects/CONTENT-001" &&
+            request.init?.method === "PATCH",
+        ),
+      ).toBe(true),
+    );
+    const request = requests.find(
+      (item) =>
+        item.url === "/api/content-projects/CONTENT-001" &&
+        item.init?.method === "PATCH",
+    );
+    expect(JSON.parse(String(request?.init?.body))).toEqual({
+      expected_revision: 1,
+      fact_card_codes: [],
+      fact_claim_codes: ["CLAIM-001"],
+    });
   });
 });
