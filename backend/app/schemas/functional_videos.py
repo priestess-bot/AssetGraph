@@ -163,6 +163,7 @@ class FunctionalVideoTimelineSegmentRead(BaseModel):
     segment_code: str
     clip_code: str
     source_shot_code: str
+    source_script_block_codes: list[str] = Field(default_factory=list)
     timeline_start_ms: int
     timeline_end_ms: int
     source_range: dict[str, Any] = Field(default_factory=dict)

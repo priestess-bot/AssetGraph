@@ -141,6 +141,7 @@ export interface FunctionalVideoPlan {
     segmentCode: string;
     clipCode: string;
     sourceShotCode: string;
+    sourceScriptBlockCodes: string[];
     timelineStartMs: number;
     timelineEndMs: number;
     transition: string;
@@ -562,6 +563,9 @@ function plan(value: unknown): FunctionalVideoPlan {
               segmentCode: asString(segment.segment_code),
               clipCode: asString(segment.clip_code),
               sourceShotCode: asString(segment.source_shot_code),
+              sourceScriptBlockCodes: asArray(
+                segment.source_script_block_codes,
+              ).flatMap((code) => (typeof code === "string" ? [code] : [])),
               timelineStartMs: asNumber(segment.timeline_start_ms),
               timelineEndMs: asNumber(segment.timeline_end_ms),
               transition: asString(segment.transition, "cut"),

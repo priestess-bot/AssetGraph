@@ -61,6 +61,7 @@ def test_functional_video_plan_seeds_content_stages_and_queues_renderer() -> Non
         assert len(plan["production_timeline"]["tracks"][0]["clips"]) == 6
         assert len(plan["timeline_segments"]) == 6
         assert {segment["source_shot_code"] for segment in plan["timeline_segments"]}
+        assert all(segment["source_script_block_codes"] for segment in plan["timeline_segments"])
         assert plan["render_profile"]["visual_asset_mode"] == "baseline_verified_video_assets"
 
         clips = plan["production_timeline"]["tracks"][0]["clips"]
@@ -154,6 +155,13 @@ def test_functional_video_plan_seeds_content_stages_and_queues_renderer() -> Non
             cursor.execute(
                 """SELECT count(*) FROM functional_video_timeline_segments
                    WHERE plan_id = (SELECT id FROM functional_video_plans WHERE plan_code = %s)""",
+                (plan["plan_code"],),
+            )
+            assert cursor.fetchone()[0] == 18
+            cursor.execute(
+                """SELECT count(*) FROM functional_video_timeline_segments
+                   WHERE plan_id = (SELECT id FROM functional_video_plans WHERE plan_code = %s)
+                     AND jsonb_array_length(source_script_block_codes) > 0""",
                 (plan["plan_code"],),
             )
             assert cursor.fetchone()[0] == 18

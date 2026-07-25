@@ -1196,6 +1196,20 @@ class FunctionalVideoService:
         source_shots = {
             str(row["shot_code"]): row["id"] for row in cursor.fetchall()
         }
+        source_script_blocks: dict[Any, list[str]] = {}
+        if source_shots:
+            cursor.execute(
+                """SELECT source.shot_id, block.block_code
+                   FROM shot_script_block_sources AS source
+                   JOIN content_script_blocks AS block ON block.id = source.script_block_id
+                   WHERE source.shot_id = ANY(%s)
+                   ORDER BY source.shot_id, source.source_order""",
+                (list(source_shots.values()),),
+            )
+            for row in cursor.fetchall():
+                source_script_blocks.setdefault(row["shot_id"], []).append(
+                    str(row["block_code"])
+                )
         video_track = next(
             (
                 track
@@ -1231,6 +1245,7 @@ class FunctionalVideoService:
                     "TimelineSegment source Shot is outside the fixed ShotList",
                     details={"clip_code": clip_code, "source_shot_code": source_shot_code},
                 )
+            source_script_block_codes = source_script_blocks.get(source_shot_id, [])
             try:
                 start_ms = int(timing["start_ms"])
                 duration_ms = int(timing["duration_ms"])
@@ -1283,6 +1298,7 @@ class FunctionalVideoService:
                 "timeline_revision": timeline_revision,
                 "clip_code": clip_code,
                 "source_shot_code": source_shot_code,
+                "source_script_block_codes": source_script_block_codes,
                 "timeline_range": {
                     "start_ms": start_ms,
                     "end_ms": start_ms + duration_ms,
@@ -1297,9 +1313,9 @@ class FunctionalVideoService:
                 """INSERT INTO functional_video_timeline_segments (
                        plan_id, timeline_revision, segment_code, clip_code,
                        source_shot_id, source_shot_code, timeline_start_ms,
-                       timeline_end_ms, source_range, transform, transition,
+                       source_script_block_codes, timeline_end_ms, source_range, transform, transition,
                        artifact_refs, fingerprint_sha256, created_by
-                   ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                   ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (
                     plan_id,
                     timeline_revision,
@@ -1308,6 +1324,7 @@ class FunctionalVideoService:
                     source_shot_id,
                     source_shot_code,
                     start_ms,
+                    Jsonb(source_script_block_codes),
                     start_ms + duration_ms,
                     Jsonb(source_range),
                     Jsonb(transform),
@@ -1347,7 +1364,7 @@ class FunctionalVideoService:
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
                 """SELECT segment_code, clip_code, source_shot_code,
-                          timeline_start_ms, timeline_end_ms, source_range,
+                          timeline_start_ms, timeline_end_ms, source_script_block_codes, source_range,
                           transform, transition, artifact_refs,
                           fingerprint_sha256, created_at
                    FROM functional_video_timeline_segments

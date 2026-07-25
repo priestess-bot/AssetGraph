@@ -21,7 +21,7 @@ const plan = {
     ] },
   ] },
   render_profile: { canvas: { width: 1080, height: 1920, fps: 30 }, visual_assets: [{ asset_code: "AG-VID-000001", checksum_sha256: "a".repeat(64) }], visual_selection: { group_refs: [{ group_code: "AG-GRP-001", title: "商品讲解组", asset_codes: ["AG-VID-000001"] }], material_pack_refs: [{ pack_code: "AG-PACK-001", role: "supporting_video", revision_number: 1, fingerprint_sha256: "b".repeat(64), resolved_asset_codes: ["AG-VID-000001"] }] }, brand_logo: { asset_code: "AG-IMG-000002", checksum_sha256: "e".repeat(64) }, product_sticker: { asset_code: "AG-IMG-000001", checksum_sha256: "d".repeat(64) }, background_music: { asset_code: "AG-AUD-000001", checksum_sha256: "c".repeat(64), gain_db: -20 }, sound_effect: { asset_code: "AG-AUD-000002", checksum_sha256: "f".repeat(64), gain_db: -9 } }, job_status: "queued", current_stage: "asset_selection", progress_percent: 37, error_message: null,
-  workflow_stages: [{ stage_name: "asset_selection", stage_order: 4, status: "succeeded", attempt: 1 }, { stage_name: "quality_check", stage_order: 8, status: "pending", attempt: 1 }], quality_report: { passed: true, checks: { video_stream: true, subtitle_text_complete: true }, media: { duration_seconds: 55, width: 1080, height: 1920, video_codec: "h264", audio_codec: "aac", audio_sample_rate: 48000 }, loudness: { integrated_lufs: -16.2, true_peak_db: -1.4, lra: 4.1 }, black_segments: [{ start_seconds: 2, end_seconds: 2.4, duration_seconds: .4 }], silence_segments: [], freeze_segments: [] }, artifacts: [{ artifact_key: "poster", download_url: "/files/poster.jpg", mime_type: "image/jpeg" }, { artifact_key: "contact_sheet", download_url: "/files/contact-sheet.jpg", mime_type: "image/jpeg" }], timeline_segments: [{ segment_code: "VTLSEG-VIDPLAN-001-r1-SHOT-01", clip_code: "SHOT-01", source_shot_code: "CONTENT-SHOT-01", timeline_start_ms: 0, timeline_end_ms: 30000, transition: "cut", fingerprint_sha256: "c".repeat(64) }, { segment_code: "VTLSEG-VIDPLAN-001-r1-SHOT-02", clip_code: "SHOT-02", source_shot_code: "CONTENT-SHOT-02", timeline_start_ms: 30000, timeline_end_ms: 60000, transition: "cut", fingerprint_sha256: "d".repeat(64) }], created_at: "2026-07-25T00:00:00Z", updated_at: "2026-07-25T00:00:00Z",
+  workflow_stages: [{ stage_name: "asset_selection", stage_order: 4, status: "succeeded", attempt: 1 }, { stage_name: "quality_check", stage_order: 8, status: "pending", attempt: 1 }], quality_report: { passed: true, checks: { video_stream: true, subtitle_text_complete: true }, media: { duration_seconds: 55, width: 1080, height: 1920, video_codec: "h264", audio_codec: "aac", audio_sample_rate: 48000 }, loudness: { integrated_lufs: -16.2, true_peak_db: -1.4, lra: 4.1 }, black_segments: [{ start_seconds: 2, end_seconds: 2.4, duration_seconds: .4 }], silence_segments: [], freeze_segments: [] }, artifacts: [{ artifact_key: "poster", download_url: "/files/poster.jpg", mime_type: "image/jpeg" }, { artifact_key: "contact_sheet", download_url: "/files/contact-sheet.jpg", mime_type: "image/jpeg" }], timeline_segments: [{ segment_code: "VTLSEG-VIDPLAN-001-r1-SHOT-01", clip_code: "SHOT-01", source_shot_code: "CONTENT-SHOT-01", source_script_block_codes: ["BLOCK-001"], timeline_start_ms: 0, timeline_end_ms: 30000, transition: "cut", fingerprint_sha256: "c".repeat(64) }, { segment_code: "VTLSEG-VIDPLAN-001-r1-SHOT-02", clip_code: "SHOT-02", source_shot_code: "CONTENT-SHOT-02", source_script_block_codes: ["BLOCK-002"], timeline_start_ms: 30000, timeline_end_ms: 60000, transition: "cut", fingerprint_sha256: "d".repeat(64) }], created_at: "2026-07-25T00:00:00Z", updated_at: "2026-07-25T00:00:00Z",
 };
 const musicOnlyPlan = {
   ...plan,
@@ -103,6 +103,7 @@ describe("VideoProductionPage", () => {
     expect(within(trace!).getByText("第一段字幕")).toBeInTheDocument();
     expect(within(trace!).getByText("ASSET-01")).toBeInTheDocument();
     expect(within(trace!).getByText("CONTENT-SHOT-01")).toBeInTheDocument();
+    expect(within(trace!).getByText("BLOCK-001")).toBeInTheDocument();
     expect(within(trace!).getByText("VTLSEG-VIDPLAN-001-r1-SHOT-01")).toBeInTheDocument();
     expect(await screen.findByText("修订历史")).toBeInTheDocument();
     expect(screen.getByAltText("成片镜头联系表")).toHaveAttribute("src", "/files/contact-sheet.jpg");
@@ -148,12 +149,25 @@ describe("VideoProductionPage", () => {
   it("restores a historical timeline as a new revision", async () => {
     const current = { ...plan, timeline_revision: 2 };
     const previousTimeline = structuredClone(plan.production_timeline);
-    previousTimeline.tracks[0].clips.reverse();
-    previousTimeline.tracks[0].clips[1] = {
-      ...previousTimeline.tracks[0].clips[1],
+    const previousVideoClips = previousTimeline.tracks[0].clips as Array<{
+      clip_code: string;
+      source_shot_code: string;
+      timeline_range: { start_ms: number; duration_ms: number };
+      source_range: {
+        asset_code: string;
+        start_seconds: number;
+        end_seconds: number;
+        available_start_seconds: number;
+        available_end_seconds: number;
+      };
+      transition: string;
+    }>;
+    previousVideoClips.reverse();
+    previousVideoClips[1] = {
+      ...previousVideoClips[1],
       transition: "fade",
       source_range: {
-        ...previousTimeline.tracks[0].clips[1].source_range,
+        ...previousVideoClips[1].source_range,
         start_seconds: 2,
         end_seconds: 42,
       },

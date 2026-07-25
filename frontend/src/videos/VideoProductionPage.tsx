@@ -321,6 +321,16 @@ function FixedInputTrace({ plan }: { plan: FunctionalVideoPlan }) {
                     </code>
                   </dd>
                 </div>
+                {segment?.sourceScriptBlockCodes.length ? (
+                  <div>
+                    <dt>脚本块</dt>
+                    <dd>
+                      {segment.sourceScriptBlockCodes.map((code) => (
+                        <code key={code}>{code}</code>
+                      ))}
+                    </dd>
+                  </div>
+                ) : null}
                 {segment ? (
                   <div>
                     <dt>时间轴投影</dt>
