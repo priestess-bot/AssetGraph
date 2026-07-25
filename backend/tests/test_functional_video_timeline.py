@@ -99,6 +99,24 @@ def test_timeline_update_preserves_requested_clip_order_across_tracks_and_shots(
     assert rendered_input["shots"][0]["voice_gain_db"] == 0.0
     assert updated["poster_time_ms"] == 12_000
     assert rendered_input["poster_time_seconds"] == 12.0
+    assert updated["schema_version"] == "otio-compatible-production-timeline.v2"
+    assert updated["otio_schema"] == "OTIO_SCHEMA:Timeline.1"
+    assert updated["global_time_range"] == {
+        "start_time": {"value": 0, "rate": 1000},
+        "duration": {"value": 60_000, "rate": 1000},
+    }
+    assert video_track["clips"][0]["timeline_time_range"] == {
+        "start_time": {"value": 0, "rate": 1000},
+        "duration": {"value": 35_000, "rate": 1000},
+    }
+    assert video_track["clips"][0]["transition_time_range"] == {
+        "transition_type": "fade",
+        "duration": {"value": 300, "rate": 1000},
+    }
+    assert subtitle_track["track_time_range"] == {
+        "start_time": {"value": 0, "rate": 1000},
+        "duration": {"value": 60_000, "rate": 1000},
+    }
 
 
 def test_timeline_rejects_product_sticker_layout_when_the_sticker_is_disabled() -> None:
@@ -197,12 +215,25 @@ def test_timeline_rebinds_a_shot_only_to_its_frozen_visual_source_pool() -> None
         ],
     )
     source = updated["tracks"][0]["clips"][0]["source_range"]
-    assert source == {
+    assert {
+        key: source[key]
+        for key in (
+            "asset_code",
+            "start_seconds",
+            "end_seconds",
+            "available_start_seconds",
+            "available_end_seconds",
+        )
+    } == {
         "asset_code": "ASSET-02",
         "start_seconds": 0.0,
         "end_seconds": 6.0,
         "available_start_seconds": 0.0,
         "available_end_seconds": 6.0,
+    }
+    assert source["source_time_range"] == {
+        "start_time": {"value": 0, "rate": 1000},
+        "duration": {"value": 6000, "rate": 1000},
     }
     shot_list = {
         "visual_source_pool": [

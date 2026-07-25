@@ -26,6 +26,8 @@ from app.services.releases import ReleaseService
 class FunctionalVideoService:
     """Creates a rendered-video variant whose queued worker job consumes ContentProject text."""
 
+    EDITORIAL_TIME_RATE = 1_000
+
     def __init__(
         self,
         connection: Connection,
@@ -1978,7 +1980,108 @@ class FunctionalVideoService:
             ordered_video_clips=ordered_clips,
             audio_updates=audio_updates or [],
         )
+        return FunctionalVideoService._with_rational_time_projection(result)
+
+    @classmethod
+    def _with_rational_time_projection(cls, timeline: dict[str, Any]) -> dict[str, Any]:
+        """Add a lossless OTIO-compatible editorial-time projection to millisecond inputs.
+
+        The worker still consumes millisecond offsets today.  The rational fields
+        make the time rate and ranges explicit for revisions and downstream
+        adapters without silently changing that stable worker contract.
+        """
+        result = deepcopy(timeline)
+        try:
+            global_start_ms = int(result.get("global_start_ms", 0))
+            global_end_ms = int(result["global_end_ms"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise DomainValidationError(
+                "VIDEO_TIMELINE_TIME_RANGE_INVALID",
+                "Timeline requires integer global millisecond bounds",
+            ) from exc
+        if global_start_ms < 0 or global_end_ms <= global_start_ms:
+            raise DomainValidationError(
+                "VIDEO_TIMELINE_TIME_RANGE_INVALID",
+                "Timeline global range must be positive",
+            )
+        result["schema_version"] = "otio-compatible-production-timeline.v2"
+        result["otio_schema"] = "OTIO_SCHEMA:Timeline.1"
+        result["editorial_time_rate"] = cls.EDITORIAL_TIME_RATE
+        result["global_time_range"] = cls._rational_time_range(
+            global_start_ms, global_end_ms - global_start_ms
+        )
+        for track in result.get("tracks") or []:
+            if not isinstance(track, dict):
+                raise DomainValidationError(
+                    "VIDEO_TIMELINE_TRACK_INVALID",
+                    "Timeline tracks must be objects",
+                )
+            clips = track.get("clips") or []
+            track_start_ms: int | None = None
+            track_end_ms: int | None = None
+            for clip in clips:
+                if not isinstance(clip, dict):
+                    raise DomainValidationError(
+                        "VIDEO_TIMELINE_CLIP_INVALID",
+                        "Timeline clips must be objects",
+                    )
+                time_range = clip.get("timeline_range") or {}
+                try:
+                    start_ms = int(time_range["start_ms"])
+                    duration_ms = int(time_range["duration_ms"])
+                except (KeyError, TypeError, ValueError) as exc:
+                    raise DomainValidationError(
+                        "VIDEO_TIMELINE_TIME_RANGE_INVALID",
+                        "Timeline clips require integer millisecond offsets",
+                        details={"clip_code": clip.get("clip_code")},
+                    ) from exc
+                if start_ms < 0 or duration_ms <= 0:
+                    raise DomainValidationError(
+                        "VIDEO_TIMELINE_TIME_RANGE_INVALID",
+                        "Timeline clip range must be positive",
+                        details={"clip_code": clip.get("clip_code")},
+                    )
+                clip["timeline_time_range"] = cls._rational_time_range(
+                    start_ms, duration_ms
+                )
+                track_start_ms = start_ms if track_start_ms is None else min(track_start_ms, start_ms)
+                track_end_ms = max(track_end_ms or 0, start_ms + duration_ms)
+                source_range = clip.get("source_range")
+                if isinstance(source_range, dict):
+                    try:
+                        source_start_ms = round(float(source_range["start_seconds"]) * cls.EDITORIAL_TIME_RATE)
+                        source_end_ms = round(float(source_range["end_seconds"]) * cls.EDITORIAL_TIME_RATE)
+                    except (KeyError, TypeError, ValueError):
+                        source_start_ms = source_end_ms = 0
+                    if source_start_ms >= 0 and source_end_ms > source_start_ms:
+                        source_range["source_time_range"] = cls._rational_time_range(
+                            source_start_ms, source_end_ms - source_start_ms
+                        )
+                transition = str(clip.get("transition") or "cut")
+                if transition in {"fade", "fade_out"}:
+                    transition_duration_ms = min(300, duration_ms // 2)
+                else:
+                    transition_duration_ms = 0
+                clip["transition_time_range"] = {
+                    "transition_type": transition,
+                    "duration": cls._rational_time(transition_duration_ms),
+                }
+            if track_start_ms is not None and track_end_ms is not None:
+                track["track_time_range"] = cls._rational_time_range(
+                    track_start_ms, track_end_ms - track_start_ms
+                )
         return result
+
+    @classmethod
+    def _rational_time_range(cls, start_ms: int, duration_ms: int) -> dict[str, dict[str, int]]:
+        return {
+            "start_time": cls._rational_time(start_ms),
+            "duration": cls._rational_time(duration_ms),
+        }
+
+    @classmethod
+    def _rational_time(cls, value: int) -> dict[str, int]:
+        return {"value": int(value), "rate": cls.EDITORIAL_TIME_RATE}
 
     @staticmethod
     def _apply_audio_updates(
@@ -2371,6 +2474,7 @@ class FunctionalVideoService:
         if background_music is not None:
             audio_clips.append({"clip_code": "BGM-01", "timeline_range": {"start_ms": 0, "duration_ms": duration * 1000}, "asset_code": background_music["asset_code"], "gain_db": background_music["gain_db"]})
         timeline = {"schema_version": "otio-compatible-production-timeline.v1", "global_start_ms": 0, "global_end_ms": duration * 1000, "poster_time_ms": poster_time_ms, "subtitle_style": subtitle_style, "tracks": [{"track_kind": "video", "clips": [{"clip_code": shot["shot_code"], "source_shot_code": shot["source_shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "source_range": {"asset_code": shot["asset_code"], "asset_checksum_sha256": shot.get("asset_expected_checksum"), "asset_relative_path": shot.get("asset_relative_path"), "start_seconds": shot["source_start_seconds"], "end_seconds": shot["source_end_seconds"], "available_start_seconds": shot["source_start_seconds"], "available_end_seconds": shot["source_end_seconds"]}, "fit": shot["fit"], "crop_x": 0.5, "crop_y": 0.5, "playback_rate": shot["playback_rate"], "overlay_roles": shot["overlay_roles"], "overlay_z_order": shot["overlay_z_order"], "product_sticker_layout_suggestion": shot.get("product_sticker_layout_suggestion"), "audio_roles": shot.get("audio_roles", []), "transition": shot["transition"]} for shot in compiled]}, {"track_kind": "audio", "clips": audio_clips}, {"track_kind": "subtitle", "clips": [{"clip_code": f"SUBTITLE-{shot['shot_code']}", "linked_shot_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "subtitle_text": shot["narration"], "headline_text": shot["screen_text"], "caption_position": "bottom"} for shot in compiled]}]}
+        timeline = FunctionalVideoService._with_rational_time_projection(timeline)
         return story, script, shots, timeline
 
     @staticmethod

@@ -58,7 +58,12 @@ def test_functional_video_plan_seeds_content_stages_and_queues_renderer() -> Non
         assert plan["job_status"] == "queued"
         assert plan["current_stage"] == "asset_selection"
         assert plan["progress_percent"] == 37
-        assert plan["production_timeline"]["schema_version"] == "otio-compatible-production-timeline.v1"
+        assert plan["production_timeline"]["schema_version"] == "otio-compatible-production-timeline.v2"
+        assert plan["production_timeline"]["otio_schema"] == "OTIO_SCHEMA:Timeline.1"
+        assert plan["production_timeline"]["global_time_range"] == {
+            "start_time": {"value": 0, "rate": 1000},
+            "duration": {"value": 55_000, "rate": 1000},
+        }
         assert len(plan["production_timeline"]["tracks"][0]["clips"]) == 6
         assert len(plan["timeline_segments"]) == 6
         assert {segment["source_shot_code"] for segment in plan["timeline_segments"]}
