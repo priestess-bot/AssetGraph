@@ -316,6 +316,7 @@ class FunctionalLiveRoomService:
                     (Jsonb({"reason": "build_plan_blocked", "blocked_reasons": plan["blocked_reasons"]}), plan["id"]),
                 )
             else:
+                handoff = self._execution_handoff(plan)
                 cursor.execute(
                     """UPDATE functional_live_room_plans
                        SET execution_status = 'requested', execution_evidence = %s, updated_at = now()
@@ -323,8 +324,10 @@ class FunctionalLiveRoomService:
                     (
                         Jsonb(
                             {
+                                "schema_version": "functional-live-room-execution-readback.v1",
                                 "status": "awaiting_maitu_worker",
                                 "message": "No platform mutation has been performed. A configured Maitu worker must preflight the empty draft before writing.",
+                                "handoff": handoff,
                             }
                         ),
                         plan["id"],
@@ -333,6 +336,192 @@ class FunctionalLiveRoomService:
             row = cursor.fetchone()
         self.connection.commit()
         return self._with_release(self._serialize(row))
+
+    def get_execution_handoff(self, plan_code: str) -> dict[str, Any]:
+        plan = self.get_plan(plan_code)
+        if plan is None:
+            raise KeyError(plan_code)
+        if plan["status"] != "ready":
+            raise DomainValidationError(
+                "LIVE_ROOM_EXECUTION_PLAN_BLOCKED",
+                "A blocked live-room plan cannot be handed to a Maitu worker",
+                details={"plan_code": plan_code, "blocked_reasons": plan["blocked_reasons"]},
+            )
+        if plan["execution_status"] not in {
+            "requested",
+            "maitu_running",
+            "maitu_reconcile_required",
+        }:
+            raise DomainValidationError(
+                "LIVE_ROOM_EXECUTION_NOT_REQUESTED",
+                "Explicit confirmation is required before releasing a Maitu worker handoff",
+            )
+        return self._execution_handoff(plan)
+
+    def sync_execution(self, plan_code: str) -> dict[str, Any] | None:
+        """Project one fenced Maitu draft execution back onto its live-room plan.
+
+        The worker remains the sole writer.  This method only reads its durable
+        checkpoint result and never treats a request as evidence of a platform
+        mutation.
+        """
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute("SELECT * FROM functional_live_room_plans WHERE plan_code = %s FOR UPDATE", (plan_code,))
+            plan = cursor.fetchone()
+            if plan is None:
+                self.connection.rollback()
+                return None
+            if plan["execution_status"] == "not_requested":
+                self.connection.rollback()
+                raise DomainValidationError(
+                    "LIVE_ROOM_EXECUTION_NOT_REQUESTED",
+                    "Explicit confirmation is required before reading Maitu execution results",
+                )
+            handoff = self._execution_handoff(plan)
+            executions = self.maitu.list_live_room_build_plan_execution_results(
+                handoff["build_plan_code"], mode="script_layout_draft", limit=1
+            )
+            if not executions:
+                row = plan
+            else:
+                execution_code = str(executions[0]["execution_code"])
+                execution = self.maitu.get_live_room_build_plan_execution_result_by_code(
+                    handoff["build_plan_code"], execution_code
+                )
+                if execution is None:
+                    self.connection.rollback()
+                    raise DomainValidationError(
+                        "LIVE_ROOM_EXECUTION_READBACK_MISSING",
+                        "Maitu execution disappeared before its readback could be recorded",
+                    )
+                projected_status, evidence = self._project_execution_readback(handoff, execution)
+                cursor.execute(
+                    """UPDATE functional_live_room_plans
+                       SET execution_status = %s, execution_evidence = %s, updated_at = now()
+                       WHERE id = %s RETURNING *""",
+                    (projected_status, Jsonb(evidence), plan["id"]),
+                )
+                row = cursor.fetchone()
+        self.connection.commit()
+        return self._with_release(self._serialize(row))
+
+    def _execution_handoff(self, plan: dict[str, Any]) -> dict[str, Any]:
+        build_plan = plan.get("build_plan") if isinstance(plan.get("build_plan"), dict) else {}
+        build_plan_code = str(build_plan.get("build_plan_code") or "").strip()
+        if not build_plan_code:
+            raise DomainValidationError(
+                "LIVE_ROOM_EXECUTION_BUILD_PLAN_MISSING",
+                "The live-room plan has no persisted Maitu BuildPlan",
+            )
+        operation_plan = self.maitu.get_live_room_build_plan_operations(build_plan_code)
+        if operation_plan is None:
+            raise DomainValidationError(
+                "LIVE_ROOM_EXECUTION_BUILD_PLAN_MISSING",
+                "The persisted Maitu BuildPlan is unavailable for worker handoff",
+                details={"build_plan_code": build_plan_code},
+            )
+        target_live_room_id = str(operation_plan.get("target_live_room_id") or "").strip()
+        expected_target = str(plan.get("target_live_room_id") or "").strip()
+        source_plan_fingerprint = str(operation_plan.get("checkpoint_source_fingerprint") or "").strip()
+        operations = [item for item in operation_plan.get("operations") or [] if isinstance(item, dict)]
+        if (
+            operation_plan.get("status") != "ready"
+            or operation_plan.get("can_execute") is not True
+            or operation_plan.get("manual_review_required") is True
+            or list(operation_plan.get("blocked_reasons") or [])
+            or target_live_room_id != expected_target
+            or len(source_plan_fingerprint) != 64
+            or not operations
+        ):
+            raise DomainValidationError(
+                "LIVE_ROOM_EXECUTION_HANDOFF_INVALID",
+                "The persisted Maitu BuildPlan is not an executable empty-draft handoff",
+                details={
+                    "build_plan_code": build_plan_code,
+                    "expected_target_live_room_id": expected_target,
+                    "observed_target_live_room_id": target_live_room_id,
+                },
+            )
+        return {
+            "plan_code": str(plan["plan_code"]),
+            "build_plan_code": build_plan_code,
+            "target_live_room_id": target_live_room_id,
+            "checkpoint_contract": "script_layout_checkpoint_v1",
+            "source_plan_fingerprint": source_plan_fingerprint,
+            "operation_count": len(operations),
+            "operation_types": [str(item.get("operation_type") or "") for item in operations],
+        }
+
+    @staticmethod
+    def _project_execution_readback(
+        handoff: dict[str, Any], execution: dict[str, Any]
+    ) -> tuple[str, dict[str, Any]]:
+        operation_results = [
+            item for item in execution.get("operation_results") or [] if isinstance(item, dict)
+        ]
+        checkpoint_states = [str(item.get("checkpoint_state") or "") for item in operation_results]
+        execution_status = str(execution.get("execution_status") or "")
+        finalized_at = execution.get("finalized_at")
+        expected_source_fingerprint = str(handoff["source_plan_fingerprint"])
+        observed_source_fingerprint = str(
+            (execution.get("details") or {}).get("source_plan_fingerprint") or ""
+        )
+        protocol_valid = (
+            execution.get("checkpoint_contract") == handoff["checkpoint_contract"]
+            and execution.get("mode") == "script_layout_draft"
+            and observed_source_fingerprint == expected_source_fingerprint
+            and int(execution.get("expected_operation_count") or 0) == handoff["operation_count"]
+            and len(operation_results) == handoff["operation_count"]
+            and execution.get("ready_for_go_live") is False
+        )
+        if not protocol_valid:
+            projected_status = "maitu_reconcile_required"
+            readback_status = "invalid_execution_contract"
+        elif "reconcile_required" in checkpoint_states:
+            projected_status = "maitu_reconcile_required"
+            readback_status = "checkpoint_reconciliation_required"
+        elif finalized_at is not None and execution_status in {"completed", "completed_with_manual_review"}:
+            projected_status = "maitu_complete"
+            readback_status = "finalized_draft_readback"
+        elif execution_status in {"failed", "blocked"}:
+            projected_status = "maitu_failed"
+            readback_status = "worker_reported_failure"
+        else:
+            projected_status = "maitu_running"
+            readback_status = "worker_execution_in_progress"
+
+        def timestamp(value: Any) -> str | None:
+            return value.isoformat() if isinstance(value, datetime) else None
+
+        return projected_status, {
+            "schema_version": "functional-live-room-execution-readback.v1",
+            "status": readback_status,
+            "message": (
+                "Maitu worker has finalized an empty-draft execution; this does not enable go-live."
+                if projected_status == "maitu_complete"
+                else "Maitu worker execution has not produced a final empty-draft readback."
+            ),
+            "handoff": handoff,
+            "execution": {
+                "execution_code": str(execution.get("execution_code") or ""),
+                "execution_status": execution_status,
+                "finalized_at": timestamp(finalized_at),
+                "finished_at": timestamp(execution.get("finished_at")),
+                "manual_review_required": bool(execution.get("manual_review_required", False)),
+                "ready_for_go_live": bool(execution.get("ready_for_go_live", False)),
+                "result_summary": execution.get("result_summary"),
+                "error_message": execution.get("error_message"),
+                "operation_summary": {
+                    "total": len(operation_results),
+                    "completed": sum(state in {"completed", "observed", "manual_required"} for state in checkpoint_states),
+                    "reconcile_required": checkpoint_states.count("reconcile_required"),
+                    "failed": sum(
+                        str(item.get("status") or "") in {"failed", "blocked"}
+                        for item in operation_results
+                    ),
+                },
+            },
+        }
 
     def create_release_candidate(self, plan_code: str, *, actor_id: str) -> dict[str, Any]:
         """Freeze a reviewable live-room draft candidate without delivery.

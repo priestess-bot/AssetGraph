@@ -32,4 +32,35 @@ describe("functional live room api", () => {
     expect(fetch).toHaveBeenCalledWith("/api/functional-live-room-plans", expect.objectContaining({ method: "POST", body: expect.stringContaining('"asset_gap_codes":["AG-GAP-001"]') }));
     expect(fetch).toHaveBeenCalledWith("/api/functional-live-room-plans", expect.objectContaining({ method: "POST", body: expect.stringContaining('"room_constraint_overrides":{"AG-IMG-001":{"reason":"适配当前直播间","geometry":{"x":0.1,"y":0.1,"width":0.8,"height":0.8},"z_order":12}}') }));
   });
+
+  it("requests a worker handoff and synchronizes its readback", async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(response({
+        plan_code: "LIVEPLAN-003",
+        build_plan_code: "MT-BUILD-001",
+        target_live_room_id: "room-001",
+        checkpoint_contract: "script_layout_checkpoint_v1",
+        source_plan_fingerprint: "a".repeat(64),
+        operation_count: 3,
+        operation_types: ["preflight_content_build_plan", "create_scene", "save_draft"],
+      }))
+      .mockResolvedValueOnce(response({
+        plan_code: "LIVEPLAN-003", project_code: "CONTENT-001", variant_code: "VARIANT-001", configuration_code: "CONFIG-001", target_live_room_id: "room-001", expected_title: "素材选择", selected_asset_codes: [], selected_group_codes: [], selected_material_pack_codes: [], blueprint: { scenes: [] }, build_plan: { inventory_snapshot: {}, operations: [] }, gate_results: [], quality_report: {}, status: "ready", blocked_reasons: [], execution_status: "maitu_complete", execution_evidence: { status: "finalized_draft_readback" }, clone_context: {}, updated_at: "2026-07-25T00:00:00Z",
+      }));
+    vi.stubGlobal("fetch", fetch);
+
+    const handoff = await functionalLiveRoomsApi.executionHandoff("LIVEPLAN-003");
+    const synced = await functionalLiveRoomsApi.syncExecution("LIVEPLAN-003");
+
+    expect(handoff).toMatchObject({ buildPlanCode: "MT-BUILD-001", operationCount: 3 });
+    expect(synced.executionStatus).toBe("maitu_complete");
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/functional-live-room-plans/LIVEPLAN-003/execution-handoff",
+      expect.objectContaining({ headers: expect.objectContaining({ Accept: "application/json" }) }),
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/functional-live-room-plans/LIVEPLAN-003/sync-execution",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
 });

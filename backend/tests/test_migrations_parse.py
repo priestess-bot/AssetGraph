@@ -326,6 +326,16 @@ def test_source_extraction_run_migration_freezes_capture_fingerprints() -> None:
     assert "extraction_metadata JSONB" in sql
 
 
+def test_live_room_execution_readback_migration_has_explicit_worker_states() -> None:
+    migration = MIGRATIONS_DIR / "096_functional_live_room_execution_readback.sql"
+
+    assert migration.exists()
+    sql = migration.read_text(encoding="utf-8")
+    assert "maitu_running" in sql
+    assert "maitu_reconcile_required" in sql
+    assert "maitu_failed" in sql
+
+
 def test_constraint_profile_promotion_migration_keeps_room_override_provenance() -> None:
     migration = MIGRATIONS_DIR / "081_constraint_profile_promotion_provenance.sql"
 

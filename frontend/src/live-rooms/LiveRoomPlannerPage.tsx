@@ -41,8 +41,13 @@ function tone(
   status: string,
 ): "success" | "warning" | "danger" | "info" | "neutral" {
   if (status === "ready" || status === "maitu_complete") return "success";
-  if (status === "blocked") return "danger";
-  if (status === "requested") return "warning";
+  if (status === "blocked" || status === "maitu_failed") return "danger";
+  if (
+    status === "requested" ||
+    status === "maitu_running" ||
+    status === "maitu_reconcile_required"
+  )
+    return "warning";
   return "neutral";
 }
 
@@ -54,6 +59,9 @@ function label(status: string): string {
         blocked: "素材或约束阻断",
         not_requested: "尚未请求",
         requested: "等待麦兔 Worker",
+        maitu_running: "麦兔 Worker 执行中",
+        maitu_reconcile_required: "需要核对麦兔回读",
+        maitu_failed: "麦兔草稿写入失败",
         maitu_complete: "已由麦兔完成",
       } as Record<string, string>
     )[status] ?? status
@@ -339,6 +347,18 @@ function PlanDetail({ plan }: { plan: FunctionalLiveRoomPlan }) {
   >({});
   const request = useMutation({
     mutationFn: () => functionalLiveRoomsApi.confirmExecution(plan.planCode),
+    onSuccess: (next) => {
+      queryClient.setQueryData(
+        ["functional-live-room-plan", plan.planCode],
+        next,
+      );
+      void queryClient.invalidateQueries({
+        queryKey: ["functional-live-room-plans"],
+      });
+    },
+  });
+  const syncExecution = useMutation({
+    mutationFn: () => functionalLiveRoomsApi.syncExecution(plan.planCode),
     onSuccess: (next) => {
       queryClient.setQueryData(
         ["functional-live-room-plan", plan.planCode],
@@ -942,15 +962,26 @@ function PlanDetail({ plan }: { plan: FunctionalLiveRoomPlan }) {
         <div>
           <span>人工确认后的 Worker 请求</span>
           <strong>
-            {plan.executionStatus === "requested"
-              ? "已提交，等待麦兔 Worker 回读"
-              : "尚未请求"}
+            {label(plan.executionStatus)}
           </strong>
           <small>
             {typeof plan.executionEvidence.message === "string"
               ? plan.executionEvidence.message
               : "仅在指定空白、未开播草稿中执行。"}
           </small>
+          {typeof plan.executionEvidence.execution === "object" &&
+          plan.executionEvidence.execution !== null ? (
+            <small>
+              执行记录：
+              {typeof (plan.executionEvidence.execution as Record<string, unknown>)
+                .execution_code === "string"
+                ? String(
+                    (plan.executionEvidence.execution as Record<string, unknown>)
+                      .execution_code,
+                  )
+                : "等待 Worker 创建"}
+            </small>
+          ) : null}
         </div>
         {plan.executionStatus === "not_requested" ? (
           <div className="live-request-action">
@@ -975,10 +1006,32 @@ function PlanDetail({ plan }: { plan: FunctionalLiveRoomPlan }) {
             </button>
           </div>
         ) : null}
+        {[
+          "requested",
+          "maitu_running",
+          "maitu_reconcile_required",
+          "maitu_failed",
+        ].includes(plan.executionStatus) ? (
+          <div className="live-request-action">
+            <button
+              type="button"
+              className="wb-button wb-button-secondary"
+              disabled={syncExecution.isPending}
+              onClick={() => syncExecution.mutate()}
+            >
+              同步 Worker 回读
+            </button>
+          </div>
+        ) : null}
       </section>
       {request.error ? (
         <InlineNotice tone="danger" title="草稿请求未提交">
           {message(request.error)}
+        </InlineNotice>
+      ) : null}
+      {syncExecution.error ? (
+        <InlineNotice tone="danger" title="Worker 回读未同步">
+          {message(syncExecution.error)}
         </InlineNotice>
       ) : null}
     </div>

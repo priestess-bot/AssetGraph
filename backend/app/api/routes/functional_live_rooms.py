@@ -9,6 +9,7 @@ from app.core.database import get_db
 from app.domain.errors import DomainValidationError
 from app.schemas.functional_live_rooms import (
     FunctionalLiveRoomExecutionConfirm,
+    FunctionalLiveRoomExecutionHandoffRead,
     FunctionalLiveRoomPlanCreate,
     FunctionalLiveRoomPlanClone,
     FunctionalLiveRoomPlanRead,
@@ -69,6 +70,33 @@ def confirm_live_room_execution(
 ) -> dict:
     try:
         plan = service.confirm_execution(plan_code, confirmed=payload.confirmed)
+    except DomainValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=exc.message) from exc
+    if plan is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Live-room plan not found")
+    return plan
+
+
+@router.get("/{plan_code}/execution-handoff", response_model=FunctionalLiveRoomExecutionHandoffRead)
+def get_live_room_execution_handoff(
+    plan_code: str,
+    service: Annotated[FunctionalLiveRoomService, Depends(get_service)],
+) -> dict:
+    try:
+        return service.get_execution_handoff(plan_code)
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Live-room plan not found") from exc
+    except DomainValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=exc.message) from exc
+
+
+@router.post("/{plan_code}/sync-execution", response_model=FunctionalLiveRoomPlanRead)
+def sync_live_room_execution(
+    plan_code: str,
+    service: Annotated[FunctionalLiveRoomService, Depends(get_service)],
+) -> dict:
+    try:
+        plan = service.sync_execution(plan_code)
     except DomainValidationError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=exc.message) from exc
     if plan is None:

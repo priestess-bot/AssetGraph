@@ -298,6 +298,7 @@ def test_migration_discovery_is_contiguous() -> None:
                 "knowledge_claim_citation_offsets.sql",
                 "content_script_block_rule_refs.sql",
                 "knowledge_source_extraction_runs.sql",
+                "functional_live_room_execution_readback.sql",
             ],
             start=1,
         )

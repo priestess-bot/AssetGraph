@@ -228,6 +228,12 @@ def test_functional_live_room_plan_compiles_and_only_requests_maitu_execution() 
         assert requested is not None
         assert requested["execution_status"] == "requested"
         assert requested["execution_evidence"]["status"] == "awaiting_maitu_worker"
+        handoff = service.get_execution_handoff(plan["plan_code"])
+        assert handoff["build_plan_code"] == plan["build_plan"]["build_plan_code"]
+        assert handoff["target_live_room_id"] == plan["target_live_room_id"]
+        assert handoff["checkpoint_contract"] == "script_layout_checkpoint_v1"
+        assert handoff["operation_count"] == len(plan["build_plan"]["operations"])
+        assert requested["execution_evidence"]["handoff"] == handoff
 
 
 def test_live_room_plan_pins_explicit_material_role_selection() -> None:

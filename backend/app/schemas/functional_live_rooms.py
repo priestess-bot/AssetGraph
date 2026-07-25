@@ -124,6 +124,16 @@ class FunctionalLiveRoomExecutionConfirm(BaseModel):
     confirmed: bool
 
 
+class FunctionalLiveRoomExecutionHandoffRead(BaseModel):
+    plan_code: str
+    build_plan_code: str
+    target_live_room_id: str
+    checkpoint_contract: str
+    source_plan_fingerprint: str
+    operation_count: int
+    operation_types: list[str]
+
+
 class FunctionalLiveRoomPlanClone(BaseModel):
     target_live_room_id: str = Field(min_length=1, max_length=128)
     expected_title: str = Field(min_length=1, max_length=255)

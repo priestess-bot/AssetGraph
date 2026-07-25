@@ -133,6 +133,16 @@ export interface FunctionalLiveRoomPlan {
   updatedAt: string;
 }
 
+export interface FunctionalLiveRoomExecutionHandoff {
+  planCode: string;
+  buildPlanCode: string;
+  targetLiveRoomId: string;
+  checkpointContract: string;
+  sourcePlanFingerprint: string;
+  operationCount: number;
+  operationTypes: string[];
+}
+
 export interface RoomConstraintOverride {
   reason: string;
   geometry?: { x: number; y: number; width: number; height: number };
@@ -516,6 +526,25 @@ function plan(value: unknown): FunctionalLiveRoomPlan {
   };
 }
 
+function executionHandoff(value: unknown): FunctionalLiveRoomExecutionHandoff {
+  if (!isRecord(value)) throw new Error("麦兔 Worker 交接响应无效");
+  const planCode = asString(value.plan_code);
+  const buildPlanCode = asString(value.build_plan_code);
+  const sourcePlanFingerprint = asString(value.source_plan_fingerprint);
+  if (!planCode || !buildPlanCode || !sourcePlanFingerprint) {
+    throw new Error("麦兔 Worker 交接缺少固定计划信息");
+  }
+  return {
+    planCode,
+    buildPlanCode,
+    targetLiveRoomId: asString(value.target_live_room_id),
+    checkpointContract: asString(value.checkpoint_contract),
+    sourcePlanFingerprint,
+    operationCount: asNumber(value.operation_count),
+    operationTypes: strings(value.operation_types),
+  };
+}
+
 function trace(value: unknown): FunctionalLiveRoomTrace {
   if (!isRecord(value)) throw new Error("直播间追溯响应无效");
   return {
@@ -620,6 +649,12 @@ export const functionalLiveRoomsApi = {
     postJson<unknown>(`${ROOT}/${planCode}/confirm-execution`, {
       confirmed: true,
     }).then(plan),
+  executionHandoff: (planCode: string) =>
+    requestJson<unknown>(`${ROOT}/${planCode}/execution-handoff`).then(
+      executionHandoff,
+    ),
+  syncExecution: (planCode: string) =>
+    postJson<unknown>(`${ROOT}/${planCode}/sync-execution`, {}).then(plan),
   createReleaseCandidate: (planCode: string) =>
     postJson<unknown>(`${ROOT}/${planCode}/release-candidate`, {}).then(plan),
   clone: (

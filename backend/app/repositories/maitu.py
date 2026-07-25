@@ -1658,6 +1658,11 @@ class MaituMaterialSlotRepository:
             if plan is None:
                 self.connection.commit()
                 return None
+            try:
+                self._require_functional_live_room_execution_request(cursor, build_plan_code)
+            except BuildPlanCheckpointConflictError:
+                self.connection.rollback()
+                raise
             raw_details = plan.get("details") if isinstance(plan.get("details"), dict) else {}
             namespaced = raw_details.get("script_layout_build_plan")
             if raw_details.get("contract_version") != "script_layout_build_plan_v1" or not isinstance(namespaced, dict):
@@ -1804,6 +1809,33 @@ class MaituMaterialSlotRepository:
                     )
         self.connection.commit()
         return self.get_live_room_build_plan_execution_result_by_code(build_plan_code, execution_code)
+
+    @staticmethod
+    def _require_functional_live_room_execution_request(cursor: Any, build_plan_code: str) -> None:
+        """Require the functional-plan confirmation only when this BuildPlan has one.
+
+        Standalone legacy Maitu plans retain their existing worker contract. A
+        BuildPlan generated from a FunctionalLiveRoomPlan cannot be started by
+        a worker until the operator has made the plan-local empty-draft choice.
+        """
+        cursor.execute(
+            """
+            SELECT plan_code, execution_status
+            FROM functional_live_room_plans
+            WHERE build_plan->>'build_plan_code' = %s
+            FOR UPDATE
+            """,
+            (build_plan_code,),
+        )
+        functional_plan = cursor.fetchone()
+        if functional_plan is not None and functional_plan["execution_status"] not in {
+            "requested",
+            "maitu_running",
+            "maitu_reconcile_required",
+        }:
+            raise BuildPlanCheckpointConflictError(
+                "functional live-room execution requires explicit operator confirmation"
+            )
 
     def renew_script_layout_execution(
         self,
