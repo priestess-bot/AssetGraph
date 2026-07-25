@@ -63,6 +63,22 @@ export interface ConstraintProfileRevision {
   createdAt?: string;
 }
 
+export interface AssetEffectSummary {
+  effectCode: string;
+  revisionNumber: number;
+  attributionReportCode: string;
+  metricKey: string;
+  evidenceLevel: string;
+  status: string;
+  selectedSessionCount: number;
+  automaticRecommendationMinimumSessionCount: number;
+  automaticRecommendationEligible: boolean;
+  recommendationBlockers: string[];
+  note: string;
+  approvedAt?: string;
+  createdAt?: string;
+}
+
 export interface MaterialPack {
   packCode: string;
   title: string;
@@ -523,6 +539,31 @@ function constraintProfileRevision(value: unknown): ConstraintProfileRevision {
   };
 }
 
+function assetEffectSummary(value: unknown): AssetEffectSummary {
+  if (!isRecord(value)) throw new Error("素材效果响应无效");
+  const effectCode = asString(value.effect_code);
+  if (!effectCode) throw new Error("素材效果缺少编码");
+  return {
+    effectCode,
+    revisionNumber: asNumber(value.revision_number),
+    attributionReportCode: asString(value.attribution_report_code),
+    metricKey: asString(value.metric_key),
+    evidenceLevel: asString(value.evidence_level),
+    status: asString(value.status),
+    selectedSessionCount: Math.max(0, asNumber(value.selected_session_count)),
+    automaticRecommendationMinimumSessionCount: Math.max(
+      1,
+      asNumber(value.automatic_recommendation_minimum_session_count, 3),
+    ),
+    automaticRecommendationEligible:
+      value.automatic_recommendation_eligible === true,
+    recommendationBlockers: strings(value.recommendation_blockers),
+    note: asString(value.note),
+    approvedAt: asOptionalString(value.approved_at),
+    createdAt: asOptionalString(value.created_at),
+  };
+}
+
 export const assetLibraryApi = {
   listAssets: () =>
     requestJson<unknown[]>(ROOT).then((rows) =>
@@ -589,6 +630,10 @@ export const assetLibraryApi = {
       if (!result) throw new Error("分组成员响应无效");
       return result;
     }),
+  listEffectSummaries: (assetCode: string) =>
+    requestJson<unknown[]>(`${ROOT}/${assetCode}/effects`).then((rows) =>
+      rows.map(assetEffectSummary),
+    ),
   getConstraintProfile: (assetCode: string) =>
     requestJson<unknown>(`${ROOT}/${assetCode}/constraint-profile`).then(
       constraintProfileRevision,

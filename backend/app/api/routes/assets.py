@@ -30,6 +30,7 @@ from app.schemas.material_library import (
     AssetConstraintProfilePromoteRoomOverride,
     AssetConstraintProfileRevisionRead,
     AssetConstraintProfileWrite,
+    AssetEffectSummaryRead,
     AssetClassificationBatchUpdate,
     AssetClassificationUpdate,
     AssetGapCreate,
@@ -261,6 +262,17 @@ def replace_asset_group_members(
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset group not found")
     return row
+
+
+@router.get("/{asset_code}/effects", response_model=list[AssetEffectSummaryRead])
+def list_asset_effects(
+    asset_code: str,
+    repository: Annotated[MaterialLibraryRepository, Depends(get_material_library_repository)],
+) -> list[dict]:
+    rows = repository.list_asset_effect_summaries(asset_code)
+    if rows is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found")
+    return rows
 
 
 @router.post("/{asset_code}/constraint-profile", response_model=AssetConstraintProfileRead)

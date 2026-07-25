@@ -61,6 +61,30 @@ class FakeMaterialLibraryRepository:
             },
         ]
         self.room_override_promotion: dict | None = None
+        self.effects = [
+            {
+                "effect_code": "EFFECT-001",
+                "revision_number": 1,
+                "attribution_report_code": "ATTR-001",
+                "metric_key": "conversion_rate",
+                "evidence_level": "descriptive",
+                "status": "candidate",
+                "selected_session_count": 1,
+                "automatic_recommendation_minimum_session_count": 3,
+                "automatic_recommendation_eligible": False,
+                "recommendation_blockers": [
+                    "EFFECT_NOT_APPROVED",
+                    "EFFECT_EVIDENCE_NOT_ASSOCIATIONAL",
+                    "EFFECT_SAMPLE_SIZE_BELOW_MINIMUM",
+                ],
+                "note": "Observed only.",
+                "approved_at": None,
+                "created_at": "2026-07-25T00:00:00Z",
+            }
+        ]
+
+    def list_asset_effect_summaries(self, asset_code: str) -> list[dict] | None:
+        return deepcopy(self.effects) if asset_code == "AG-IMG-001" else None
 
     def update_asset_classifications(
         self,
@@ -219,6 +243,16 @@ def test_material_pack_revisions_are_listed_and_create_a_new_draft(client: TestC
 
     assert conflict.status_code == 409
     assert "MATERIAL_PACK_REVISION_CONFLICT" in conflict.json()["detail"]
+
+
+def test_asset_effects_return_explicit_automatic_recommendation_eligibility(client: TestClient) -> None:
+    listed = client.get("/api/assets/AG-IMG-001/effects")
+    missing = client.get("/api/assets/AG-IMG-MISSING/effects")
+
+    assert listed.status_code == 200
+    assert listed.json()[0]["automatic_recommendation_eligible"] is False
+    assert "EFFECT_SAMPLE_SIZE_BELOW_MINIMUM" in listed.json()[0]["recommendation_blockers"]
+    assert missing.status_code == 404
 
 
 def test_batch_classification_deduplicates_targets_and_rejects_an_empty_set(client: TestClient) -> None:

@@ -23,8 +23,37 @@ class MaterialLibraryConflictError(RuntimeError):
 
 
 class MaterialLibraryRepository:
+    _AUTOMATIC_RECOMMENDATION_MINIMUM_SESSION_COUNT = 3
+
     def __init__(self, connection: Connection):
         self.connection = connection
+
+    def list_asset_effect_summaries(self, asset_code: str) -> list[dict[str, Any]] | None:
+        """Return effect evidence without treating it as an automatic selection decision."""
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                "SELECT 1 FROM assets WHERE asset_code = %s AND deleted_at IS NULL",
+                (asset_code,),
+            )
+            if cursor.fetchone() is None:
+                return None
+            cursor.execute(
+                """
+                SELECT effect_code, revision_number, attribution_report_code, metric_key,
+                       evidence_level, status, note, approved_at, created_at,
+                       CASE
+                           WHEN COALESCE(eligibility_snapshot ->> 'selected_session_count', '') ~ '^[0-9]+$'
+                           THEN (eligibility_snapshot ->> 'selected_session_count')::integer
+                           ELSE 0
+                       END AS selected_session_count
+                FROM functional_effect_estimates
+                WHERE subject_type = 'asset' AND subject_code = %s
+                ORDER BY created_at DESC, effect_code DESC, revision_number DESC
+                """,
+                (asset_code,),
+            )
+            rows = cursor.fetchall()
+        return [self._asset_effect_summary(row) for row in rows]
 
     def update_asset_classification(
         self,
@@ -944,6 +973,25 @@ class MaterialLibraryRepository:
         result["resolution_snapshot"] = dict(result.get("resolution_snapshot") or {})
         result["resolution_evidence"] = dict(result.get("resolution_evidence") or {})
         result["events"] = list(result.get("events") or [])
+        return result
+
+    @classmethod
+    def _asset_effect_summary(cls, row: dict[str, Any]) -> dict[str, Any]:
+        result = cls._stringify(row)
+        selected_session_count = max(0, int(result.get("selected_session_count") or 0))
+        blockers: list[str] = []
+        if result.get("status") != "approved":
+            blockers.append("EFFECT_NOT_APPROVED")
+        if result.get("evidence_level") != "associational":
+            blockers.append("EFFECT_EVIDENCE_NOT_ASSOCIATIONAL")
+        if selected_session_count < cls._AUTOMATIC_RECOMMENDATION_MINIMUM_SESSION_COUNT:
+            blockers.append("EFFECT_SAMPLE_SIZE_BELOW_MINIMUM")
+        result["selected_session_count"] = selected_session_count
+        result["automatic_recommendation_minimum_session_count"] = (
+            cls._AUTOMATIC_RECOMMENDATION_MINIMUM_SESSION_COUNT
+        )
+        result["recommendation_blockers"] = blockers
+        result["automatic_recommendation_eligible"] = not blockers
         return result
 
     @staticmethod

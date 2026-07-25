@@ -6,6 +6,34 @@ from app.repositories.material_library import MaterialLibraryRepository, Materia
 from app.services.functional_live_rooms import FunctionalLiveRoomService
 
 
+def test_asset_effect_summary_withholds_automatic_recommendation_for_low_sample_or_descriptive_evidence() -> None:
+    low_sample = MaterialLibraryRepository._asset_effect_summary(
+        {
+            "effect_code": "EFFECT-LOW", "status": "approved", "evidence_level": "associational",
+            "selected_session_count": 2,
+        }
+    )
+    descriptive = MaterialLibraryRepository._asset_effect_summary(
+        {
+            "effect_code": "EFFECT-DESC", "status": "approved", "evidence_level": "descriptive",
+            "selected_session_count": 5,
+        }
+    )
+    eligible = MaterialLibraryRepository._asset_effect_summary(
+        {
+            "effect_code": "EFFECT-READY", "status": "approved", "evidence_level": "associational",
+            "selected_session_count": 3,
+        }
+    )
+
+    assert low_sample["automatic_recommendation_eligible"] is False
+    assert "EFFECT_SAMPLE_SIZE_BELOW_MINIMUM" in low_sample["recommendation_blockers"]
+    assert descriptive["automatic_recommendation_eligible"] is False
+    assert "EFFECT_EVIDENCE_NOT_ASSOCIATIONAL" in descriptive["recommendation_blockers"]
+    assert eligible["automatic_recommendation_eligible"] is True
+    assert eligible["recommendation_blockers"] == []
+
+
 def test_material_pack_rules_preserve_all_sources_and_strongest_usage() -> None:
     repository = MaterialLibraryRepository(None)  # type: ignore[arg-type]
 

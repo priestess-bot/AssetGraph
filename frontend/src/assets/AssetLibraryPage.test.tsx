@@ -216,12 +216,15 @@ describe("AssetLibraryPage", () => {
       if (url === "/api/assets/gaps") return response([{ gap_code: "AG-GAP-001", title: "背景缺口", role: "background", severity: "medium", status: "candidate_found", gap_type: "material_missing", alternative_asset_codes: ["AG-IMG-001"], resolution_snapshot: {}, resolution_evidence: {}, events: [] }]);
       if (url === "/api/assets/AG-IMG-001/constraint-profile") return response({ profile_code: "AG-CP-001", asset_code: "AG-IMG-001", revision_number: 1, constraints: [], fingerprint_sha256: "a".repeat(64), created_at: "2026-07-25T00:00:00Z" });
       if (url === "/api/assets/AG-IMG-001/constraint-profile/revisions") return response([{ profile_code: "AG-CP-001", asset_code: "AG-IMG-001", revision_number: 1, constraints: [], fingerprint_sha256: "a".repeat(64), created_at: "2026-07-25T00:00:00Z" }]);
+      if (url === "/api/assets/AG-IMG-001/effects") return response([{ effect_code: "EFFECT-001", revision_number: 1, attribution_report_code: "ATTR-001", metric_key: "conversion_rate", evidence_level: "descriptive", status: "approved", selected_session_count: 2, automatic_recommendation_minimum_session_count: 3, automatic_recommendation_eligible: false, recommendation_blockers: ["EFFECT_EVIDENCE_NOT_ASSOCIATIONAL", "EFFECT_SAMPLE_SIZE_BELOW_MINIMUM"], note: "Observed only.", created_at: "2026-07-25T00:00:00Z" }]);
       throw new Error(`Unexpected request: ${url}`);
     }));
     renderPage();
 
     expect(await screen.findByText("效果与关系")).toBeInTheDocument();
     expect(screen.getByText("样本不足")).toBeInTheDocument();
+    expect(await screen.findByText(/覆盖最多 2 个场次/)).toBeInTheDocument();
+    expect(screen.getByText(/EFFECT-001 · r1 · descriptive · 2 个场次/)).toBeInTheDocument();
     expect(screen.getByText("主场景组")).toBeInTheDocument();
     expect(screen.getByText("主背景包")).toBeInTheDocument();
     expect(screen.getByText("背景缺口")).toBeInTheDocument();

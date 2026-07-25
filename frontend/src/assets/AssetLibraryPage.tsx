@@ -18,6 +18,7 @@ import {
 } from "../workbench/components";
 import {
   type AssetGap,
+  type AssetEffectSummary,
   type ConstraintRule,
   type ExecutionCapability,
   type LibraryAsset,
@@ -836,6 +837,11 @@ function AssetRelationsPanel({
   packs: MaterialPack[];
   gaps: AssetGap[];
 }) {
+  const effectsQuery = useQuery({
+    queryKey: ["assets", "effects", asset.assetCode],
+    queryFn: () => assetLibraryApi.listEffectSummaries(asset.assetCode),
+    retry: false,
+  });
   const groupRelations = groups.filter((group) =>
     group.assetCodes.includes(asset.assetCode),
   );
@@ -847,6 +853,11 @@ function AssetRelationsPanel({
       gap.resolutionAssetCode === asset.assetCode ||
       gap.alternativeAssetCodes.includes(asset.assetCode),
   );
+  const effects = effectsQuery.data ?? [];
+  const eligibleEffect = effects.find(
+    (effect) => effect.automaticRecommendationEligible,
+  );
+  const recommendation = effectRecommendation(effects, eligibleEffect);
   return (
     <section className="asset-detail-panel">
       <SectionHeader kicker="EFFECTS AND RELATIONS" title="效果与关系" />
@@ -854,10 +865,18 @@ function AssetRelationsPanel({
         <div>
           <span>
             <strong>自动推荐资格</strong>
-            <small>当前素材没有直接归因效果样本，不能自动推荐。</small>
+            <small>{recommendation.detail}</small>
           </span>
-          <StatusBadge label="样本不足" tone="warning" />
+          <StatusBadge label={recommendation.label} tone={recommendation.tone} />
         </div>
+        {effectsQuery.isError ? (
+          <InlineNotice tone="warning" title="效果归因不可用">
+            效果归因数据暂时不可读取，已禁用自动推荐。
+          </InlineNotice>
+        ) : null}
+        {effects.map((effect) => (
+          <EffectSummaryRow key={`${effect.effectCode}:r${effect.revisionNumber}`} effect={effect} />
+        ))}
         {groupRelations.map((group) => (
           <div key={`group:${group.groupCode}`}>
             <span>
@@ -906,6 +925,64 @@ function AssetRelationsPanel({
         ) : null}
       </div>
     </section>
+  );
+}
+
+function effectRecommendation(
+  effects: AssetEffectSummary[],
+  eligibleEffect?: AssetEffectSummary,
+): { label: string; detail: string; tone: "success" | "warning" | "neutral" } {
+  if (eligibleEffect) {
+    return {
+      label: "可自动推荐",
+      tone: "success",
+      detail: `效果 ${eligibleEffect.effectCode} 已审核，具有关联性证据并覆盖 ${eligibleEffect.selectedSessionCount} 个场次。`,
+    };
+  }
+  if (!effects.length) {
+    return {
+      label: "样本不足",
+      tone: "warning",
+      detail: "当前素材没有直接归因效果样本，不能自动推荐。",
+    };
+  }
+  const minimum = effects[0].automaticRecommendationMinimumSessionCount;
+  const highestSampleCount = Math.max(
+    ...effects.map((effect) => effect.selectedSessionCount),
+  );
+  if (highestSampleCount < minimum) {
+    return {
+      label: "样本不足",
+      tone: "warning",
+      detail: `现有归因版本覆盖最多 ${highestSampleCount} 个场次，至少需要 ${minimum} 个场次才可自动推荐。`,
+    };
+  }
+  return {
+    label: "需人工判断",
+    tone: "neutral",
+    detail: "现有归因版本尚未同时满足审核与关联性证据要求，不能自动推荐。",
+  };
+}
+
+function EffectSummaryRow({ effect }: { effect: AssetEffectSummary }) {
+  const label = effect.automaticRecommendationEligible
+    ? "可推荐"
+    : effect.status === "approved"
+      ? "证据不足"
+      : "待审核";
+  return (
+    <div>
+      <span>
+        <strong>{effect.metricKey}</strong>
+        <small>
+          {effect.effectCode} · r{effect.revisionNumber} · {effect.evidenceLevel} · {effect.selectedSessionCount} 个场次
+        </small>
+      </span>
+      <StatusBadge
+        label={label}
+        tone={effect.automaticRecommendationEligible ? "success" : "warning"}
+      />
+    </div>
   );
 }
 

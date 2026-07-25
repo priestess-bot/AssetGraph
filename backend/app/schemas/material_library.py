@@ -130,6 +130,24 @@ class AssetConstraintProfileRevisionRead(AssetConstraintProfileRead):
     source_room_override: dict[str, Any] | None = None
 
 
+class AssetEffectSummaryRead(BaseModel):
+    """Read-only evidence projection for one asset's attributed effect."""
+
+    effect_code: str
+    revision_number: int
+    attribution_report_code: str
+    metric_key: str
+    evidence_level: str
+    status: str
+    selected_session_count: int = Field(ge=0)
+    automatic_recommendation_minimum_session_count: int = Field(ge=1)
+    automatic_recommendation_eligible: bool
+    recommendation_blockers: list[str] = Field(default_factory=list)
+    note: str
+    approved_at: datetime | None = None
+    created_at: datetime
+
+
 class AssetConstraintProfilePromoteRoomOverride(BaseModel):
     plan_code: str = Field(min_length=1, max_length=64)
     expected_revision: int = Field(ge=0)
