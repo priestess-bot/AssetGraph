@@ -52,10 +52,10 @@ describe("knowledge api", () => {
     }]));
     vi.stubGlobal("fetch", fetch);
 
-    const results = await knowledgeApi.searchKnowledge("price", "douyin");
+    const results = await knowledgeApi.searchKnowledge("price", "douyin", "2026-07-25T00:00:00Z");
 
     expect(results[0]).toMatchObject({ entityType: "content_rule", entityCode: "RULE-001", validation: { contentEligible: true, authorizationEligible: false, rights: "not_modeled" } });
-    expect(fetch).toHaveBeenCalledWith("/api/functional-knowledge/search?q=price&platform=douyin", expect.any(Object));
+    expect(fetch).toHaveBeenCalledWith("/api/functional-knowledge/search?q=price&platform=douyin&as_of=2026-07-25T00%3A00%3A00Z", expect.any(Object));
   });
 
   it("requires a named reason when revoking local evidence and claims", async () => {

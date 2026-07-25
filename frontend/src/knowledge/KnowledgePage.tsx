@@ -158,11 +158,14 @@ function FactClaimLineagePanel({ claimCode }: { claimCode: string }) {
 function KnowledgeSearchWorkspace({ onShowFactCards, onShowEvidence, onShowRules }: { onShowFactCards: () => void; onShowEvidence: () => void; onShowRules: () => void }) {
   const [query, setQuery] = useState("");
   const [platform, setPlatform] = useState("");
+  const [checkedAt, setCheckedAt] = useState("");
   const [submittedQuery, setSubmittedQuery] = useState("");
   const [submittedPlatform, setSubmittedPlatform] = useState("");
+  const [submittedCheckedAt, setSubmittedCheckedAt] = useState("");
+  const asOf = submittedCheckedAt ? new Date(submittedCheckedAt).toISOString() : undefined;
   const results = useQuery({
-    queryKey: ["knowledge-search", submittedQuery, submittedPlatform],
-    queryFn: () => knowledgeApi.searchKnowledge(submittedQuery, submittedPlatform || undefined),
+    queryKey: ["knowledge-search", submittedQuery, submittedPlatform, asOf],
+    queryFn: () => knowledgeApi.searchKnowledge(submittedQuery, submittedPlatform || undefined, asOf),
     enabled: Boolean(submittedQuery),
   });
   const entries: KnowledgeSearchHit[] = results.data ?? [];
@@ -170,9 +173,10 @@ function KnowledgeSearchWorkspace({ onShowFactCards, onShowEvidence, onShowRules
   return <div className="knowledge-layout">
     <aside className="wb-section knowledge-rail">
       <SectionHeader kicker="KNOWLEDGE SEARCH" title="知识检索" actions={<><button type="button" className="wb-button" onClick={onShowFactCards}>商品事实卡</button><button type="button" className="wb-button" onClick={onShowEvidence}>来源证据</button><button type="button" className="wb-button" onClick={onShowRules}>内容规则</button></>} />
-      <form className="knowledge-create knowledge-editor" onSubmit={(event: FormEvent) => { event.preventDefault(); setSubmittedQuery(query.trim()); setSubmittedPlatform(platform.trim()); }}>
+      <form className="knowledge-create knowledge-editor" onSubmit={(event: FormEvent) => { event.preventDefault(); setSubmittedQuery(query.trim()); setSubmittedPlatform(platform.trim()); setSubmittedCheckedAt(checkedAt); }}>
         <label className="wb-field"><span>检索词</span><input className="wb-input" value={query} onChange={(event) => setQuery(event.target.value)} required /></label>
         <label className="wb-field"><span>平台上下文</span><input className="wb-input" value={platform} onChange={(event) => setPlatform(event.target.value)} placeholder="可选，例如 douyin" /></label>
+        <label className="wb-field"><span>核验时间</span><input className="wb-input" type="datetime-local" value={checkedAt} onChange={(event) => setCheckedAt(event.target.value)} /></label>
         <button className="wb-button wb-button-primary" disabled={!query.trim()}><Search size={15} aria-hidden="true" />查询</button>
       </form>
     </aside>

@@ -479,9 +479,10 @@ export const knowledgeApi = {
   approveProductFactCardVersion: (factCardCode: string, versionNumber: number, approvedBy: string) => postJson<unknown>(`${ROOT}/${encodeURIComponent(factCardCode)}/versions/${versionNumber}/approve`, { approved_by: approvedBy }),
   rejectProductFactCardVersion: (factCardCode: string, versionNumber: number, rejectedBy: string, reason: string) => postJson<unknown>(`${ROOT}/${encodeURIComponent(factCardCode)}/versions/${versionNumber}/reject`, { rejected_by: rejectedBy, reason }),
   listProductFactCardUsage: (factCardCode: string, versionNumber: number) => requestJson<unknown[]>(`${ROOT}/${encodeURIComponent(factCardCode)}/versions/${versionNumber}/usage`).then((items) => items.map(usage)),
-  searchKnowledge: (query: string, platform?: string) => {
+  searchKnowledge: (query: string, platform?: string, asOf?: string) => {
     const params = new URLSearchParams({ q: query.trim() });
     if (platform?.trim()) params.set("platform", platform.trim());
+    if (asOf?.trim()) params.set("as_of", asOf.trim());
     return requestJson<unknown[]>(`${FUNCTIONAL_ROOT}/search?${params}`).then((items) => items.map(knowledgeSearchHit));
   },
   listSourceEvidences: () => requestJson<unknown[]>(`${FUNCTIONAL_ROOT}/source-evidences`).then((items) => items.map(sourceEvidence)),
