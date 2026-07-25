@@ -88,6 +88,34 @@ def _rule(**overrides: Any) -> dict[str, Any]:
     }
 
 
+def _search_hit(**overrides: Any) -> dict[str, Any]:
+    return {
+        "entity_type": "content_rule",
+        "entity_code": "RULE-001",
+        "title": "No unsupported price claim",
+        "summary": "Do not promise an unverified price.",
+        "status": "approved",
+        "source_evidence_code": "EVIDENCE-001",
+        "source_status": "approved",
+        "valid_from": None,
+        "valid_until": None,
+        "scope": {"platforms": ["douyin"]},
+        "access_scope": None,
+        "validation": {
+            "lifecycle": "approved",
+            "source": "approved",
+            "validity": "valid",
+            "scope": "match",
+            "rights": "not_modeled",
+            "content_eligible": True,
+            "authorization_eligible": False,
+            "blocking_rule_codes": [],
+        },
+        "created_at": NOW,
+        **overrides,
+    }
+
+
 class FakeFunctionalKnowledgeService:
     def __init__(self) -> None:
         self.source_payload: dict[str, Any] | None = None
@@ -99,6 +127,13 @@ class FakeFunctionalKnowledgeService:
         self.rule_payload: dict[str, Any] | None = None
         self.rule_rejection: tuple[str, str, str] | None = None
         self.rule_revocation: tuple[str, str, str] | None = None
+        self.search_request: tuple[str, datetime | None, str | None] | None = None
+
+    def search_knowledge(
+        self, query: str, *, as_of: datetime | None = None, platform: str | None = None
+    ) -> list[dict[str, Any]]:
+        self.search_request = (query, as_of, platform)
+        return [_search_hit()] if query != "none" else []
 
     def create_source_evidence(self, payload: dict[str, Any]) -> dict[str, Any]:
         self.source_payload = payload
@@ -319,6 +354,38 @@ def test_source_extraction_run_route_keeps_capture_fingerprints_explicit(
         }
     ]
     assert missing.status_code == 404
+
+
+def test_knowledge_search_returns_revalidation_state_without_granting_authorization(
+    client: tuple[TestClient, FakeFunctionalKnowledgeService],
+) -> None:
+    test_client, service = client
+
+    response = test_client.get(
+        "/api/functional-knowledge/search",
+        params={
+            "q": "price",
+            "platform": "douyin",
+            "as_of": "2026-07-25T00:00:00Z",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()[0]["validation"] == {
+        "lifecycle": "approved",
+        "source": "approved",
+        "validity": "valid",
+        "scope": "match",
+        "rights": "not_modeled",
+        "content_eligible": True,
+        "authorization_eligible": False,
+        "blocking_rule_codes": [],
+    }
+    assert service.search_request == ("price", NOW, "douyin")
+    assert test_client.get(
+        "/api/functional-knowledge/search",
+        params={"q": "price", "as_of": "2026-07-25T00:00:00"},
+    ).status_code == 422
 
 
 def test_fact_claim_route_rejects_naive_datetimes(

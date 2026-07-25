@@ -1,4 +1,5 @@
 from __future__ import annotations
+from datetime import UTC, datetime
 import os
 import psycopg
 import pytest
@@ -105,6 +106,81 @@ def test_source_evidence_creates_an_immutable_local_extraction_run() -> None:
             "capture_mode": "manual_import",
             "schema_version": "source-export.v1",
         }
+
+
+def test_knowledge_search_revalidates_lifecycle_time_and_scope_without_authorizing() -> None:
+    with psycopg.connect(DATABASE_URL) as c:
+        service = FunctionalKnowledgeService(c)
+        source = service.create_source_evidence(
+            {
+                "source_type": "document",
+                "title": "Search validation source",
+                "excerpt": "The product warranty is verified for the supported market.",
+                "access_scope": "internal",
+                "created_by": "author",
+            }
+        )
+        service.approve_source_evidence(source["evidence_code"], "reviewer")
+        claim = service.create_fact_claim(
+            {
+                "fact_title": "Search warranty",
+                "claim": "The product warranty is verified for the supported market.",
+                "source_evidence_code": source["evidence_code"],
+                "citation_excerpt": "The product warranty is verified for the supported market.",
+                "valid_from": "2026-07-24T00:00:00Z",
+                "valid_until": "2026-07-26T00:00:00Z",
+                "created_by": "author",
+            }
+        )
+        assert claim is not None
+        service.approve_fact_claim(claim["claim_code"], "reviewer")
+        rule = service.create_content_rule(
+            {
+                "rule_kind": "compliance_rule",
+                "directive": "must_avoid",
+                "title": "Search platform rule",
+                "rule_text": "Do not make unsupported warranty claims.",
+                "scope": {"platforms": ["douyin"]},
+                "source_evidence_code": source["evidence_code"],
+                "created_by": "author",
+            }
+        )
+        service.approve_content_rule(rule["rule_code"], "reviewer")
+
+        claim_hits = service.search_knowledge(
+            "supported market", as_of=datetime(2026, 7, 25, tzinfo=UTC)
+        )
+        claim_hit = next(hit for hit in claim_hits if hit["entity_code"] == claim["claim_code"])
+        source_hit = next(hit for hit in claim_hits if hit["entity_code"] == source["evidence_code"])
+        mismatched_rule = next(
+            hit
+            for hit in service.search_knowledge(
+                "unsupported warranty", as_of=datetime(2026, 7, 25, tzinfo=UTC), platform="kuaishou"
+            )
+            if hit["entity_code"] == rule["rule_code"]
+        )
+        expired_claim = next(
+            hit
+            for hit in service.search_knowledge(
+                "supported market", as_of=datetime(2026, 7, 27, tzinfo=UTC)
+            )
+            if hit["entity_code"] == claim["claim_code"]
+        )
+
+        assert claim_hit["validation"] == {
+            "lifecycle": "approved",
+            "source": "approved",
+            "validity": "valid",
+            "scope": "not_scoped",
+            "rights": "not_modeled",
+            "content_eligible": True,
+            "authorization_eligible": False,
+            "blocking_rule_codes": [],
+        }
+        assert source_hit["validation"]["content_eligible"] is False
+        assert "KNOWLEDGE_SOURCE_EVIDENCE_NOT_SELECTABLE" in source_hit["validation"]["blocking_rule_codes"]
+        assert "KNOWLEDGE_SCOPE_MISMATCH" in mismatched_rule["validation"]["blocking_rule_codes"]
+        assert "KNOWLEDGE_OUTSIDE_VALIDITY_WINDOW" in expired_claim["validation"]["blocking_rule_codes"]
 
 
 def test_fact_claim_lineage_follows_only_immutable_pinned_content_revisions() -> None:

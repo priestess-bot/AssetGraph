@@ -2,7 +2,7 @@ import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BookOpen, CheckCircle2, FilePlus2, Search, XCircle } from "lucide-react";
 import { EmptyBlock, InlineNotice, LoadingBlock, SectionHeader, StatusBadge, formatDate } from "../workbench/components";
-import { knowledgeApi, type ContentRule, type FactClaimLineage, type ProductFactCard, type ProductFactCardContentInput } from "./api";
+import { knowledgeApi, type ContentRule, type FactClaimLineage, type KnowledgeSearchHit, type ProductFactCard, type ProductFactCardContentInput } from "./api";
 
 interface FactEditorValues {
   title: string;
@@ -155,7 +155,36 @@ function FactClaimLineagePanel({ claimCode }: { claimCode: string }) {
   </section>;
 }
 
-function ContentRuleWorkspace({ onShowFactCards, onShowEvidence }: { onShowFactCards: () => void; onShowEvidence: () => void }) {
+function KnowledgeSearchWorkspace({ onShowFactCards, onShowEvidence, onShowRules }: { onShowFactCards: () => void; onShowEvidence: () => void; onShowRules: () => void }) {
+  const [query, setQuery] = useState("");
+  const [platform, setPlatform] = useState("");
+  const [submittedQuery, setSubmittedQuery] = useState("");
+  const [submittedPlatform, setSubmittedPlatform] = useState("");
+  const results = useQuery({
+    queryKey: ["knowledge-search", submittedQuery, submittedPlatform],
+    queryFn: () => knowledgeApi.searchKnowledge(submittedQuery, submittedPlatform || undefined),
+    enabled: Boolean(submittedQuery),
+  });
+  const entries: KnowledgeSearchHit[] = results.data ?? [];
+
+  return <div className="knowledge-layout">
+    <aside className="wb-section knowledge-rail">
+      <SectionHeader kicker="KNOWLEDGE SEARCH" title="知识检索" actions={<><button type="button" className="wb-button" onClick={onShowFactCards}>商品事实卡</button><button type="button" className="wb-button" onClick={onShowEvidence}>来源证据</button><button type="button" className="wb-button" onClick={onShowRules}>内容规则</button></>} />
+      <form className="knowledge-create knowledge-editor" onSubmit={(event: FormEvent) => { event.preventDefault(); setSubmittedQuery(query.trim()); setSubmittedPlatform(platform.trim()); }}>
+        <label className="wb-field"><span>检索词</span><input className="wb-input" value={query} onChange={(event) => setQuery(event.target.value)} required /></label>
+        <label className="wb-field"><span>平台上下文</span><input className="wb-input" value={platform} onChange={(event) => setPlatform(event.target.value)} placeholder="可选，例如 douyin" /></label>
+        <button className="wb-button wb-button-primary" disabled={!query.trim()}><Search size={15} aria-hidden="true" />查询</button>
+      </form>
+    </aside>
+    <main className="knowledge-main">
+      <section className="wb-section"><SectionHeader kicker="RESULTS" title="检索结果" />
+        {results.isLoading ? <LoadingBlock label="正在检索知识" /> : results.error ? <InlineNotice tone="danger" title="知识检索失败">{errorMessage(results.error)}</InlineNotice> : entries.length ? <div className="knowledge-usage-list">{entries.map((entry) => <article key={`${entry.entityType}:${entry.entityCode}`}><span><strong>{entry.title}</strong><small>{entry.entityType} · {entry.status}</small><small>{entry.summary}</small><small>来源：{entry.sourceStatus ?? "不适用"} · 有效期：{entry.validation.validity} · 范围：{entry.validation.scope}</small><small>引用检查：{entry.validation.contentEligible ? "通过" : "阻断"} · 授权：{entry.validation.authorizationEligible ? "通过" : "待审"}</small><code>{entry.entityCode}{entry.accessScope ? ` · ${entry.accessScope}` : ""}</code>{entry.validation.blockingRuleCodes.length ? <small>阻断码：{entry.validation.blockingRuleCodes.join(", ")}</small> : null}</span><StatusBadge label={entry.validation.contentEligible ? "eligible" : "blocked"} tone={entry.validation.contentEligible ? "success" : "danger"} /></article>)}</div> : <EmptyBlock icon={BookOpen} title={submittedQuery ? "未找到匹配知识" : "尚无检索结果"} />}
+      </section>
+    </main>
+  </div>;
+}
+
+function ContentRuleWorkspace({ onShowFactCards, onShowEvidence, onShowSearch }: { onShowFactCards: () => void; onShowEvidence: () => void; onShowSearch: () => void }) {
   const client = useQueryClient();
   const [ruleKind, setRuleKind] = useState<ContentRule["ruleKind"]>("content_guidance");
   const [directive, setDirective] = useState<ContentRule["directive"]>("guidance");
@@ -190,7 +219,7 @@ function ContentRuleWorkspace({ onShowFactCards, onShowEvidence }: { onShowFactC
 
   return <div className="knowledge-layout">
     <aside className="wb-section knowledge-rail">
-      <SectionHeader kicker="KNOWLEDGE RULES" title="内容规则" actions={<><button type="button" className="wb-button" onClick={onShowEvidence}>来源证据</button><button type="button" className="wb-button" onClick={onShowFactCards}>商品事实卡</button></>} />
+      <SectionHeader kicker="KNOWLEDGE RULES" title="内容规则" actions={<><button type="button" className="wb-button" onClick={onShowEvidence}>来源证据</button><button type="button" className="wb-button" onClick={onShowFactCards}>商品事实卡</button><button type="button" className="wb-button" onClick={onShowSearch}>知识检索</button></>} />
       <form className="knowledge-create knowledge-editor" onSubmit={(event: FormEvent) => { event.preventDefault(); create.mutate(); }}>
         <label className="wb-field"><span>规则类型</span><select className="wb-input" value={ruleKind} onChange={(event) => { const next = event.target.value as ContentRule["ruleKind"]; setRuleKind(next); if (next === "expression_ban") setDirective("must_avoid"); }}><option value="content_guidance">内容知识</option><option value="compliance_rule">合规规则</option><option value="term">术语</option><option value="expression_ban">表达禁区</option></select></label>
         <label className="wb-field"><span>应用方式</span><select className="wb-input" value={directive} disabled={ruleKind === "expression_ban"} onChange={(event) => setDirective(event.target.value as ContentRule["directive"])}><option value="guidance">指导</option><option value="must_include">必须包含</option><option value="must_avoid">必须避免</option></select></label>
@@ -211,7 +240,7 @@ function ContentRuleWorkspace({ onShowFactCards, onShowEvidence }: { onShowFactC
   </div>;
 }
 
-function EvidenceWorkspace({ onShowFactCards }: { onShowFactCards: () => void }) {
+function EvidenceWorkspace({ onShowFactCards, onShowSearch }: { onShowFactCards: () => void; onShowSearch: () => void }) {
   const client = useQueryClient();
   const [sourceType, setSourceType] = useState<"human" | "document" | "webpage" | "export">("document");
   const [sourceTitle, setSourceTitle] = useState("");
@@ -272,7 +301,7 @@ function EvidenceWorkspace({ onShowFactCards }: { onShowFactCards: () => void })
 
   return <div className="knowledge-layout">
     <aside className="wb-section knowledge-rail">
-      <SectionHeader kicker="SOURCE EVIDENCE" title="来源证据" actions={<button type="button" className="wb-button" onClick={onShowFactCards}><BookOpen size={14} aria-hidden="true" />商品事实卡</button>} />
+      <SectionHeader kicker="SOURCE EVIDENCE" title="来源证据" actions={<><button type="button" className="wb-button" onClick={onShowFactCards}><BookOpen size={14} aria-hidden="true" />商品事实卡</button><button type="button" className="wb-button" onClick={onShowSearch}>知识检索</button></>} />
       <form className="knowledge-create knowledge-editor" onSubmit={(event: FormEvent) => { event.preventDefault(); createSource.mutate(); }}>
         <label className="wb-field"><span>来源类型</span><select className="wb-input" value={sourceType} onChange={(event) => setSourceType(event.target.value as typeof sourceType)}><option value="document">文档</option><option value="webpage">网页</option><option value="human">人工确认</option><option value="export">受控导出</option></select></label>
         <label className="wb-field"><span>来源标题</span><input className="wb-input" value={sourceTitle} onChange={(event) => setSourceTitle(event.target.value)} required /></label>
@@ -308,7 +337,7 @@ function EvidenceWorkspace({ onShowFactCards }: { onShowFactCards: () => void })
 
 export function KnowledgePage() {
   const queryClient = useQueryClient();
-  const [workspace, setWorkspace] = useState<"fact_cards" | "evidence" | "rules">("fact_cards");
+  const [workspace, setWorkspace] = useState<"fact_cards" | "evidence" | "rules" | "search">("fact_cards");
   const [query, setQuery] = useState("");
   const [selectedCode, setSelectedCode] = useState("");
   const [showCreate, setShowCreate] = useState(false);
@@ -357,12 +386,13 @@ export function KnowledgePage() {
   const approve = useMutation({ mutationFn: () => knowledgeApi.approveProductFactCardVersion(selectedCode, activeVersion?.versionNumber ?? 0, reviewer.trim()), onSuccess: async () => { await refresh(selectedCode); } });
   const reject = useMutation({ mutationFn: () => knowledgeApi.rejectProductFactCardVersion(selectedCode, activeVersion?.versionNumber ?? 0, reviewer.trim(), rejectionReason.trim()), onSuccess: async () => { setRejectionReason(""); await refresh(selectedCode); } });
 
-  if (workspace === "evidence") return <EvidenceWorkspace onShowFactCards={() => setWorkspace("fact_cards")} />;
-  if (workspace === "rules") return <ContentRuleWorkspace onShowFactCards={() => setWorkspace("fact_cards")} onShowEvidence={() => setWorkspace("evidence")} />;
+  if (workspace === "evidence") return <EvidenceWorkspace onShowFactCards={() => setWorkspace("fact_cards")} onShowSearch={() => setWorkspace("search")} />;
+  if (workspace === "rules") return <ContentRuleWorkspace onShowFactCards={() => setWorkspace("fact_cards")} onShowEvidence={() => setWorkspace("evidence")} onShowSearch={() => setWorkspace("search")} />;
+  if (workspace === "search") return <KnowledgeSearchWorkspace onShowFactCards={() => setWorkspace("fact_cards")} onShowEvidence={() => setWorkspace("evidence")} onShowRules={() => setWorkspace("rules")} />;
   if (cards.isLoading) return <LoadingBlock />;
   return <div className="knowledge-layout">
     <aside className="wb-section knowledge-rail">
-      <SectionHeader kicker="FACT CARDS" title="事实卡" actions={<><button type="button" className="wb-button" onClick={() => setWorkspace("evidence")}>来源证据</button><button type="button" className="wb-button" onClick={() => setWorkspace("rules")}>内容规则</button><button type="button" className="wb-button wb-button-primary" onClick={() => setShowCreate((current) => !current)}><FilePlus2 size={14} aria-hidden="true" />新建</button></>} />
+      <SectionHeader kicker="FACT CARDS" title="事实卡" actions={<><button type="button" className="wb-button" onClick={() => setWorkspace("evidence")}>来源证据</button><button type="button" className="wb-button" onClick={() => setWorkspace("rules")}>内容规则</button><button type="button" className="wb-button" onClick={() => setWorkspace("search")}>知识检索</button><button type="button" className="wb-button wb-button-primary" onClick={() => setShowCreate((current) => !current)}><FilePlus2 size={14} aria-hidden="true" />新建</button></>} />
       {showCreate ? <div className="knowledge-create"><FactEditor values={createValues} setValues={setCreateValues} includeTitle submitLabel="创建草稿" pending={create.isPending} onSubmit={() => create.mutate()} />{create.error ? <InlineNotice tone="danger" title="事实卡创建失败">{errorMessage(create.error)}</InlineNotice> : null}</div> : null}
       <label className="asset-search"><Search size={15} aria-hidden="true" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索事实卡" /></label>
       {cards.error ? <InlineNotice tone="danger" title="事实卡读取失败">{errorMessage(cards.error)}</InlineNotice> : filtered.length ? <div className="knowledge-card-list">{filtered.map((card) => <button type="button" key={card.factCardCode} className={card.factCardCode === selectedCode ? "active" : undefined} onClick={() => { setSelectedCode(card.factCardCode); setShowRevision(false); }}><span><strong>{card.title}</strong><small>{stringValue(versionContent(card), "product_name") || "未填写商品名称"}</small><code>{card.factCardCode}{card.currentApprovedVersion ? ` · 已批准 v${card.currentApprovedVersion}` : " · 尚无已批准版本"}</code></span><StatusBadge label={card.status} tone="info" /></button>)}</div> : <EmptyBlock icon={BookOpen} title="尚无事实卡" />}

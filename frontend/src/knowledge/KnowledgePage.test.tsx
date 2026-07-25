@@ -77,6 +77,35 @@ describe("KnowledgePage", () => {
     expect(JSON.parse(String(request?.init?.body))).toMatchObject({ source_type: "document", title: "Product sheet", excerpt: "Verified warranty is 12 months.", access_scope: "internal", extractor_strategy_ref: "manual_excerpt.v1" });
   });
 
+  it("shows revalidation state separately from authorization in knowledge search", async () => {
+    const requests: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input); requests.push(url);
+      if (url === "/api/maitu/workbench/product-fact-cards") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/functional-knowledge/search?q=price&platform=douyin") return new Response(JSON.stringify([{
+        entity_type: "content_rule", entity_code: "RULE-001", title: "No unsupported price claim", summary: "Do not promise an unverified price.", status: "approved",
+        source_evidence_code: "EVIDENCE-001", source_status: "approved", scope: { platforms: ["douyin"] },
+        validation: { lifecycle: "approved", source: "approved", validity: "valid", scope: "match", rights: "not_modeled", content_eligible: true, authorization_eligible: false, blocking_rule_codes: [] },
+        created_at: "2026-07-25T00:00:00Z",
+      }]), { status: 200, headers: { "Content-Type": "application/json" } });
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    const user = userEvent.setup();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><KnowledgePage /></QueryClientProvider>);
+
+    await screen.findByText("尚无事实卡");
+    await user.click(screen.getByRole("button", { name: "知识检索" }));
+    await screen.findByRole("heading", { name: "知识检索" });
+    await user.type(screen.getByLabelText("检索词"), "price");
+    await user.type(screen.getByLabelText("平台上下文"), "douyin");
+    await user.click(screen.getByRole("button", { name: "查询" }));
+
+    expect(await screen.findByText("No unsupported price claim")).toBeInTheDocument();
+    expect(screen.getByText("引用检查：通过 · 授权：待审")).toBeInTheDocument();
+    expect(requests).toContain("/api/functional-knowledge/search?q=price&platform=douyin");
+  });
+
   it("opens the fixed content usage chain for a fact claim", async () => {
     const claim = {
       claim_code: "CLAIM-001", fact_code: "FACT-001", fact_title: "Warranty",

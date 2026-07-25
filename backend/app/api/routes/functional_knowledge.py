@@ -1,6 +1,7 @@
 from __future__ import annotations
+from datetime import datetime
 from typing import Annotated
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from psycopg import Connection
 from app.core.database import get_db
 from app.schemas.functional_knowledge import (
@@ -17,6 +18,7 @@ from app.schemas.functional_knowledge import (
     FactClaimRevoke,
     FactCreate,
     FactRead,
+    KnowledgeSearchHitRead,
     SourceEvidenceApprove,
     SourceEvidenceCreate,
     SourceExtractionRunRead,
@@ -67,6 +69,18 @@ def list_source_evidences(
     service: Annotated[FunctionalKnowledgeService, Depends(svc)],
 ) -> list[dict]:
     return service.list_source_evidences()
+
+
+@router.get("/search", response_model=list[KnowledgeSearchHitRead])
+def search_knowledge(
+    service: Annotated[FunctionalKnowledgeService, Depends(svc)],
+    q: Annotated[str, Query(min_length=1, max_length=200)],
+    as_of: datetime | None = None,
+    platform: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
+) -> list[dict]:
+    if as_of and as_of.tzinfo is None:
+        raise HTTPException(status_code=422, detail="as_of must include a timezone")
+    return service.search_knowledge(q, as_of=as_of, platform=platform)
 
 
 @router.get(

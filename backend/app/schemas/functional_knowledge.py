@@ -49,6 +49,33 @@ class SourceExtractionRunRead(BaseModel):
     created_at: datetime
 
 
+class KnowledgeSearchValidationRead(BaseModel):
+    lifecycle: Literal["approved", "not_approved"]
+    source: Literal["approved", "not_approved", "not_required"]
+    validity: Literal["valid", "outside_window"]
+    scope: Literal["match", "mismatch", "not_scoped", "context_required"]
+    rights: Literal["not_modeled"]
+    content_eligible: bool
+    authorization_eligible: bool
+    blocking_rule_codes: list[str] = Field(default_factory=list)
+
+
+class KnowledgeSearchHitRead(BaseModel):
+    entity_type: Literal["fact_claim", "content_rule", "source_evidence"]
+    entity_code: str
+    title: str
+    summary: str
+    status: str
+    source_evidence_code: str | None = None
+    source_status: str | None = None
+    valid_from: datetime | None = None
+    valid_until: datetime | None = None
+    scope: dict[str, object] = Field(default_factory=dict)
+    access_scope: str | None = None
+    validation: KnowledgeSearchValidationRead
+    created_at: datetime
+
+
 class SourceEvidenceApprove(BaseModel):
     approved_by: str = Field(min_length=1, max_length=128)
 

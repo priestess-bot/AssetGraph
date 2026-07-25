@@ -140,6 +140,83 @@ class FunctionalKnowledgeService:
                 return None
             return self._source_extraction_runs(cur, evidence_code)
 
+    def search_knowledge(
+        self,
+        query: str,
+        *,
+        as_of: datetime | None = None,
+        platform: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Search local knowledge without treating a hit as production authorization.
+
+        Search is intentionally relational and bounded. Every row carries a
+        point-in-time lifecycle/source/window/scope check; source-rights grants
+        are not modeled by this compact knowledge schema, so authorization is
+        always reported separately as ineligible.
+        """
+        needle = query.strip()
+        if not needle:
+            return []
+        checked_at = as_of or datetime.now(UTC)
+        if checked_at.tzinfo is None:
+            raise ValueError("as_of must include a timezone")
+        checked_at = checked_at.astimezone(UTC)
+        normalized_platform = platform.strip().lower() if platform and platform.strip() else None
+        pattern = f"%{needle}%"
+        with self.c.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """
+                SELECT evidence_code, title, excerpt, status, access_scope, created_at
+                FROM functional_knowledge_source_evidences
+                WHERE evidence_code ILIKE %s OR title ILIKE %s OR excerpt ILIKE %s
+                ORDER BY created_at DESC, evidence_code DESC
+                LIMIT 30
+                """,
+                (pattern, pattern, pattern),
+            )
+            source_rows = [dict(row) for row in cur.fetchall()]
+            cur.execute(
+                self._claim_query(
+                    "WHERE claim.claim_code ILIKE %s OR fact.title ILIKE %s "
+                    "OR claim.claim ILIKE %s OR claim.citation_excerpt ILIKE %s"
+                )
+                + " LIMIT 30",
+                (pattern, pattern, pattern, pattern),
+            )
+            claim_rows = [dict(row) for row in cur.fetchall()]
+            cur.execute(
+                self._content_rule_query(
+                    "WHERE rule.rule_code ILIKE %s OR rule.title ILIKE %s OR rule.rule_text ILIKE %s"
+                )
+                + " LIMIT 30",
+                (pattern, pattern, pattern),
+            )
+            rule_rows = [dict(row) for row in cur.fetchall()]
+
+        hits = [
+            self._knowledge_search_hit(
+                "source_evidence", row, checked_at=checked_at, platform=normalized_platform
+            )
+            for row in source_rows
+        ]
+        hits.extend(
+            self._knowledge_search_hit(
+                "fact_claim", row, checked_at=checked_at, platform=normalized_platform
+            )
+            for row in claim_rows
+        )
+        hits.extend(
+            self._knowledge_search_hit(
+                "content_rule", row, checked_at=checked_at, platform=normalized_platform
+            )
+            for row in rule_rows
+        )
+        return sorted(
+            hits,
+            key=lambda row: (row["created_at"], row["entity_type"], row["entity_code"]),
+            reverse=True,
+        )[:60]
+
     def create_content_rule(self, payload: dict[str, Any]) -> dict[str, Any]:
         try:
             with self.c.cursor(row_factory=dict_row) as cur:
@@ -908,6 +985,118 @@ class FunctionalKnowledgeService:
                      ON source.evidence_code = rule.source_evidence_code
                    {where}
                    ORDER BY rule.created_at DESC, rule.rule_code DESC"""
+
+    @staticmethod
+    def _knowledge_search_hit(
+        entity_type: str,
+        row: dict[str, Any],
+        *,
+        checked_at: datetime,
+        platform: str | None,
+    ) -> dict[str, Any]:
+        if entity_type == "source_evidence":
+            entity_code = row["evidence_code"]
+            title = row["title"]
+            summary = row["excerpt"]
+            source_code = row["evidence_code"]
+            source_status = row["status"]
+            valid_from = None
+            valid_until = None
+            scope = {"access_scope": row["access_scope"]}
+            access_scope = row["access_scope"]
+        elif entity_type == "fact_claim":
+            entity_code = row["claim_code"]
+            title = row["fact_title"]
+            summary = row["claim"]
+            source_code = row["source_evidence_code"]
+            source_status = row["source_status"]
+            valid_from = row.get("valid_from")
+            valid_until = row.get("valid_until")
+            scope = {}
+            access_scope = None
+        else:
+            entity_code = row["rule_code"]
+            title = row["title"]
+            summary = row["rule_text"]
+            source_code = row.get("source_evidence_code")
+            source_status = row.get("source_status")
+            valid_from = row.get("valid_from")
+            valid_until = row.get("valid_until")
+            scope = dict(row.get("scope") or {})
+            access_scope = None
+
+        lifecycle_ok = row["status"] == "approved"
+        source_required = entity_type in {"fact_claim", "content_rule"} and source_code is not None
+        source_ok = not source_required or source_status == "approved"
+        validity_ok = (
+            (valid_from is None or checked_at >= valid_from)
+            and (valid_until is None or checked_at < valid_until)
+        )
+        scope_status = FunctionalKnowledgeService._scope_status(scope, platform)
+        blocking_codes: list[str] = []
+        if not lifecycle_ok:
+            blocking_codes.append("KNOWLEDGE_LIFECYCLE_NOT_APPROVED")
+        if not source_ok:
+            blocking_codes.append("KNOWLEDGE_SOURCE_NOT_APPROVED")
+        if not validity_ok:
+            blocking_codes.append("KNOWLEDGE_OUTSIDE_VALIDITY_WINDOW")
+        if scope_status == "context_required":
+            blocking_codes.append("KNOWLEDGE_SCOPE_CONTEXT_REQUIRED")
+        elif scope_status == "mismatch":
+            blocking_codes.append("KNOWLEDGE_SCOPE_MISMATCH")
+        if entity_type == "source_evidence":
+            blocking_codes.append("KNOWLEDGE_SOURCE_EVIDENCE_NOT_SELECTABLE")
+
+        return {
+            "entity_type": entity_type,
+            "entity_code": entity_code,
+            "title": title,
+            "summary": summary,
+            "status": row["status"],
+            "source_evidence_code": source_code,
+            "source_status": source_status,
+            "valid_from": valid_from,
+            "valid_until": valid_until,
+            "scope": scope,
+            "access_scope": access_scope,
+            "validation": {
+                "lifecycle": "approved" if lifecycle_ok else "not_approved",
+                "source": (
+                    "not_required"
+                    if not source_required
+                    else "approved"
+                    if source_ok
+                    else "not_approved"
+                ),
+                "validity": "valid" if validity_ok else "outside_window",
+                "scope": scope_status,
+                "rights": "not_modeled",
+                "content_eligible": not blocking_codes,
+                "authorization_eligible": False,
+                "blocking_rule_codes": blocking_codes,
+            },
+            "created_at": row["created_at"],
+        }
+
+    @staticmethod
+    def _scope_status(scope: dict[str, Any], platform: str | None) -> str:
+        values = scope.get("platforms", scope.get("applicable_platforms"))
+        if values is None and isinstance(scope.get("platform"), str):
+            values = [scope["platform"]]
+        if not values:
+            return "not_scoped"
+        if isinstance(values, str):
+            values = [values]
+        allowed = {
+            str(value).strip().lower()
+            for value in values
+            if str(value).strip()
+        }
+        if not allowed:
+            return "not_scoped"
+        if platform is None:
+            return "context_required"
+        return "match" if platform in allowed or "all" in allowed else "mismatch"
 
     def _source_evidence(
         self, cur: Any, evidence_code: str

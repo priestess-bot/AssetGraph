@@ -43,6 +43,21 @@ describe("knowledge api", () => {
     expect(fetch).toHaveBeenLastCalledWith("/api/functional-knowledge/fact-claims", expect.objectContaining({ method: "POST" }));
   });
 
+  it("parses knowledge search validation without mistaking it for authorization", async () => {
+    const fetch = vi.fn().mockResolvedValue(response([{
+      entity_type: "content_rule", entity_code: "RULE-001", title: "No unsupported price claim", summary: "Do not promise an unverified price.", status: "approved",
+      source_evidence_code: "EVIDENCE-001", source_status: "approved", scope: { platforms: ["douyin"] },
+      validation: { lifecycle: "approved", source: "approved", validity: "valid", scope: "match", rights: "not_modeled", content_eligible: true, authorization_eligible: false, blocking_rule_codes: [] },
+      created_at: "2026-07-25T00:00:00Z",
+    }]));
+    vi.stubGlobal("fetch", fetch);
+
+    const results = await knowledgeApi.searchKnowledge("price", "douyin");
+
+    expect(results[0]).toMatchObject({ entityType: "content_rule", entityCode: "RULE-001", validation: { contentEligible: true, authorizationEligible: false, rights: "not_modeled" } });
+    expect(fetch).toHaveBeenCalledWith("/api/functional-knowledge/search?q=price&platform=douyin", expect.any(Object));
+  });
+
   it("requires a named reason when revoking local evidence and claims", async () => {
     const fetch = vi.fn()
       .mockResolvedValueOnce(response({

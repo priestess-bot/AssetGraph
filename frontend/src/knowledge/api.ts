@@ -113,6 +113,33 @@ export interface SourceExtractionRun {
   createdAt?: string;
 }
 
+export interface KnowledgeSearchValidation {
+  lifecycle: "approved" | "not_approved";
+  source: "approved" | "not_approved" | "not_required";
+  validity: "valid" | "outside_window";
+  scope: "match" | "mismatch" | "not_scoped" | "context_required";
+  rights: "not_modeled";
+  contentEligible: boolean;
+  authorizationEligible: boolean;
+  blockingRuleCodes: string[];
+}
+
+export interface KnowledgeSearchHit {
+  entityType: "fact_claim" | "content_rule" | "source_evidence";
+  entityCode: string;
+  title: string;
+  summary: string;
+  status: string;
+  sourceEvidenceCode?: string;
+  sourceStatus?: string;
+  validFrom?: string;
+  validUntil?: string;
+  scope: Record<string, unknown>;
+  accessScope?: string;
+  validation: KnowledgeSearchValidation;
+  createdAt?: string;
+}
+
 export interface SourceEvidenceCreateInput {
   source_type: "human" | "document" | "webpage" | "export";
   title: string;
@@ -311,6 +338,40 @@ function sourceEvidence(value: unknown): SourceEvidence {
   };
 }
 
+function knowledgeSearchHit(value: unknown): KnowledgeSearchHit {
+  if (!isRecord(value)) throw new Error("知识检索响应无效");
+  const entityCode = asString(value.entity_code);
+  const rawType = asString(value.entity_type);
+  if (!entityCode || !["fact_claim", "content_rule", "source_evidence"].includes(rawType)) {
+    throw new Error("知识检索结果缺少实体标识");
+  }
+  const rawValidation = isRecord(value.validation) ? value.validation : {};
+  return {
+    entityType: rawType as KnowledgeSearchHit["entityType"],
+    entityCode,
+    title: asString(value.title),
+    summary: asString(value.summary),
+    status: asString(value.status),
+    sourceEvidenceCode: asOptionalString(value.source_evidence_code),
+    sourceStatus: asOptionalString(value.source_status),
+    validFrom: asOptionalString(value.valid_from),
+    validUntil: asOptionalString(value.valid_until),
+    scope: isRecord(value.scope) ? value.scope : {},
+    accessScope: asOptionalString(value.access_scope),
+    validation: {
+      lifecycle: asString(rawValidation.lifecycle, "not_approved") as KnowledgeSearchValidation["lifecycle"],
+      source: asString(rawValidation.source, "not_required") as KnowledgeSearchValidation["source"],
+      validity: asString(rawValidation.validity, "outside_window") as KnowledgeSearchValidation["validity"],
+      scope: asString(rawValidation.scope, "not_scoped") as KnowledgeSearchValidation["scope"],
+      rights: "not_modeled",
+      contentEligible: rawValidation.content_eligible === true,
+      authorizationEligible: rawValidation.authorization_eligible === true,
+      blockingRuleCodes: asArray(rawValidation.blocking_rule_codes).flatMap((item) => typeof item === "string" ? [item] : []),
+    },
+    createdAt: asOptionalString(value.created_at),
+  };
+}
+
 function factClaim(value: unknown): FactClaim {
   if (!isRecord(value)) throw new Error("事实声明响应无效");
   const claimCode = asString(value.claim_code);
@@ -416,6 +477,11 @@ export const knowledgeApi = {
   approveProductFactCardVersion: (factCardCode: string, versionNumber: number, approvedBy: string) => postJson<unknown>(`${ROOT}/${encodeURIComponent(factCardCode)}/versions/${versionNumber}/approve`, { approved_by: approvedBy }),
   rejectProductFactCardVersion: (factCardCode: string, versionNumber: number, rejectedBy: string, reason: string) => postJson<unknown>(`${ROOT}/${encodeURIComponent(factCardCode)}/versions/${versionNumber}/reject`, { rejected_by: rejectedBy, reason }),
   listProductFactCardUsage: (factCardCode: string, versionNumber: number) => requestJson<unknown[]>(`${ROOT}/${encodeURIComponent(factCardCode)}/versions/${versionNumber}/usage`).then((items) => items.map(usage)),
+  searchKnowledge: (query: string, platform?: string) => {
+    const params = new URLSearchParams({ q: query.trim() });
+    if (platform?.trim()) params.set("platform", platform.trim());
+    return requestJson<unknown[]>(`${FUNCTIONAL_ROOT}/search?${params}`).then((items) => items.map(knowledgeSearchHit));
+  },
   listSourceEvidences: () => requestJson<unknown[]>(`${FUNCTIONAL_ROOT}/source-evidences`).then((items) => items.map(sourceEvidence)),
   listSourceExtractionRuns: (evidenceCode: string) => requestJson<unknown[]>(`${FUNCTIONAL_ROOT}/source-evidences/${encodeURIComponent(evidenceCode)}/extraction-runs`).then((items) => items.flatMap((item) => isRecord(item) && asString(item.extraction_run_code) && asString(item.evidence_code) ? [{ extractionRunCode: asString(item.extraction_run_code), evidenceCode: asString(item.evidence_code), extractorStrategyRef: asString(item.extractor_strategy_ref, "manual_excerpt.v1"), inputFingerprint: asString(item.input_fingerprint_sha256), outputChecksum: asString(item.output_checksum_sha256), extractionMetadata: isRecord(item.extraction_metadata) ? item.extraction_metadata : {}, createdBy: asOptionalString(item.created_by), createdAt: asOptionalString(item.created_at) }] : [])),
   createSourceEvidence: (payload: SourceEvidenceCreateInput) => postJson<unknown>(`${FUNCTIONAL_ROOT}/source-evidences`, payload).then(sourceEvidence),
