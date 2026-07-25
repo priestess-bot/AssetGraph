@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
@@ -561,6 +562,14 @@ class VideoProductionRepository:
         output_payload: dict[str, Any],
         artifacts: dict[str, dict[str, Any]],
     ) -> None:
+        if stage_name == "rendering":
+            VideoProductionRepository._persist_functional_timeline_render_artifacts(
+                cursor,
+                job=job,
+                output_payload=output_payload,
+                artifacts=artifacts,
+            )
+            return
         if stage_name not in {"voice_synthesis", "subtitle_generation"}:
             return
         artifact_key = "voice" if stage_name == "voice_synthesis" else "subtitles"
@@ -572,7 +581,8 @@ class VideoProductionRepository:
         if not VideoProductionRepository._valid_checksum(checksum) or not relative_path:
             return
         cursor.execute(
-            """SELECT segment.id, segment.clip_code
+            """SELECT segment.id, segment.clip_code, segment.timeline_start_ms,
+                      segment.timeline_end_ms
                FROM functional_video_timeline_segments AS segment
                JOIN functional_video_plans AS plan ON plan.id = segment.plan_id
                WHERE plan.video_job_code = %s
@@ -655,6 +665,96 @@ class VideoProductionRepository:
                     Jsonb(evidence),
                 ),
             )
+
+    @staticmethod
+    def _persist_functional_timeline_render_artifacts(
+        cursor: Any,
+        *,
+        job: dict[str, Any],
+        output_payload: dict[str, Any],
+        artifacts: dict[str, dict[str, Any]],
+    ) -> None:
+        cursor.execute(
+            """SELECT segment.id, segment.segment_code, segment.timeline_start_ms,
+                      segment.timeline_end_ms
+               FROM functional_video_timeline_segments AS segment
+               JOIN functional_video_plans AS plan ON plan.id = segment.plan_id
+               WHERE plan.video_job_code = %s
+                 AND segment.timeline_revision = plan.timeline_revision""",
+            (job["job_code"],),
+        )
+        timeline_segments = cursor.fetchall()
+        if not timeline_segments:
+            return
+        manifest_fingerprint = str(output_payload.get("manifest_fingerprint") or "")
+        if not VideoProductionRepository._valid_checksum(manifest_fingerprint):
+            manifest_fingerprint = ""
+        poster_seconds = VideoProductionRepository._render_poster_seconds(output_payload)
+        for artifact_role, artifact_key in (
+            ("render_manifest", "render_manifest"),
+            ("rendered_video", "video"),
+            ("poster", "poster"),
+        ):
+            artifact = artifacts.get(artifact_key)
+            if artifact is None:
+                continue
+            checksum = str(artifact.get("checksum_sha256") or "")
+            relative_path = str(artifact.get("relative_path") or "")
+            if not VideoProductionRepository._valid_checksum(checksum) or not relative_path:
+                continue
+            for timeline_segment in timeline_segments:
+                if artifact_role == "poster" and not VideoProductionRepository._segment_contains_seconds(
+                    timeline_segment, poster_seconds
+                ):
+                    continue
+                evidence = {
+                    "schema_version": "functional-video-render-artifact-evidence.v1",
+                    "timeline_segment_code": str(timeline_segment["segment_code"]),
+                    "render_manifest_fingerprint": manifest_fingerprint or None,
+                }
+                if artifact_role == "poster":
+                    evidence["poster_time_seconds"] = poster_seconds
+                cursor.execute(
+                    """INSERT INTO functional_video_timeline_segment_execution_artifacts (
+                           timeline_segment_id, video_artifact_id, job_attempt,
+                           artifact_role, artifact_key, relative_path,
+                           checksum_sha256, evidence
+                       ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                       ON CONFLICT (timeline_segment_id, job_attempt, artifact_role) DO NOTHING""",
+                    (
+                        timeline_segment["id"],
+                        artifact["id"],
+                        int(job["attempt"]),
+                        artifact_role,
+                        artifact_key,
+                        relative_path,
+                        checksum,
+                        Jsonb(evidence),
+                    ),
+                )
+
+    @staticmethod
+    def _render_poster_seconds(output_payload: dict[str, Any]) -> float | None:
+        output = output_payload.get("outputs")
+        poster = output.get("poster") if isinstance(output, dict) else None
+        value = poster.get("at_seconds") if isinstance(poster, dict) else None
+        if (
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and math.isfinite(value)
+            and value >= 0
+        ):
+            return float(value)
+        return None
+
+    @staticmethod
+    def _segment_contains_seconds(segment: dict[str, Any], seconds: float | None) -> bool:
+        if seconds is None:
+            return False
+        milliseconds = int(seconds * 1000)
+        return int(segment["timeline_start_ms"]) <= milliseconds < int(
+            segment["timeline_end_ms"]
+        )
 
     @staticmethod
     def _valid_checksum(value: str) -> bool:

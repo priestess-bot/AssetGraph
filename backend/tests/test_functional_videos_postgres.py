@@ -273,12 +273,58 @@ def test_functional_video_timeline_segments_link_registered_voice_and_subtitle_a
             lease_token,
         ) is not None
 
+        assert repository.start_stage(
+            job_code, "rendering", "timeline-artifact-worker", lease_token
+        ) is not None
+        assert repository.complete_stage(
+            job_code,
+            "rendering",
+            {
+                "manifest_fingerprint": "d" * 64,
+                "outputs": {"poster": {"at_seconds": 2.0}},
+            },
+            [
+                {
+                    "artifact_key": "render_manifest",
+                    "relative_path": f"{job_code}/attempt-1/render/manifest.json",
+                    "mime_type": "application/json",
+                    "file_size": 128,
+                    "checksum_sha256": "e" * 64,
+                },
+                {
+                    "artifact_key": "video",
+                    "relative_path": f"{job_code}/attempt-1/render/final.mp4",
+                    "mime_type": "video/mp4",
+                    "file_size": 128,
+                    "checksum_sha256": "f" * 64,
+                },
+                {
+                    "artifact_key": "poster",
+                    "relative_path": f"{job_code}/attempt-1/render/poster.jpg",
+                    "mime_type": "image/jpeg",
+                    "file_size": 128,
+                    "checksum_sha256": "0" * 64,
+                },
+            ],
+            "timeline-artifact-worker",
+            lease_token,
+        ) is not None
+
         refreshed = service.get_plan(plan["plan_code"])
         assert refreshed is not None
         assert all(
             {reference["artifact_role"] for reference in segment["execution_artifact_refs"]}
-            == {"voice_segment", "subtitle_track"}
+            >= {"voice_segment", "subtitle_track", "render_manifest", "rendered_video"}
             for segment in refreshed["timeline_segments"]
+        )
+        assert "poster" in {
+            reference["artifact_role"]
+            for reference in refreshed["timeline_segments"][0]["execution_artifact_refs"]
+        }
+        assert all(
+            "poster"
+            not in {reference["artifact_role"] for reference in segment["execution_artifact_refs"]}
+            for segment in refreshed["timeline_segments"][1:]
         )
         with connection.cursor() as cursor:
             cursor.execute(
@@ -291,7 +337,7 @@ def test_functional_video_timeline_segments_link_registered_voice_and_subtitle_a
                    )""",
                 (plan["plan_code"],),
             )
-            assert cursor.fetchone()[0] == 12
+            assert cursor.fetchone()[0] == 25
 
 
 def test_functional_video_plan_freezes_selected_local_library_videos() -> None:
