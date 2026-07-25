@@ -289,6 +289,35 @@ def test_compiled_video_shot_list_freezes_the_full_visual_source_pool() -> None:
     }
 
 
+def test_compiled_video_timeline_projects_each_clip_to_a_fixed_source_shot() -> None:
+    detail = {
+        "project_code": "CONTENT-001",
+        "title": "Fixed shot lineage",
+        "generation_goal": "Explain the selected product",
+        "story_brief": {"content": "A compact product story."},
+        "script": {"blocks": [{"content": "One source for every fixed shot."}]},
+    }
+
+    _, _, shot_list, timeline = FunctionalVideoService._compile_content(
+        detail,
+        60,
+        source_shot_codes=["CONTENT-SHOT-01", "CONTENT-SHOT-02", "CONTENT-SHOT-03"],
+    )
+
+    video_clips = timeline["tracks"][0]["clips"]
+    assert [clip["source_shot_code"] for clip in video_clips] == [
+        "CONTENT-SHOT-01",
+        "CONTENT-SHOT-01",
+        "CONTENT-SHOT-02",
+        "CONTENT-SHOT-02",
+        "CONTENT-SHOT-03",
+        "CONTENT-SHOT-03",
+    ]
+    assert [shot["source_shot_code"] for shot in shot_list["shots"]] == [
+        clip["source_shot_code"] for clip in video_clips
+    ]
+
+
 def test_compiled_video_exposes_a_table_surface_product_layout_suggestion() -> None:
     detail = {
         "project_code": "CONTENT-001",

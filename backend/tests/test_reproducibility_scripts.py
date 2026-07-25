@@ -285,6 +285,7 @@ def test_migration_discovery_is_contiguous() -> None:
                 "knowledge_evidence_rejections.sql",
                 "constraint_profile_promotion_provenance.sql",
                 "material_pack_resolution_contract.sql",
+                "functional_video_timeline_segments.sql",
             ],
             start=1,
         )

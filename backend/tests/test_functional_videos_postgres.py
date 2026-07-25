@@ -59,6 +59,8 @@ def test_functional_video_plan_seeds_content_stages_and_queues_renderer() -> Non
         assert plan["progress_percent"] == 37
         assert plan["production_timeline"]["schema_version"] == "otio-compatible-production-timeline.v1"
         assert len(plan["production_timeline"]["tracks"][0]["clips"]) == 6
+        assert len(plan["timeline_segments"]) == 6
+        assert {segment["source_shot_code"] for segment in plan["timeline_segments"]}
         assert plan["render_profile"]["visual_asset_mode"] == "baseline_verified_video_assets"
 
         clips = plan["production_timeline"]["tracks"][0]["clips"]
@@ -93,6 +95,15 @@ def test_functional_video_plan_seeds_content_stages_and_queues_renderer() -> Non
         )
         assert updated is not None
         assert updated["timeline_revision"] == 2
+        assert len(updated["timeline_segments"]) == 6
+        assert {segment["timeline_start_ms"] for segment in updated["timeline_segments"]} == {
+            0,
+            8_000,
+            17_000,
+            26_000,
+            36_000,
+            45_000,
+        }
         assert updated["production_timeline"]["global_end_ms"] == 55_000
         assert updated["production_timeline"]["tracks"][0]["clips"][0]["transition"] == "fade"
         assert updated["production_timeline"]["tracks"][2]["clips"][0]["subtitle_text"] == "Edited 0"
@@ -140,6 +151,28 @@ def test_functional_video_plan_seeds_content_stages_and_queues_renderer() -> Non
             assert cursor.fetchone()[0] is True
             cursor.execute("SELECT count(*) FROM functional_video_timeline_revisions WHERE plan_id = (SELECT id FROM functional_video_plans WHERE plan_code = %s)", (plan["plan_code"],))
             assert cursor.fetchone()[0] == 3
+            cursor.execute(
+                """SELECT count(*) FROM functional_video_timeline_segments
+                   WHERE plan_id = (SELECT id FROM functional_video_plans WHERE plan_code = %s)""",
+                (plan["plan_code"],),
+            )
+            assert cursor.fetchone()[0] == 18
+            cursor.execute(
+                """SELECT count(*) FROM shot_projection_links
+                   WHERE target_type = 'timeline_segment'
+                     AND target_code LIKE %s""",
+                (f"VTLSEG-{plan['plan_code']}-%",),
+            )
+            assert cursor.fetchone()[0] == 18
+            cursor.execute(
+                """SELECT timeline_revision, transition
+                   FROM functional_video_timeline_segments
+                   WHERE plan_id = (SELECT id FROM functional_video_plans WHERE plan_code = %s)
+                     AND clip_code = 'SHOT-01'
+                   ORDER BY timeline_revision""",
+                (plan["plan_code"],),
+            )
+            assert cursor.fetchall() == [(1, "cut"), (2, "fade"), (3, "cut")]
 
 
 def test_functional_video_plan_freezes_selected_local_library_videos() -> None:

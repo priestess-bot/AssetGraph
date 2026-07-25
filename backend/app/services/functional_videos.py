@@ -70,6 +70,7 @@ class FunctionalVideoService:
         story, script, shots, timeline = self._compile_content(
             detail,
             duration,
+            source_shot_codes=self._source_shot_codes(detail),
             visual_assets=visual_assets,
             background_music=background_music,
             sound_effect=sound_effect,
@@ -177,6 +178,15 @@ class FunctionalVideoService:
                    (plan_id, revision_number, production_timeline, actor_id)
                    VALUES (%s, %s, %s, %s)""",
                 (row["id"], int(row["timeline_revision"]), Jsonb(timeline), actor_id),
+            )
+            self._persist_timeline_segments(
+                cursor,
+                plan_id=row["id"],
+                plan_code=code,
+                timeline_revision=int(row["timeline_revision"]),
+                variant_code=variant["variant_code"],
+                timeline=timeline,
+                actor_id=actor_id,
             )
         self.connection.commit()
         return self._enrich(row)
@@ -615,7 +625,8 @@ class FunctionalVideoService:
                        story.content AS story_content,
                        script.id AS script_revision_id, script.script_revision_code,
                        script.revision_number AS script_revision_number, script.title AS script_title,
-                       shots.shot_list_revision_code, shots.revision_number AS shot_list_revision_number
+                       shots.id AS shot_list_revision_id, shots.shot_list_revision_code,
+                       shots.revision_number AS shot_list_revision_number
                 FROM functional_live_room_plans AS live
                 JOIN production_variant_revisions AS variant
                   ON variant.variant_code = live.variant_code AND variant.status = 'confirmed'
@@ -646,10 +657,22 @@ class FunctionalVideoService:
                 (source["script_revision_id"],),
             )
             blocks = cursor.fetchall()
+            cursor.execute(
+                """SELECT shot_code FROM shots
+                   WHERE shot_list_revision_id = %s
+                   ORDER BY sort_order, shot_code""",
+                (source["shot_list_revision_id"],),
+            )
+            source_shots = cursor.fetchall()
         if not blocks:
             raise DomainValidationError(
                 "VIDEO_LIVE_ROOM_SOURCE_SCRIPT_EMPTY",
                 "The live-room source has no fixed script blocks to compile into a video",
+            )
+        if not source_shots:
+            raise DomainValidationError(
+                "VIDEO_LIVE_ROOM_SOURCE_SHOTS_EMPTY",
+                "The live-room source has no fixed Shots to project into a video timeline",
             )
         return {
             "project_code": source["project_code"],
@@ -672,6 +695,7 @@ class FunctionalVideoService:
             "shot_list": {
                 "shot_list_revision_code": source["shot_list_revision_code"],
                 "revision_number": int(source["shot_list_revision_number"]),
+                "shots": source_shots,
             },
         }
 
@@ -819,6 +843,15 @@ class FunctionalVideoService:
                        (plan_id, revision_number, production_timeline, actor_id)
                        VALUES (%s, %s, %s, %s)""",
                     (row["id"], int(row["timeline_revision"]), Jsonb(timeline), actor_id),
+                )
+                self._persist_timeline_segments(
+                    cursor,
+                    plan_id=row["id"],
+                    plan_code=code,
+                    timeline_revision=int(row["timeline_revision"]),
+                    variant_code=variant["variant_code"],
+                    timeline=timeline,
+                    actor_id=actor_id,
                 )
             self.connection.commit()
         except Exception:
@@ -1106,6 +1139,224 @@ class FunctionalVideoService:
         }
         return plan
 
+    @staticmethod
+    def _source_shot_codes(detail: dict[str, Any]) -> list[str]:
+        shot_list = detail.get("shot_list") or {}
+        codes = [
+            str(shot.get("shot_code") or "").strip()
+            for shot in shot_list.get("shots") or []
+            if isinstance(shot, dict)
+        ]
+        codes = list(dict.fromkeys(code for code in codes if code))
+        if not codes:
+            raise DomainValidationError(
+                "VIDEO_SOURCE_SHOT_LIST_EMPTY",
+                "A generated ContentProject must expose fixed Shots before video planning",
+            )
+        return codes
+
+    @staticmethod
+    def _timeline_segment_code(
+        plan_code: str, timeline_revision: int, clip_code: str
+    ) -> str:
+        return f"VTLSEG-{plan_code}-r{timeline_revision}-{clip_code}"
+
+    def _persist_timeline_segments(
+        self,
+        cursor: Any,
+        *,
+        plan_id: Any,
+        plan_code: str,
+        timeline_revision: int,
+        variant_code: str,
+        timeline: dict[str, Any],
+        actor_id: str,
+    ) -> None:
+        """Freeze one TimelineSegment and ShotProjectionLink for every video clip."""
+        cursor.execute(
+            """SELECT source_shot_list_revision_id
+               FROM production_variant_revisions
+               WHERE variant_code = %s AND status = 'confirmed'
+               ORDER BY revision_number DESC
+               LIMIT 1""",
+            (variant_code,),
+        )
+        variant = cursor.fetchone()
+        if variant is None:
+            raise DomainValidationError(
+                "VIDEO_TIMELINE_VARIANT_INVALID",
+                "Timeline segments require a confirmed rendered-video ProductionVariant",
+                details={"variant_code": variant_code},
+            )
+        cursor.execute(
+            """SELECT id, shot_code FROM shots
+               WHERE shot_list_revision_id = %s""",
+            (variant["source_shot_list_revision_id"],),
+        )
+        source_shots = {
+            str(row["shot_code"]): row["id"] for row in cursor.fetchall()
+        }
+        video_track = next(
+            (
+                track
+                for track in timeline.get("tracks") or []
+                if isinstance(track, dict) and track.get("track_kind") == "video"
+            ),
+            None,
+        )
+        if not isinstance(video_track, dict):
+            raise DomainValidationError(
+                "VIDEO_TIMELINE_VIDEO_TRACK_MISSING",
+                "Timeline segments require a video track",
+            )
+        for clip in video_track.get("clips") or []:
+            if not isinstance(clip, dict):
+                raise DomainValidationError(
+                    "VIDEO_TIMELINE_CLIP_INVALID",
+                    "Timeline video clips must be objects",
+                )
+            clip_code = str(clip.get("clip_code") or "").strip()
+            source_shot_code = str(clip.get("source_shot_code") or "").strip()
+            timing = clip.get("timeline_range") or {}
+            if not clip_code or not source_shot_code or not isinstance(timing, dict):
+                raise DomainValidationError(
+                    "VIDEO_TIMELINE_SHOT_PROJECTION_INVALID",
+                    "Every TimelineSegment needs a clip code, source Shot and timeline range",
+                    details={"clip_code": clip_code or None},
+                )
+            source_shot_id = source_shots.get(source_shot_code)
+            if source_shot_id is None:
+                raise DomainValidationError(
+                    "VIDEO_TIMELINE_SOURCE_SHOT_INVALID",
+                    "TimelineSegment source Shot is outside the fixed ShotList",
+                    details={"clip_code": clip_code, "source_shot_code": source_shot_code},
+                )
+            try:
+                start_ms = int(timing["start_ms"])
+                duration_ms = int(timing["duration_ms"])
+            except (KeyError, TypeError, ValueError) as exc:
+                raise DomainValidationError(
+                    "VIDEO_TIMELINE_SHOT_PROJECTION_INVALID",
+                    "TimelineSegment range must contain integer start and duration",
+                    details={"clip_code": clip_code},
+                ) from exc
+            if start_ms < 0 or duration_ms <= 0:
+                raise DomainValidationError(
+                    "VIDEO_TIMELINE_SHOT_PROJECTION_INVALID",
+                    "TimelineSegment duration must be positive",
+                    details={"clip_code": clip_code},
+                )
+            segment_code = self._timeline_segment_code(
+                plan_code, timeline_revision, clip_code
+            )
+            source_range = dict(clip.get("source_range") or {})
+            transform = {
+                key: deepcopy(clip[key])
+                for key in (
+                    "fit",
+                    "crop_x",
+                    "crop_y",
+                    "playback_rate",
+                    "overlay_roles",
+                    "overlay_z_order",
+                    "product_sticker_layout",
+                    "product_sticker_layout_suggestion",
+                    "audio_roles",
+                )
+                if key in clip
+            }
+            artifact_refs = (
+                [
+                    {
+                        "asset_code": source_range.get("asset_code"),
+                        "source_start_seconds": source_range.get("start_seconds"),
+                        "source_end_seconds": source_range.get("end_seconds"),
+                    }
+                ]
+                if source_range.get("asset_code")
+                else []
+            )
+            payload = {
+                "schema_version": "functional-video-timeline-segment.v1",
+                "segment_code": segment_code,
+                "plan_code": plan_code,
+                "timeline_revision": timeline_revision,
+                "clip_code": clip_code,
+                "source_shot_code": source_shot_code,
+                "timeline_range": {
+                    "start_ms": start_ms,
+                    "end_ms": start_ms + duration_ms,
+                },
+                "source_range": source_range,
+                "transform": transform,
+                "transition": str(clip.get("transition") or "cut"),
+                "artifact_refs": artifact_refs,
+            }
+            fingerprint = canonical_fingerprint(payload)
+            cursor.execute(
+                """INSERT INTO functional_video_timeline_segments (
+                       plan_id, timeline_revision, segment_code, clip_code,
+                       source_shot_id, source_shot_code, timeline_start_ms,
+                       timeline_end_ms, source_range, transform, transition,
+                       artifact_refs, fingerprint_sha256, created_by
+                   ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                (
+                    plan_id,
+                    timeline_revision,
+                    segment_code,
+                    clip_code,
+                    source_shot_id,
+                    source_shot_code,
+                    start_ms,
+                    start_ms + duration_ms,
+                    Jsonb(source_range),
+                    Jsonb(transform),
+                    payload["transition"],
+                    Jsonb(artifact_refs),
+                    fingerprint,
+                    actor_id,
+                ),
+            )
+            cursor.execute(
+                """INSERT INTO shot_projection_links (
+                       shot_id, target_type, target_code, target_revision,
+                       relation_type, applicable_start_ms, applicable_end_ms, evidence
+                   ) VALUES (%s, 'timeline_segment', %s, %s, 'projects_to', %s, %s, %s)
+                   ON CONFLICT DO NOTHING""",
+                (
+                    source_shot_id,
+                    segment_code,
+                    timeline_revision,
+                    start_ms,
+                    start_ms + duration_ms,
+                    Jsonb(
+                        {
+                            "compiler": "functional-video.v1",
+                            "plan_code": plan_code,
+                            "clip_code": clip_code,
+                            "timeline_revision": timeline_revision,
+                            "fingerprint_sha256": fingerprint,
+                        }
+                    ),
+                ),
+            )
+
+    def _timeline_segments(
+        self, plan_id: Any, timeline_revision: int
+    ) -> list[dict[str, Any]]:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """SELECT segment_code, clip_code, source_shot_code,
+                          timeline_start_ms, timeline_end_ms, source_range,
+                          transform, transition, artifact_refs,
+                          fingerprint_sha256, created_at
+                   FROM functional_video_timeline_segments
+                   WHERE plan_id = %s AND timeline_revision = %s
+                   ORDER BY timeline_start_ms, clip_code""",
+                (plan_id, timeline_revision),
+            )
+            return [dict(row) for row in cursor.fetchall()]
+
     def update_timeline(self, plan_code: str, payload: dict[str, Any], *, actor_id: str) -> dict[str, Any] | None:
         """Apply a constrained edit and update the queued worker input atomically."""
         try:
@@ -1158,6 +1409,15 @@ class FunctionalVideoService:
                        VALUES (%s, %s, %s, %s)""",
                     (plan["id"], next_revision, Jsonb(timeline), actor_id),
                 )
+                self._persist_timeline_segments(
+                    cursor,
+                    plan_id=plan["id"],
+                    plan_code=plan["plan_code"],
+                    timeline_revision=next_revision,
+                    variant_code=plan["variant_code"],
+                    timeline=timeline,
+                    actor_id=actor_id,
+                )
                 cursor.execute(
                     """UPDATE video_production_jobs
                        SET shot_list = %s, target_duration_seconds = %s, updated_at = now()
@@ -1209,6 +1469,9 @@ class FunctionalVideoService:
             }
             for artifact in job.get("artifacts") or []
         ]
+        plan["timeline_segments"] = self._timeline_segments(
+            plan["id"], int(plan["timeline_revision"])
+        )
         return self._with_release(plan)
 
     @staticmethod
@@ -1908,6 +2171,7 @@ class FunctionalVideoService:
         detail: dict[str, Any],
         duration: int,
         *,
+        source_shot_codes: list[str] | None = None,
         visual_assets: list[dict[str, Any]] | None = None,
         background_music: dict[str, Any] | None = None,
         sound_effect: dict[str, Any] | None = None,
@@ -1922,6 +2186,7 @@ class FunctionalVideoService:
         clip_specs = (("MT-VID-0027", 0.0, 6.0, "contain"), ("MT-VID-0016", 0.0, 12.0, "cover"), ("MT-VID-0027", 30.0, 42.0, "contain"), ("MT-VID-0016", 12.0, 25.0, "cover"), ("MT-VID-0024", 0.0, 6.0, "cover"), ("MT-VID-0016", 25.0, 38.0, "cover"))
         cursor = 0.0
         compiled: list[dict[str, Any]] = []
+        source_shot_codes = source_shot_codes or [f"SOURCE-SHOT-{index + 1:02d}" for index in range(6)]
         for index, (chunk, item_duration, clip) in enumerate(zip(chunks, durations, clip_specs, strict=True)):
             asset_code, source_start, source_end, fit = clip
             selected_asset = visual_assets[index % len(visual_assets)] if visual_assets else None
@@ -1930,7 +2195,8 @@ class FunctionalVideoService:
                 source_start = 0.0
                 source_end = 6.0
             end = round(cursor + item_duration, 3)
-            shot = {"shot_index": index, "shot_code": f"SHOT-{index + 1:02d}", "start_seconds": cursor, "end_seconds": end, "duration_seconds": item_duration, "goal": "content_project", "narration": chunk, "tts_text": chunk.replace("PRO", "P R O"), "screen_text": chunk[:28], "asset_code": asset_code, "asset_relative_path": selected_asset["relative_path"] if selected_asset else None, "asset_expected_checksum": selected_asset["checksum_sha256"] if selected_asset else None, "source_start_seconds": source_start, "source_end_seconds": source_end, "source_available_seconds": source_end - source_start, "fit": fit, "playback_rate": 1.0, "visual_role": "selected_library_video" if selected_asset else "baseline_visual", "transition": "fade_out" if index == 5 else "cut", "overlay_roles": ["brand_logo"] if index in {0, 5} else []}
+            source_shot_code = source_shot_codes[min(len(source_shot_codes) - 1, index * len(source_shot_codes) // 6)]
+            shot = {"shot_index": index, "shot_code": f"SHOT-{index + 1:02d}", "source_shot_code": source_shot_code, "start_seconds": cursor, "end_seconds": end, "duration_seconds": item_duration, "goal": "content_project", "narration": chunk, "tts_text": chunk.replace("PRO", "P R O"), "screen_text": chunk[:28], "asset_code": asset_code, "asset_relative_path": selected_asset["relative_path"] if selected_asset else None, "asset_expected_checksum": selected_asset["checksum_sha256"] if selected_asset else None, "source_start_seconds": source_start, "source_end_seconds": source_end, "source_available_seconds": source_end - source_start, "fit": fit, "playback_rate": 1.0, "visual_role": "selected_library_video" if selected_asset else "baseline_visual", "transition": "fade_out" if index == 5 else "cut", "overlay_roles": ["brand_logo"] if index in {0, 5} else []}
             sticker_suggestion = FunctionalVideoService._product_sticker_layout_suggestion(
                 selected_asset,
                 product_sticker,
@@ -1988,7 +2254,7 @@ class FunctionalVideoService:
         audio_clips = [{"clip_code": f"VOICE-{shot['shot_code']}", "linked_shot_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "gain_db": 0.0} for shot in compiled]
         if background_music is not None:
             audio_clips.append({"clip_code": "BGM-01", "timeline_range": {"start_ms": 0, "duration_ms": duration * 1000}, "asset_code": background_music["asset_code"], "gain_db": background_music["gain_db"]})
-        timeline = {"schema_version": "otio-compatible-production-timeline.v1", "global_start_ms": 0, "global_end_ms": duration * 1000, "poster_time_ms": poster_time_ms, "subtitle_style": subtitle_style, "tracks": [{"track_kind": "video", "clips": [{"clip_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "source_range": {"asset_code": shot["asset_code"], "start_seconds": shot["source_start_seconds"], "end_seconds": shot["source_end_seconds"], "available_start_seconds": shot["source_start_seconds"], "available_end_seconds": shot["source_end_seconds"]}, "fit": shot["fit"], "crop_x": 0.5, "crop_y": 0.5, "playback_rate": shot["playback_rate"], "overlay_roles": shot["overlay_roles"], "overlay_z_order": shot["overlay_z_order"], "product_sticker_layout_suggestion": shot.get("product_sticker_layout_suggestion"), "audio_roles": shot.get("audio_roles", []), "transition": shot["transition"]} for shot in compiled]}, {"track_kind": "audio", "clips": audio_clips}, {"track_kind": "subtitle", "clips": [{"clip_code": f"SUBTITLE-{shot['shot_code']}", "linked_shot_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "subtitle_text": shot["narration"], "headline_text": shot["screen_text"], "caption_position": "bottom"} for shot in compiled]}]}
+        timeline = {"schema_version": "otio-compatible-production-timeline.v1", "global_start_ms": 0, "global_end_ms": duration * 1000, "poster_time_ms": poster_time_ms, "subtitle_style": subtitle_style, "tracks": [{"track_kind": "video", "clips": [{"clip_code": shot["shot_code"], "source_shot_code": shot["source_shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "source_range": {"asset_code": shot["asset_code"], "start_seconds": shot["source_start_seconds"], "end_seconds": shot["source_end_seconds"], "available_start_seconds": shot["source_start_seconds"], "available_end_seconds": shot["source_end_seconds"]}, "fit": shot["fit"], "crop_x": 0.5, "crop_y": 0.5, "playback_rate": shot["playback_rate"], "overlay_roles": shot["overlay_roles"], "overlay_z_order": shot["overlay_z_order"], "product_sticker_layout_suggestion": shot.get("product_sticker_layout_suggestion"), "audio_roles": shot.get("audio_roles", []), "transition": shot["transition"]} for shot in compiled]}, {"track_kind": "audio", "clips": audio_clips}, {"track_kind": "subtitle", "clips": [{"clip_code": f"SUBTITLE-{shot['shot_code']}", "linked_shot_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "subtitle_text": shot["narration"], "headline_text": shot["screen_text"], "caption_position": "bottom"} for shot in compiled]}]}
         return story, script, shots, timeline
 
     @staticmethod

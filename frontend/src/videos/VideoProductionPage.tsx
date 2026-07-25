@@ -173,6 +173,9 @@ function FixedInputTrace({ plan }: { plan: FunctionalVideoPlan }) {
   const soundEffect = plan.renderProfile.soundEffect;
   const brandLogo = plan.renderProfile.brandLogo;
   const productSticker = plan.renderProfile.productSticker;
+  const timelineSegmentsByClip = new Map(
+    plan.timelineSegments.map((segment) => [segment.clipCode, segment]),
+  );
 
   if (!videoClips.length && !backgroundMusic && !soundEffect && !brandLogo && !productSticker)
     return null;
@@ -191,6 +194,7 @@ function FixedInputTrace({ plan }: { plan: FunctionalVideoPlan }) {
           const subtitle = subtitlesByShot.get(clip.clip_code);
           const voice = voicesByShot.get(clip.clip_code);
           const source = clip.source_range;
+          const segment = timelineSegmentsByClip.get(clip.clip_code);
           return (
             <article key={clip.clip_code}>
               <header>
@@ -212,6 +216,22 @@ function FixedInputTrace({ plan }: { plan: FunctionalVideoPlan }) {
                       : null}
                   </dd>
                 </div>
+                <div>
+                  <dt>来源镜头</dt>
+                  <dd>
+                    <code>
+                      {segment?.sourceShotCode ?? clip.source_shot_code ?? "待迁移"}
+                    </code>
+                  </dd>
+                </div>
+                {segment ? (
+                  <div>
+                    <dt>时间轴投影</dt>
+                    <dd>
+                      <code>{segment.segmentCode}</code>
+                    </dd>
+                  </div>
+                ) : null}
                 <div>
                   <dt>转场</dt>
                   <dd>{clip.transition ?? "cut"}</dd>

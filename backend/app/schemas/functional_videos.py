@@ -159,6 +159,20 @@ class FunctionalVideoReleaseRead(BaseModel):
     snapshot_artifact_code: str
 
 
+class FunctionalVideoTimelineSegmentRead(BaseModel):
+    segment_code: str
+    clip_code: str
+    source_shot_code: str
+    timeline_start_ms: int
+    timeline_end_ms: int
+    source_range: dict[str, Any] = Field(default_factory=dict)
+    transform: dict[str, Any] = Field(default_factory=dict)
+    transition: str
+    artifact_refs: list[dict[str, Any]] = Field(default_factory=list)
+    fingerprint_sha256: str
+    created_at: datetime
+
+
 class FunctionalVideoPlanRead(BaseModel):
     plan_code: str
     project_code: str
@@ -176,6 +190,7 @@ class FunctionalVideoPlanRead(BaseModel):
     quality_report: dict[str, Any] = Field(default_factory=dict)
     workflow_stages: list[dict[str, Any]] = Field(default_factory=list)
     artifacts: list[dict[str, Any]] = Field(default_factory=list)
+    timeline_segments: list[FunctionalVideoTimelineSegmentRead] = Field(default_factory=list)
     release_code: str | None = None
     release_snapshot_artifact_code: str | None = None
     release_manifest_fingerprint: str | None = None

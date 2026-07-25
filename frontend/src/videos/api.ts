@@ -28,6 +28,7 @@ export interface FunctionalVideoPlan {
       track_kind: string;
       clips: Array<{
         clip_code: string;
+        source_shot_code?: string;
         timeline_range: { start_ms: number; duration_ms: number };
         source_range?: {
           asset_code: string;
@@ -135,6 +136,15 @@ export interface FunctionalVideoPlan {
     mime_type?: string;
     file_size?: number;
     checksum_sha256?: string;
+  }>;
+  timelineSegments: Array<{
+    segmentCode: string;
+    clipCode: string;
+    sourceShotCode: string;
+    timelineStartMs: number;
+    timelineEndMs: number;
+    transition: string;
+    fingerprintSha256: string;
   }>;
   releaseCode?: string;
   releaseSnapshotArtifactCode?: string;
@@ -253,6 +263,9 @@ function productionTimeline(
                   ? [
                       {
                         clip_code: asString(clip.clip_code),
+                        source_shot_code: asOptionalString(
+                          clip.source_shot_code,
+                        ),
                         timeline_range: {
                           start_ms: asNumber(clip.timeline_range.start_ms),
                           duration_ms: asNumber(
@@ -535,6 +548,24 @@ function plan(value: unknown): FunctionalVideoPlan {
                   ? artifact.file_size
                   : undefined,
               checksum_sha256: asOptionalString(artifact.checksum_sha256),
+            },
+          ]
+          : [],
+    ),
+    timelineSegments: asArray(value.timeline_segments).flatMap((segment) =>
+      isRecord(segment) &&
+      asString(segment.segment_code) &&
+      asString(segment.clip_code) &&
+      asString(segment.source_shot_code)
+        ? [
+            {
+              segmentCode: asString(segment.segment_code),
+              clipCode: asString(segment.clip_code),
+              sourceShotCode: asString(segment.source_shot_code),
+              timelineStartMs: asNumber(segment.timeline_start_ms),
+              timelineEndMs: asNumber(segment.timeline_end_ms),
+              transition: asString(segment.transition, "cut"),
+              fingerprintSha256: asString(segment.fingerprint_sha256),
             },
           ]
         : [],
