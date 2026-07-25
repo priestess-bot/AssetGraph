@@ -580,6 +580,15 @@ def test_content_project_pins_published_template_revision() -> None:
                         "end_ms": 30_000,
                     }
                 ],
+                "reviewed_examples": [
+                    {
+                        "module_key": "opening",
+                        "example_text": "先用【已核验事实】说明选择依据。",
+                        "source_session_code": source_session["session_code"],
+                        "start_ms": 0,
+                        "end_ms": 5_000,
+                    }
+                ],
                 "content_strategy_policy": {
                     "duration_policy": {"opening": {"ratio": 0.2}},
                     "module_recipes": [],
@@ -628,6 +637,15 @@ def test_content_project_pins_published_template_revision() -> None:
                     "start_ms": 0,
                     "end_ms": 30_000,
                 },
+                "reference_examples": [
+                    {
+                        "module_key": "opening",
+                        "example_text": "先用【已核验事实】说明选择依据。",
+                        "source_session_code": source_session["session_code"],
+                        "start_ms": 0,
+                        "end_ms": 5_000,
+                    }
+                ],
             }
         ]
         assert generated["script"]["blocks"][0]["interaction_intent"] == {

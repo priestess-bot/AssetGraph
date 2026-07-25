@@ -38,6 +38,15 @@ const detail = {
             end_ms: 30_000,
           },
         ],
+        reviewed_examples: [
+          {
+            module_key: "opening",
+            example_text: "先用选择问题建立代入。",
+            source_session_code: "CAPTURE-001",
+            start_ms: 1_000,
+            end_ms: 8_000,
+          },
+        ],
         content_strategy_policy: {
           duration_policy: { target_duration_seconds: 1800 },
         },
@@ -76,6 +85,15 @@ const detail = {
               start_ms: 0,
               end_ms: 30_000,
             },
+            reference_examples: [
+              {
+                module_key: "opening",
+                example_text: "先用选择问题建立代入。",
+                source_session_code: "CAPTURE-001",
+                start_ms: 1_000,
+                end_ms: 8_000,
+              },
+            ],
           },
         ],
       },
@@ -206,6 +224,8 @@ describe("ContentProjectsPage", () => {
     expect(screen.getByText("固定阶段")).toBeInTheDocument();
     expect(screen.getByText("开场 (opening)")).toBeInTheDocument();
     expect(screen.getByText(/阶段：开场 \(CAPTURE-001 0-30000ms\)/)).toBeInTheDocument();
+    expect(screen.getByText("清洗例证")).toBeInTheDocument();
+    expect(screen.getByText(/例证：先用选择问题建立代入。 \(CAPTURE-001 1000-8000ms\)/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "新建" }));
     fireEvent.change(screen.getAllByLabelText("内容项目名称")[0], {
       target: { value: "新品讲解" },

@@ -1146,6 +1146,9 @@ class FunctionalContentService:
                     "program_outline": self._content_strategy_outline_snapshot(
                         strategy
                     ),
+                    "reviewed_examples": self._content_strategy_example_snapshot(
+                        strategy
+                    ),
                     "content_strategy_policy": self._content_strategy_policy_snapshot(
                         strategy
                     ),
@@ -1212,6 +1215,39 @@ class FunctionalContentService:
                 }
             )
         return stages
+
+    @staticmethod
+    def _content_strategy_example_snapshot(strategy: dict[str, Any]) -> list[dict[str, Any]]:
+        """Keep reviewed wording as non-factual reference evidence only."""
+        examples: list[dict[str, Any]] = []
+        for item in strategy.get("reviewed_examples") or []:
+            if not isinstance(item, dict):
+                continue
+            module_key = str(item.get("module_key") or "").strip()
+            example_text = str(item.get("example_text") or "").strip()
+            source_session_code = str(item.get("source_session_code") or "").strip()
+            start_ms = item.get("start_ms")
+            end_ms = item.get("end_ms")
+            if (
+                not module_key
+                or not example_text
+                or not source_session_code
+                or not isinstance(start_ms, int)
+                or not isinstance(end_ms, int)
+                or start_ms < 0
+                or end_ms <= start_ms
+            ):
+                continue
+            examples.append(
+                {
+                    "module_key": module_key,
+                    "example_text": example_text,
+                    "source_session_code": source_session_code,
+                    "start_ms": start_ms,
+                    "end_ms": end_ms,
+                }
+            )
+        return examples
 
     @staticmethod
     def _content_strategy_policy_snapshot(strategy: dict[str, Any]) -> dict[str, Any]:
@@ -1477,7 +1513,52 @@ class FunctionalContentService:
                 "parsed_design_brief": design_brief["parsed_brief"],
             },
             "external_references": self._template_refs(content),
+            "template_context": self._template_context(content),
         }
+
+    @staticmethod
+    def _template_context(content: dict[str, Any]) -> list[dict[str, Any]]:
+        """Expose only adopted structure and reviewed non-factual wording."""
+        decisions = {
+            str(item.get("template_code")): item
+            for item in content.get("template_contribution_decisions") or []
+            if isinstance(item, dict) and item.get("template_code")
+        }
+        context: list[dict[str, Any]] = []
+        for reference in FunctionalContentService._template_refs(content):
+            decision = decisions.get(str(reference["template_code"]), {})
+            accepted = {
+                str(module).strip()
+                for module in decision.get("accepted_modules") or []
+                if str(module).strip()
+            }
+            stages = [
+                {
+                    "module_key": stage.get("module_key"),
+                    "title": stage.get("title"),
+                    "purpose": stage.get("purpose"),
+                }
+                for stage in decision.get("program_outline") or []
+                if isinstance(stage, dict) and stage.get("module_key") in accepted
+            ]
+            examples = [
+                {
+                    "module_key": example.get("module_key"),
+                    "example_text": example.get("example_text"),
+                }
+                for example in decision.get("reviewed_examples") or []
+                if isinstance(example, dict)
+                and example.get("module_key") in accepted
+            ]
+            context.append(
+                {
+                    **reference,
+                    "stages": stages,
+                    "reviewed_examples": examples,
+                    "fact_boundary": "non_authoritative_reference_only",
+                }
+            )
+        return context
 
     @staticmethod
     def _validate_fact_citations(blocks: list[dict[str, Any]], approved_facts: list[dict[str, Any]]) -> None:
@@ -1604,6 +1685,11 @@ class FunctionalContentService:
                 ),
                 None,
             )
+            examples = [
+                item
+                for item in decision.get("reviewed_examples") or []
+                if isinstance(item, dict) and item.get("module_key") == module_type
+            ]
             guidance = [
                 str(item.get("guidance") or "").strip()
                 for item in policy.get("module_recipes") or []
@@ -1615,6 +1701,7 @@ class FunctionalContentService:
                 "content_strategy_policy": policy,
                 **({"module_guidance": guidance} if guidance else {}),
                 **({"strategy_stage": stage} if isinstance(stage, dict) else {}),
+                **({"reference_examples": examples} if examples else {}),
             }
         adopted = [
             ref for ref in refs

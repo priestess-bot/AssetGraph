@@ -112,6 +112,15 @@ def test_strategy_outline_compiles_primary_order_and_secondary_supplement() -> N
                     source_stage("opening", "开场", "建立选择目标", 0),
                     source_stage("conversion", "收束", "引导下一步", 60_000),
                 ],
+                "reviewed_examples": [
+                    {
+                        "module_key": "opening",
+                        "example_text": "先用选择问题建立代入。",
+                        "source_session_code": "CAPTURE-001",
+                        "start_ms": 1_000,
+                        "end_ms": 8_000,
+                    }
+                ],
                 "content_strategy_policy": {
                     "interaction_policy": {"cadence": "module_end"},
                     "conversion_policy": {"cta_style": "summarize_choice"},
@@ -139,6 +148,16 @@ def test_strategy_outline_compiles_primary_order_and_secondary_supplement() -> N
     assert blocks[1]["template_sources"][0]["strategy_stage"] == source_stage(
         "comparison", "对比", "说明适用差异", 30_000
     )
+    assert blocks[0]["template_sources"][0]["reference_examples"] == [
+        {
+            "module_key": "opening",
+            "example_text": "先用选择问题建立代入。",
+            "source_session_code": "CAPTURE-001",
+            "start_ms": 1_000,
+            "end_ms": 8_000,
+        }
+    ]
+    assert "先用选择问题建立代入。" not in blocks[0]["content"]
     assert blocks[-1]["cta_intent"] == {
         "type": "comment",
         "policy": {"cta_style": "summarize_choice"},
@@ -158,3 +177,30 @@ def test_strategy_outline_compiles_primary_order_and_secondary_supplement() -> N
         "conversion",
     ]
     assert segments[1]["metadata"]["template_strategy_stage"]["source_session_code"] == "CAPTURE-001"
+    assert FunctionalContentService._template_context(content) == [
+        {
+            "template_code": "TPL-PRIMARY",
+            "revision": 4,
+            "contribution": "primary_structure",
+            "selection_role": "primary",
+            "stages": [
+                {"module_key": "opening", "title": "开场", "purpose": "建立选择目标"},
+                {"module_key": "conversion", "title": "收束", "purpose": "引导下一步"},
+            ],
+            "reviewed_examples": [
+                {"module_key": "opening", "example_text": "先用选择问题建立代入。"}
+            ],
+            "fact_boundary": "non_authoritative_reference_only",
+        },
+        {
+            "template_code": "TPL-SUPPLEMENT",
+            "revision": 2,
+            "contribution": "secondary_supplement",
+            "selection_role": "secondary",
+            "stages": [
+                {"module_key": "comparison", "title": "对比", "purpose": "说明适用差异"}
+            ],
+            "reviewed_examples": [],
+            "fact_boundary": "non_authoritative_reference_only",
+        },
+    ]
