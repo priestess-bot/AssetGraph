@@ -252,6 +252,118 @@ def test_session_metric_snapshot_uses_catalog_deduplication_keys_and_tombstones(
     assert missing_key.value.code == "SESSION_METRIC_SNAPSHOT_DEDUPLICATION_KEY_MISSING"
 
 
+def test_session_metric_buckets_preserve_event_time_and_limit_unsafe_aggregations() -> None:
+    event = {
+        "event_id": "EVENT-001",
+        "event_time": datetime(2026, 7, 25, 12, tzinfo=UTC),
+        "payload": {"amount": 8, "visitors": 20},
+    }
+    summed = FunctionalOperationsService._metric_event_buckets(
+        aggregation="sum",
+        events=[event],
+        value_json_pointer="/amount",
+        numerator_json_pointer=None,
+        denominator_json_pointer=None,
+    )
+    ratio = FunctionalOperationsService._metric_event_buckets(
+        aggregation="ratio",
+        events=[event],
+        value_json_pointer=None,
+        numerator_json_pointer="/amount",
+        denominator_json_pointer="/visitors",
+    )
+    latest = FunctionalOperationsService._metric_event_buckets(
+        aggregation="last",
+        events=[event],
+        value_json_pointer="/amount",
+        numerator_json_pointer=None,
+        denominator_json_pointer=None,
+    )
+
+    assert summed[0]["value"] == 8.0
+    assert summed[0]["allocation_status"] == "allocatable"
+    assert ratio[0]["numerator"] == 8.0
+    assert ratio[0]["denominator"] == 20.0
+    assert latest[0]["allocation_status"] == "session_only"
+
+
+def test_measured_scene_allocations_use_event_time_not_duration_proportion() -> None:
+    start = datetime(2026, 7, 25, 12, tzinfo=UTC)
+
+    class BucketCursor:
+        def execute(self, statement: str, parameters: object) -> None:
+            assert "functional_session_metric_buckets" in statement
+            assert parameters == (["METRIC-SNAP-001"],)
+
+        @staticmethod
+        def fetchall() -> list[dict[str, object]]:
+            return [
+                {
+                    "bucket_code": "METRIC-BUCKET-001",
+                    "snapshot_code": "METRIC-SNAP-001",
+                    "session_code": "OPS-001",
+                    "event_time": start + timedelta(seconds=20),
+                    "aggregation": "sum",
+                    "allocation_status": "allocatable",
+                    "value": 8,
+                    "numerator": None,
+                    "denominator": None,
+                    "fingerprint_sha256": "a" * 64,
+                },
+                {
+                    "bucket_code": "METRIC-BUCKET-002",
+                    "snapshot_code": "METRIC-SNAP-001",
+                    "session_code": "OPS-001",
+                    "event_time": start + timedelta(seconds=70),
+                    "aggregation": "sum",
+                    "allocation_status": "allocatable",
+                    "value": 5,
+                    "numerator": None,
+                    "denominator": None,
+                    "fingerprint_sha256": "b" * 64,
+                },
+                {
+                    "bucket_code": "METRIC-BUCKET-003",
+                    "snapshot_code": "METRIC-SNAP-001",
+                    "session_code": "OPS-001",
+                    "event_time": start + timedelta(seconds=30),
+                    "aggregation": "last",
+                    "allocation_status": "session_only",
+                    "value": 13,
+                    "numerator": None,
+                    "denominator": None,
+                    "fingerprint_sha256": "c" * 64,
+                },
+            ]
+
+    allocations, summary = FunctionalOperationsService._measured_scene_allocations(
+        BucketCursor(),
+        [{"session_code": "OPS-001", "_metric_snapshot": {"snapshot_code": "METRIC-SNAP-001"}}],
+        {
+            "OPS-001": [
+                {
+                    "plan_code": "PLAN-001",
+                    "scene_code": "SCENE-001",
+                    "started_at": start,
+                    "ended_at": start + timedelta(seconds=60),
+                    "source_kind": "recording_match",
+                    "confidence": 0.9,
+                    "release_code": "REL-001",
+                }
+            ]
+        },
+    )
+
+    assert allocations[0]["measured_metric_value"] == 8.0
+    assert allocations[0]["source_bucket_codes"] == ["METRIC-BUCKET-001"]
+    assert summary == {
+        "candidate_bucket_count": 3,
+        "allocated_bucket_count": 1,
+        "unallocated_bucket_count": 1,
+        "session_only_bucket_count": 1,
+    }
+
+
 def test_attribution_input_snapshot_and_quality_are_deterministic_and_descriptive() -> None:
     started_at = datetime(2026, 7, 25, 12, tzinfo=UTC)
     snapshot = FunctionalOperationsService._attribution_input_snapshot(

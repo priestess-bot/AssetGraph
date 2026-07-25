@@ -159,6 +159,15 @@ def test_session_metric_snapshot_migration_freezes_event_derived_session_values(
     assert "idx_functional_session_metric_snapshots_session_metric_created" in sql
 
 
+def test_session_metric_bucket_migration_persists_event_time_contributions() -> None:
+    sql = (MIGRATIONS / "072_functional_session_metric_buckets.sql").read_text(encoding="utf-8")
+
+    assert "CREATE TABLE IF NOT EXISTS functional_session_metric_buckets" in sql
+    assert "source_event_id UUID NOT NULL" in sql
+    assert "allocation_status" in sql
+    assert "idx_functional_session_metric_buckets_snapshot_time" in sql
+
+
 def test_console_draft_migration_separates_mutable_saves_from_explicit_commands() -> None:
     sql = (MIGRATIONS / "041_console_drafts_and_explicit_commands.sql").read_text(encoding="utf-8")
 

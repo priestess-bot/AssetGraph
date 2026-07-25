@@ -489,6 +489,14 @@ def test_event_batch_metric_snapshot_is_frozen_and_preferred_by_descriptive_attr
         assert snapshot["source_event_count"] == 2
         assert snapshot["source_batches"][0]["batch_code"] == batch["batch_code"]
         assert snapshot["fingerprint_sha256"]
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """SELECT aggregation, allocation_status, value
+                   FROM functional_session_metric_buckets
+                   WHERE snapshot_code = %s ORDER BY event_time""",
+                (snapshot["snapshot_code"],),
+            )
+            assert cursor.fetchall() == [("sum", "allocatable", 12.5), ("sum", "allocatable", 7.5)]
         frozen_session = report["input_snapshot"]["sessions"][0]
         assert frozen_session["metric_value"] == 20.0
         assert frozen_session["metric_snapshot"]["snapshot_code"] == snapshot["snapshot_code"]

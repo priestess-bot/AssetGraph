@@ -409,6 +409,72 @@ class FunctionalOperationsService:
             details={"aggregation": aggregation},
         )
 
+    @classmethod
+    def _metric_event_buckets(
+        cls,
+        *,
+        aggregation: str,
+        events: list[dict[str, Any]],
+        value_json_pointer: str | None,
+        numerator_json_pointer: str | None,
+        denominator_json_pointer: str | None,
+    ) -> list[dict[str, Any]]:
+        """Materialize only the event contributions safe to intersect with content time."""
+
+        buckets: list[dict[str, Any]] = []
+        for event in events:
+            bucket: dict[str, Any] = {
+                "source_event_id": event["event_id"],
+                "event_time": event["event_time"],
+                "aggregation": aggregation,
+                "allocation_status": "allocatable",
+                "value": None,
+                "numerator": None,
+                "denominator": None,
+            }
+            if aggregation == "count":
+                bucket["value"] = 1.0
+            elif aggregation == "ratio":
+                if not numerator_json_pointer or not denominator_json_pointer:
+                    raise DomainValidationError(
+                        "SESSION_METRIC_SNAPSHOT_RATIO_SELECTORS_REQUIRED",
+                        "Ratio metrics require numerator and denominator JSON Pointer selectors",
+                    )
+                numerator = cls._numeric_pointer_value(
+                    event["payload"],
+                    numerator_json_pointer,
+                    event_id=str(event["event_id"]),
+                )
+                denominator = cls._numeric_pointer_value(
+                    event["payload"],
+                    denominator_json_pointer,
+                    event_id=str(event["event_id"]),
+                )
+                bucket["numerator"] = numerator
+                bucket["denominator"] = denominator
+                if denominator:
+                    bucket["value"] = numerator / denominator
+                else:
+                    bucket["allocation_status"] = "session_only"
+            else:
+                if not value_json_pointer:
+                    raise DomainValidationError(
+                        "SESSION_METRIC_SNAPSHOT_VALUE_SELECTOR_REQUIRED",
+                        "This metric aggregation requires a value JSON Pointer selector",
+                        details={"aggregation": aggregation},
+                    )
+                value = cls._numeric_pointer_value(
+                    event["payload"], value_json_pointer, event_id=str(event["event_id"])
+                )
+                bucket["value"] = value
+                if aggregation == "average":
+                    bucket["numerator"] = value
+                    bucket["denominator"] = 1.0
+                elif aggregation in {"min", "max", "last"}:
+                    bucket["allocation_status"] = "session_only"
+            buckets.append(bucket)
+        return buckets
+
     def create_session_metric_snapshot(
         self, session_code: str, payload: dict[str, Any]
     ) -> dict[str, Any]:
@@ -468,6 +534,17 @@ class FunctionalOperationsService:
                     numerator_json_pointer=payload.get("numerator_json_pointer"),
                     denominator_json_pointer=payload.get("denominator_json_pointer"),
                 )
+                buckets = (
+                    self._metric_event_buckets(
+                        aggregation=definition["aggregation"],
+                        events=events,
+                        value_json_pointer=payload.get("value_json_pointer"),
+                        numerator_json_pointer=payload.get("numerator_json_pointer"),
+                        denominator_json_pointer=payload.get("denominator_json_pointer"),
+                    )
+                    if snapshot_status == "ready"
+                    else []
+                )
                 batches: dict[str, dict[str, Any]] = {}
                 for event in candidate_events:
                     batch = batches.setdefault(
@@ -522,6 +599,7 @@ class FunctionalOperationsService:
                     "candidate_event_count": len(candidate_events),
                     "deduplicated_event_count": len(candidate_events) - len(events),
                     "tombstoned_key_count": tombstoned_key_count,
+                    "metric_bucket_count": len(buckets),
                     "source_batch_count": len(source_batches),
                     "accepted_event_only": True,
                     "batch_statuses": sorted(
@@ -568,6 +646,43 @@ class FunctionalOperationsService:
                     ),
                 )
                 row = cursor.fetchone()
+                for bucket in buckets:
+                    bucket_code = self._next(
+                        cursor, "METRIC-BUCKET", "functional_session_metric_bucket"
+                    )
+                    bucket_fingerprint = canonical_fingerprint(
+                        {
+                            "snapshot_code": row["snapshot_code"],
+                            "snapshot_fingerprint": row["fingerprint_sha256"],
+                            "source_event_id": bucket["source_event_id"],
+                            "event_time": bucket["event_time"],
+                            "aggregation": bucket["aggregation"],
+                            "allocation_status": bucket["allocation_status"],
+                            "value": bucket["value"],
+                            "numerator": bucket["numerator"],
+                            "denominator": bucket["denominator"],
+                        }
+                    )
+                    cursor.execute(
+                        """INSERT INTO functional_session_metric_buckets
+                           (bucket_code,snapshot_id,snapshot_code,session_code,source_event_id,event_time,
+                            aggregation,allocation_status,value,numerator,denominator,fingerprint_sha256)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                        (
+                            bucket_code,
+                            row["id"],
+                            row["snapshot_code"],
+                            session["session_code"],
+                            bucket["source_event_id"],
+                            bucket["event_time"],
+                            bucket["aggregation"],
+                            bucket["allocation_status"],
+                            bucket["value"],
+                            bucket["numerator"],
+                            bucket["denominator"],
+                            bucket_fingerprint,
+                        ),
+                    )
             self.connection.commit()
         except Exception:
             self.connection.rollback()
@@ -1292,10 +1407,15 @@ class FunctionalOperationsService:
                 exposures_by_session,
                 metric_key=payload["metric_key"],
             )
+            measured_scene_allocations, measured_allocation_summary = (
+                self._measured_scene_allocations(cursor, rows, exposures_by_session)
+            )
             results = {
                 "schema_version": "functional-attribution-report.v2",
                 "groups": materialized_groups,
                 "scene_allocations": scene_allocations,
+                "measured_scene_allocations": measured_scene_allocations,
+                "measured_scene_allocation_summary": measured_allocation_summary,
                 "metadata": {
                     "method": "session_metric_grouped_by_source_backed_exposure",
                     "metric_grain": "operation_session",
@@ -1592,6 +1712,140 @@ class FunctionalOperationsService:
         return sorted(
             materialized,
             key=lambda item: (-float(item["estimated_metric_value"]), item["plan_code"], item["scene_code"]),
+        )
+
+    @staticmethod
+    def _measured_scene_allocations(
+        cursor: Any,
+        sessions: list[dict[str, Any]],
+        exposures_by_session: dict[str, list[dict[str, Any]]],
+    ) -> tuple[list[dict[str, Any]], dict[str, int]]:
+        """Intersect frozen event-time buckets with active observed content intervals."""
+
+        snapshot_codes = sorted(
+            {
+                str(snapshot["snapshot_code"])
+                for session in sessions
+                if isinstance(session.get("_metric_snapshot"), dict)
+                and (snapshot := session["_metric_snapshot"]).get("snapshot_code")
+            }
+        )
+        summary = {
+            "candidate_bucket_count": 0,
+            "allocated_bucket_count": 0,
+            "unallocated_bucket_count": 0,
+            "session_only_bucket_count": 0,
+        }
+        if not snapshot_codes:
+            return [], summary
+        cursor.execute(
+            """
+            SELECT bucket_code, snapshot_code, session_code, event_time, aggregation,
+                   allocation_status, value, numerator, denominator, fingerprint_sha256
+            FROM functional_session_metric_buckets
+            WHERE snapshot_code = ANY(%s)
+            ORDER BY session_code, event_time, bucket_code
+            """,
+            (snapshot_codes,),
+        )
+        grouped: dict[str, dict[str, Any]] = {}
+        for row in cursor.fetchall():
+            bucket = dict(row)
+            summary["candidate_bucket_count"] += 1
+            if bucket["allocation_status"] != "allocatable":
+                summary["session_only_bucket_count"] += 1
+                continue
+            matches = [
+                exposure
+                for exposure in exposures_by_session.get(bucket["session_code"], [])
+                if exposure["started_at"] <= bucket["event_time"] < exposure["ended_at"]
+            ]
+            if len(matches) != 1:
+                summary["unallocated_bucket_count"] += 1
+                continue
+            exposure = matches[0]
+            key = f"{exposure['plan_code']}:{exposure['scene_code']}"
+            item = grouped.setdefault(
+                key,
+                {
+                    "scope_type": "measured_event_time_bucket",
+                    "plan_code": exposure["plan_code"],
+                    "scene_code": exposure["scene_code"],
+                    "aggregation": bucket["aggregation"],
+                    "value_sum": 0.0,
+                    "numerator_sum": 0.0,
+                    "denominator_sum": 0.0,
+                    "event_count": 0,
+                    "source_session_codes": [],
+                    "source_snapshot_codes": [],
+                    "source_bucket_codes": [],
+                    "release_codes": [],
+                    "source_kind_counts": {},
+                    "confidence_sum": 0.0,
+                },
+            )
+            item["event_count"] += 1
+            item["value_sum"] += float(bucket["value"] or 0)
+            item["numerator_sum"] += float(bucket["numerator"] or 0)
+            item["denominator_sum"] += float(bucket["denominator"] or 0)
+            if bucket["session_code"] not in item["source_session_codes"]:
+                item["source_session_codes"].append(bucket["session_code"])
+            if bucket["snapshot_code"] not in item["source_snapshot_codes"]:
+                item["source_snapshot_codes"].append(bucket["snapshot_code"])
+            item["source_bucket_codes"].append(bucket["bucket_code"])
+            release_code = exposure.get("release_code")
+            if release_code and release_code not in item["release_codes"]:
+                item["release_codes"].append(release_code)
+            source_kind = str(exposure["source_kind"])
+            item["source_kind_counts"][source_kind] = (
+                item["source_kind_counts"].get(source_kind, 0) + 1
+            )
+            item["confidence_sum"] += float(exposure["confidence"])
+            summary["allocated_bucket_count"] += 1
+
+        materialized: list[dict[str, Any]] = []
+        for item in grouped.values():
+            aggregation = item.pop("aggregation")
+            event_count = int(item.pop("event_count"))
+            value_sum = float(item.pop("value_sum"))
+            numerator_sum = float(item.pop("numerator_sum"))
+            denominator_sum = float(item.pop("denominator_sum"))
+            confidence_sum = float(item.pop("confidence_sum"))
+            if aggregation == "ratio":
+                value = numerator_sum / denominator_sum if denominator_sum else None
+            elif aggregation == "average":
+                value = numerator_sum / denominator_sum if denominator_sum else None
+            else:
+                value = value_sum
+            materialized.append(
+                {
+                    **item,
+                    "aggregation": aggregation,
+                    "measured_metric_value": round(value, 6) if value is not None else None,
+                    "numerator": round(numerator_sum, 6) if aggregation in {"ratio", "average"} else None,
+                    "denominator": round(denominator_sum, 6) if aggregation in {"ratio", "average"} else None,
+                    "event_count": event_count,
+                    "source_session_count": len(item["source_session_codes"]),
+                    "average_confidence": round(confidence_sum / event_count, 6)
+                    if event_count
+                    else None,
+                    "allocation_basis": "event_time_within_active_content_exposure",
+                    "limitations": [
+                        "This is a descriptive event-time intersection, not a causal effect.",
+                        "Events outside observed content intervals remain unallocated.",
+                    ],
+                }
+            )
+        return (
+            sorted(
+                materialized,
+                key=lambda item: (
+                    -(float(item["measured_metric_value"]) if item["measured_metric_value"] is not None else 0),
+                    item["plan_code"],
+                    item["scene_code"],
+                ),
+            ),
+            summary,
         )
 
     def list_reports(self) -> list[dict[str, Any]]:

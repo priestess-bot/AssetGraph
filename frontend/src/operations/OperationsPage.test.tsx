@@ -190,6 +190,13 @@ describe("OperationsPage", () => {
             source_kind_counts: { recording_match: 1 }, release_codes: ["REL-001"], average_confidence: .9,
             allocation_basis: "active_observed_exposure_duration_within_each_session", limitations: ["descriptive only"],
           }],
+          measured_scene_allocations: [{
+            scope_type: "measured_event_time_bucket", plan_code: "PLAN-001", scene_code: "SCENE-001", aggregation: "sum",
+            measured_metric_value: 4, event_count: 2, source_session_codes: ["OPS-001"], source_snapshot_codes: ["METRIC-SNAP-001"],
+            source_bucket_codes: ["METRIC-BUCKET-001", "METRIC-BUCKET-002"], release_codes: ["REL-001"],
+            allocation_basis: "event_time_within_active_content_exposure", limitations: ["descriptive only"],
+          }],
+          measured_scene_allocation_summary: { candidate_bucket_count: 2, allocated_bucket_count: 2, unallocated_bucket_count: 0, session_only_bucket_count: 0 },
           metadata: { method: "session_metric_grouped_by_source_backed_exposure", metric_grain: "operation_session", selected_session_count: 1, observed_session_count: 1, session_only_count: 0, source_kind_counts: { recording_match: 1 }, release_bound_exposure_count: 1, metric_definition_state: "metric_unpinned", scene_allocation_method: "proportional_by_active_observed_exposure_duration", scene_allocation_count: 1 },
         },
         created_at: "2026-07-20T15:02:00Z",
@@ -200,7 +207,8 @@ describe("OperationsPage", () => {
     renderPage("attribution");
 
     expect(await screen.findByText("场景级估算（观察时长比例）")).toBeInTheDocument();
-    expect(screen.getByText("SCENE-001")).toBeInTheDocument();
+    expect(screen.getByText("场景级实测值（事件时刻）")).toBeInTheDocument();
+    expect(screen.getAllByText("SCENE-001")).toHaveLength(2);
     expect(screen.getByText("6.00")).toBeInTheDocument();
     expect(screen.getByText(/不代表场景真实归因或因果效果/)).toBeInTheDocument();
   });

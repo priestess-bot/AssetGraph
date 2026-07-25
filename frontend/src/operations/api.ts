@@ -218,6 +218,28 @@ export interface AttributionReport {
     allocationBasis: string;
     limitations: string[];
   }>;
+  measuredSceneAllocations: Array<{
+    scopeType: string;
+    planCode: string;
+    sceneCode: string;
+    aggregation: string;
+    measuredMetricValue?: number;
+    numerator?: number;
+    denominator?: number;
+    eventCount: number;
+    sourceSessionCodes: string[];
+    sourceSnapshotCodes: string[];
+    sourceBucketCodes: string[];
+    releaseCodes: string[];
+    allocationBasis: string;
+    limitations: string[];
+  }>;
+  measuredSceneAllocationSummary: {
+    candidateBucketCount: number;
+    allocatedBucketCount: number;
+    unallocatedBucketCount: number;
+    sessionOnlyBucketCount: number;
+  };
   metadata: {
     method: string;
     metricGrain: string;
@@ -580,6 +602,39 @@ function report(value: unknown): AttributionReport {
         limitations: strings(item.limitations),
       }];
     }),
+    measuredSceneAllocations: asArray(raw.measured_scene_allocations).flatMap((item) => {
+      if (!isRecord(item)) return [];
+      const planCode = asString(item.plan_code);
+      const sceneCode = asString(item.scene_code);
+      if (!planCode || !sceneCode) return [];
+      return [{
+        scopeType: asString(item.scope_type, "measured_event_time_bucket"),
+        planCode,
+        sceneCode,
+        aggregation: asString(item.aggregation),
+        measuredMetricValue: typeof item.measured_metric_value === "number" ? item.measured_metric_value : undefined,
+        numerator: typeof item.numerator === "number" ? item.numerator : undefined,
+        denominator: typeof item.denominator === "number" ? item.denominator : undefined,
+        eventCount: asNumber(item.event_count),
+        sourceSessionCodes: strings(item.source_session_codes),
+        sourceSnapshotCodes: strings(item.source_snapshot_codes),
+        sourceBucketCodes: strings(item.source_bucket_codes),
+        releaseCodes: strings(item.release_codes),
+        allocationBasis: asString(item.allocation_basis),
+        limitations: strings(item.limitations),
+      }];
+    }),
+    measuredSceneAllocationSummary: (() => {
+      const summary = isRecord(raw.measured_scene_allocation_summary)
+        ? raw.measured_scene_allocation_summary
+        : {};
+      return {
+        candidateBucketCount: asNumber(summary.candidate_bucket_count),
+        allocatedBucketCount: asNumber(summary.allocated_bucket_count),
+        unallocatedBucketCount: asNumber(summary.unallocated_bucket_count),
+        sessionOnlyBucketCount: asNumber(summary.session_only_bucket_count),
+      };
+    })(),
     metadata: {
       method: asString(metadata.method, "legacy_session_summary"),
       metricGrain: asString(metadata.metric_grain, "operation_session"),

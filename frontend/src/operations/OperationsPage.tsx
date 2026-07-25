@@ -1695,6 +1695,38 @@ export function OperationsPage({ view }: { view: "sessions" | "attribution" }) {
                       {report.qualitySnapshot.reasons.join("、")}
                     </InlineNotice>
                   ) : null}
+                  {report.measuredSceneAllocations.length ? (
+                    <div className="operations-scene-allocations operations-measured-scene-allocations">
+                      <header>
+                        <strong>场景级实测值（事件时刻）</strong>
+                        <small>
+                          已分配 {report.measuredSceneAllocationSummary.allocatedBucketCount}/
+                          {report.measuredSceneAllocationSummary.candidateBucketCount} 个冻结指标桶 · 描述性
+                        </small>
+                      </header>
+                      <ol>
+                        {report.measuredSceneAllocations.map((allocation) => (
+                          <li key={`${allocation.planCode}:${allocation.sceneCode}:measured`}>
+                            <span>
+                              <code>{allocation.sceneCode}</code>
+                              <small>
+                                {allocation.planCode} · {allocation.aggregation} · {allocation.eventCount} 个事件 · {allocation.sourceSnapshotCodes.map((code) => code.slice(0, 12)).join("、")}
+                              </small>
+                            </span>
+                            <strong>
+                              {allocation.measuredMetricValue?.toFixed(2) ?? "数据不足"}
+                            </strong>
+                          </li>
+                        ))}
+                      </ol>
+                      {report.measuredSceneAllocationSummary.unallocatedBucketCount ||
+                      report.measuredSceneAllocationSummary.sessionOnlyBucketCount ? (
+                        <small className="operations-measured-scene-footnote">
+                          未落入展示区间 {report.measuredSceneAllocationSummary.unallocatedBucketCount} · 仅会话级 {report.measuredSceneAllocationSummary.sessionOnlyBucketCount}
+                        </small>
+                      ) : null}
+                    </div>
+                  ) : null}
                   {report.sceneAllocations.length ? (
                     <div className="operations-scene-allocations">
                       <header>
