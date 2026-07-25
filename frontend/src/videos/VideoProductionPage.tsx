@@ -350,6 +350,8 @@ type EditableTimelineClip = {
   clipCode: string;
   durationMs: number;
   transition: string;
+  sourceAssetCode?: string;
+  initialSourceAssetCode?: string;
   sourceStartSeconds?: number;
   sourceEndSeconds?: number;
   sourceAvailableStartSeconds?: number;
@@ -371,6 +373,8 @@ function editableTimelineClips(
       clipCode: clip.clip_code,
       durationMs: clip.timeline_range.duration_ms,
       transition: clip.transition ?? "cut",
+      sourceAssetCode: clip.source_range?.asset_code,
+      initialSourceAssetCode: clip.source_range?.asset_code,
       sourceStartSeconds: clip.source_range?.start_seconds,
       sourceEndSeconds: clip.source_range?.end_seconds,
       sourceAvailableStartSeconds: clip.source_range?.available_start_seconds,
@@ -483,6 +487,10 @@ function TimelineEditor({ plan }: { plan: FunctionalVideoPlan }) {
           ...(typeof clip.sourceStartSeconds === "number" &&
           typeof clip.sourceEndSeconds === "number"
             ? {
+                ...(clip.sourceAssetCode !== clip.initialSourceAssetCode &&
+                clip.sourceAssetCode
+                  ? { source_asset_code: clip.sourceAssetCode }
+                  : {}),
                 source_start_seconds: clip.sourceStartSeconds,
                 source_end_seconds: clip.sourceEndSeconds,
               }
@@ -524,6 +532,7 @@ function TimelineEditor({ plan }: { plan: FunctionalVideoPlan }) {
   const totalSeconds =
     clips.reduce((sum, clip) => sum + clip.durationMs, 0) / 1000;
   const maximumPosterTimeMs = Math.max(0, Math.round(totalSeconds * 1_000) - 1);
+  const frozenVisualAssets = plan.renderProfile.visualAssets ?? [];
   const updateClip = (index: number, changes: Partial<EditableTimelineClip>) =>
     setClips((current) =>
       current.map((clip, clipIndex) =>
@@ -652,6 +661,33 @@ function TimelineEditor({ plan }: { plan: FunctionalVideoPlan }) {
                   }
                 />
               </label>
+              {frozenVisualAssets.length ? (
+                <label className="wb-field">
+                  <span>画面素材</span>
+                  <select
+                    aria-label={`画面素材 ${clip.clipCode}`}
+                    className="wb-input"
+                    value={clip.sourceAssetCode ?? ""}
+                    disabled={!editable}
+                    onChange={(event) =>
+                      updateClip(index, {
+                        sourceAssetCode: event.target.value || undefined,
+                        sourceStartSeconds: 0,
+                        sourceEndSeconds: 6,
+                        sourceAvailableStartSeconds: 0,
+                        sourceAvailableEndSeconds: 6,
+                      })
+                    }
+                  >
+                    <option value="">沿用当前素材</option>
+                    {frozenVisualAssets.map((asset) => (
+                      <option key={asset.assetCode} value={asset.assetCode}>
+                        {asset.assetCode} · {asset.checksumSha256.slice(0, 12)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
               <label className="wb-field">
                 <span>转场</span>
                 <select

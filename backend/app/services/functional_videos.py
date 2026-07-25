@@ -1045,6 +1045,7 @@ class FunctionalVideoService:
             source_range = clip.get("source_range")
             source_update = (
                 {
+                    "source_asset_code": source_range.get("asset_code"),
                     "source_start_seconds": source_range["start_seconds"],
                     "source_end_seconds": source_range["end_seconds"],
                 }
@@ -1203,6 +1204,28 @@ class FunctionalVideoService:
                 if show_product_sticker:
                     roles.append("product_sticker")
                 clip["overlay_roles"] = roles
+            source_asset_code = str(update.get("source_asset_code") or "").strip()
+            if source_asset_code:
+                source = dict(clip.get("source_range") or {})
+                if not source:
+                    raise DomainValidationError(
+                        "VIDEO_TIMELINE_SOURCE_RANGE_UNAVAILABLE",
+                        "This clip has no editable source range",
+                        details={"clip_code": clip["clip_code"]},
+                    )
+                if source_asset_code != str(source.get("asset_code") or ""):
+                    source.update(
+                        {
+                            "asset_code": source_asset_code,
+                            "start_seconds": 0.0,
+                            "end_seconds": 6.0,
+                            "available_start_seconds": 0.0,
+                            "available_end_seconds": 6.0,
+                        }
+                    )
+                else:
+                    source["asset_code"] = source_asset_code
+                clip["source_range"] = source
             source_start = update.get("source_start_seconds")
             source_end = update.get("source_end_seconds")
             if (source_start is None) != (source_end is None):
@@ -1478,6 +1501,33 @@ class FunctionalVideoService:
                     if str(role) in {"brand_logo", "product_sticker"}
                 ]
             source_range = clip.get("source_range") or {}
+            source_asset_code = str(source_range.get("asset_code") or "").strip()
+            current_asset_code = str(shot.get("asset_code") or "").strip()
+            if source_asset_code and current_asset_code and source_asset_code != current_asset_code:
+                source_pool = {
+                    str(asset.get("asset_code") or ""): asset
+                    for asset in result.get("visual_source_pool") or []
+                    if isinstance(asset, dict)
+                }
+                selected_asset = source_pool.get(source_asset_code)
+                if not isinstance(selected_asset, dict):
+                    raise DomainValidationError(
+                        "VIDEO_TIMELINE_SOURCE_ASSET_NOT_FROZEN",
+                        "Timeline visual source must come from this plan's frozen material pool",
+                        details={"clip_code": clip_code, "asset_code": source_asset_code},
+                    )
+                relative_path = str(selected_asset.get("relative_path") or "").strip()
+                checksum = str(selected_asset.get("checksum_sha256") or "").strip()
+                if not relative_path or not checksum:
+                    raise DomainValidationError(
+                        "VIDEO_TIMELINE_SOURCE_ASSET_INVALID",
+                        "Frozen timeline visual source is incomplete",
+                        details={"clip_code": clip_code, "asset_code": source_asset_code},
+                    )
+                shot["asset_code"] = source_asset_code
+                shot["asset_relative_path"] = relative_path
+                shot["asset_expected_checksum"] = checksum
+                shot["visual_role"] = "selected_library_video"
             if "start_seconds" in source_range and "end_seconds" in source_range:
                 shot["source_start_seconds"] = float(source_range["start_seconds"])
                 shot["source_end_seconds"] = float(source_range["end_seconds"])
@@ -1537,6 +1587,15 @@ class FunctionalVideoService:
         script = {"source": "content_project_revision", "title": detail["title"], "spoken_script": "".join(chunks), "sections": [{"section_index": index, "section_type": "content_project", "narration": chunk, "tts_text": chunk.replace("PRO", "P R O"), "screen_text": chunk[:28]} for index, chunk in enumerate(chunks)], "section_count": len(chunks)}
         poster_time_ms = min(2_000, duration * 1000 - 1)
         shots = {"source": "content_project_revision", "canvas": {"width": 1080, "height": 1920, "fps": 30}, "duration_seconds": duration, "shot_count": len(compiled), "poster_time_seconds": poster_time_ms / 1000, "shots": compiled}
+        if visual_assets:
+            shots["visual_source_pool"] = [
+                {
+                    "asset_code": asset["asset_code"],
+                    "relative_path": asset["relative_path"],
+                    "checksum_sha256": asset["checksum_sha256"],
+                }
+                for asset in visual_assets
+            ]
         if background_music is not None:
             shots["background_music"] = {
                 "asset_code": background_music["asset_code"],

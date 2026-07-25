@@ -45,6 +45,7 @@ class FunctionalVideoTimelineClipUpdate(BaseModel):
     clip_code: str = Field(min_length=1, max_length=80)
     duration_ms: int = Field(ge=250, le=120_000)
     transition: str = Field(default="cut", pattern="^(cut|fade|fade_out)$")
+    source_asset_code: str | None = Field(default=None, min_length=1, max_length=64)
     source_start_seconds: float | None = Field(default=None, ge=0)
     source_end_seconds: float | None = Field(default=None, gt=0)
     fit: str | None = Field(default=None, pattern="^(cover|contain)$")

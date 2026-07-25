@@ -89,6 +89,111 @@ def test_timeline_update_preserves_requested_clip_order_across_tracks_and_shots(
     assert rendered_input["poster_time_seconds"] == 12.0
 
 
+def test_timeline_rebinds_a_shot_only_to_its_frozen_visual_source_pool() -> None:
+    updated = FunctionalVideoService._apply_timeline_update(
+        _timeline(),
+        [
+            {
+                "clip_code": "SHOT-01",
+                "duration_ms": 30_000,
+                "source_asset_code": "ASSET-02",
+            },
+            {"clip_code": "SHOT-02", "duration_ms": 30_000},
+        ],
+    )
+    source = updated["tracks"][0]["clips"][0]["source_range"]
+    assert source == {
+        "asset_code": "ASSET-02",
+        "start_seconds": 0.0,
+        "end_seconds": 6.0,
+        "available_start_seconds": 0.0,
+        "available_end_seconds": 6.0,
+    }
+    shot_list = {
+        "visual_source_pool": [
+            {
+                "asset_code": "ASSET-01",
+                "relative_path": "video/one.mp4",
+                "checksum_sha256": "a" * 64,
+            },
+            {
+                "asset_code": "ASSET-02",
+                "relative_path": "video/two.mp4",
+                "checksum_sha256": "b" * 64,
+            },
+        ],
+        "shots": [
+            {
+                "shot_code": "SHOT-01",
+                "shot_index": 0,
+                "asset_code": "ASSET-01",
+                "asset_relative_path": "video/one.mp4",
+                "asset_expected_checksum": "a" * 64,
+            },
+            {"shot_code": "SHOT-02", "shot_index": 1, "asset_code": "ASSET-02"},
+        ],
+    }
+    rendered = FunctionalVideoService._timeline_shot_list(shot_list, updated)
+
+    assert rendered["shots"][0]["asset_code"] == "ASSET-02"
+    assert rendered["shots"][0]["asset_relative_path"] == "video/two.mp4"
+    assert rendered["shots"][0]["asset_expected_checksum"] == "b" * 64
+
+    from app.domain.errors import DomainValidationError
+
+    invalid = FunctionalVideoService._apply_timeline_update(
+        _timeline(),
+        [
+            {
+                "clip_code": "SHOT-01",
+                "duration_ms": 30_000,
+                "source_asset_code": "ASSET-UNKNOWN",
+            },
+            {"clip_code": "SHOT-02", "duration_ms": 30_000},
+        ],
+    )
+    try:
+        FunctionalVideoService._timeline_shot_list(shot_list, invalid)
+    except DomainValidationError as exc:
+        assert exc.code == "VIDEO_TIMELINE_SOURCE_ASSET_NOT_FROZEN"
+    else:
+        raise AssertionError("timeline source must be drawn from the frozen visual pool")
+
+
+def test_compiled_video_shot_list_freezes_the_full_visual_source_pool() -> None:
+    detail = {
+        "project_code": "CONTENT-001",
+        "title": "Frozen sources",
+        "generation_goal": "Explain the selected product",
+        "story_brief": {"content": "A compact product story."},
+        "script": {"blocks": [{"content": "One source for every fixed shot."}]},
+    }
+    visual_assets = [
+        {
+            "asset_code": "AG-VID-000001",
+            "relative_path": "video/one.mp4",
+            "checksum_sha256": "a" * 64,
+        },
+        {
+            "asset_code": "AG-VID-000002",
+            "relative_path": "video/two.mp4",
+            "checksum_sha256": "b" * 64,
+        },
+    ]
+
+    _, _, shot_list, timeline = FunctionalVideoService._compile_content(
+        detail,
+        60,
+        visual_assets=visual_assets,
+    )
+
+    assert shot_list["visual_source_pool"] == visual_assets
+    assert {clip["source_range"]["asset_code"] for clip in timeline["tracks"][0]["clips"]} == {
+        "AG-VID-000001",
+        "AG-VID-000002",
+    }
+
+
 def test_timeline_poster_time_must_remain_inside_the_rendered_duration() -> None:
     from app.domain.errors import DomainValidationError
 

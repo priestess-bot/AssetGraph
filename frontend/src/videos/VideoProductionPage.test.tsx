@@ -87,7 +87,7 @@ describe("VideoProductionPage", () => {
     expect(screen.getByText("-16.2 LUFS · 峰值 -1.4 dB")).toBeInTheDocument();
     expect(screen.getByText("黑帧")).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "成片海报" })).toHaveAttribute("src", "/files/poster.jpg");
-    expect(screen.getByText("AG-VID-000001 · aaaaaaaaaaaa")).toBeInTheDocument();
+    expect(screen.getAllByText("AG-VID-000001 · aaaaaaaaaaaa").length).toBeGreaterThan(0);
     expect(screen.getByText("分组 商品讲解组 · AG-GRP-001 · 1 项")).toBeInTheDocument();
     expect(screen.getByText("素材包 AG-PACK-001 · r1 · bbbbbbbbbbbb")).toBeInTheDocument();
     expect(screen.getByText("BGM AG-AUD-000001 · cccccccccccc · -20.0 dB")).toBeInTheDocument();
@@ -99,8 +99,9 @@ describe("VideoProductionPage", () => {
     expect(within(trace!).getByText("ASSET-01")).toBeInTheDocument();
     expect(await screen.findByText("修订历史")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "上移 SHOT-02" }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "画面素材 SHOT-02" }), "AG-VID-000001");
     await user.clear(screen.getByRole("spinbutton", { name: "素材入点 SHOT-02" }));
-    await user.type(screen.getByRole("spinbutton", { name: "素材入点 SHOT-02" }), "12");
+    await user.type(screen.getByRole("spinbutton", { name: "素材入点 SHOT-02" }), "1");
     await user.selectOptions(screen.getByRole("combobox", { name: "画面适配 SHOT-02" }), "cover");
     fireEvent.change(screen.getByRole("slider", { name: "裁切焦点 X SHOT-02" }), { target: { value: "25" } });
     fireEvent.change(screen.getByRole("slider", { name: "裁切焦点 Y SHOT-02" }), { target: { value: "75" } });
@@ -116,7 +117,7 @@ describe("VideoProductionPage", () => {
 
     const request = requests.find((item) => item.url.endsWith("/timeline") && item.init?.method === "PUT");
     expect(request?.init?.body).toBe(JSON.stringify({ expected_revision: 1, poster_time_ms: 7_500, video_clips: [
-      { clip_code: "SHOT-02", duration_ms: 30_000, transition: "cut", source_start_seconds: 12, source_end_seconds: 50, fit: "cover", crop_x: 0.25, crop_y: 0.75, playback_rate: 1.5, show_product_sticker: true },
+      { clip_code: "SHOT-02", duration_ms: 30_000, transition: "cut", source_asset_code: "AG-VID-000001", source_start_seconds: 1, source_end_seconds: 6, fit: "cover", crop_x: 0.25, crop_y: 0.75, playback_rate: 1.5, show_product_sticker: true },
       { clip_code: "SHOT-01", duration_ms: 30_000, transition: "cut", source_start_seconds: 0, source_end_seconds: 40 },
     ], subtitle_clips: [
       { clip_code: "SUBTITLE-SHOT-01", subtitle_text: "第一段字幕", headline_text: "第一段标题", caption_position: "bottom" },

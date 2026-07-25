@@ -474,6 +474,7 @@ export const functionalVideosApi = {
         clip_code: string;
         duration_ms: number;
         transition: string;
+        source_asset_code?: string;
         source_start_seconds?: number;
         source_end_seconds?: number;
         fit?: "cover" | "contain";
