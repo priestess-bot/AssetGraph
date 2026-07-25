@@ -147,6 +147,7 @@ def test_session_metric_snapshot_selectors_are_declarative_json_pointers() -> No
         denominator_json_pointer="/visitors",
     )
     assert ratio.numerator_json_pointer == "/purchases"
+    assert ratio.event_time_clock == "session_utc"
 
     with pytest.raises(ValidationError, match="must start"):
         SessionMetricSnapshotCreate(
@@ -154,6 +155,14 @@ def test_session_metric_snapshot_selectors_are_declarative_json_pointers() -> No
             metric_code="gmv",
             revision_number=1,
             value_json_pointer="amount",
+        )
+
+    with pytest.raises(ValidationError, match="must be non-empty"):
+        SessionMetricSnapshotCreate(
+            metric_key="orders",
+            metric_code="orders",
+            revision_number=1,
+            event_time_clock="   ",
         )
 
 
@@ -361,7 +370,72 @@ def test_measured_scene_allocations_use_event_time_not_duration_proportion() -> 
         "allocated_bucket_count": 1,
         "unallocated_bucket_count": 1,
         "session_only_bucket_count": 1,
+        "direct_session_clock_bucket_count": 2,
+        "time_mapped_bucket_count": 0,
+        "time_mapping_missing_bucket_count": 0,
+        "time_mapping_clock_mismatch_bucket_count": 0,
+        "outside_time_mapping_coverage_bucket_count": 0,
     }
+
+
+def test_measured_scene_allocations_inverse_match_a_pinned_time_mapping() -> None:
+    start = datetime(2026, 7, 25, 12, tzinfo=UTC)
+
+    class BucketCursor:
+        def execute(self, statement: str, parameters: object) -> None:
+            assert "functional_session_metric_buckets" in statement
+            assert parameters == (["METRIC-SNAP-001"],)
+
+        @staticmethod
+        def fetchall() -> list[dict[str, object]]:
+            return [{
+                "bucket_code": "METRIC-BUCKET-001",
+                "snapshot_code": "METRIC-SNAP-001",
+                "session_code": "OPS-001",
+                "event_time": start + timedelta(seconds=30),
+                "aggregation": "sum",
+                "allocation_status": "allocatable",
+                "value": 8,
+                "numerator": None,
+                "denominator": None,
+                "fingerprint_sha256": "a" * 64,
+            }]
+
+    allocations, summary = FunctionalOperationsService._measured_scene_allocations(
+        BucketCursor(),
+        [{
+            "session_code": "OPS-001",
+            "started_at": start,
+            "_metric_snapshot": {
+                "snapshot_code": "METRIC-SNAP-001",
+                "event_time_clock": "recording_elapsed_ms",
+            },
+            "_time_mapping": {
+                "mapping_code": "TIME-MAP-001",
+                "source_clock": "recording_elapsed_ms",
+                "source_offset_ms": 10_000,
+                "drift_ppm": 0,
+                "coverage_start_ms": 0,
+                "coverage_end_ms": 60_000,
+            },
+        }],
+        {
+            "OPS-001": [{
+                "plan_code": "PLAN-001",
+                "scene_code": "SCENE-001",
+                "started_at": start + timedelta(seconds=15),
+                "ended_at": start + timedelta(seconds=25),
+                "source_kind": "recording_match",
+                "confidence": 0.9,
+                "release_code": "REL-001",
+            }],
+        },
+    )
+
+    assert allocations[0]["source_time_mapping_codes"] == ["TIME-MAP-001"]
+    assert allocations[0]["allocation_basis"] == "event_time_inverse_active_time_mapping_within_exposure"
+    assert summary["time_mapped_bucket_count"] == 1
+    assert summary["allocated_bucket_count"] == 1
 
 
 def test_attribution_input_snapshot_and_quality_are_deterministic_and_descriptive() -> None:

@@ -587,6 +587,7 @@ export function OperationsPage({ view }: { view: "sessions" | "attribution" }) {
   const [metricSnapshotSession, setMetricSnapshotSession] = useState("");
   const [metricSnapshotBinding, setMetricSnapshotBinding] = useState("");
   const [metricSnapshotKey, setMetricSnapshotKey] = useState("");
+  const [metricEventTimeClock, setMetricEventTimeClock] = useState("session_utc");
   const [metricValuePointer, setMetricValuePointer] = useState("");
   const [metricNumeratorPointer, setMetricNumeratorPointer] = useState("");
   const [metricDenominatorPointer, setMetricDenominatorPointer] = useState("");
@@ -677,8 +678,10 @@ export function OperationsPage({ view }: { view: "sessions" | "attribution" }) {
       : !snapshotMetric
         ? "请选择一个 live_session 指标定义。"
         : !metricSnapshotKey.trim()
-          ? "请填写归因使用的指标名。"
-          : snapshotMetric.aggregation === "ratio" &&
+        ? "请填写归因使用的指标名。"
+        : !metricEventTimeClock.trim()
+          ? "请填写事件时间时钟。"
+        : snapshotMetric.aggregation === "ratio" &&
               (!metricNumeratorPointer.trim() || !metricDenominatorPointer.trim())
             ? "比例指标需要分子和分母 JSON Pointer。"
             : snapshotMetric.aggregation !== "count" &&
@@ -856,6 +859,7 @@ export function OperationsPage({ view }: { view: "sessions" | "attribution" }) {
         metric_key: metricSnapshotKey.trim(),
         metric_code: snapshotMetric.metricCode,
         revision_number: snapshotMetric.revisionNumber,
+        event_time_clock: metricEventTimeClock.trim(),
         value_json_pointer: metricValuePointer.trim() || undefined,
         numerator_json_pointer: metricNumeratorPointer.trim() || undefined,
         denominator_json_pointer: metricDenominatorPointer.trim() || undefined,
@@ -1660,6 +1664,15 @@ export function OperationsPage({ view }: { view: "sessions" | "attribution" }) {
                       required
                     />
                   </label>
+                  <label className="wb-field">
+                    <span>事件时间时钟</span>
+                    <input
+                      className="wb-input"
+                      value={metricEventTimeClock}
+                      onChange={(event) => setMetricEventTimeClock(event.target.value)}
+                      required
+                    />
+                  </label>
                   {snapshotMetric?.aggregation !== "count" &&
                   snapshotMetric?.aggregation !== "ratio" ? (
                     <label className="wb-field">
@@ -1729,7 +1742,7 @@ export function OperationsPage({ view }: { view: "sessions" | "attribution" }) {
                             {snapshot.metricKey}: {snapshot.value?.toFixed(4) ?? "数据不足"}
                           </strong>
                           <small>
-                            {snapshot.metricCode} r{snapshot.metricRevision} · {snapshot.aggregation} · {snapshot.sourceEventCount} 个事件
+                            {snapshot.metricCode} r{snapshot.metricRevision} · {snapshot.aggregation} · {snapshot.sourceEventCount} 个事件 · {snapshot.eventTimeClock}
                           </small>
                           <code>{snapshot.snapshotCode} · {snapshot.fingerprintSha256.slice(0, 12)}</code>
                         </div>
@@ -1810,7 +1823,7 @@ export function OperationsPage({ view }: { view: "sessions" | "attribution" }) {
                             <span>
                               <code>{allocation.sceneCode}</code>
                               <small>
-                                {allocation.planCode} · {allocation.aggregation} · {allocation.eventCount} 个事件 · {allocation.sourceSnapshotCodes.map((code) => code.slice(0, 12)).join("、")}
+                                {allocation.planCode} · {allocation.aggregation} · {allocation.eventCount} 个事件 · {allocation.sourceSnapshotCodes.map((code) => code.slice(0, 12)).join("、")}{allocation.sourceTimeMappingCodes.length ? ` · 对齐 ${allocation.sourceTimeMappingCodes.join("、")}` : " · session_utc"}
                               </small>
                             </span>
                             <strong>
@@ -1823,6 +1836,14 @@ export function OperationsPage({ view }: { view: "sessions" | "attribution" }) {
                       report.measuredSceneAllocationSummary.sessionOnlyBucketCount ? (
                         <small className="operations-measured-scene-footnote">
                           未落入展示区间 {report.measuredSceneAllocationSummary.unallocatedBucketCount} · 仅会话级 {report.measuredSceneAllocationSummary.sessionOnlyBucketCount}
+                        </small>
+                      ) : null}
+                      {report.measuredSceneAllocationSummary.timeMappedBucketCount ||
+                      report.measuredSceneAllocationSummary.timeMappingMissingBucketCount ||
+                      report.measuredSceneAllocationSummary.timeMappingClockMismatchBucketCount ||
+                      report.measuredSceneAllocationSummary.outsideTimeMappingCoverageBucketCount ? (
+                        <small className="operations-measured-scene-footnote">
+                          来源时钟已对齐 {report.measuredSceneAllocationSummary.timeMappedBucketCount} · 未建立对齐 {report.measuredSceneAllocationSummary.timeMappingMissingBucketCount} · 时钟不匹配 {report.measuredSceneAllocationSummary.timeMappingClockMismatchBucketCount} · 超出覆盖 {report.measuredSceneAllocationSummary.outsideTimeMappingCoverageBucketCount}
                         </small>
                       ) : null}
                     </div>

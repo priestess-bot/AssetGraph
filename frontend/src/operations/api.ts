@@ -112,6 +112,7 @@ export interface SessionMetricSnapshot {
   status: string;
   value?: number;
   sourceEventCount: number;
+  eventTimeClock: string;
   valueJsonPointer?: string;
   numeratorJsonPointer?: string;
   denominatorJsonPointer?: string;
@@ -230,6 +231,7 @@ export interface AttributionReport {
     sourceSessionCodes: string[];
     sourceSnapshotCodes: string[];
     sourceBucketCodes: string[];
+    sourceTimeMappingCodes: string[];
     releaseCodes: string[];
     allocationBasis: string;
     limitations: string[];
@@ -239,6 +241,11 @@ export interface AttributionReport {
     allocatedBucketCount: number;
     unallocatedBucketCount: number;
     sessionOnlyBucketCount: number;
+    directSessionClockBucketCount: number;
+    timeMappedBucketCount: number;
+    timeMappingMissingBucketCount: number;
+    timeMappingClockMismatchBucketCount: number;
+    outsideTimeMappingCoverageBucketCount: number;
   };
   metadata: {
     method: string;
@@ -428,6 +435,7 @@ function sessionMetricSnapshot(value: unknown): SessionMetricSnapshot {
     status: asString(value.status),
     value: typeof value.value === "number" ? value.value : undefined,
     sourceEventCount: asNumber(value.source_event_count),
+    eventTimeClock: asString(value.event_time_clock, "session_utc"),
     valueJsonPointer: asOptionalString(value.value_json_pointer),
     numeratorJsonPointer: asOptionalString(value.numerator_json_pointer),
     denominatorJsonPointer: asOptionalString(value.denominator_json_pointer),
@@ -619,6 +627,7 @@ function report(value: unknown): AttributionReport {
         sourceSessionCodes: strings(item.source_session_codes),
         sourceSnapshotCodes: strings(item.source_snapshot_codes),
         sourceBucketCodes: strings(item.source_bucket_codes),
+        sourceTimeMappingCodes: strings(item.source_time_mapping_codes),
         releaseCodes: strings(item.release_codes),
         allocationBasis: asString(item.allocation_basis),
         limitations: strings(item.limitations),
@@ -633,6 +642,11 @@ function report(value: unknown): AttributionReport {
         allocatedBucketCount: asNumber(summary.allocated_bucket_count),
         unallocatedBucketCount: asNumber(summary.unallocated_bucket_count),
         sessionOnlyBucketCount: asNumber(summary.session_only_bucket_count),
+        directSessionClockBucketCount: asNumber(summary.direct_session_clock_bucket_count),
+        timeMappedBucketCount: asNumber(summary.time_mapped_bucket_count),
+        timeMappingMissingBucketCount: asNumber(summary.time_mapping_missing_bucket_count),
+        timeMappingClockMismatchBucketCount: asNumber(summary.time_mapping_clock_mismatch_bucket_count),
+        outsideTimeMappingCoverageBucketCount: asNumber(summary.outside_time_mapping_coverage_bucket_count),
       };
     })(),
     metadata: {

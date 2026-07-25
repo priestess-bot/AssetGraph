@@ -90,6 +90,7 @@ class SessionMetricSnapshotCreate(BaseModel):
     metric_key: str = Field(min_length=1, max_length=80)
     metric_code: str = Field(min_length=1, max_length=80)
     revision_number: int = Field(ge=1)
+    event_time_clock: str = Field(default="session_utc", min_length=1, max_length=128)
     value_json_pointer: str | None = Field(default=None, max_length=512)
     numerator_json_pointer: str | None = Field(default=None, max_length=512)
     denominator_json_pointer: str | None = Field(default=None, max_length=512)
@@ -105,6 +106,14 @@ class SessionMetricSnapshotCreate(BaseModel):
             raise ValueError("JSON Pointer selectors must start with '/'")
         return value
 
+    @field_validator("event_time_clock")
+    @classmethod
+    def validate_event_time_clock(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("event time clock must be non-empty")
+        return normalized
+
 
 class SessionMetricSnapshotRead(BaseModel):
     snapshot_code: str
@@ -116,6 +125,7 @@ class SessionMetricSnapshotRead(BaseModel):
     status: str
     value: float | None = None
     source_event_count: int
+    event_time_clock: str = "session_utc"
     value_json_pointer: str | None = None
     numerator_json_pointer: str | None = None
     denominator_json_pointer: str | None = None

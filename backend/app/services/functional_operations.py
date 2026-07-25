@@ -480,6 +480,7 @@ class FunctionalOperationsService:
     ) -> dict[str, Any]:
         """Freeze a session metric computed from quality-accepted event batches."""
 
+        event_time_clock = str(payload.get("event_time_clock", "session_utc")).strip()
         try:
             with self.connection.cursor(row_factory=dict_row) as cursor:
                 cursor.execute(
@@ -569,6 +570,7 @@ class FunctionalOperationsService:
                         "ended_at": session["ended_at"],
                     },
                     "metric_definition_ref": metric_ref,
+                    "event_time_clock": event_time_clock,
                     "selectors": {
                         "value_json_pointer": payload.get("value_json_pointer"),
                         "numerator_json_pointer": payload.get("numerator_json_pointer"),
@@ -687,7 +689,9 @@ class FunctionalOperationsService:
         except Exception:
             self.connection.rollback()
             raise
-        return dict(row)
+        result = dict(row)
+        result["event_time_clock"] = event_time_clock
+        return result
 
     def list_session_metric_snapshots(self, session_code: str) -> list[dict[str, Any]]:
         with self.connection.cursor(row_factory=dict_row) as cursor:
@@ -707,7 +711,15 @@ class FunctionalOperationsService:
                    ORDER BY created_at DESC, snapshot_code DESC""",
                 (session_code,),
             )
-            return [dict(row) for row in cursor.fetchall()]
+            rows = [dict(row) for row in cursor.fetchall()]
+        for row in rows:
+            snapshot_input = row.get("input_snapshot") or {}
+            row["event_time_clock"] = (
+                snapshot_input.get("event_time_clock", "session_utc")
+                if isinstance(snapshot_input, dict)
+                else "session_utc"
+            )
+        return rows
 
     @staticmethod
     def _apply_ready_metric_snapshots(
@@ -762,10 +774,16 @@ class FunctionalOperationsService:
                     "source_event_count",
                     "source_batches",
                     "quality_summary",
+                    "input_snapshot",
                     "fingerprint_sha256",
                     "created_at",
                 )
             }
+            session["_metric_snapshot"]["event_time_clock"] = (
+                (snapshot.get("input_snapshot") or {}).get("event_time_clock", "session_utc")
+                if isinstance(snapshot.get("input_snapshot"), dict)
+                else "session_utc"
+            )
 
     def _exposure_context(
         self,
@@ -1291,6 +1309,20 @@ class FunctionalOperationsService:
             self._apply_ready_metric_snapshots(
                 cursor, rows, metric_key=payload["metric_key"]
             )
+            cursor.execute(
+                """SELECT * FROM functional_session_time_mappings
+                   WHERE session_code = ANY(%s) AND status = 'active'
+                   ORDER BY session_code, revision_number DESC""",
+                (codes,),
+            )
+            time_mappings = {
+                str(mapping["session_code"]): dict(mapping)
+                for mapping in cursor.fetchall()
+            }
+            for session in rows:
+                mapping = time_mappings.get(str(session["session_code"]))
+                if mapping is not None:
+                    session["_time_mapping"] = mapping
             metric_definition_ref, metric_definition_state = self._attribution_metric_definition_ref(
                 rows, payload["metric_key"]
             )
@@ -1504,6 +1536,8 @@ class FunctionalOperationsService:
             }
             if session.get("_metric_snapshot") is not None:
                 frozen_session["metric_snapshot"] = session["_metric_snapshot"]
+            if session.get("_time_mapping") is not None:
+                frozen_session["time_mapping"] = session["_time_mapping"]
             frozen_sessions.append(frozen_session)
             for exposure in exposures_by_session.get(session["session_code"], []):
                 frozen_exposures.append(
@@ -1715,7 +1749,54 @@ class FunctionalOperationsService:
         )
 
     @staticmethod
+    def _bucket_allocation_time(
+        bucket: dict[str, Any],
+        session: dict[str, Any] | None,
+        summary: dict[str, int],
+    ) -> tuple[datetime | None, str | None, str | None]:
+        if session is None:
+            summary["time_mapping_missing_bucket_count"] += 1
+            return None, None, None
+        snapshot = session.get("_metric_snapshot") or {}
+        event_time_clock = (
+            snapshot.get("event_time_clock", "session_utc")
+            if isinstance(snapshot, dict)
+            else "session_utc"
+        )
+        if event_time_clock == "session_utc":
+            summary["direct_session_clock_bucket_count"] += 1
+            return bucket["event_time"], None, "event_time_session_utc_within_exposure"
+        mapping = session.get("_time_mapping")
+        if not isinstance(mapping, dict):
+            summary["time_mapping_missing_bucket_count"] += 1
+            return None, None, None
+        if mapping.get("source_clock") != event_time_clock:
+            summary["time_mapping_clock_mismatch_bucket_count"] += 1
+            return None, None, None
+        scale = 1 + float(mapping["drift_ppm"]) / 1_000_000
+        source_elapsed_ms = round(
+            (bucket["event_time"] - session["started_at"]).total_seconds() * 1000
+        )
+        session_elapsed_ms = round(
+            (source_elapsed_ms - int(mapping["source_offset_ms"])) / scale
+        )
+        if not (
+            int(mapping["coverage_start_ms"])
+            <= session_elapsed_ms
+            < int(mapping["coverage_end_ms"])
+        ):
+            summary["outside_time_mapping_coverage_bucket_count"] += 1
+            return None, None, None
+        summary["time_mapped_bucket_count"] += 1
+        return (
+            session["started_at"] + timedelta(milliseconds=session_elapsed_ms),
+            str(mapping["mapping_code"]),
+            "event_time_inverse_active_time_mapping_within_exposure",
+        )
+
+    @classmethod
     def _measured_scene_allocations(
+        cls,
         cursor: Any,
         sessions: list[dict[str, Any]],
         exposures_by_session: dict[str, list[dict[str, Any]]],
@@ -1735,6 +1816,11 @@ class FunctionalOperationsService:
             "allocated_bucket_count": 0,
             "unallocated_bucket_count": 0,
             "session_only_bucket_count": 0,
+            "direct_session_clock_bucket_count": 0,
+            "time_mapped_bucket_count": 0,
+            "time_mapping_missing_bucket_count": 0,
+            "time_mapping_clock_mismatch_bucket_count": 0,
+            "outside_time_mapping_coverage_bucket_count": 0,
         }
         if not snapshot_codes:
             return [], summary
@@ -1749,16 +1835,27 @@ class FunctionalOperationsService:
             (snapshot_codes,),
         )
         grouped: dict[str, dict[str, Any]] = {}
+        sessions_by_code = {
+            str(session["session_code"]): session for session in sessions
+        }
         for row in cursor.fetchall():
             bucket = dict(row)
             summary["candidate_bucket_count"] += 1
             if bucket["allocation_status"] != "allocatable":
                 summary["session_only_bucket_count"] += 1
                 continue
+            allocation_time, mapping_code, allocation_basis = cls._bucket_allocation_time(
+                bucket,
+                sessions_by_code.get(str(bucket["session_code"])),
+                summary,
+            )
+            if allocation_time is None:
+                summary["unallocated_bucket_count"] += 1
+                continue
             matches = [
                 exposure
                 for exposure in exposures_by_session.get(bucket["session_code"], [])
-                if exposure["started_at"] <= bucket["event_time"] < exposure["ended_at"]
+                if exposure["started_at"] <= allocation_time < exposure["ended_at"]
             ]
             if len(matches) != 1:
                 summary["unallocated_bucket_count"] += 1
@@ -1780,6 +1877,8 @@ class FunctionalOperationsService:
                     "source_snapshot_codes": [],
                     "source_bucket_codes": [],
                     "release_codes": [],
+                    "source_time_mapping_codes": [],
+                    "allocation_bases": [],
                     "source_kind_counts": {},
                     "confidence_sum": 0.0,
                 },
@@ -1793,6 +1892,10 @@ class FunctionalOperationsService:
             if bucket["snapshot_code"] not in item["source_snapshot_codes"]:
                 item["source_snapshot_codes"].append(bucket["snapshot_code"])
             item["source_bucket_codes"].append(bucket["bucket_code"])
+            if mapping_code and mapping_code not in item["source_time_mapping_codes"]:
+                item["source_time_mapping_codes"].append(mapping_code)
+            if allocation_basis and allocation_basis not in item["allocation_bases"]:
+                item["allocation_bases"].append(allocation_basis)
             release_code = exposure.get("release_code")
             if release_code and release_code not in item["release_codes"]:
                 item["release_codes"].append(release_code)
@@ -1811,6 +1914,7 @@ class FunctionalOperationsService:
             numerator_sum = float(item.pop("numerator_sum"))
             denominator_sum = float(item.pop("denominator_sum"))
             confidence_sum = float(item.pop("confidence_sum"))
+            allocation_bases = item.pop("allocation_bases")
             if aggregation == "ratio":
                 value = numerator_sum / denominator_sum if denominator_sum else None
             elif aggregation == "average":
@@ -1829,10 +1933,13 @@ class FunctionalOperationsService:
                     "average_confidence": round(confidence_sum / event_count, 6)
                     if event_count
                     else None,
-                    "allocation_basis": "event_time_within_active_content_exposure",
+                    "allocation_basis": allocation_bases[0]
+                    if len(allocation_bases) == 1
+                    else "mixed_event_time_clock_alignment_within_exposure",
                     "limitations": [
                         "This is a descriptive event-time intersection, not a causal effect.",
                         "Events outside observed content intervals remain unallocated.",
+                        "Non-session clocks require an exact active TimeMapping clock match and coverage.",
                     ],
                 }
             )
