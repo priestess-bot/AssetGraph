@@ -131,6 +131,33 @@ def test_timeline_voice_gains_remain_bound_to_fixed_shots() -> None:
     assert [shot["voice_gain_db"] for shot in rendered_input["shots"]] == [3.0, -6.5]
 
 
+def test_timeline_reflows_the_fixed_background_music_to_the_new_duration() -> None:
+    updated = FunctionalVideoService._apply_timeline_update(
+        _timeline(),
+        [
+            {"clip_code": "SHOT-01", "duration_ms": 25_000, "transition": "cut"},
+            {"clip_code": "SHOT-02", "duration_ms": 30_000, "transition": "cut"},
+        ],
+    )
+
+    audio_track = next(track for track in updated["tracks"] if track["track_kind"] == "audio")
+    assert audio_track["clips"][-1]["clip_code"] == "BGM-01"
+    assert audio_track["clips"][-1]["timeline_range"] == {"start_ms": 0, "duration_ms": 55_000}
+
+
+def test_selected_material_codes_include_background_music_for_snapshot_and_release() -> None:
+    assert FunctionalVideoService._selected_material_codes(
+        {
+            "shots": [
+                {"asset_code": "AG-VID-001"},
+                {"asset_code": "AG-VID-001"},
+                {"asset_code": "AG-VID-002"},
+            ],
+            "background_music": {"asset_code": "AG-AUD-001"},
+        }
+    ) == ["AG-VID-001", "AG-VID-002", "AG-AUD-001"]
+
+
 def test_timeline_rejects_incomplete_or_out_of_range_voice_gains() -> None:
     from app.domain.errors import DomainValidationError
 

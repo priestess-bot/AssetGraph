@@ -151,6 +151,8 @@ def test_create_video_plan_accepts_a_fixed_live_room_source(client: tuple[TestCl
             "visual_asset_codes": [],
             "visual_group_codes": [],
             "visual_material_pack_codes": [],
+            "background_music_asset_code": None,
+            "background_music_gain_db": -18.0,
             "actor_id": "functional-operator",
         }
     ]
@@ -180,6 +182,8 @@ def test_create_video_plan_accepts_up_to_six_explicit_visual_assets(
             "visual_asset_codes": ["AG-VID-000001", "AG-VID-000002"],
             "visual_group_codes": [],
             "visual_material_pack_codes": [],
+            "background_music_asset_code": None,
+            "background_music_gain_db": -18.0,
             "actor_id": "functional-operator",
         }
     ]
@@ -210,6 +214,8 @@ def test_create_video_plan_accepts_group_and_published_pack_sources(
             "visual_asset_codes": [],
             "visual_group_codes": ["AG-GRP-001"],
             "visual_material_pack_codes": ["AG-PACK-001"],
+            "background_music_asset_code": None,
+            "background_music_gain_db": -18.0,
             "actor_id": "functional-operator",
         }
     ]

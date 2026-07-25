@@ -1119,6 +1119,11 @@ function Detail({
                 素材包 {pack.packCode} · r{pack.revisionNumber} · {pack.fingerprintSha256.slice(0, 12)}
               </code>
             ))}
+            {plan.renderProfile.backgroundMusic ? (
+              <code>
+                BGM {plan.renderProfile.backgroundMusic.assetCode} · {plan.renderProfile.backgroundMusic.checksumSha256.slice(0, 12)} · {plan.renderProfile.backgroundMusic.gainDb.toFixed(1)} dB
+              </code>
+            ) : null}
           </div>
         ) : null}
         {plan.errorMessage ? (
@@ -1252,6 +1257,8 @@ export function VideoProductionPage() {
   const [visualMaterialPackCodes, setVisualMaterialPackCodes] = useState<
     string[]
   >([]);
+  const [backgroundMusicAssetCode, setBackgroundMusicAssetCode] = useState("");
+  const [backgroundMusicGainDb, setBackgroundMusicGainDb] = useState(-18);
   const [selected, setSelected] = useState("");
   const projects = useQuery({
     queryKey: ["content-projects"],
@@ -1330,6 +1337,12 @@ export function VideoProductionPage() {
         localVideoAssetCodes.has(assetCode),
       ),
   );
+  const localBackgroundMusicAssets = (assets.data ?? []).filter(
+    (asset) =>
+      asset.mediaKind === "audio" &&
+      asset.executionCapability === "local_only" &&
+      asset.materialRoles.includes("background_music"),
+  );
   const visualSelectionCodes = (
     assetCodes = visualAssetCodes,
     groupCodes = visualGroupCodes,
@@ -1383,6 +1396,12 @@ export function VideoProductionPage() {
               ...(visualMaterialPackCodes.length
                 ? { visual_material_pack_codes: visualMaterialPackCodes }
                 : {}),
+              ...(backgroundMusicAssetCode
+                ? {
+                    background_music_asset_code: backgroundMusicAssetCode,
+                    background_music_gain_db: backgroundMusicGainDb,
+                  }
+                : {}),
             }
           : {
               live_room_plan_code: liveRoomPlanCode,
@@ -1395,6 +1414,12 @@ export function VideoProductionPage() {
                 : {}),
               ...(visualMaterialPackCodes.length
                 ? { visual_material_pack_codes: visualMaterialPackCodes }
+                : {}),
+              ...(backgroundMusicAssetCode
+                ? {
+                    background_music_asset_code: backgroundMusicAssetCode,
+                    background_music_gain_db: backgroundMusicGainDb,
+                  }
                 : {}),
             },
       ),
@@ -1531,6 +1556,43 @@ export function VideoProductionPage() {
                 </label>
               ))}
             </fieldset>
+          ) : null}
+          {localBackgroundMusicAssets.length ? (
+            <>
+              <label className="wb-field">
+                <span>背景音乐</span>
+                <select
+                  aria-label="背景音乐"
+                  className="wb-input"
+                  value={backgroundMusicAssetCode}
+                  onChange={(event) =>
+                    setBackgroundMusicAssetCode(event.target.value)
+                  }
+                >
+                  <option value="">不使用</option>
+                  {localBackgroundMusicAssets.map((asset) => (
+                    <option key={asset.assetCode} value={asset.assetCode}>
+                      {asset.title} · {asset.assetCode}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="wb-field">
+                <span>背景音乐增益 {backgroundMusicGainDb.toFixed(1)} dB</span>
+                <input
+                  aria-label="背景音乐增益"
+                  type="range"
+                  min="-36"
+                  max="-6"
+                  step="0.5"
+                  value={backgroundMusicGainDb}
+                  disabled={!backgroundMusicAssetCode}
+                  onChange={(event) =>
+                    setBackgroundMusicGainDb(Number(event.target.value))
+                  }
+                />
+              </label>
+            </>
           ) : null}
           <button
             className="wb-button wb-button-primary"

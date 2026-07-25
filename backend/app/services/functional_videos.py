@@ -53,7 +53,16 @@ class FunctionalVideoService:
             group_codes=payload.get("visual_group_codes") or [],
             material_pack_codes=payload.get("visual_material_pack_codes") or [],
         )
-        story, script, shots, timeline = self._compile_content(detail, duration, visual_assets=visual_assets)
+        background_music = self._resolve_background_music_asset(
+            payload.get("background_music_asset_code"),
+            gain_db=payload.get("background_music_gain_db", -18.0),
+        )
+        story, script, shots, timeline = self._compile_content(
+            detail,
+            duration,
+            visual_assets=visual_assets,
+            background_music=background_music,
+        )
         variant = self.production.create_production_variant(
             project_code=detail["project_code"], project_revision=int(detail["revision_number"]),
             story_brief_code=detail["story_brief"]["story_brief_code"], story_brief_revision=int(detail["story_brief"]["revision_number"]),
@@ -71,9 +80,10 @@ class FunctionalVideoService:
             },
             material_snapshot_ref={
                 "source": "asset_library_local_video_assets.v1" if visual_assets else "baseline_verified_video_assets.v1",
-                "asset_codes": [shot["asset_code"] for shot in shots["shots"]],
+                "asset_codes": self._selected_material_codes(shots),
                 "assets": visual_assets,
                 "visual_selection": visual_selection,
+                "background_music": background_music,
             },
             constraint_snapshot_ref={"source": "functional-content-timeline.v1"},
             actor_id=actor_id, producer_strategy_revision="functional-video.v1",
@@ -97,6 +107,15 @@ class FunctionalVideoService:
                 for asset in visual_assets
             ],
             "visual_selection": visual_selection,
+            "background_music": (
+                {
+                    "asset_code": background_music["asset_code"],
+                    "checksum_sha256": background_music["checksum_sha256"],
+                    "gain_db": background_music["gain_db"],
+                }
+                if background_music
+                else None
+            ),
             "target_duration_seconds": duration,
             "source_live_room_plan_code": detail.get("source_live_room_plan_code"),
         }
@@ -278,6 +297,73 @@ class FunctionalVideoService:
                 }
             )
         return resolved
+
+    def _resolve_background_music_asset(
+        self,
+        asset_code: Any,
+        *,
+        gain_db: Any,
+    ) -> dict[str, Any] | None:
+        code = str(asset_code or "").strip()
+        if not code:
+            return None
+        try:
+            normalized_gain = float(gain_db)
+        except (TypeError, ValueError) as exc:
+            raise DomainValidationError(
+                "VIDEO_BACKGROUND_MUSIC_GAIN_INVALID",
+                "Background music gain must be numeric",
+            ) from exc
+        if not -36 <= normalized_gain <= -6:
+            raise DomainValidationError(
+                "VIDEO_BACKGROUND_MUSIC_GAIN_INVALID",
+                "Background music gain must remain between -36 dB and -6 dB",
+            )
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT asset_code, asset_type, media_kind, material_roles,
+                       execution_capability, local_relative_path, checksum_sha256
+                FROM assets
+                WHERE asset_code = %s AND deleted_at IS NULL
+                """,
+                (code,),
+            )
+            row = cursor.fetchone()
+        if row is None:
+            raise DomainValidationError(
+                "VIDEO_BACKGROUND_MUSIC_NOT_FOUND",
+                "The selected background music asset does not exist in the material library",
+                details={"asset_code": code},
+            )
+        relative_path = str(row.get("local_relative_path") or "").strip()
+        checksum = str(row.get("checksum_sha256") or "").strip()
+        checksum_is_valid = len(checksum) == 64 and all(
+            character in "0123456789abcdef" for character in checksum
+        )
+        path_is_safe = (
+            bool(relative_path)
+            and not Path(relative_path).is_absolute()
+            and ".." not in Path(relative_path).parts
+        )
+        if (
+            str(row.get("media_kind") or "") != "audio"
+            or "background_music" not in list(row.get("material_roles") or [])
+            or str(row.get("execution_capability") or "") != "local_only"
+            or not checksum_is_valid
+            or not path_is_safe
+        ):
+            raise DomainValidationError(
+                "VIDEO_BACKGROUND_MUSIC_NOT_RENDERABLE",
+                "Background music must be a checksummed local audio asset classified for background music",
+                details={"asset_code": code},
+            )
+        return {
+            "asset_code": code,
+            "relative_path": relative_path,
+            "checksum_sha256": checksum,
+            "gain_db": normalized_gain,
+        }
 
     def _live_room_source_detail(self, live_room_plan_code: str) -> dict[str, Any] | None:
         """Load the exact confirmed content chain frozen by an existing live-room Variant."""
@@ -547,7 +633,7 @@ class FunctionalVideoService:
             ],
             rights_snapshot={
                 "status": "pending_evidence",
-                "asset_codes": [str(shot.get("asset_code")) for shot in job.get("shot_list", {}).get("shots") or []],
+                "asset_codes": self._selected_material_codes(dict(job.get("shot_list") or {})),
                 "reason": "Rendered source asset rights and delivery authorization have not been collected.",
             },
             quality_snapshot={
@@ -1194,11 +1280,18 @@ class FunctionalVideoService:
             audio_clip["linked_shot_code"] = str(video_clip["clip_code"])
             audio_clip["timeline_range"] = dict(video_clip["timeline_range"])
             ordered_audio.append(audio_clip)
-        unlinked_audio = [
-            deepcopy(clip)
-            for clip in current_clips
-            if not str(clip.get("clip_code") or "").startswith("VOICE-")
-        ]
+        unlinked_audio = []
+        timeline_duration_ms = sum(
+            int(clip["timeline_range"]["duration_ms"])
+            for clip in ordered_video_clips
+        )
+        for current in current_clips:
+            if str(current.get("clip_code") or "").startswith("VOICE-"):
+                continue
+            clip = deepcopy(current)
+            if str(clip.get("clip_code") or "") == "BGM-01":
+                clip["timeline_range"] = {"start_ms": 0, "duration_ms": timeline_duration_ms}
+            unlinked_audio.append(clip)
         audio_track["clips"] = [*ordered_audio, *unlinked_audio]
 
     @staticmethod
@@ -1357,6 +1450,7 @@ class FunctionalVideoService:
         duration: int,
         *,
         visual_assets: list[dict[str, str]] | None = None,
+        background_music: dict[str, Any] | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
         source_blocks = detail["script"]["blocks"]
         text = [str(block["content"]) for block in source_blocks]
@@ -1380,8 +1474,30 @@ class FunctionalVideoService:
         script = {"source": "content_project_revision", "title": detail["title"], "spoken_script": "".join(chunks), "sections": [{"section_index": index, "section_type": "content_project", "narration": chunk, "tts_text": chunk.replace("PRO", "P R O"), "screen_text": chunk[:28]} for index, chunk in enumerate(chunks)], "section_count": len(chunks)}
         poster_time_ms = min(2_000, duration * 1000 - 1)
         shots = {"source": "content_project_revision", "canvas": {"width": 1080, "height": 1920, "fps": 30}, "duration_seconds": duration, "shot_count": len(compiled), "poster_time_seconds": poster_time_ms / 1000, "shots": compiled}
-        timeline = {"schema_version": "otio-compatible-production-timeline.v1", "global_start_ms": 0, "global_end_ms": duration * 1000, "poster_time_ms": poster_time_ms, "tracks": [{"track_kind": "video", "clips": [{"clip_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "source_range": {"asset_code": shot["asset_code"], "start_seconds": shot["source_start_seconds"], "end_seconds": shot["source_end_seconds"], "available_start_seconds": shot["source_start_seconds"], "available_end_seconds": shot["source_end_seconds"]}, "fit": shot["fit"], "crop_x": 0.5, "crop_y": 0.5, "playback_rate": shot["playback_rate"], "overlay_roles": shot["overlay_roles"], "transition": shot["transition"]} for shot in compiled]}, {"track_kind": "audio", "clips": [{"clip_code": f"VOICE-{shot['shot_code']}", "linked_shot_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "gain_db": 0.0} for shot in compiled]}, {"track_kind": "subtitle", "clips": [{"clip_code": f"SUBTITLE-{shot['shot_code']}", "linked_shot_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "subtitle_text": shot["narration"], "headline_text": shot["screen_text"], "caption_position": "bottom"} for shot in compiled]}]}
+        if background_music is not None:
+            shots["background_music"] = {
+                "asset_code": background_music["asset_code"],
+                "asset_relative_path": background_music["relative_path"],
+                "asset_expected_checksum": background_music["checksum_sha256"],
+                "gain_db": background_music["gain_db"],
+            }
+        audio_clips = [{"clip_code": f"VOICE-{shot['shot_code']}", "linked_shot_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "gain_db": 0.0} for shot in compiled]
+        if background_music is not None:
+            audio_clips.append({"clip_code": "BGM-01", "timeline_range": {"start_ms": 0, "duration_ms": duration * 1000}, "asset_code": background_music["asset_code"], "gain_db": background_music["gain_db"]})
+        timeline = {"schema_version": "otio-compatible-production-timeline.v1", "global_start_ms": 0, "global_end_ms": duration * 1000, "poster_time_ms": poster_time_ms, "tracks": [{"track_kind": "video", "clips": [{"clip_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "source_range": {"asset_code": shot["asset_code"], "start_seconds": shot["source_start_seconds"], "end_seconds": shot["source_end_seconds"], "available_start_seconds": shot["source_start_seconds"], "available_end_seconds": shot["source_end_seconds"]}, "fit": shot["fit"], "crop_x": 0.5, "crop_y": 0.5, "playback_rate": shot["playback_rate"], "overlay_roles": shot["overlay_roles"], "transition": shot["transition"]} for shot in compiled]}, {"track_kind": "audio", "clips": audio_clips}, {"track_kind": "subtitle", "clips": [{"clip_code": f"SUBTITLE-{shot['shot_code']}", "linked_shot_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "subtitle_text": shot["narration"], "headline_text": shot["screen_text"], "caption_position": "bottom"} for shot in compiled]}]}
         return story, script, shots, timeline
+
+    @staticmethod
+    def _selected_material_codes(shot_list: dict[str, Any]) -> list[str]:
+        codes = [
+            str(shot.get("asset_code") or "").strip()
+            for shot in shot_list.get("shots") or []
+            if isinstance(shot, dict)
+        ]
+        background_music = shot_list.get("background_music")
+        if isinstance(background_music, dict):
+            codes.append(str(background_music.get("asset_code") or "").strip())
+        return list(dict.fromkeys(code for code in codes if code))
 
     @staticmethod
     def _chunks(blocks: list[str], count: int) -> list[str]:

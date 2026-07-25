@@ -209,6 +209,18 @@ def test_functional_video_plan_freezes_local_video_group_and_published_pack_expa
                 "checksum_sha256": "c" * 64,
             }
         )
+        music_asset = assets.create(
+            {
+                "asset_type": "AUD",
+                "title": f"Background music {suffix}",
+                "original_filename": f"music-{suffix}.mp3",
+                "media_kind": "audio",
+                "material_roles": ["background_music"],
+                "execution_capability": "local_only",
+                "local_relative_path": f"audio/music-{suffix}.mp3",
+                "checksum_sha256": "d" * 64,
+            }
+        )
         group = library.create_group(
             {
                 "title": f"Video group {suffix}",
@@ -239,6 +251,8 @@ def test_functional_video_plan_freezes_local_video_group_and_published_pack_expa
                 "visual_asset_codes": [direct_asset["asset_code"]],
                 "visual_group_codes": [group["group_code"]],
                 "visual_material_pack_codes": [pack["pack_code"]],
+                "background_music_asset_code": music_asset["asset_code"],
+                "background_music_gain_db": -20,
             },
             actor_id="test-operator",
         )
@@ -262,6 +276,20 @@ def test_functional_video_plan_freezes_local_video_group_and_published_pack_expa
             {"kind": "asset_group", "code": group["group_code"]},
             {"kind": "material_pack", "code": pack["pack_code"]},
         ]
+        assert plan["render_profile"]["background_music"] == {
+            "asset_code": music_asset["asset_code"],
+            "checksum_sha256": "d" * 64,
+            "gain_db": -20.0,
+        }
+        audio_track = next(
+            track for track in plan["production_timeline"]["tracks"] if track["track_kind"] == "audio"
+        )
+        assert audio_track["clips"][-1] == {
+            "clip_code": "BGM-01",
+            "timeline_range": {"start_ms": 0, "duration_ms": 55_000},
+            "asset_code": music_asset["asset_code"],
+            "gain_db": -20.0,
+        }
 
         library.replace_group_members(group["group_code"], [direct_asset["asset_code"]])
         frozen = FunctionalVideoService(connection).get_plan(plan["plan_code"])

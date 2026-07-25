@@ -148,6 +148,19 @@ class AssetSelector:
                 item["media_type"] = "image"
             assets.append(item)
 
+        background_music = self._background_music(shot_list)
+        if background_music is not None:
+            assets.append(
+                {
+                    "asset_code": background_music["asset_code"],
+                    "relative_path": background_music["relative_path"],
+                    "file_size": background_music["file_size"],
+                    "checksum_sha256": background_music["checksum_sha256"],
+                    "media_type": "audio",
+                    "duration_seconds": background_music["duration_seconds"],
+                }
+            )
+
         by_code = {asset["asset_code"]: asset for asset in assets}
         for shot in shot_list.get("shots") or []:
             source = by_code[str(shot["asset_code"])]
@@ -171,7 +184,13 @@ class AssetSelector:
                     f"{shot['shot_code']} ends at {source_end:.3f}s but {shot['asset_code']} is {duration:.3f}s",
                 )
         return {
-            "source": "asset_library_local_video_asset_plan_v1" if shot_sources else "fixed_maitu_asset_plan_v1",
+            "source": (
+                "asset_library_local_video_asset_plan_v1"
+                if shot_sources
+                else "asset_library_local_audio_asset_plan_v1"
+                if background_music is not None
+                else "fixed_maitu_asset_plan_v1"
+            ),
             "assets_root_label": "maitu_materials",
             "asset_count": len(assets),
             "assets": assets,
@@ -199,6 +218,65 @@ class AssetSelector:
                 "brand_logo": ASSET_PATHS["MT-DEC-0003"],
                 "product_sticker": ASSET_PATHS["MT-DEC-0024"],
             },
+            "background_music": background_music,
+        }
+
+    def _background_music(self, shot_list: dict[str, Any]) -> dict[str, Any] | None:
+        candidate = shot_list.get("background_music")
+        if candidate is None:
+            return None
+        if not isinstance(candidate, dict):
+            raise VideoProductionError(
+                "BACKGROUND_MUSIC_INVALID",
+                "background music selection must be an object",
+            )
+        asset_code = str(candidate.get("asset_code") or "").strip()
+        relative_path = str(candidate.get("asset_relative_path") or "").strip()
+        expected_checksum = str(candidate.get("asset_expected_checksum") or "").strip()
+        try:
+            gain_db = float(candidate.get("gain_db"))
+        except (TypeError, ValueError) as exc:
+            raise VideoProductionError(
+                "BACKGROUND_MUSIC_GAIN_INVALID",
+                "background music gain must be numeric",
+            ) from exc
+        if not asset_code or not relative_path:
+            raise VideoProductionError(
+                "BACKGROUND_MUSIC_INVALID",
+                "background music must include an asset code and local path",
+            )
+        if not -36 <= gain_db <= -6:
+            raise VideoProductionError(
+                "BACKGROUND_MUSIC_GAIN_INVALID",
+                "background music gain must remain between -36 dB and -6 dB",
+            )
+        path = self.resolve(relative_path)
+        checksum = sha256_file(path)
+        if not expected_checksum or checksum != expected_checksum:
+            raise VideoProductionError(
+                "BACKGROUND_MUSIC_CHECKSUM_MISMATCH",
+                f"selected background music checksum changed: {asset_code}",
+            )
+        probe = probe_media(path, self.runner)
+        streams = list(probe.get("streams") or [])
+        if not any(str(stream.get("codec_type") or "") == "audio" for stream in streams):
+            raise VideoProductionError(
+                "BACKGROUND_MUSIC_AUDIO_STREAM_MISSING",
+                f"selected background music has no audio stream: {asset_code}",
+            )
+        duration = float((probe.get("format") or {}).get("duration") or 0)
+        if not math.isfinite(duration) or duration <= 0:
+            raise VideoProductionError(
+                "BACKGROUND_MUSIC_DURATION_INVALID",
+                f"selected background music has no usable duration: {asset_code}",
+            )
+        return {
+            "asset_code": asset_code,
+            "relative_path": relative_path,
+            "file_size": path.stat().st_size,
+            "checksum_sha256": checksum,
+            "duration_seconds": round(duration, 3),
+            "gain_db": gain_db,
         }
 
     def resolve(self, relative_path: str) -> Path:
@@ -399,8 +477,21 @@ class FFmpegRenderer:
         narration = store.path("render/narration.wav")
         self._concat_audio(audio_concat_list, narration)
 
+        mixed_audio = narration
+        background_music = asset_plan.get("background_music")
+        if isinstance(background_music, dict):
+            music = self.selector.resolve(str(background_music["relative_path"]))
+            mixed_audio = store.path("render/mixed-audio.wav")
+            self._mix_background_music(
+                narration,
+                music,
+                mixed_audio,
+                duration_seconds=float(shot_list["duration_seconds"]),
+                gain_db=float(background_music["gain_db"]),
+            )
+
         final_video = store.path("final.mp4")
-        self._mux_and_burn_subtitles(silent_video, narration, subtitles_path, final_video)
+        self._mux_and_burn_subtitles(silent_video, mixed_audio, subtitles_path, final_video)
         probe = probe_media(final_video, self.runner)
         return final_video, {
             "source": "ffmpeg_render_v1",
@@ -415,7 +506,76 @@ class FFmpegRenderer:
                 "loudness_target_lufs": -16,
                 "true_peak_target_db": -1.5,
             },
+            "background_music": (
+                {
+                    "asset_code": str(background_music["asset_code"]),
+                    "checksum_sha256": str(background_music["checksum_sha256"]),
+                    "gain_db": float(background_music["gain_db"]),
+                }
+                if isinstance(background_music, dict)
+                else None
+            ),
         }
+
+    def _mix_background_music(
+        self,
+        narration: Path,
+        music: Path,
+        destination: Path,
+        *,
+        duration_seconds: float,
+        gain_db: float,
+    ) -> None:
+        if not math.isfinite(duration_seconds) or duration_seconds <= 0:
+            raise VideoProductionError(
+                "BACKGROUND_MUSIC_DURATION_INVALID",
+                "background music mix requires a positive final duration",
+            )
+        if not math.isfinite(gain_db) or not -36 <= gain_db <= -6:
+            raise VideoProductionError(
+                "BACKGROUND_MUSIC_GAIN_INVALID",
+                "background music gain must remain between -36 dB and -6 dB",
+            )
+        temporary = _temporary_media_path(destination)
+        temporary.unlink(missing_ok=True)
+        try:
+            self.runner.run(
+                [
+                    "ffmpeg",
+                    "-nostdin",
+                    "-hide_banner",
+                    "-loglevel",
+                    "warning",
+                    "-y",
+                    "-i",
+                    narration,
+                    "-stream_loop",
+                    "-1",
+                    "-i",
+                    music,
+                    "-filter_complex",
+                    (
+                        f"[0:a]atrim=duration={duration_seconds:.3f},asetpts=PTS-STARTPTS[voice];"
+                        f"[1:a]atrim=duration={duration_seconds:.3f},asetpts=PTS-STARTPTS,"
+                        f"volume={gain_db:.3f}dB[bgm];"
+                        "[voice][bgm]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[mixed]"
+                    ),
+                    "-map",
+                    "[mixed]",
+                    "-ac",
+                    "1",
+                    "-ar",
+                    "48000",
+                    "-c:a",
+                    "pcm_s16le",
+                    temporary,
+                ],
+                timeout_seconds=600,
+                error_code="BACKGROUND_MUSIC_MIX_FAILED",
+            )
+            temporary.replace(destination)
+        finally:
+            temporary.unlink(missing_ok=True)
 
     def _render_shot(
         self,

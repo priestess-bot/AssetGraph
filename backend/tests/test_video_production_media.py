@@ -170,6 +170,57 @@ def test_asset_selector_uses_a_checksummed_library_video_source(
     assert error.value.error_code == "SOURCE_ASSET_CHECKSUM_MISMATCH"
 
 
+def test_asset_selector_freezes_a_checksummed_background_music_source(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "audio" / "selected.mp3"
+    source.parent.mkdir()
+    source.write_bytes(b"selected library audio")
+    for relative_path in (
+        "装饰/MT-DEC-0003_装饰_品牌Logo_logo.png",
+        "装饰/MT-DEC-0024_装饰_商品贴片_品酒大师PRO.png",
+    ):
+        overlay = tmp_path / relative_path
+        overlay.parent.mkdir(exist_ok=True)
+        overlay.write_bytes(b"overlay")
+    checksum = sha256(source.read_bytes()).hexdigest()
+    monkeypatch.setattr(
+        "app.services.video_production_media.probe_media",
+        lambda *_args: {
+            "streams": [{"codec_type": "audio", "codec_name": "mp3"}],
+            "format": {"duration": "8"},
+        },
+    )
+    shot_list = {
+        "shots": [],
+        "background_music": {
+            "asset_code": "AG-AUD-000001",
+            "asset_relative_path": "audio/selected.mp3",
+            "asset_expected_checksum": checksum,
+            "gain_db": -20,
+        },
+    }
+
+    plan = AssetSelector(tmp_path, SimpleNamespace()).select(shot_list)
+
+    assert plan["source"] == "asset_library_local_audio_asset_plan_v1"
+    assert plan["background_music"] == {
+        "asset_code": "AG-AUD-000001",
+        "relative_path": "audio/selected.mp3",
+        "file_size": len(b"selected library audio"),
+        "checksum_sha256": checksum,
+        "duration_seconds": 8.0,
+        "gain_db": -20.0,
+    }
+    assert plan["assets"][-1]["media_type"] == "audio"
+
+    shot_list["background_music"]["asset_expected_checksum"] = "0" * 64
+    with pytest.raises(VideoProductionError) as error:
+        AssetSelector(tmp_path, SimpleNamespace()).select(shot_list)
+    assert error.value.error_code == "BACKGROUND_MUSIC_CHECKSUM_MISMATCH"
+
+
 def test_shot_render_command_honors_source_end_instead_of_looping_the_full_file(tmp_path: Path) -> None:
     class RecordingRunner:
         def __init__(self) -> None:
@@ -224,6 +275,36 @@ def test_shot_render_command_honors_source_end_instead_of_looping_the_full_file(
 def test_narration_filter_controls_dynamics_before_loudness_normalization() -> None:
     assert NARRATION_AUDIO_FILTER.startswith("acompressor=")
     assert NARRATION_AUDIO_FILTER.endswith("loudnorm=I=-16:TP=-1.5:LRA=11")
+
+
+def test_background_music_mix_loops_and_trims_to_the_final_timeline(tmp_path: Path) -> None:
+    class RecordingRunner:
+        def __init__(self) -> None:
+            self.calls: list[list[str]] = []
+
+        def run(self, args, **_kwargs):  # type: ignore[no-untyped-def]
+            command = [str(value) for value in args]
+            self.calls.append(command)
+            Path(command[-1]).write_bytes(b"audio")
+            return SimpleNamespace(stdout="")
+
+    runner = RecordingRunner()
+    destination = tmp_path / "mixed.wav"
+    FFmpegRenderer(tmp_path, runner)._mix_background_music(
+        tmp_path / "narration.wav",
+        tmp_path / "music.mp3",
+        destination,
+        duration_seconds=55,
+        gain_db=-20,
+    )
+
+    command = runner.calls[0]
+    assert command[command.index("-stream_loop") + 1] == "-1"
+    filters = command[command.index("-filter_complex") + 1]
+    assert "[1:a]atrim=duration=55.000" in filters
+    assert "volume=-20.000dB" in filters
+    assert "amix=inputs=2:duration=first" in filters
+    assert destination.read_bytes() == b"audio"
 
 
 def test_freeze_segments_include_closed_and_end_of_file_ranges() -> None:
