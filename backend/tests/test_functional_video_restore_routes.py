@@ -155,6 +155,8 @@ def test_create_video_plan_accepts_a_fixed_live_room_source(client: tuple[TestCl
             "product_sticker_asset_code": None,
             "background_music_asset_code": None,
             "background_music_gain_db": -18.0,
+            "sound_effect_asset_code": None,
+            "sound_effect_gain_db": -9.0,
             "actor_id": "functional-operator",
         }
     ]
@@ -188,6 +190,8 @@ def test_create_video_plan_accepts_up_to_six_explicit_visual_assets(
             "product_sticker_asset_code": None,
             "background_music_asset_code": None,
             "background_music_gain_db": -18.0,
+            "sound_effect_asset_code": None,
+            "sound_effect_gain_db": -9.0,
             "actor_id": "functional-operator",
         }
     ]
@@ -222,6 +226,8 @@ def test_create_video_plan_accepts_group_and_published_pack_sources(
             "product_sticker_asset_code": None,
             "background_music_asset_code": None,
             "background_music_gain_db": -18.0,
+            "sound_effect_asset_code": None,
+            "sound_effect_gain_db": -9.0,
             "actor_id": "functional-operator",
         }
     ]
@@ -255,6 +261,8 @@ def test_create_video_plan_accepts_a_local_product_sticker(
             "product_sticker_asset_code": "AG-IMG-000001",
             "background_music_asset_code": None,
             "background_music_gain_db": -18.0,
+            "sound_effect_asset_code": None,
+            "sound_effect_gain_db": -9.0,
             "actor_id": "functional-operator",
         }
     ]
@@ -288,6 +296,8 @@ def test_create_video_plan_accepts_a_local_brand_logo(
             "product_sticker_asset_code": None,
             "background_music_asset_code": None,
             "background_music_gain_db": -18.0,
+            "sound_effect_asset_code": None,
+            "sound_effect_gain_db": -9.0,
             "actor_id": "functional-operator",
         }
     ]

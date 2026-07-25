@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from app.services.functional_videos import FunctionalVideoService
 
 
@@ -259,8 +261,47 @@ def test_selected_material_codes_include_background_music_for_snapshot_and_relea
                 {"asset_code": "AG-VID-002"},
             ],
             "background_music": {"asset_code": "AG-AUD-001"},
+            "sound_effect": {"asset_code": "AG-AUD-002"},
         }
-    ) == ["AG-VID-001", "AG-VID-002", "AG-AUD-001"]
+    ) == ["AG-VID-001", "AG-VID-002", "AG-AUD-001", "AG-AUD-002"]
+
+
+def test_timeline_keeps_sound_effects_bound_to_selected_shot_starts() -> None:
+    updated = FunctionalVideoService._apply_timeline_update(
+        _timeline(),
+        [
+            {"clip_code": "SHOT-02", "duration_ms": 30_000, "transition": "cut", "play_sound_effect": True},
+            {"clip_code": "SHOT-01", "duration_ms": 30_000, "transition": "cut", "play_sound_effect": False},
+        ],
+    )
+
+    video_track = next(track for track in updated["tracks"] if track["track_kind"] == "video")
+    assert video_track["clips"][0]["audio_roles"] == ["sound_effect"]
+    rendered = FunctionalVideoService._timeline_shot_list(
+        {
+            "sound_effect": {"asset_code": "AG-AUD-002"},
+            "shots": [{"shot_code": "SHOT-01"}, {"shot_code": "SHOT-02"}],
+        },
+        updated,
+    )
+    assert rendered["shots"][0]["shot_code"] == "SHOT-02"
+    assert rendered["shots"][0]["start_seconds"] == 0.0
+    assert rendered["shots"][0]["audio_roles"] == ["sound_effect"]
+
+
+def test_timeline_rejects_sound_effect_without_frozen_source() -> None:
+    updated = FunctionalVideoService._apply_timeline_update(
+        _timeline(),
+        [
+            {"clip_code": "SHOT-01", "duration_ms": 30_000, "transition": "cut", "play_sound_effect": True},
+            {"clip_code": "SHOT-02", "duration_ms": 30_000, "transition": "cut"},
+        ],
+    )
+    with pytest.raises(Exception, match="frozen local sound-effect"):
+        FunctionalVideoService._timeline_shot_list(
+            {"shots": [{"shot_code": "SHOT-01"}, {"shot_code": "SHOT-02"}]},
+            updated,
+        )
 
 
 def test_timeline_rejects_incomplete_or_out_of_range_voice_gains() -> None:

@@ -475,7 +475,7 @@
 .video-timeline strong { font-size: 12px; }
 .video-timeline small { color: var(--wb-muted); font-size: 7px; overflow-wrap: anywhere; }
 .video-timeline-editor { display: grid; gap: 1px; border-top: 1px solid var(--wb-line); background: var(--wb-line); }
-.video-timeline-editor > div { display: grid; grid-template-columns: minmax(80px, .7fr) auto minmax(110px, .9fr) minmax(110px, .9fr) minmax(90px, .75fr) minmax(90px, .75fr) minmax(90px, .75fr) minmax(90px, .7fr) minmax(170px, 1fr) minmax(210px, 1.25fr); align-items: end; gap: 8px; padding: 9px 12px; background: #fff; }
+.video-timeline-editor > div { display: grid; grid-template-columns: minmax(80px, .7fr) auto minmax(110px, .9fr) minmax(110px, .9fr) minmax(90px, .75fr) minmax(90px, .75fr) minmax(90px, .75fr) minmax(90px, .7fr) minmax(90px, .7fr) minmax(170px, 1fr) minmax(210px, 1.25fr); align-items: end; gap: 8px; padding: 9px 12px; background: #fff; }
 .video-overlay-toggle { align-self: end; }
 .video-overlay-toggle input { accent-color: var(--console-cyan); }
 .video-crop-position { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }

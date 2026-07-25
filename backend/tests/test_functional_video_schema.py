@@ -33,22 +33,32 @@ def test_video_plan_create_validates_each_visual_selection_list() -> None:
         )
 
 
-def test_video_plan_create_bounds_background_music_gain() -> None:
+def test_video_plan_create_bounds_local_audio_gains() -> None:
     plan = FunctionalVideoPlanCreate(
         project_code="CONTENT-001",
         brand_logo_asset_code="AG-IMG-000",
         product_sticker_asset_code="AG-IMG-001",
         background_music_asset_code="AG-AUD-001",
         background_music_gain_db=-20,
+        sound_effect_asset_code="AG-AUD-002",
+        sound_effect_gain_db=-9,
     )
 
     assert plan.background_music_asset_code == "AG-AUD-001"
     assert plan.brand_logo_asset_code == "AG-IMG-000"
     assert plan.product_sticker_asset_code == "AG-IMG-001"
     assert plan.background_music_gain_db == -20
+    assert plan.sound_effect_asset_code == "AG-AUD-002"
+    assert plan.sound_effect_gain_db == -9
     with pytest.raises(ValidationError):
         FunctionalVideoPlanCreate(
             project_code="CONTENT-001",
             background_music_asset_code="AG-AUD-001",
             background_music_gain_db=-40,
+        )
+    with pytest.raises(ValidationError):
+        FunctionalVideoPlanCreate(
+            project_code="CONTENT-001",
+            sound_effect_asset_code="AG-AUD-002",
+            sound_effect_gain_db=7,
         )

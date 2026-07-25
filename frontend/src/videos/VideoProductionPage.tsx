@@ -170,10 +170,11 @@ function FixedInputTrace({ plan }: { plan: FunctionalVideoPlan }) {
       .map((clip) => [clip.linked_shot_code!, clip]),
   );
   const backgroundMusic = plan.renderProfile.backgroundMusic;
+  const soundEffect = plan.renderProfile.soundEffect;
   const brandLogo = plan.renderProfile.brandLogo;
   const productSticker = plan.renderProfile.productSticker;
 
-  if (!videoClips.length && !backgroundMusic && !brandLogo && !productSticker)
+  if (!videoClips.length && !backgroundMusic && !soundEffect && !brandLogo && !productSticker)
     return null;
 
   return (
@@ -227,6 +228,12 @@ function FixedInputTrace({ plan }: { plan: FunctionalVideoPlan }) {
                   <dt>旁白增益</dt>
                   <dd>{decimal(voice?.gain_db, " dB")}</dd>
                 </div>
+                {clip.audio_roles?.includes("sound_effect") ? (
+                  <div>
+                    <dt>音效</dt>
+                    <dd>镜头起点</dd>
+                  </div>
+                ) : null}
               </dl>
             </article>
           );
@@ -247,6 +254,26 @@ function FixedInputTrace({ plan }: { plan: FunctionalVideoPlan }) {
               <div>
                 <dt>增益</dt>
                 <dd>{backgroundMusic.gainDb.toFixed(1)} dB</dd>
+              </div>
+            </dl>
+          </article>
+        ) : null}
+        {soundEffect ? (
+          <article className="video-input-trace-bgm">
+            <header>
+              <code>SFX-01</code>
+              <small>镜头音效</small>
+            </header>
+            <dl>
+              <div className="video-input-trace-wide">
+                <dt>音效源</dt>
+                <dd>
+                  <code>{soundEffect.assetCode}</code> · {soundEffect.checksumSha256.slice(0, 12)}
+                </dd>
+              </div>
+              <div>
+                <dt>增益</dt>
+                <dd>{soundEffect.gainDb.toFixed(1)} dB</dd>
               </div>
             </dl>
           </article>
@@ -409,6 +436,7 @@ type EditableTimelineClip = {
   cropY?: number;
   playbackRate?: number;
   productSticker?: boolean;
+  soundEffect?: boolean;
 };
 
 function editableTimelineClips(
@@ -432,6 +460,7 @@ function editableTimelineClips(
       cropY: clip.crop_y,
       playbackRate: clip.playback_rate,
       productSticker: clip.overlay_roles?.includes("product_sticker"),
+      soundEffect: clip.audio_roles?.includes("sound_effect"),
     })) ?? []
   );
 }
@@ -552,6 +581,9 @@ function TimelineEditor({ plan }: { plan: FunctionalVideoPlan }) {
             : {}),
           ...(typeof clip.productSticker === "boolean"
             ? { show_product_sticker: clip.productSticker }
+            : {}),
+          ...(typeof clip.soundEffect === "boolean"
+            ? { play_sound_effect: clip.soundEffect }
             : {}),
         })),
         subtitle_clips: subtitleClips.map((clip) => ({
@@ -804,6 +836,18 @@ function TimelineEditor({ plan }: { plan: FunctionalVideoPlan }) {
                   disabled={!editable}
                   onChange={(event) =>
                     updateClip(index, { productSticker: event.target.checked })
+                  }
+                />
+              </label>
+              <label className="wb-field video-overlay-toggle">
+                <span>音效</span>
+                <input
+                  aria-label={`音效 ${clip.clipCode}`}
+                  type="checkbox"
+                  checked={clip.soundEffect ?? false}
+                  disabled={!editable}
+                  onChange={(event) =>
+                    updateClip(index, { soundEffect: event.target.checked })
                   }
                 />
               </label>
@@ -1485,6 +1529,8 @@ export function VideoProductionPage() {
   >([]);
   const [backgroundMusicAssetCode, setBackgroundMusicAssetCode] = useState("");
   const [backgroundMusicGainDb, setBackgroundMusicGainDb] = useState(-18);
+  const [soundEffectAssetCode, setSoundEffectAssetCode] = useState("");
+  const [soundEffectGainDb, setSoundEffectGainDb] = useState(-9);
   const [brandLogoAssetCode, setBrandLogoAssetCode] = useState("");
   const [productStickerAssetCode, setProductStickerAssetCode] = useState("");
   const [selected, setSelected] = useState("");
@@ -1574,6 +1620,12 @@ export function VideoProductionPage() {
       asset.executionCapability === "local_only" &&
       asset.materialRoles.includes("background_music"),
   );
+  const localSoundEffectAssets = (assets.data ?? []).filter(
+    (asset) =>
+      asset.mediaKind === "audio" &&
+      asset.executionCapability === "local_only" &&
+      asset.materialRoles.includes("sound_effect"),
+  );
   const localProductStickerAssets = (assets.data ?? []).filter(
     (asset) =>
       asset.mediaKind === "image" &&
@@ -1612,6 +1664,7 @@ export function VideoProductionPage() {
   const selectedBrandLogo = assetsByCode.get(brandLogoAssetCode);
   const selectedProductSticker = assetsByCode.get(productStickerAssetCode);
   const selectedBackgroundMusic = assetsByCode.get(backgroundMusicAssetCode);
+  const selectedSoundEffect = assetsByCode.get(soundEffectAssetCode);
   const toggleVisualAsset = (assetCode: string) =>
     setVisualAssetCodes((current) =>
       current.includes(assetCode)
@@ -1660,6 +1713,12 @@ export function VideoProductionPage() {
                     background_music_gain_db: backgroundMusicGainDb,
                   }
                 : {}),
+              ...(soundEffectAssetCode
+                ? {
+                    sound_effect_asset_code: soundEffectAssetCode,
+                    sound_effect_gain_db: soundEffectGainDb,
+                  }
+                : {}),
             }
           : {
               live_room_plan_code: liveRoomPlanCode,
@@ -1683,6 +1742,12 @@ export function VideoProductionPage() {
                 ? {
                     background_music_asset_code: backgroundMusicAssetCode,
                     background_music_gain_db: backgroundMusicGainDb,
+                  }
+                : {}),
+              ...(soundEffectAssetCode
+                ? {
+                    sound_effect_asset_code: soundEffectAssetCode,
+                    sound_effect_gain_db: soundEffectGainDb,
                   }
                 : {}),
             },
@@ -1916,6 +1981,46 @@ export function VideoProductionPage() {
                   disabled={!backgroundMusicAssetCode}
                   onChange={(event) =>
                     setBackgroundMusicGainDb(Number(event.target.value))
+                  }
+                />
+              </label>
+            </>
+          ) : null}
+          {localSoundEffectAssets.length ? (
+            <>
+              <label className="wb-field">
+                <span>音效</span>
+                <select
+                  aria-label="音效"
+                  className="wb-input"
+                  value={soundEffectAssetCode}
+                  onChange={(event) =>
+                    setSoundEffectAssetCode(event.target.value)
+                  }
+                >
+                  <option value="">不使用</option>
+                  {localSoundEffectAssets.map((asset) => (
+                    <option key={asset.assetCode} value={asset.assetCode}>
+                      {asset.title} · {asset.assetCode}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {selectedSoundEffect ? (
+                <LocalMaterialPreview asset={selectedSoundEffect} />
+              ) : null}
+              <label className="wb-field">
+                <span>音效增益 {soundEffectGainDb.toFixed(1)} dB</span>
+                <input
+                  aria-label="音效增益"
+                  type="range"
+                  min="-24"
+                  max="6"
+                  step="0.5"
+                  value={soundEffectGainDb}
+                  disabled={!soundEffectAssetCode}
+                  onChange={(event) =>
+                    setSoundEffectGainDb(Number(event.target.value))
                   }
                 />
               </label>

@@ -18,6 +18,8 @@ class FunctionalVideoPlanCreate(BaseModel):
     product_sticker_asset_code: str | None = Field(default=None, min_length=1, max_length=64)
     background_music_asset_code: str | None = Field(default=None, min_length=1, max_length=64)
     background_music_gain_db: float = Field(default=-18.0, ge=-36, le=-6)
+    sound_effect_asset_code: str | None = Field(default=None, min_length=1, max_length=64)
+    sound_effect_gain_db: float = Field(default=-9.0, ge=-24, le=6)
 
     @field_validator(
         "visual_asset_codes",
@@ -54,6 +56,7 @@ class FunctionalVideoTimelineClipUpdate(BaseModel):
     crop_y: float | None = Field(default=None, ge=0, le=1)
     playback_rate: float | None = Field(default=None, ge=0.5, le=2)
     show_product_sticker: bool | None = None
+    play_sound_effect: bool | None = None
 
     @model_validator(mode="after")
     def source_range_is_complete_and_ordered(self) -> "FunctionalVideoTimelineClipUpdate":

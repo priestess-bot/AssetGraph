@@ -57,6 +57,10 @@ class FunctionalVideoService:
             payload.get("background_music_asset_code"),
             gain_db=payload.get("background_music_gain_db", -18.0),
         )
+        sound_effect = self._resolve_sound_effect_asset(
+            payload.get("sound_effect_asset_code"),
+            gain_db=payload.get("sound_effect_gain_db", -9.0),
+        )
         product_sticker = self._resolve_product_sticker_asset(
             payload.get("product_sticker_asset_code"),
         )
@@ -68,6 +72,7 @@ class FunctionalVideoService:
             duration,
             visual_assets=visual_assets,
             background_music=background_music,
+            sound_effect=sound_effect,
             product_sticker=product_sticker,
             brand_logo=brand_logo,
         )
@@ -94,6 +99,7 @@ class FunctionalVideoService:
                 "brand_logo": brand_logo,
                 "product_sticker": product_sticker,
                 "background_music": background_music,
+                "sound_effect": sound_effect,
             },
             constraint_snapshot_ref={"source": "functional-content-timeline.v1"},
             actor_id=actor_id, producer_strategy_revision="functional-video.v1",
@@ -140,6 +146,15 @@ class FunctionalVideoService:
                     "gain_db": background_music["gain_db"],
                 }
                 if background_music
+                else None
+            ),
+            "sound_effect": (
+                {
+                    "asset_code": sound_effect["asset_code"],
+                    "checksum_sha256": sound_effect["checksum_sha256"],
+                    "gain_db": sound_effect["gain_db"],
+                }
+                if sound_effect
                 else None
             ),
             "target_duration_seconds": duration,
@@ -382,6 +397,73 @@ class FunctionalVideoService:
             raise DomainValidationError(
                 "VIDEO_BACKGROUND_MUSIC_NOT_RENDERABLE",
                 "Background music must be a checksummed local audio asset classified for background music",
+                details={"asset_code": code},
+            )
+        return {
+            "asset_code": code,
+            "relative_path": relative_path,
+            "checksum_sha256": checksum,
+            "gain_db": normalized_gain,
+        }
+
+    def _resolve_sound_effect_asset(
+        self,
+        asset_code: Any,
+        *,
+        gain_db: Any,
+    ) -> dict[str, Any] | None:
+        code = str(asset_code or "").strip()
+        if not code:
+            return None
+        try:
+            normalized_gain = float(gain_db)
+        except (TypeError, ValueError) as exc:
+            raise DomainValidationError(
+                "VIDEO_SOUND_EFFECT_GAIN_INVALID",
+                "Sound effect gain must be numeric",
+            ) from exc
+        if not -24 <= normalized_gain <= 6:
+            raise DomainValidationError(
+                "VIDEO_SOUND_EFFECT_GAIN_INVALID",
+                "Sound effect gain must remain between -24 dB and 6 dB",
+            )
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT asset_code, media_kind, material_roles,
+                       execution_capability, local_relative_path, checksum_sha256
+                FROM assets
+                WHERE asset_code = %s AND deleted_at IS NULL
+                """,
+                (code,),
+            )
+            row = cursor.fetchone()
+        if row is None:
+            raise DomainValidationError(
+                "VIDEO_SOUND_EFFECT_NOT_FOUND",
+                "The selected sound effect asset does not exist in the material library",
+                details={"asset_code": code},
+            )
+        relative_path = str(row.get("local_relative_path") or "").strip()
+        checksum = str(row.get("checksum_sha256") or "").strip()
+        checksum_is_valid = len(checksum) == 64 and all(
+            character in "0123456789abcdef" for character in checksum
+        )
+        path_is_safe = (
+            bool(relative_path)
+            and not Path(relative_path).is_absolute()
+            and ".." not in Path(relative_path).parts
+        )
+        if (
+            str(row.get("media_kind") or "") != "audio"
+            or "sound_effect" not in list(row.get("material_roles") or [])
+            or str(row.get("execution_capability") or "") != "local_only"
+            or not checksum_is_valid
+            or not path_is_safe
+        ):
+            raise DomainValidationError(
+                "VIDEO_SOUND_EFFECT_NOT_RENDERABLE",
+                "Sound effect must be a checksummed local audio asset classified for sound effects",
                 details={"asset_code": code},
             )
         return {
@@ -1134,6 +1216,11 @@ class FunctionalVideoService:
                         if clip.get("overlay_roles") is not None
                         else {}
                     ),
+                    **(
+                        {"play_sound_effect": "sound_effect" in (clip.get("audio_roles") or [])}
+                        if clip.get("audio_roles") is not None
+                        else {}
+                    ),
                 }
             )
         return updates
@@ -1266,6 +1353,22 @@ class FunctionalVideoService:
                 if show_product_sticker:
                     roles.append("product_sticker")
                 clip["overlay_roles"] = roles
+            play_sound_effect = update.get("play_sound_effect")
+            if play_sound_effect is not None:
+                if type(play_sound_effect) is not bool:
+                    raise DomainValidationError(
+                        "VIDEO_TIMELINE_SOUND_EFFECT_INVALID",
+                        "Sound effect selection must be a boolean",
+                        details={"clip_code": clip["clip_code"]},
+                    )
+                audio_roles = [
+                    str(role)
+                    for role in clip.get("audio_roles") or []
+                    if str(role) != "sound_effect"
+                ]
+                if play_sound_effect:
+                    audio_roles.append("sound_effect")
+                clip["audio_roles"] = audio_roles
             source_asset_code = str(update.get("source_asset_code") or "").strip()
             if source_asset_code:
                 source = dict(clip.get("source_range") or {})
@@ -1562,6 +1665,12 @@ class FunctionalVideoService:
                     for role in clip["overlay_roles"]
                     if str(role) in {"brand_logo", "product_sticker"}
                 ]
+            if isinstance(clip.get("audio_roles"), list):
+                shot["audio_roles"] = [
+                    str(role)
+                    for role in clip["audio_roles"]
+                    if str(role) == "sound_effect"
+                ]
             source_range = clip.get("source_range") or {}
             source_asset_code = str(source_range.get("asset_code") or "").strip()
             current_asset_code = str(shot.get("asset_code") or "").strip()
@@ -1607,6 +1716,13 @@ class FunctionalVideoService:
             if audio is not None:
                 shot["voice_gain_db"] = float(audio.get("gain_db") or 0)
             ordered_shots.append(shot)
+        if any("sound_effect" in (shot.get("audio_roles") or []) for shot in ordered_shots) and not isinstance(
+            result.get("sound_effect"), dict
+        ):
+            raise DomainValidationError(
+                "VIDEO_TIMELINE_SOUND_EFFECT_NOT_SELECTED",
+                "Timeline sound effects require a frozen local sound-effect source",
+            )
         result["shots"] = ordered_shots
         result["duration_seconds"] = timeline["global_end_ms"] / 1000
         result["poster_time_seconds"] = float(
@@ -1625,6 +1741,7 @@ class FunctionalVideoService:
         *,
         visual_assets: list[dict[str, str]] | None = None,
         background_music: dict[str, Any] | None = None,
+        sound_effect: dict[str, Any] | None = None,
         product_sticker: dict[str, str] | None = None,
         brand_logo: dict[str, str] | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
@@ -1646,6 +1763,8 @@ class FunctionalVideoService:
             end = round(cursor + item_duration, 3)
             compiled.append({"shot_index": index, "shot_code": f"SHOT-{index + 1:02d}", "start_seconds": cursor, "end_seconds": end, "duration_seconds": item_duration, "goal": "content_project", "narration": chunk, "tts_text": chunk.replace("PRO", "P R O"), "screen_text": chunk[:28], "asset_code": asset_code, "asset_relative_path": selected_asset["relative_path"] if selected_asset else None, "asset_expected_checksum": selected_asset["checksum_sha256"] if selected_asset else None, "source_start_seconds": source_start, "source_end_seconds": source_end, "source_available_seconds": source_end - source_start, "fit": fit, "playback_rate": 1.0, "visual_role": "selected_library_video" if selected_asset else "baseline_visual", "transition": "fade_out" if index == 5 else "cut", "overlay_roles": ["brand_logo"] if index in {0, 5} else []})
             cursor = end
+        if sound_effect is not None and compiled:
+            compiled[0]["audio_roles"] = ["sound_effect"]
         story = {"source": "content_project_revision", "project_code": detail["project_code"], "objective": detail["generation_goal"], "content": detail["story_brief"]["content"], "format": {"orientation": "vertical", "width": 1080, "height": 1920, "target_duration_seconds": duration, "shot_count": 6}}
         script = {"source": "content_project_revision", "title": detail["title"], "spoken_script": "".join(chunks), "sections": [{"section_index": index, "section_type": "content_project", "narration": chunk, "tts_text": chunk.replace("PRO", "P R O"), "screen_text": chunk[:28]} for index, chunk in enumerate(chunks)], "section_count": len(chunks)}
         poster_time_ms = min(2_000, duration * 1000 - 1)
@@ -1666,6 +1785,13 @@ class FunctionalVideoService:
                 "asset_expected_checksum": background_music["checksum_sha256"],
                 "gain_db": background_music["gain_db"],
             }
+        if sound_effect is not None:
+            shots["sound_effect"] = {
+                "asset_code": sound_effect["asset_code"],
+                "asset_relative_path": sound_effect["relative_path"],
+                "asset_expected_checksum": sound_effect["checksum_sha256"],
+                "gain_db": sound_effect["gain_db"],
+            }
         if product_sticker is not None:
             shots["product_sticker"] = {
                 "asset_code": product_sticker["asset_code"],
@@ -1681,7 +1807,7 @@ class FunctionalVideoService:
         audio_clips = [{"clip_code": f"VOICE-{shot['shot_code']}", "linked_shot_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "gain_db": 0.0} for shot in compiled]
         if background_music is not None:
             audio_clips.append({"clip_code": "BGM-01", "timeline_range": {"start_ms": 0, "duration_ms": duration * 1000}, "asset_code": background_music["asset_code"], "gain_db": background_music["gain_db"]})
-        timeline = {"schema_version": "otio-compatible-production-timeline.v1", "global_start_ms": 0, "global_end_ms": duration * 1000, "poster_time_ms": poster_time_ms, "tracks": [{"track_kind": "video", "clips": [{"clip_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "source_range": {"asset_code": shot["asset_code"], "start_seconds": shot["source_start_seconds"], "end_seconds": shot["source_end_seconds"], "available_start_seconds": shot["source_start_seconds"], "available_end_seconds": shot["source_end_seconds"]}, "fit": shot["fit"], "crop_x": 0.5, "crop_y": 0.5, "playback_rate": shot["playback_rate"], "overlay_roles": shot["overlay_roles"], "transition": shot["transition"]} for shot in compiled]}, {"track_kind": "audio", "clips": audio_clips}, {"track_kind": "subtitle", "clips": [{"clip_code": f"SUBTITLE-{shot['shot_code']}", "linked_shot_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "subtitle_text": shot["narration"], "headline_text": shot["screen_text"], "caption_position": "bottom"} for shot in compiled]}]}
+        timeline = {"schema_version": "otio-compatible-production-timeline.v1", "global_start_ms": 0, "global_end_ms": duration * 1000, "poster_time_ms": poster_time_ms, "tracks": [{"track_kind": "video", "clips": [{"clip_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "source_range": {"asset_code": shot["asset_code"], "start_seconds": shot["source_start_seconds"], "end_seconds": shot["source_end_seconds"], "available_start_seconds": shot["source_start_seconds"], "available_end_seconds": shot["source_end_seconds"]}, "fit": shot["fit"], "crop_x": 0.5, "crop_y": 0.5, "playback_rate": shot["playback_rate"], "overlay_roles": shot["overlay_roles"], "audio_roles": shot.get("audio_roles", []), "transition": shot["transition"]} for shot in compiled]}, {"track_kind": "audio", "clips": audio_clips}, {"track_kind": "subtitle", "clips": [{"clip_code": f"SUBTITLE-{shot['shot_code']}", "linked_shot_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "subtitle_text": shot["narration"], "headline_text": shot["screen_text"], "caption_position": "bottom"} for shot in compiled]}]}
         return story, script, shots, timeline
 
     @staticmethod
@@ -1694,6 +1820,9 @@ class FunctionalVideoService:
         background_music = shot_list.get("background_music")
         if isinstance(background_music, dict):
             codes.append(str(background_music.get("asset_code") or "").strip())
+        sound_effect = shot_list.get("sound_effect")
+        if isinstance(sound_effect, dict):
+            codes.append(str(sound_effect.get("asset_code") or "").strip())
         product_sticker = shot_list.get("product_sticker")
         if isinstance(product_sticker, dict):
             codes.append(str(product_sticker.get("asset_code") or "").strip())

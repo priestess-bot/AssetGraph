@@ -221,6 +221,52 @@ def test_asset_selector_freezes_a_checksummed_background_music_source(
     assert error.value.error_code == "BACKGROUND_MUSIC_CHECKSUM_MISMATCH"
 
 
+def test_asset_selector_freezes_a_checksummed_sound_effect_source(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "audio" / "effect.mp3"
+    source.parent.mkdir()
+    source.write_bytes(b"selected sound effect")
+    for relative_path in (
+        "装饰/MT-DEC-0003_装饰_品牌Logo_logo.png",
+        "装饰/MT-DEC-0024_装饰_商品贴片_品酒大师PRO.png",
+    ):
+        overlay = tmp_path / relative_path
+        overlay.parent.mkdir(exist_ok=True)
+        overlay.write_bytes(b"overlay")
+    checksum = sha256(source.read_bytes()).hexdigest()
+    monkeypatch.setattr(
+        "app.services.video_production_media.probe_media",
+        lambda *_args: {
+            "streams": [{"codec_type": "audio", "codec_name": "mp3"}],
+            "format": {"duration": "1.5"},
+        },
+    )
+
+    plan = AssetSelector(tmp_path, SimpleNamespace()).select(
+        {
+            "shots": [],
+            "sound_effect": {
+                "asset_code": "AG-AUD-000002",
+                "asset_relative_path": "audio/effect.mp3",
+                "asset_expected_checksum": checksum,
+                "gain_db": -9,
+            },
+        }
+    )
+
+    assert plan["sound_effect"] == {
+        "asset_code": "AG-AUD-000002",
+        "relative_path": "audio/effect.mp3",
+        "file_size": len(b"selected sound effect"),
+        "checksum_sha256": checksum,
+        "duration_seconds": 1.5,
+        "gain_db": -9.0,
+    }
+    assert plan["assets"][-1]["asset_code"] == "AG-AUD-000002"
+
+
 def test_asset_selector_uses_a_checksummed_local_product_sticker(
     tmp_path: Path,
 ) -> None:
@@ -384,6 +430,37 @@ def test_background_music_mix_loops_and_trims_to_the_final_timeline(tmp_path: Pa
     assert "[1:a]atrim=duration=55.000" in filters
     assert "volume=-20.000dB" in filters
     assert "amix=inputs=2:duration=first" in filters
+    assert destination.read_bytes() == b"audio"
+
+
+def test_sound_effect_mix_delays_each_selected_shot_and_keeps_background_music(tmp_path: Path) -> None:
+    class RecordingRunner:
+        def __init__(self) -> None:
+            self.calls: list[list[str]] = []
+
+        def run(self, args, **_kwargs):  # type: ignore[no-untyped-def]
+            command = [str(value) for value in args]
+            self.calls.append(command)
+            Path(command[-1]).write_bytes(b"audio")
+            return SimpleNamespace(stdout="")
+
+    runner = RecordingRunner()
+    destination = tmp_path / "mixed.wav"
+    FFmpegRenderer(tmp_path, runner)._mix_audio_layers(
+        tmp_path / "narration.wav",
+        destination,
+        duration_seconds=55,
+        background_music=(tmp_path / "music.mp3", -20),
+        sound_effect=(tmp_path / "effect.mp3", -9, [0, 30]),
+    )
+
+    command = runner.calls[0]
+    assert command.count(str(tmp_path / "effect.mp3")) == 2
+    filters = command[command.index("-filter_complex") + 1]
+    assert "adelay=0:all=1" in filters
+    assert "adelay=30000:all=1" in filters
+    assert "volume=-9.000dB" in filters
+    assert "amix=inputs=4:duration=first" in filters
     assert destination.read_bytes() == b"audio"
 
 

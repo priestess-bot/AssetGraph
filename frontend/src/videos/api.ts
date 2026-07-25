@@ -38,6 +38,7 @@ export interface FunctionalVideoPlan {
         crop_y?: number;
         playback_rate?: number;
         overlay_roles?: string[];
+        audio_roles?: string[];
         linked_shot_code?: string;
         subtitle_text?: string;
         headline_text?: string;
@@ -63,6 +64,11 @@ export interface FunctionalVideoPlan {
     brandLogo?: { assetCode: string; checksumSha256: string };
     productSticker?: { assetCode: string; checksumSha256: string };
     backgroundMusic?: {
+      assetCode: string;
+      checksumSha256: string;
+      gainDb: number;
+    };
+    soundEffect?: {
       assetCode: string;
       checksumSha256: string;
       gainDb: number;
@@ -270,6 +276,11 @@ function productionTimeline(
                               typeof role === "string" ? [role] : [],
                             )
                           : undefined,
+                        audio_roles: Array.isArray(clip.audio_roles)
+                          ? asArray(clip.audio_roles).flatMap((role) =>
+                              typeof role === "string" ? [role] : [],
+                            )
+                          : undefined,
                         linked_shot_code: asOptionalString(
                           clip.linked_shot_code,
                         ),
@@ -378,6 +389,16 @@ function plan(value: unknown): FunctionalVideoPlan {
               gainDb: asNumber(profile.background_music.gain_db),
             }
           : undefined,
+      soundEffect:
+        isRecord(profile.sound_effect) &&
+        asString(profile.sound_effect.asset_code) &&
+        asString(profile.sound_effect.checksum_sha256)
+          ? {
+              assetCode: asString(profile.sound_effect.asset_code),
+              checksumSha256: asString(profile.sound_effect.checksum_sha256),
+              gainDb: asNumber(profile.sound_effect.gain_db),
+            }
+          : undefined,
       target_duration_seconds:
         typeof profile.target_duration_seconds === "number"
           ? profile.target_duration_seconds
@@ -475,6 +496,8 @@ export const functionalVideosApi = {
     product_sticker_asset_code?: string;
     background_music_asset_code?: string;
     background_music_gain_db?: number;
+    sound_effect_asset_code?: string;
+    sound_effect_gain_db?: number;
   }) => postJson<unknown>(ROOT, payload).then(plan),
   updateTimeline: (
     code: string,
@@ -493,6 +516,7 @@ export const functionalVideosApi = {
         crop_y?: number;
         playback_rate?: number;
         show_product_sticker?: boolean;
+        play_sound_effect?: boolean;
       }>;
       subtitle_clips?: Array<{
         clip_code: string;

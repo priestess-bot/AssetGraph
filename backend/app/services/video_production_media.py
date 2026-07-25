@@ -154,6 +154,7 @@ class AssetSelector:
             assets.append(item)
 
         background_music = self._background_music(shot_list)
+        sound_effect = self._sound_effect(shot_list)
         if brand_logo is not None:
             assets.append(
                 {
@@ -185,6 +186,17 @@ class AssetSelector:
                     "duration_seconds": background_music["duration_seconds"],
                 }
             )
+        if sound_effect is not None:
+            assets.append(
+                {
+                    "asset_code": sound_effect["asset_code"],
+                    "relative_path": sound_effect["relative_path"],
+                    "file_size": sound_effect["file_size"],
+                    "checksum_sha256": sound_effect["checksum_sha256"],
+                    "media_type": "audio",
+                    "duration_seconds": sound_effect["duration_seconds"],
+                }
+            )
 
         by_code = {asset["asset_code"]: asset for asset in assets}
         for shot in shot_list.get("shots") or []:
@@ -213,7 +225,7 @@ class AssetSelector:
                 "asset_library_local_video_asset_plan_v1"
                 if shot_sources
                 else "asset_library_local_audio_asset_plan_v1"
-                if background_music is not None
+                if background_music is not None or sound_effect is not None
                 else "asset_library_local_overlay_asset_plan_v1"
                 if brand_logo is not None or product_sticker is not None
                 else "fixed_maitu_asset_plan_v1"
@@ -256,6 +268,7 @@ class AssetSelector:
             "brand_logo": brand_logo,
             "product_sticker": product_sticker,
             "background_music": background_music,
+            "sound_effect": sound_effect,
         }
 
     def _brand_logo(self, shot_list: dict[str, Any]) -> dict[str, Any] | None:
@@ -368,6 +381,64 @@ class AssetSelector:
             raise VideoProductionError(
                 "BACKGROUND_MUSIC_DURATION_INVALID",
                 f"selected background music has no usable duration: {asset_code}",
+            )
+        return {
+            "asset_code": asset_code,
+            "relative_path": relative_path,
+            "file_size": path.stat().st_size,
+            "checksum_sha256": checksum,
+            "duration_seconds": round(duration, 3),
+            "gain_db": gain_db,
+        }
+
+    def _sound_effect(self, shot_list: dict[str, Any]) -> dict[str, Any] | None:
+        candidate = shot_list.get("sound_effect")
+        if candidate is None:
+            return None
+        if not isinstance(candidate, dict):
+            raise VideoProductionError(
+                "SOUND_EFFECT_INVALID",
+                "sound effect selection must be an object",
+            )
+        asset_code = str(candidate.get("asset_code") or "").strip()
+        relative_path = str(candidate.get("asset_relative_path") or "").strip()
+        expected_checksum = str(candidate.get("asset_expected_checksum") or "").strip()
+        try:
+            gain_db = float(candidate.get("gain_db"))
+        except (TypeError, ValueError) as exc:
+            raise VideoProductionError(
+                "SOUND_EFFECT_GAIN_INVALID",
+                "sound effect gain must be numeric",
+            ) from exc
+        if not asset_code or not relative_path:
+            raise VideoProductionError(
+                "SOUND_EFFECT_INVALID",
+                "sound effect must include an asset code and local path",
+            )
+        if not -24 <= gain_db <= 6:
+            raise VideoProductionError(
+                "SOUND_EFFECT_GAIN_INVALID",
+                "sound effect gain must remain between -24 dB and 6 dB",
+            )
+        path = self.resolve(relative_path)
+        checksum = sha256_file(path)
+        if not expected_checksum or checksum != expected_checksum:
+            raise VideoProductionError(
+                "SOUND_EFFECT_CHECKSUM_MISMATCH",
+                f"selected sound effect checksum changed: {asset_code}",
+            )
+        probe = probe_media(path, self.runner)
+        streams = list(probe.get("streams") or [])
+        if not any(str(stream.get("codec_type") or "") == "audio" for stream in streams):
+            raise VideoProductionError(
+                "SOUND_EFFECT_AUDIO_STREAM_MISSING",
+                f"selected sound effect has no audio stream: {asset_code}",
+            )
+        duration = float((probe.get("format") or {}).get("duration") or 0)
+        if not math.isfinite(duration) or duration <= 0:
+            raise VideoProductionError(
+                "SOUND_EFFECT_DURATION_INVALID",
+                f"selected sound effect has no usable duration: {asset_code}",
             )
         return {
             "asset_code": asset_code,
@@ -578,7 +649,15 @@ class FFmpegRenderer:
 
         mixed_audio = narration
         background_music = asset_plan.get("background_music")
-        if isinstance(background_music, dict):
+        sound_effect = asset_plan.get("sound_effect")
+        sound_effect_starts = [
+            float(shot["start_seconds"])
+            for shot in shot_list.get("shots") or []
+            if "sound_effect" in (shot.get("audio_roles") or [])
+        ]
+        if isinstance(background_music, dict) and not (
+            isinstance(sound_effect, dict) and sound_effect_starts
+        ):
             music = self.selector.resolve(str(background_music["relative_path"]))
             mixed_audio = store.path("render/mixed-audio.wav")
             self._mix_background_music(
@@ -587,6 +666,26 @@ class FFmpegRenderer:
                 mixed_audio,
                 duration_seconds=float(shot_list["duration_seconds"]),
                 gain_db=float(background_music["gain_db"]),
+            )
+        elif isinstance(sound_effect, dict) and sound_effect_starts:
+            mixed_audio = store.path("render/mixed-audio.wav")
+            self._mix_audio_layers(
+                narration,
+                mixed_audio,
+                duration_seconds=float(shot_list["duration_seconds"]),
+                background_music=(
+                    (
+                        self.selector.resolve(str(background_music["relative_path"])),
+                        float(background_music["gain_db"]),
+                    )
+                    if isinstance(background_music, dict)
+                    else None
+                ),
+                sound_effect=(
+                    self.selector.resolve(str(sound_effect["relative_path"])),
+                    float(sound_effect["gain_db"]),
+                    sound_effect_starts,
+                ),
             )
 
         final_video = store.path("final.mp4")
@@ -614,7 +713,112 @@ class FFmpegRenderer:
                 if isinstance(background_music, dict)
                 else None
             ),
+            "sound_effect": (
+                {
+                    "asset_code": str(sound_effect["asset_code"]),
+                    "checksum_sha256": str(sound_effect["checksum_sha256"]),
+                    "gain_db": float(sound_effect["gain_db"]),
+                    "shot_starts_seconds": sound_effect_starts,
+                }
+                if isinstance(sound_effect, dict) and sound_effect_starts
+                else None
+            ),
         }
+
+    def _mix_audio_layers(
+        self,
+        narration: Path,
+        destination: Path,
+        *,
+        duration_seconds: float,
+        background_music: tuple[Path, float] | None,
+        sound_effect: tuple[Path, float, list[float]] | None,
+    ) -> None:
+        if not math.isfinite(duration_seconds) or duration_seconds <= 0:
+            raise VideoProductionError(
+                "SOUND_EFFECT_DURATION_INVALID",
+                "audio layer mix requires a positive final duration",
+            )
+        inputs: list[str | Path] = [
+            "ffmpeg",
+            "-nostdin",
+            "-hide_banner",
+            "-loglevel",
+            "warning",
+            "-y",
+            "-i",
+            narration,
+        ]
+        filter_parts = [
+            f"[0:a]atrim=duration={duration_seconds:.3f},asetpts=PTS-STARTPTS[voice]"
+        ]
+        labels = ["[voice]"]
+        next_input = 1
+        if background_music is not None:
+            music, gain_db = background_music
+            if not -36 <= gain_db <= -6:
+                raise VideoProductionError(
+                    "BACKGROUND_MUSIC_GAIN_INVALID",
+                    "background music gain must remain between -36 dB and -6 dB",
+                )
+            inputs.extend(["-stream_loop", "-1", "-i", music])
+            filter_parts.append(
+                f"[{next_input}:a]atrim=duration={duration_seconds:.3f},asetpts=PTS-STARTPTS,"
+                f"volume={gain_db:.3f}dB[bgm]"
+            )
+            labels.append("[bgm]")
+            next_input += 1
+        if sound_effect is not None:
+            effect, gain_db, starts = sound_effect
+            if not -24 <= gain_db <= 6:
+                raise VideoProductionError(
+                    "SOUND_EFFECT_GAIN_INVALID",
+                    "sound effect gain must remain between -24 dB and 6 dB",
+                )
+            for index, start_seconds in enumerate(starts):
+                if not math.isfinite(start_seconds) or not 0 <= start_seconds < duration_seconds:
+                    raise VideoProductionError(
+                        "SOUND_EFFECT_TIMING_INVALID",
+                        "sound effect must start inside the final timeline",
+                    )
+                delay_ms = round(start_seconds * 1_000)
+                inputs.extend(["-i", effect])
+                label = f"[sfx{index}]"
+                filter_parts.append(
+                    f"[{next_input}:a]asetpts=PTS-STARTPTS,volume={gain_db:.3f}dB,"
+                    f"adelay={delay_ms}:all=1,atrim=duration={duration_seconds:.3f}{label}"
+                )
+                labels.append(label)
+                next_input += 1
+        if len(labels) < 2:
+            raise VideoProductionError("SOUND_EFFECT_MIX_INVALID", "audio layer mix needs at least one overlay")
+        filter_parts.append(
+            f"{''.join(labels)}amix=inputs={len(labels)}:duration=first:dropout_transition=0:normalize=0[mixed]"
+        )
+        temporary = _temporary_media_path(destination)
+        temporary.unlink(missing_ok=True)
+        try:
+            self.runner.run(
+                [
+                    *inputs,
+                    "-filter_complex",
+                    ";".join(filter_parts),
+                    "-map",
+                    "[mixed]",
+                    "-ac",
+                    "1",
+                    "-ar",
+                    "48000",
+                    "-c:a",
+                    "pcm_s16le",
+                    temporary,
+                ],
+                timeout_seconds=600,
+                error_code="SOUND_EFFECT_MIX_FAILED",
+            )
+            temporary.replace(destination)
+        finally:
+            temporary.unlink(missing_ok=True)
 
     def _mix_background_music(
         self,
