@@ -27,6 +27,7 @@ class ContentCoreRepository:
         actor_id: str,
         producer_strategy_revision: str = "human_input.v1",
         source_revision_refs: list[dict[str, Any]] | None = None,
+        commit: bool = True,
     ) -> dict[str, Any]:
         if not title.strip() or not generation_goal.strip():
             raise DomainValidationError(
@@ -78,7 +79,8 @@ class ContentCoreRepository:
                 ),
             )
             revision = cursor.fetchone()
-        self.connection.commit()
+        if commit:
+            self.connection.commit()
         return self._project_revision_view(revision, title=title.strip())
 
     def get_project(self, project_code: str) -> dict[str, Any] | None:

@@ -8,10 +8,14 @@ class DecisionCreate(BaseModel):
     attribution_report_code: str | None = Field(default=None, min_length=1, max_length=64)
     observation: str = Field(min_length=1)
     recommendation: str = Field(min_length=1)
+    decision_type: str = Field(default="manual_recommendation", min_length=1, max_length=64)
+    decision_payload: dict[str, object] = Field(default_factory=dict)
+    source_revision_refs: list[dict[str, object]] = Field(default_factory=list)
 
 
 class DecisionRead(DecisionCreate):
     decision_code: str
+    fingerprint_sha256: str | None = None
     created_at: datetime
 
 
@@ -81,10 +85,12 @@ class EffectEstimateRevoke(BaseModel):
 class EffectReproductionCreate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=255)
     generation_goal: str | None = Field(default=None, min_length=1, max_length=4000)
+    change_hypothesis: str = Field(min_length=1, max_length=4000)
 
 
 class EffectReproductionRead(BaseModel):
     effect_code: str
+    decision_code: str
     source_project_code: str
     source_project_revision_number: int
     reproduced_project_code: str

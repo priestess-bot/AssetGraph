@@ -41,6 +41,7 @@ def _effect(**overrides: Any) -> dict[str, Any]:
 class FakeFunctionalLearningService:
     def __init__(self) -> None:
         self.revoke_calls: list[tuple[str, str, str]] = []
+        self.reproduction_calls: list[tuple[str, dict[str, Any]]] = []
 
     def revoke_effect_estimate(
         self, effect_code: str, actor: str, reason: str
@@ -49,6 +50,19 @@ class FakeFunctionalLearningService:
         if effect_code == "EFFECT-MISSING":
             return None
         return _effect(effect_code=effect_code, revoked_by=actor, revoked_reason=reason)
+
+    def reproduce_effect(self, effect_code: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+        self.reproduction_calls.append((effect_code, payload))
+        if effect_code == "EFFECT-MISSING":
+            return None
+        return {
+            "effect_code": effect_code,
+            "decision_code": "DEC-001",
+            "source_project_code": "CONTENT-SOURCE",
+            "source_project_revision_number": 2,
+            "reproduced_project_code": "CONTENT-REPRODUCED",
+            "reproduced_project_revision_number": 1,
+        }
 
     @staticmethod
     def assign_experiment_subject(code: str, subject_key: str) -> dict[str, Any] | None:
@@ -132,3 +146,22 @@ def test_experiment_assignment_route_returns_stable_assignment(
     assert assigned.json()["variant_key"] == "treatment"
     assert assigned.json()["assignment_strategy"] == "stable_hash_sha256_v1"
     assert missing.status_code == 404
+
+
+def test_reproduction_route_requires_and_forwards_change_hypothesis(
+    client: tuple[TestClient, FakeFunctionalLearningService],
+) -> None:
+    test_client, service = client
+
+    invalid = test_client.post("/api/functional-learning/effects/EFFECT-001/reproduce", json={})
+    reproduced = test_client.post(
+        "/api/functional-learning/effects/EFFECT-001/reproduce",
+        json={"change_hypothesis": "Preserve the opening and independently evaluate it."},
+    )
+
+    assert invalid.status_code == 422
+    assert reproduced.status_code == 201
+    assert reproduced.json()["decision_code"] == "DEC-001"
+    assert service.reproduction_calls == [
+        ("EFFECT-001", {"change_hypothesis": "Preserve the opening and independently evaluate it."})
+    ]

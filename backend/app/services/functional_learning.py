@@ -17,35 +17,12 @@ class FunctionalLearningService:
     def create_decision(self, p: dict[str, Any]) -> dict[str, Any]:
         try:
             with self.connection.cursor(row_factory=dict_row) as c:
-                report_code = p.get("attribution_report_code")
-                if report_code:
-                    c.execute(
-                        "SELECT report_code FROM functional_attribution_reports WHERE report_code = %s",
-                        (report_code,),
-                    )
-                    if c.fetchone() is None:
-                        raise DomainValidationError(
-                            "LEARNING_ATTRIBUTION_REPORT_NOT_FOUND",
-                            "The selected attribution report does not exist",
-                            details={"attribution_report_code": report_code},
-                        )
-                code = self._next(c, "DEC", "functional_decision_log")
-                c.execute(
-                    "INSERT INTO functional_decision_logs (decision_code,project_code,attribution_report_code,observation,recommendation) VALUES (%s,%s,%s,%s,%s) RETURNING *",
-                    (
-                        code,
-                        p.get("project_code"),
-                        report_code,
-                        p["observation"],
-                        p["recommendation"],
-                    ),
-                )
-                row = c.fetchone()
+                row = self._insert_decision(c, p)
             self.connection.commit()
         except Exception:
             self.connection.rollback()
             raise
-        return dict(row)
+        return row
 
     def list_decisions(self) -> list[dict[str, Any]]:
         with self.connection.cursor(row_factory=dict_row) as c:
@@ -211,6 +188,12 @@ class FunctionalLearningService:
 
     def reproduce_effect(self, effect_code: str, p: dict[str, Any]) -> dict[str, Any] | None:
         """Create a fresh draft from the immutable content-project snapshot on an approved effect."""
+        change_hypothesis = str(p.get("change_hypothesis") or "").strip()
+        if not change_hypothesis:
+            raise DomainValidationError(
+                "EFFECT_REPRODUCTION_HYPOTHESIS_REQUIRED",
+                "A reproduction requires a change hypothesis",
+            )
         try:
             with self.connection.cursor(row_factory=dict_row) as c:
                 c.execute(
@@ -241,6 +224,7 @@ class FunctionalLearningService:
                         details={"effect_code": effect_code},
                     )
                 source_refs = list(snapshot.get("source_revision_refs") or [])
+                decision_code = self._next(c, "DEC", "functional_decision_log")
                 source_refs.extend(
                     [
                         {
@@ -257,6 +241,11 @@ class FunctionalLearningService:
                             "fingerprint_sha256": effect["fingerprint_sha256"],
                             "relation_type": "approved_effect",
                         },
+                        {
+                            "object_type": "decision_log",
+                            "decision_code": decision_code,
+                            "relation_type": "reproduction_decision",
+                        },
                     ]
                 )
                 title = str(p.get("title") or f"{snapshot['title']} reproduction")
@@ -268,12 +257,62 @@ class FunctionalLearningService:
                 actor_id="functional-operator",
                 producer_strategy_revision="effect-reproduction.v1",
                 source_revision_refs=source_refs,
+                commit=False,
             )
+            with self.connection.cursor(row_factory=dict_row) as c:
+                decision = self._insert_decision(
+                    c,
+                    {
+                        "project_code": created["project_code"],
+                        "attribution_report_code": effect["attribution_report_code"],
+                        "observation": f"Approved effect {effect['effect_code']} seeded a new draft.",
+                        "recommendation": "Evaluate this reproduction independently before any release.",
+                        "decision_type": "effect_reproduction",
+                        "decision_payload": {
+                            "change_hypothesis": change_hypothesis,
+                            "source_project_code": snapshot["project_code"],
+                            "source_project_revision_number": int(snapshot["revision_number"]),
+                            "source_project_fingerprint_sha256": snapshot["fingerprint_sha256"],
+                            "effect_code": effect["effect_code"],
+                            "effect_revision_number": int(effect["revision_number"]),
+                            "effect_fingerprint_sha256": effect["fingerprint_sha256"],
+                            "reproduced_project_code": created["project_code"],
+                            "reproduced_project_revision_number": int(created["revision_number"]),
+                            "reproduced_project_fingerprint_sha256": created["fingerprint_sha256"],
+                        },
+                        "source_revision_refs": [
+                            {
+                                "object_type": "content_project",
+                                "project_code": snapshot["project_code"],
+                                "revision": int(snapshot["revision_number"]),
+                                "fingerprint_sha256": snapshot["fingerprint_sha256"],
+                                "relation_type": "reproduction_source",
+                            },
+                            {
+                                "object_type": "effect_estimate",
+                                "effect_code": effect["effect_code"],
+                                "revision": int(effect["revision_number"]),
+                                "fingerprint_sha256": effect["fingerprint_sha256"],
+                                "relation_type": "approved_effect",
+                            },
+                            {
+                                "object_type": "content_project",
+                                "project_code": created["project_code"],
+                                "revision": int(created["revision_number"]),
+                                "fingerprint_sha256": created["fingerprint_sha256"],
+                                "relation_type": "reproduction_result",
+                            },
+                        ],
+                    },
+                    decision_code=decision_code,
+                )
+            self.connection.commit()
         except Exception:
             self.connection.rollback()
             raise
         return {
             "effect_code": effect["effect_code"],
+            "decision_code": decision["decision_code"],
             "source_project_code": snapshot["project_code"],
             "source_project_revision_number": int(snapshot["revision_number"]),
             "reproduced_project_code": created["project_code"],
@@ -434,6 +473,56 @@ class FunctionalLearningService:
             v: out.get(v, {"average": 0.0, "sample_size": 0}) for v in row["variants"]
         }
         return row
+
+    def _insert_decision(
+        self, c: Any, p: dict[str, Any], *, decision_code: str | None = None
+    ) -> dict[str, Any]:
+        report_code = p.get("attribution_report_code")
+        if report_code:
+            c.execute(
+                "SELECT report_code FROM functional_attribution_reports WHERE report_code = %s",
+                (report_code,),
+            )
+            if c.fetchone() is None:
+                raise DomainValidationError(
+                    "LEARNING_ATTRIBUTION_REPORT_NOT_FOUND",
+                    "The selected attribution report does not exist",
+                    details={"attribution_report_code": report_code},
+                )
+        code = decision_code or self._next(c, "DEC", "functional_decision_log")
+        decision_type = str(p.get("decision_type") or "manual_recommendation")
+        payload = dict(p.get("decision_payload") or {})
+        source_refs = list(p.get("source_revision_refs") or [])
+        fingerprint = canonical_fingerprint(
+            {
+                "decision_code": code,
+                "project_code": p.get("project_code"),
+                "attribution_report_code": report_code,
+                "observation": p["observation"],
+                "recommendation": p["recommendation"],
+                "decision_type": decision_type,
+                "decision_payload": payload,
+                "source_revision_refs": source_refs,
+            }
+        )
+        c.execute(
+            """INSERT INTO functional_decision_logs
+               (decision_code,project_code,attribution_report_code,observation,recommendation,
+                decision_type,decision_payload,source_revision_refs,fingerprint_sha256)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
+            (
+                code,
+                p.get("project_code"),
+                report_code,
+                p["observation"],
+                p["recommendation"],
+                decision_type,
+                Jsonb(payload),
+                Jsonb(source_refs),
+                fingerprint,
+            ),
+        )
+        return dict(c.fetchone())
 
     @staticmethod
     def _assigned_variant(variants: list[str], subject_key: str) -> str:

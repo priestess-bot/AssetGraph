@@ -79,9 +79,13 @@ def test_decisions_and_stable_experiment_outcomes() -> None:
         assert approved["status"] == "approved"
         reproduction = s.reproduce_effect(
             effect["effect_code"],
-            {"title": "Reproduced effect project"},
+            {
+                "title": "Reproduced effect project",
+                "change_hypothesis": "Keep the approved opening while evaluating a new draft.",
+            },
         )
         assert reproduction is not None
+        assert reproduction["decision_code"].startswith("DEC-")
         assert reproduction["source_project_code"] == source["project_code"]
         assert reproduction["reproduced_project_code"] != source["project_code"]
         with c.cursor(row_factory=dict_row) as cursor:
@@ -91,6 +95,17 @@ def test_decisions_and_stable_experiment_outcomes() -> None:
             )
             reproduced_refs = cursor.fetchone()["source_revision_refs"]
         assert any(ref["relation_type"] == "approved_effect" for ref in reproduced_refs)
+        assert any(ref["relation_type"] == "reproduction_decision" for ref in reproduced_refs)
+        with c.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                "SELECT * FROM functional_decision_logs WHERE decision_code = %s",
+                (reproduction["decision_code"],),
+            )
+            reproduction_decision = cursor.fetchone()
+        assert reproduction_decision["decision_type"] == "effect_reproduction"
+        assert reproduction_decision["decision_payload"]["reproduced_project_code"] == reproduction[
+            "reproduced_project_code"
+        ]
         revoked = s.revoke_effect_estimate(
             effect["effect_code"],
             "operator",

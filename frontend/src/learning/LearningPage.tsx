@@ -13,6 +13,7 @@ import { postJson, requestJson } from "../workbench/api";
 type Decision = {
   decision_code: string;
   attribution_report_code?: string;
+  decision_type?: string;
   observation: string;
   recommendation: string;
 };
@@ -70,6 +71,7 @@ type EffectEstimate = {
 
 type EffectReproduction = {
   effect_code: string;
+  decision_code: string;
   source_project_code: string;
   reproduced_project_code: string;
 };
@@ -120,6 +122,7 @@ export function LearningPage() {
   const [effectSubjectCode, setEffectSubjectCode] = useState("");
   const [effectNote, setEffectNote] = useState("");
   const [revocationReasons, setRevocationReasons] = useState<Record<string, string>>({});
+  const [reproductionHypotheses, setReproductionHypotheses] = useState<Record<string, string>>({});
   const [reproduction, setReproduction] = useState<EffectReproduction | null>(null);
   const [title, setTitle] = useState("");
   const [metric, setMetric] = useState("watchers");
@@ -199,8 +202,10 @@ export function LearningPage() {
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["learning", "effects"] }),
   });
   const reproduceEffect = useMutation({
-    mutationFn: (effectCode: string) =>
-      postJson<EffectReproduction>(`/api/functional-learning/effects/${effectCode}/reproduce`, {}),
+    mutationFn: ({ effectCode, changeHypothesis }: { effectCode: string; changeHypothesis: string }) =>
+      postJson<EffectReproduction>(`/api/functional-learning/effects/${effectCode}/reproduce`, {
+        change_hypothesis: changeHypothesis,
+      }),
     onSuccess: (result) => {
       setReproduction(result);
       void queryClient.invalidateQueries({ queryKey: ["content-projects"] });
@@ -346,7 +351,7 @@ export function LearningPage() {
         </form>
         {reproduction ? (
           <InlineNotice tone="success" title="已建立再生产草稿">
-            {reproduction.reproduced_project_code} 源自 {reproduction.source_project_code} / {reproduction.effect_code}
+            {reproduction.reproduced_project_code} 源自 {reproduction.source_project_code} / {reproduction.effect_code} / {reproduction.decision_code}
           </InlineNotice>
         ) : null}
       </section>
@@ -365,10 +370,19 @@ export function LearningPage() {
               </span>
               <div className="operations-list-actions">
                 {item.status === "approved" ? (
-                  <button className="wb-button" onClick={() => reproduceEffect.mutate(item.effect_code)} disabled={reproduceEffect.isPending}>
-                    <CopyPlus size={15} aria-hidden="true" />
-                    建立草稿
-                  </button>
+                  <>
+                    <input
+                      className="wb-input"
+                      aria-label={`再生产假设 ${item.effect_code}`}
+                      value={reproductionHypotheses[item.effect_code] ?? ""}
+                      onChange={(event) => setReproductionHypotheses((current) => ({ ...current, [item.effect_code]: event.target.value }))}
+                      placeholder="再生产假设"
+                    />
+                    <button className="wb-button" onClick={() => reproduceEffect.mutate({ effectCode: item.effect_code, changeHypothesis: reproductionHypotheses[item.effect_code] ?? "" })} disabled={reproduceEffect.isPending || !(reproductionHypotheses[item.effect_code] ?? "").trim()}>
+                      <CopyPlus size={15} aria-hidden="true" />
+                      建立草稿
+                    </button>
+                  </>
                 ) : item.status === "candidate" ? (
                   <button className="wb-button" onClick={() => approveEffect.mutate(item.effect_code)} disabled={approveEffect.isPending}>
                     <Check size={15} aria-hidden="true" />
@@ -399,7 +413,7 @@ export function LearningPage() {
         ))}
         {decisions.data?.map((item) => (
           <div className="operations-list" key={item.decision_code}>
-            <div><span><strong>{item.observation}</strong><small>{item.recommendation}</small>{item.attribution_report_code ? <small>归因报告：{item.attribution_report_code}</small> : null}<code>{item.decision_code}</code></span><StatusBadge label="建议" tone="info" /></div>
+            <div><span><strong>{item.observation}</strong><small>{item.recommendation}</small>{item.attribution_report_code ? <small>归因报告：{item.attribution_report_code}</small> : null}<code>{item.decision_code}</code></span><StatusBadge label={item.decision_type === "effect_reproduction" ? "再生产决策" : "建议"} tone="info" /></div>
           </div>
         ))}
         {experiments.data?.map((item) => (

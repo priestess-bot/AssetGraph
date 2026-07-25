@@ -141,4 +141,36 @@ describe("LearningPage", () => {
     expect(JSON.parse(String(assignment?.init?.body))).toEqual({ subject_key: "session-001" });
     expect(JSON.parse(String(request?.init?.body))).toEqual({ subject_key: "session-001", metric_value: 42 });
   });
+
+  it("requires a change hypothesis before creating an effect reproduction draft", async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); requests.push({ url, init });
+      if (url === "/api/functional-learning/decisions") return response([]);
+      if (url === "/api/functional-learning/experiments") return response([]);
+      if (url === "/api/functional-learning/effects") return response([{
+        effect_code: "EFFECT-001", attribution_report_code: "ATTR-001", subject_code: "CONTENT-001",
+        metric_key: "watchers", evidence_level: "descriptive", status: "approved", note: "Keep the opening.",
+        eligibility_snapshot: { qualification: "descriptive_only", selected_session_count: 2 },
+      }]);
+      if (url === "/api/functional-learning/effects/EFFECT-001/reproduce") {
+        return response({ effect_code: "EFFECT-001", decision_code: "DEC-001", source_project_code: "CONTENT-001", reproduced_project_code: "CONTENT-002" });
+      }
+      if (url === "/api/functional-operations/attribution-reports") return response([]);
+      if (url === "/api/content-projects") return response([]);
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    const user = userEvent.setup();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    render(<QueryClientProvider client={client}><LearningPage /></QueryClientProvider>);
+
+    await screen.findByRole("button", { name: "建立草稿" });
+    expect(screen.getByRole("button", { name: "建立草稿" })).toBeDisabled();
+    await user.type(screen.getByLabelText("再生产假设 EFFECT-001"), "Preserve the opening and evaluate the new draft.");
+    await user.click(screen.getByRole("button", { name: "建立草稿" }));
+
+    await waitFor(() => expect(requests.some((request) => request.url === "/api/functional-learning/effects/EFFECT-001/reproduce" && request.init?.method === "POST")).toBe(true));
+    const request = requests.find((item) => item.url === "/api/functional-learning/effects/EFFECT-001/reproduce" && item.init?.method === "POST");
+    expect(JSON.parse(String(request?.init?.body))).toEqual({ change_hypothesis: "Preserve the opening and evaluate the new draft." });
+  });
 });
