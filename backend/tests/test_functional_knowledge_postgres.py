@@ -3,6 +3,7 @@ import os
 import psycopg
 import pytest
 from app.services.functional_knowledge import FunctionalKnowledgeService
+from app.services.functional_content import FunctionalContentService
 
 DATABASE_URL = os.getenv("ASSETGRAPH_TEST_DATABASE_URL")
 pytestmark = pytest.mark.skipif(
@@ -68,6 +69,65 @@ def test_source_evidence_must_be_approved_before_a_claim_can_be_approved() -> No
         assert approved is not None
         assert approved["status"] == "approved"
         assert approved["source_evidence_code"] == source["evidence_code"]
+
+
+def test_fact_claim_lineage_follows_only_immutable_pinned_content_revisions() -> None:
+    with psycopg.connect(DATABASE_URL) as c:
+        knowledge = FunctionalKnowledgeService(c)
+        source = knowledge.create_source_evidence(
+            {
+                "source_type": "document",
+                "title": "Lineage source",
+                "excerpt": "The product has a verified 12-month warranty.",
+                "access_scope": "internal",
+                "created_by": "author",
+            }
+        )
+        knowledge.approve_source_evidence(source["evidence_code"], "reviewer")
+        claim = knowledge.create_fact_claim(
+            {
+                "fact_title": "Warranty",
+                "claim": "The product has a 12-month warranty.",
+                "source_evidence_code": source["evidence_code"],
+                "citation_excerpt": "The product has a verified 12-month warranty.",
+                "created_by": "author",
+            }
+        )
+        assert claim is not None
+        knowledge.approve_fact_claim(claim["claim_code"], "reviewer")
+
+        content = FunctionalContentService(c)
+        project = content.create_project(
+            {
+                "title": "Claim lineage project",
+                "generation_goal": "Explain an approved fact.",
+                "fact_claim_codes": [claim["claim_code"]],
+            },
+            actor_id="operator",
+        )
+        content.confirm_project(project["project_code"], expected_revision=1, actor_id="operator")
+        content.parse_design_brief(
+            project["project_code"], expected_revision=1, raw_input="Use the approved fact.", actor_id="operator"
+        )
+        content.confirm_design_brief(project["project_code"], expected_revision=1, actor_id="operator")
+        content.generate_chain(project["project_code"], actor_id="operator")
+
+        lineage = knowledge.get_fact_claim_lineage(claim["claim_code"])
+
+        assert lineage is not None
+        assert lineage["claim_status"] == "approved"
+        assert lineage["source_status"] == "approved"
+        assert ("pins_fact_claim", "content_project", project["project_code"]) in {
+            (item["relation_type"], item["object_type"], item["object_code"])
+            for item in lineage["uses"]
+        }
+        assert {item["object_type"] for item in lineage["uses"]} >= {
+            "content_project",
+            "story_brief",
+            "content_script",
+            "content_program",
+            "shot_list",
+        }
 
 
 def test_knowledge_evidence_revocation_stops_future_claim_resolution() -> None:

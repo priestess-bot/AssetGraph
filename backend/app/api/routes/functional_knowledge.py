@@ -6,6 +6,7 @@ from app.core.database import get_db
 from app.schemas.functional_knowledge import (
     FactClaimApprove,
     FactClaimCreate,
+    FactClaimLineageRead,
     FactClaimReject,
     FactClaimRead,
     FactClaimRevoke,
@@ -130,6 +131,17 @@ def list_fact_claims(
     service: Annotated[FunctionalKnowledgeService, Depends(svc)], q: str | None = None
 ) -> list[dict]:
     return service.list_fact_claims(q)
+
+
+@router.get("/fact-claims/{claim_code}/lineage", response_model=FactClaimLineageRead)
+def get_fact_claim_lineage(
+    claim_code: str,
+    service: Annotated[FunctionalKnowledgeService, Depends(svc)],
+) -> dict:
+    result = service.get_fact_claim_lineage(claim_code)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Fact claim not found")
+    return result
 
 
 @router.post("/fact-claims/{claim_code}/approve", response_model=FactClaimRead)

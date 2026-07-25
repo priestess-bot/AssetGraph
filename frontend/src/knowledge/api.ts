@@ -148,6 +148,27 @@ export interface FactClaimCreateInput {
   related_codes?: string[];
 }
 
+export interface FactClaimLineageUse {
+  relationType: string;
+  objectType: string;
+  objectCode: string;
+  revisionNumber?: number;
+  status: string;
+  createdAt?: string;
+}
+
+export interface FactClaimLineage {
+  claimCode: string;
+  factCode: string;
+  factTitle: string;
+  claimStatus: string;
+  factStatus: string;
+  sourceEvidenceCode: string;
+  sourceTitle: string;
+  sourceStatus: string;
+  uses: FactClaimLineageUse[];
+}
+
 function card(value: unknown): ProductFactCard {
   if (!isRecord(value)) throw new Error("事实卡响应无效");
   const factCardCode = asString(value.fact_card_code);
@@ -250,6 +271,35 @@ function factClaim(value: unknown): FactClaim {
   };
 }
 
+function factClaimLineage(value: unknown): FactClaimLineage {
+  if (!isRecord(value)) throw new Error("事实声明使用链响应无效");
+  const claimCode = asString(value.claim_code);
+  if (!claimCode) throw new Error("事实声明使用链缺少编码");
+  return {
+    claimCode,
+    factCode: asString(value.fact_code),
+    factTitle: asString(value.fact_title),
+    claimStatus: asString(value.claim_status),
+    factStatus: asString(value.fact_status),
+    sourceEvidenceCode: asString(value.source_evidence_code),
+    sourceTitle: asString(value.source_title),
+    sourceStatus: asString(value.source_status),
+    uses: asArray(value.uses).flatMap((item) => {
+      if (!isRecord(item)) return [];
+      const objectCode = asString(item.object_code);
+      if (!objectCode) return [];
+      return [{
+        relationType: asString(item.relation_type, "derived_from"),
+        objectType: asString(item.object_type, "unknown"),
+        objectCode,
+        revisionNumber: typeof item.revision_number === "number" ? item.revision_number : undefined,
+        status: asString(item.status, "unknown"),
+        createdAt: asOptionalString(item.created_at),
+      }];
+    }),
+  };
+}
+
 export const knowledgeApi = {
   listProductFactCards: () => requestJson<unknown[]>(ROOT).then((items) => items.map(card)),
   createProductFactCard: (payload: ProductFactCardCreateInput) => postJson<unknown>(ROOT, payload).then(card),
@@ -264,6 +314,7 @@ export const knowledgeApi = {
   revokeSourceEvidence: (evidenceCode: string, actor: string, reason: string) => postJson<unknown>(`${FUNCTIONAL_ROOT}/source-evidences/${encodeURIComponent(evidenceCode)}/revoke`, { actor, reason }).then(sourceEvidence),
   listFactClaims: () => requestJson<unknown[]>(`${FUNCTIONAL_ROOT}/fact-claims`).then((items) => items.map(factClaim)),
   searchFactClaims: (query: string) => requestJson<unknown[]>(`${FUNCTIONAL_ROOT}/fact-claims?q=${encodeURIComponent(query.trim())}`).then((items) => items.map(factClaim)),
+  getFactClaimLineage: (claimCode: string) => requestJson<unknown>(`${FUNCTIONAL_ROOT}/fact-claims/${encodeURIComponent(claimCode)}/lineage`).then(factClaimLineage),
   createFactClaim: (payload: FactClaimCreateInput) => postJson<unknown>(`${FUNCTIONAL_ROOT}/fact-claims`, payload).then(factClaim),
   approveFactClaim: (claimCode: string, approvedBy: string) => postJson<unknown>(`${FUNCTIONAL_ROOT}/fact-claims/${encodeURIComponent(claimCode)}/approve`, { approved_by: approvedBy }).then(factClaim),
   rejectFactClaim: (claimCode: string, actor: string, reason: string) => postJson<unknown>(`${FUNCTIONAL_ROOT}/fact-claims/${encodeURIComponent(claimCode)}/reject`, { actor, reason }).then(factClaim),

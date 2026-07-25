@@ -2,7 +2,7 @@ import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BookOpen, CheckCircle2, FilePlus2, Search, XCircle } from "lucide-react";
 import { EmptyBlock, InlineNotice, LoadingBlock, SectionHeader, StatusBadge, formatDate } from "../workbench/components";
-import { knowledgeApi, type ProductFactCard, type ProductFactCardContentInput } from "./api";
+import { knowledgeApi, type FactClaimLineage, type ProductFactCard, type ProductFactCardContentInput } from "./api";
 
 interface FactEditorValues {
   title: string;
@@ -134,6 +134,27 @@ function VersionList({ card, activeVersion, onSelect }: { card: ProductFactCard;
   return <div className="knowledge-version-list">{card.versions.map((version) => <button type="button" key={version.versionCode} className={version.versionNumber === activeVersion ? "active" : undefined} onClick={() => onSelect(version.versionNumber)}><span><strong>v{version.versionNumber}</strong><small>{version.changeReason ?? "未填写变更说明"}</small><code>{version.createdBy ?? "未标注登记人"} · {formatDate(version.createdAt)}</code></span><StatusBadge label={version.status} tone={versionTone(version.status)} /></button>)}</div>;
 }
 
+function FactClaimLineagePanel({ claimCode }: { claimCode: string }) {
+  const lineage = useQuery({
+    queryKey: ["knowledge-fact-claim-lineage", claimCode],
+    queryFn: () => knowledgeApi.getFactClaimLineage(claimCode),
+  });
+  const data: FactClaimLineage | undefined = lineage.data;
+
+  return <section className="wb-section">
+    <SectionHeader kicker="FACT LINEAGE" title="声明使用链" />
+    {lineage.isLoading ? <LoadingBlock label="正在读取使用链" /> : lineage.error ? <InlineNotice tone="danger" title="使用链读取失败">{errorMessage(lineage.error)}</InlineNotice> : data ? <>
+      <div className="knowledge-summary">
+        <div><span>声明</span><strong>{data.claimStatus}</strong></div>
+        <div><span>事实</span><strong>{data.factStatus}</strong></div>
+        <div><span>来源</span><strong>{data.sourceStatus}</strong></div>
+      </div>
+      <div className="knowledge-lineage-source"><strong>{data.factTitle}</strong><code>{data.claimCode} · {data.sourceEvidenceCode}</code></div>
+      {data.uses.length ? <div className="knowledge-usage-list">{data.uses.map((item) => <article key={`${item.relationType}:${item.objectType}:${item.objectCode}:${item.revisionNumber ?? "current"}`}><span><strong>{item.objectType}</strong><small>{item.relationType}</small><code>{item.objectCode}{item.revisionNumber ? ` · r${item.revisionNumber}` : ""} · {formatDate(item.createdAt)}</code></span><StatusBadge label={item.status} tone={versionTone(item.status)} /></article>)}</div> : <EmptyBlock icon={BookOpen} title="该声明尚未被内容修订固定引用" />}
+    </> : null}
+  </section>;
+}
+
 function EvidenceWorkspace({ onShowFactCards }: { onShowFactCards: () => void }) {
   const client = useQueryClient();
   const [sourceType, setSourceType] = useState<"human" | "document" | "webpage" | "export">("document");
@@ -150,6 +171,7 @@ function EvidenceWorkspace({ onShowFactCards }: { onShowFactCards: () => void })
   const [validFrom, setValidFrom] = useState("");
   const [validUntil, setValidUntil] = useState("");
   const [claimQuery, setClaimQuery] = useState("");
+  const [selectedClaimCode, setSelectedClaimCode] = useState("");
   const [reviewer, setReviewer] = useState("console_reviewer");
   const [revocationReasons, setRevocationReasons] = useState<Record<string, string>>({});
   const [rejectionReasons, setRejectionReasons] = useState<Record<string, string>>({});
@@ -219,8 +241,9 @@ function EvidenceWorkspace({ onShowFactCards }: { onShowFactCards: () => void })
       </section>
       <section className="wb-section"><SectionHeader kicker="CLAIM REVIEW" title="声明与引用" actions={<><label className="asset-search"><Search size={15} aria-hidden="true" /><input aria-label="搜索事实声明" value={claimQuery} onChange={(event) => setClaimQuery(event.target.value)} placeholder="搜索声明或事实标题" /></label><label className="wb-field"><span>审核/撤销操作人</span><input className="wb-input" value={reviewer} onChange={(event) => setReviewer(event.target.value)} required /></label></>} />
         {problem ? <InlineNotice tone="danger" title="知识操作未完成">{errorMessage(problem)}</InlineNotice> : null}
-        {claims.isLoading ? <LoadingBlock /> : claims.data?.length ? <div className="knowledge-usage-list">{claims.data.map((claim) => { const revocationReason = revocationReasons[claim.claimCode] ?? ""; const rejectionReason = rejectionReasons[claim.claimCode] ?? ""; return <article key={claim.claimCode}><span><strong>{claim.factTitle}</strong><small>{claim.claim}</small><small>引用：{claim.citationExcerpt}</small><small>来源状态：{claim.sourceStatus}</small><small>有效期：{claim.validFrom ? formatDate(claim.validFrom) : "未限制"} 至 {claim.validUntil ? formatDate(claim.validUntil) : "未限制"}</small><code>{claim.claimCode} · {claim.sourceEvidenceCode} · {claim.fingerprint.slice(0, 12)}</code>{claim.status === "rejected" && claim.rejectionReason ? <small>驳回：{claim.rejectionReason}</small> : null}{claim.status === "revoked" && claim.revokedReason ? <small>撤销：{claim.revokedReason}</small> : null}</span><div className="knowledge-source-actions"><StatusBadge label={claim.status} tone={versionTone(claim.status)} />{claim.status === "draft" ? <><button type="button" className="wb-button" disabled={approveClaim.isPending || !reviewer.trim()} onClick={() => approveClaim.mutate(claim.claimCode)}><CheckCircle2 size={14} aria-hidden="true" />批准声明</button><input aria-label={`${claim.claimCode} 驳回原因`} className="wb-input" value={rejectionReason} onChange={(event) => setRejectionReasons((current) => ({ ...current, [claim.claimCode]: event.target.value }))} placeholder="驳回原因" /><button type="button" className="wb-button" disabled={rejectClaim.isPending || !reviewer.trim() || !rejectionReason.trim()} onClick={() => rejectClaim.mutate({ code: claim.claimCode, reason: rejectionReason.trim() })}><XCircle size={14} aria-hidden="true" />驳回声明</button></> : null}{claim.status === "approved" ? <><input aria-label={`${claim.claimCode} 撤销原因`} className="wb-input" value={revocationReason} onChange={(event) => setRevocationReasons((current) => ({ ...current, [claim.claimCode]: event.target.value }))} placeholder="撤销原因" /><button type="button" className="wb-button" disabled={revokeClaim.isPending || !reviewer.trim() || !revocationReason.trim()} onClick={() => revokeClaim.mutate({ code: claim.claimCode, reason: revocationReason.trim() })}><XCircle size={14} aria-hidden="true" />撤销声明</button></> : null}</div></article>; })}</div> : <EmptyBlock icon={BookOpen} title={claimQuery.trim() ? "未找到匹配声明" : "尚无事实声明"} />}
+        {claims.isLoading ? <LoadingBlock /> : claims.data?.length ? <div className="knowledge-usage-list">{claims.data.map((claim) => { const revocationReason = revocationReasons[claim.claimCode] ?? ""; const rejectionReason = rejectionReasons[claim.claimCode] ?? ""; return <article key={claim.claimCode}><span><strong>{claim.factTitle}</strong><small>{claim.claim}</small><small>引用：{claim.citationExcerpt}</small><small>来源状态：{claim.sourceStatus}</small><small>有效期：{claim.validFrom ? formatDate(claim.validFrom) : "未限制"} 至 {claim.validUntil ? formatDate(claim.validUntil) : "未限制"}</small><code>{claim.claimCode} · {claim.sourceEvidenceCode} · {claim.fingerprint.slice(0, 12)}</code>{claim.status === "rejected" && claim.rejectionReason ? <small>驳回：{claim.rejectionReason}</small> : null}{claim.status === "revoked" && claim.revokedReason ? <small>撤销：{claim.revokedReason}</small> : null}</span><div className="knowledge-source-actions"><button type="button" className="wb-button" onClick={() => setSelectedClaimCode(claim.claimCode)}>查看使用链</button><StatusBadge label={claim.status} tone={versionTone(claim.status)} />{claim.status === "draft" ? <><button type="button" className="wb-button" disabled={approveClaim.isPending || !reviewer.trim()} onClick={() => approveClaim.mutate(claim.claimCode)}><CheckCircle2 size={14} aria-hidden="true" />批准声明</button><input aria-label={`${claim.claimCode} 驳回原因`} className="wb-input" value={rejectionReason} onChange={(event) => setRejectionReasons((current) => ({ ...current, [claim.claimCode]: event.target.value }))} placeholder="驳回原因" /><button type="button" className="wb-button" disabled={rejectClaim.isPending || !reviewer.trim() || !rejectionReason.trim()} onClick={() => rejectClaim.mutate({ code: claim.claimCode, reason: rejectionReason.trim() })}><XCircle size={14} aria-hidden="true" />驳回声明</button></> : null}{claim.status === "approved" ? <><input aria-label={`${claim.claimCode} 撤销原因`} className="wb-input" value={revocationReason} onChange={(event) => setRevocationReasons((current) => ({ ...current, [claim.claimCode]: event.target.value }))} placeholder="撤销原因" /><button type="button" className="wb-button" disabled={revokeClaim.isPending || !reviewer.trim() || !revocationReason.trim()} onClick={() => revokeClaim.mutate({ code: claim.claimCode, reason: revocationReason.trim() })}><XCircle size={14} aria-hidden="true" />撤销声明</button></> : null}</div></article>; })}</div> : <EmptyBlock icon={BookOpen} title={claimQuery.trim() ? "未找到匹配声明" : "尚无事实声明"} />}
       </section>
+      {selectedClaimCode ? <FactClaimLineagePanel claimCode={selectedClaimCode} /> : null}
     </main>
   </div>;
 }

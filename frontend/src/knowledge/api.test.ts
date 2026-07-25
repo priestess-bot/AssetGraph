@@ -92,4 +92,19 @@ describe("knowledge api", () => {
     expect(claims[0]).toMatchObject({ validFrom: "2026-07-25T00:00:00Z", validUntil: "2026-12-31T23:59:59Z" });
     expect(fetch).toHaveBeenCalledWith("/api/functional-knowledge/fact-claims?q=Warranty%20term", expect.any(Object));
   });
+
+  it("reads only explicit fixed claim usage from the lineage endpoint", async () => {
+    const fetch = vi.fn().mockResolvedValue(response({
+      claim_code: "CLAIM-001", fact_code: "FACT-001", fact_title: "Warranty",
+      claim_status: "approved", fact_status: "approved",
+      source_evidence_code: "EVIDENCE-001", source_title: "Product sheet", source_status: "approved",
+      uses: [{ relation_type: "pins_fact_claim", object_type: "content_project", object_code: "CONTENT-001", revision_number: 2, status: "confirmed", created_at: "2026-07-25T00:00:00Z" }],
+    }));
+    vi.stubGlobal("fetch", fetch);
+
+    const lineage = await knowledgeApi.getFactClaimLineage("CLAIM-001");
+
+    expect(lineage).toMatchObject({ claimCode: "CLAIM-001", factStatus: "approved", uses: [{ objectCode: "CONTENT-001", revisionNumber: 2, relationType: "pins_fact_claim" }] });
+    expect(fetch).toHaveBeenCalledWith("/api/functional-knowledge/fact-claims/CLAIM-001/lineage", expect.any(Object));
+  });
 });

@@ -297,6 +297,280 @@ class FunctionalKnowledgeService:
             row = cur.fetchone()
         return dict(row) if row else None
 
+    def get_fact_claim_lineage(self, claim_code: str) -> dict[str, Any] | None:
+        """Project an explicitly pinned claim through the local content chain.
+
+        This is deliberately a relational read model.  It only follows immutable
+        project revisions and their source revision IDs; a text-search hit or a
+        current project selection is never treated as a historical use.
+        """
+        with self.c.cursor(row_factory=dict_row) as cur:
+            claim = self._claim(cur, claim_code)
+            if claim is None:
+                return None
+
+            claim_ref = Jsonb([{"claim_code": claim_code}])
+            claim_codes = Jsonb([claim_code])
+            cur.execute(
+                """
+                SELECT id, project_code, revision_number, status, created_at
+                FROM content_project_revisions
+                WHERE content -> 'fact_claim_refs' @> %s
+                   OR content -> 'fact_claim_codes' @> %s
+                ORDER BY created_at DESC, project_code, revision_number
+                """,
+                (claim_ref, claim_codes),
+            )
+            projects = cur.fetchall()
+
+            uses: list[dict[str, Any]] = []
+            story_ids: list[Any] = []
+            for project in projects:
+                uses.append(
+                    self._lineage_use(
+                        "pins_fact_claim",
+                        "content_project",
+                        project["project_code"],
+                        project["revision_number"],
+                        project["status"],
+                        project["created_at"],
+                    )
+                )
+                cur.execute(
+                    """
+                    SELECT id, story_brief_code, revision_number, status, created_at
+                    FROM story_brief_revisions
+                    WHERE source_project_revision_id = %s
+                    ORDER BY created_at, revision_number
+                    """,
+                    (project["id"],),
+                )
+                for story in cur.fetchall():
+                    story_ids.append(story["id"])
+                    uses.append(
+                        self._lineage_use(
+                            "derived_from",
+                            "story_brief",
+                            story["story_brief_code"],
+                            story["revision_number"],
+                            story["status"],
+                            story["created_at"],
+                        )
+                    )
+                    cur.execute(
+                        """
+                        SELECT id, script_revision_code, revision_number, status, created_at
+                        FROM content_script_revisions
+                        WHERE source_story_brief_revision_id = %s
+                        ORDER BY created_at, revision_number
+                        """,
+                        (story["id"],),
+                    )
+                    for script in cur.fetchall():
+                        uses.append(
+                            self._lineage_use(
+                                "derived_from",
+                                "content_script",
+                                script["script_revision_code"],
+                                script["revision_number"],
+                                script["status"],
+                                script["created_at"],
+                            )
+                        )
+                        cur.execute(
+                            """
+                            SELECT id, program_revision_code, revision_number, status, created_at
+                            FROM content_program_revisions
+                            WHERE source_script_revision_id = %s
+                            ORDER BY created_at, revision_number
+                            """,
+                            (script["id"],),
+                        )
+                        for program in cur.fetchall():
+                            uses.append(
+                                self._lineage_use(
+                                    "derived_from",
+                                    "content_program",
+                                    program["program_revision_code"],
+                                    program["revision_number"],
+                                    program["status"],
+                                    program["created_at"],
+                                )
+                            )
+                            cur.execute(
+                                """
+                                SELECT shot_list_revision_code, revision_number, status, created_at
+                                FROM shot_list_revisions
+                                WHERE source_program_revision_id = %s
+                                ORDER BY created_at, revision_number
+                                """,
+                                (program["id"],),
+                            )
+                            for shot_list in cur.fetchall():
+                                uses.append(
+                                    self._lineage_use(
+                                        "derived_from",
+                                        "shot_list",
+                                        shot_list["shot_list_revision_code"],
+                                        shot_list["revision_number"],
+                                        shot_list["status"],
+                                        shot_list["created_at"],
+                                    )
+                                )
+
+            variant_codes: list[str] = []
+            if story_ids:
+                cur.execute(
+                    """
+                    SELECT variant_code, revision_number, carrier_kind, status, created_at
+                    FROM production_variant_revisions
+                    WHERE source_story_brief_revision_id = ANY(%s)
+                    ORDER BY created_at, variant_code, revision_number
+                    """,
+                    (story_ids,),
+                )
+                for variant in cur.fetchall():
+                    variant_codes.append(variant["variant_code"])
+                    uses.append(
+                        self._lineage_use(
+                            "derived_from",
+                            f"{variant['carrier_kind']}_variant",
+                            variant["variant_code"],
+                            variant["revision_number"],
+                            variant["status"],
+                            variant["created_at"],
+                        )
+                    )
+
+            plan_codes: list[str] = []
+            release_codes: list[str] = []
+            if variant_codes:
+                cur.execute(
+                    """
+                    SELECT plan_code, release_code, created_at
+                    FROM functional_video_plans
+                    WHERE variant_code = ANY(%s)
+                    ORDER BY created_at, plan_code
+                    """,
+                    (variant_codes,),
+                )
+                for plan in cur.fetchall():
+                    plan_codes.append(plan["plan_code"])
+                    if plan["release_code"]:
+                        release_codes.append(plan["release_code"])
+                    uses.append(
+                        self._lineage_use(
+                            "planned_as", "rendered_video_plan", plan["plan_code"], None, "active", plan["created_at"]
+                        )
+                    )
+                cur.execute(
+                    """
+                    SELECT plan_code, release_code, status, created_at
+                    FROM functional_live_room_plans
+                    WHERE variant_code = ANY(%s)
+                    ORDER BY created_at, plan_code
+                    """,
+                    (variant_codes,),
+                )
+                for plan in cur.fetchall():
+                    plan_codes.append(plan["plan_code"])
+                    if plan["release_code"]:
+                        release_codes.append(plan["release_code"])
+                    uses.append(
+                        self._lineage_use(
+                            "planned_as", "live_room_plan", plan["plan_code"], None, plan["status"], plan["created_at"]
+                        )
+                    )
+
+            if release_codes:
+                cur.execute(
+                    """
+                    SELECT release_code, current_manifest_revision, status, created_at
+                    FROM releases
+                    WHERE release_code = ANY(%s)
+                    ORDER BY created_at, release_code
+                    """,
+                    (list(dict.fromkeys(release_codes)),),
+                )
+                for release in cur.fetchall():
+                    uses.append(
+                        self._lineage_use(
+                            "released_as",
+                            "release",
+                            release["release_code"],
+                            release["current_manifest_revision"],
+                            release["status"],
+                            release["created_at"],
+                        )
+                    )
+
+            if plan_codes:
+                cur.execute(
+                    """
+                    SELECT exposure.exposure_code, exposure.session_code, exposure.status, exposure.created_at
+                    FROM functional_content_exposures AS exposure
+                    WHERE exposure.plan_code = ANY(%s)
+                    ORDER BY exposure.created_at, exposure.exposure_code
+                    """,
+                    (list(dict.fromkeys(plan_codes)),),
+                )
+                observed_sessions: set[str] = set()
+                for exposure in cur.fetchall():
+                    if exposure["session_code"] in observed_sessions:
+                        continue
+                    observed_sessions.add(exposure["session_code"])
+                    uses.append(
+                        self._lineage_use(
+                            "exposed_during",
+                            "operation_session",
+                            exposure["session_code"],
+                            None,
+                            exposure["status"],
+                            exposure["created_at"],
+                        )
+                    )
+
+            cur.execute(
+                """
+                SELECT effect_code, revision_number, status, created_at
+                FROM functional_effect_estimates
+                WHERE effect_payload @> %s
+                   OR effect_payload @> %s
+                ORDER BY created_at, effect_code, revision_number
+                """,
+                (
+                    Jsonb({"subject_snapshot": {"content": {"fact_claim_refs": [{"claim_code": claim_code}]}}}),
+                    Jsonb({"subject_snapshot": {"content": {"fact_claim_codes": [claim_code]}}}),
+                ),
+            )
+            for effect in cur.fetchall():
+                uses.append(
+                    self._lineage_use(
+                        "estimated_effect_on",
+                        "effect_estimate",
+                        effect["effect_code"],
+                        effect["revision_number"],
+                        effect["status"],
+                        effect["created_at"],
+                    )
+                )
+
+        return {
+            "claim_code": claim["claim_code"],
+            "fact_code": claim["fact_code"],
+            "fact_title": claim["fact_title"],
+            "claim_status": claim["status"],
+            "fact_status": claim["fact_status"],
+            "source_evidence_code": claim["source_evidence_code"],
+            "source_title": claim["source_title"],
+            "source_status": claim["source_status"],
+            "uses": sorted(
+                uses,
+                key=lambda row: (row["created_at"], row["object_type"], row["object_code"]),
+                reverse=True,
+            ),
+        }
+
     def approve_fact_claim(self, claim_code: str, approved_by: str) -> dict[str, Any] | None:
         try:
             with self.c.cursor(row_factory=dict_row) as cur:
@@ -396,7 +670,8 @@ class FunctionalKnowledgeService:
     @staticmethod
     def _claim_query(where: str = "") -> str:
         return f"""SELECT claim.*, fact.title AS fact_title, source.title AS source_title,
-                          source.status AS source_status, source.content_sha256 AS content_sha256
+                          fact.status AS fact_status, source.status AS source_status,
+                          source.content_sha256 AS content_sha256
                    FROM functional_knowledge_fact_claims AS claim
                    JOIN functional_knowledge_facts AS fact ON fact.fact_code = claim.fact_code
                    JOIN functional_knowledge_source_evidences AS source ON source.evidence_code = claim.source_evidence_code
@@ -411,6 +686,24 @@ class FunctionalKnowledgeService:
         )
         row = cur.fetchone()
         return dict(row) if row else None
+
+    @staticmethod
+    def _lineage_use(
+        relation_type: str,
+        object_type: str,
+        object_code: str,
+        revision_number: int | None,
+        status: str,
+        created_at: datetime,
+    ) -> dict[str, Any]:
+        return {
+            "relation_type": relation_type,
+            "object_type": object_type,
+            "object_code": object_code,
+            "revision_number": revision_number,
+            "status": status,
+            "created_at": created_at,
+        }
 
     @staticmethod
     def _refresh_fact_status(cur: Any, fact_code: str) -> None:

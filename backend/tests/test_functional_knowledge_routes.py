@@ -111,6 +111,31 @@ class FakeFunctionalKnowledgeService:
         return [_claim()] if q != "none" else []
 
     @staticmethod
+    def get_fact_claim_lineage(code: str) -> dict[str, Any] | None:
+        if code == "missing":
+            return None
+        return {
+            "claim_code": code,
+            "fact_code": "FACT-001",
+            "fact_title": "Warranty",
+            "claim_status": "approved",
+            "fact_status": "approved",
+            "source_evidence_code": "EVIDENCE-001",
+            "source_title": "Approved product sheet",
+            "source_status": "approved",
+            "uses": [
+                {
+                    "relation_type": "pins_fact_claim",
+                    "object_type": "content_project",
+                    "object_code": "CONTENT-001",
+                    "revision_number": 2,
+                    "status": "confirmed",
+                    "created_at": NOW,
+                }
+            ],
+        }
+
+    @staticmethod
     def approve_fact_claim(code: str, approved_by: str) -> dict[str, Any] | None:
         return _claim(claim_code=code, status="approved", approved_by=approved_by, approved_at=NOW)
 
@@ -208,6 +233,38 @@ def test_fact_claim_route_rejects_naive_datetimes(
         },
     )
     assert result.status_code == 422
+
+
+def test_fact_claim_lineage_keeps_statuses_and_fixed_usage_explicit(
+    client: tuple[TestClient, FakeFunctionalKnowledgeService],
+) -> None:
+    test_client, _service = client
+
+    lineage = test_client.get("/api/functional-knowledge/fact-claims/CLAIM-001/lineage")
+    missing = test_client.get("/api/functional-knowledge/fact-claims/missing/lineage")
+
+    assert lineage.status_code == 200
+    assert lineage.json() == {
+        "claim_code": "CLAIM-001",
+        "fact_code": "FACT-001",
+        "fact_title": "Warranty",
+        "claim_status": "approved",
+        "fact_status": "approved",
+        "source_evidence_code": "EVIDENCE-001",
+        "source_title": "Approved product sheet",
+        "source_status": "approved",
+        "uses": [
+            {
+                "relation_type": "pins_fact_claim",
+                "object_type": "content_project",
+                "object_code": "CONTENT-001",
+                "revision_number": 2,
+                "status": "confirmed",
+                "created_at": "2026-07-25T00:00:00Z",
+            }
+        ],
+    }
+    assert missing.status_code == 404
 
 
 def test_evidence_and_claim_revocation_require_attributed_reasons(

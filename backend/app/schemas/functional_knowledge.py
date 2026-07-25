@@ -109,6 +109,27 @@ class FactClaimReject(KnowledgeRevocation):
     pass
 
 
+class FactClaimLineageUseRead(BaseModel):
+    relation_type: str
+    object_type: str
+    object_code: str
+    revision_number: int | None = None
+    status: str
+    created_at: datetime
+
+
+class FactClaimLineageRead(BaseModel):
+    claim_code: str
+    fact_code: str
+    fact_title: str
+    claim_status: str
+    fact_status: str
+    source_evidence_code: str
+    source_title: str
+    source_status: str
+    uses: list[FactClaimLineageUseRead] = Field(default_factory=list)
+
+
 class FactClaimRead(BaseModel):
     claim_code: str
     fact_code: str

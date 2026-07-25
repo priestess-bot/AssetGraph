@@ -77,6 +77,41 @@ describe("KnowledgePage", () => {
     expect(JSON.parse(String(request?.init?.body))).toMatchObject({ source_type: "document", title: "Product sheet", excerpt: "Verified warranty is 12 months.", access_scope: "internal" });
   });
 
+  it("opens the fixed content usage chain for a fact claim", async () => {
+    const claim = {
+      claim_code: "CLAIM-001", fact_code: "FACT-001", fact_title: "Warranty",
+      source_evidence_code: "EVIDENCE-001", source_title: "Product sheet", source_status: "approved",
+      claim: "Warranty is 12 months.", citation_excerpt: "Verified warranty is 12 months.",
+      status: "approved", fingerprint_sha256: "b".repeat(64),
+      created_at: "2026-07-25T00:00:00Z", updated_at: "2026-07-25T00:00:00Z",
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/maitu/workbench/product-fact-cards") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/functional-knowledge/source-evidences") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/functional-knowledge/fact-claims") return new Response(JSON.stringify([claim]), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/functional-knowledge/fact-claims/CLAIM-001/lineage") return new Response(JSON.stringify({
+        claim_code: "CLAIM-001", fact_code: "FACT-001", fact_title: "Warranty",
+        claim_status: "approved", fact_status: "approved",
+        source_evidence_code: "EVIDENCE-001", source_title: "Product sheet", source_status: "approved",
+        uses: [{ relation_type: "pins_fact_claim", object_type: "content_project", object_code: "CONTENT-001", revision_number: 2, status: "confirmed", created_at: "2026-07-25T00:00:00Z" }],
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    const user = userEvent.setup();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><KnowledgePage /></QueryClientProvider>);
+
+    await screen.findByText("尚无事实卡");
+    await user.click(screen.getByRole("button", { name: "来源证据" }));
+    await screen.findByText("Warranty is 12 months.");
+    await user.click(screen.getByRole("button", { name: "查看使用链" }));
+
+    expect(await screen.findByRole("heading", { name: "声明使用链" })).toBeInTheDocument();
+    expect(screen.getByText(/CONTENT-001 · r2/)).toBeInTheDocument();
+    expect(screen.getByText("pins_fact_claim")).toBeInTheDocument();
+  });
+
   it("revokes approved local evidence with an explicit reason", async () => {
     const requests: Array<{ url: string; init?: RequestInit }> = [];
     const approvedSource = {
