@@ -22,6 +22,7 @@ import {
 } from "../workbench/components";
 import {
   operationsApi,
+  type AttributionReport,
   type ContentExposure,
   type ContentProjection,
   type ContentTimeline,
@@ -426,6 +427,104 @@ function TimeMappingPanel({
       ) : null}
     </section>
   );
+}
+
+type ComparisonRow = {
+  key: string;
+  label: string;
+  baseline?: number;
+  candidate?: number;
+};
+
+function reportComparisonRows(
+  baseline: AttributionReport,
+  candidate: AttributionReport,
+): ComparisonRow[] {
+  const rows = new Map<string, ComparisonRow>();
+  for (const group of baseline.groups) {
+    const key = `group:${group.scopeType}:${group.scopeCode}`;
+    rows.set(key, { key, label: group.displayLabel, baseline: group.average });
+  }
+  for (const group of candidate.groups) {
+    const key = `group:${group.scopeType}:${group.scopeCode}`;
+    const current = rows.get(key);
+    rows.set(key, {
+      key,
+      label: group.displayLabel,
+      baseline: current?.baseline,
+      candidate: group.average,
+    });
+  }
+  for (const allocation of baseline.measuredSceneAllocations) {
+    if (allocation.measuredMetricValue === undefined) continue;
+    const key = `scene:${allocation.planCode}:${allocation.sceneCode}`;
+    rows.set(key, {
+      key,
+      label: `场景 ${allocation.sceneCode} · ${allocation.planCode}`,
+      baseline: allocation.measuredMetricValue,
+    });
+  }
+  for (const allocation of candidate.measuredSceneAllocations) {
+    if (allocation.measuredMetricValue === undefined) continue;
+    const key = `scene:${allocation.planCode}:${allocation.sceneCode}`;
+    const current = rows.get(key);
+    rows.set(key, {
+      key,
+      label: `场景 ${allocation.sceneCode} · ${allocation.planCode}`,
+      baseline: current?.baseline,
+      candidate: allocation.measuredMetricValue,
+    });
+  }
+  return [...rows.values()].sort((left, right) => {
+    const leftDelta = (left.candidate ?? 0) - (left.baseline ?? 0);
+    const rightDelta = (right.candidate ?? 0) - (right.baseline ?? 0);
+    return Math.abs(rightDelta) - Math.abs(leftDelta) || left.label.localeCompare(right.label);
+  });
+}
+
+function displayDifference(value: number | undefined): string {
+  if (value === undefined) return "--";
+  return `${value >= 0 ? "+" : ""}${value.toFixed(2)}`;
+}
+
+function ReportComparisonPanel({ reports }: { reports: AttributionReport[] }) {
+  const [baselineCode, setBaselineCode] = useState("");
+  const [candidateCode, setCandidateCode] = useState("");
+  useEffect(() => {
+    if (!reports.length) return;
+    if (!reports.some((report) => report.reportCode === baselineCode)) {
+      setBaselineCode(reports[1]?.reportCode ?? reports[0].reportCode);
+    }
+    if (!reports.some((report) => report.reportCode === candidateCode)) {
+      setCandidateCode(reports[0].reportCode);
+    }
+  }, [baselineCode, candidateCode, reports]);
+  if (reports.length < 2) return null;
+  const baseline = reports.find((report) => report.reportCode === baselineCode);
+  const candidate = reports.find((report) => report.reportCode === candidateCode);
+  if (!baseline || !candidate || baseline.reportCode === candidate.reportCode) return null;
+  const comparable = baseline.metricKey === candidate.metricKey;
+  const rows = comparable ? reportComparisonRows(baseline, candidate) : [];
+  return <section className="operations-report-comparison">
+    <header>
+      <div><span>FROZEN REPORT COMPARISON</span><h3>描述性报告比较</h3></div>
+      <StatusBadge label={comparable ? "同一指标" : "指标不一致"} tone={comparable ? "info" : "warning"} />
+    </header>
+    <div className="operations-report-comparison-selectors">
+      <label className="wb-field"><span>基准报告</span><select className="wb-input" value={baselineCode} onChange={(event) => setBaselineCode(event.target.value)}>{reports.map((report) => <option key={report.reportCode} value={report.reportCode}>{report.metricKey} · {report.reportCode}</option>)}</select></label>
+      <label className="wb-field"><span>对比报告</span><select className="wb-input" value={candidateCode} onChange={(event) => setCandidateCode(event.target.value)}>{reports.map((report) => <option key={report.reportCode} value={report.reportCode}>{report.metricKey} · {report.reportCode}</option>)}</select></label>
+    </div>
+    <div className="operations-report-comparison-summary">
+      <div><span>基准样本</span><strong>{baseline.metadata.selectedSessionCount}</strong><small>{baseline.metadata.observedSessionCount} 场有展示证据</small></div>
+      <div><span>对比样本</span><strong>{candidate.metadata.selectedSessionCount}</strong><small>{candidate.metadata.observedSessionCount} 场有展示证据</small></div>
+      <div><span>基准状态</span><strong>{baseline.status}</strong><small>{baseline.fingerprintSha256?.slice(0, 12) ?? "历史报告"}</small></div>
+      <div><span>对比状态</span><strong>{candidate.status}</strong><small>{candidate.fingerprintSha256?.slice(0, 12) ?? "历史报告"}</small></div>
+    </div>
+    {!comparable ? <InlineNotice tone="warning" title="不能比较数值">两个冻结报告使用不同指标，仅保留样本与证据状态的结构比较。</InlineNotice> : null}
+    {comparable && rows.length ? <ol className="operations-report-comparison-rows">{rows.map((row) => <li key={row.key}><span><strong>{row.label}</strong><small>基准 {row.baseline?.toFixed(2) ?? "--"} · 对比 {row.candidate?.toFixed(2) ?? "--"}</small></span><strong>{row.baseline === undefined || row.candidate === undefined ? "新增/缺失" : displayDifference(row.candidate - row.baseline)}</strong></li>)}</ol> : null}
+    {comparable && !rows.length ? <small className="operations-measured-scene-footnote">两个报告没有可比较的分组或事件时刻场景值。</small> : null}
+    <small className="operations-measured-scene-footnote">比较只读取已冻结输入和结果，不构成因果解释或发布授权。</small>
+  </section>;
 }
 
 export function OperationsPage({ view }: { view: "sessions" | "attribution" }) {
@@ -1656,6 +1755,7 @@ export function OperationsPage({ view }: { view: "sessions" | "attribution" }) {
           </>
         ) : (
           <div className="operations-list">
+            <ReportComparisonPanel reports={reports.data ?? []} />
             {reports.data?.map((report) => (
               <div key={report.reportCode}>
                 <div className="operations-list-content">

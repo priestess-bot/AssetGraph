@@ -656,6 +656,22 @@
 .operations-scene-allocations li > strong { font-size: 10px; }
 .operations-measured-scene-allocations { border-color: var(--console-cyan); }
 .operations-measured-scene-footnote { color: var(--wb-muted); font-size: 8px; }
+.operations-report-comparison { display: grid; grid-column: 1 / -1; gap: 9px; padding: 11px; border: 1px solid var(--console-cyan); background: var(--wb-subtle); }
+.operations-report-comparison > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.operations-report-comparison > header > div { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.operations-report-comparison > header span { color: var(--console-cyan); font-size: 8px; font-weight: 900; }
+.operations-report-comparison > header h3 { margin: 0; font-size: 12px; }
+.operations-report-comparison-selectors, .operations-report-comparison-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.operations-report-comparison-summary { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.operations-report-comparison-summary > div { display: flex; min-width: 0; flex-direction: column; gap: 3px; padding: 7px; border: 1px solid var(--wb-line); background: #fff; }
+.operations-report-comparison-summary span, .operations-report-comparison-summary small { color: var(--wb-muted); font-size: 8px; overflow-wrap: anywhere; }
+.operations-report-comparison-summary strong { overflow-wrap: anywhere; font-size: 10px; }
+.operations-report-comparison-rows { display: grid; gap: 1px; margin: 0; padding: 0; list-style: none; border: 1px solid var(--wb-line); }
+.operations-report-comparison-rows li { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 8px; padding: 7px; background: #fff; }
+.operations-report-comparison-rows li span { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.operations-report-comparison-rows li span strong, .operations-report-comparison-rows li small { overflow-wrap: anywhere; font-size: 8px; }
+.operations-report-comparison-rows li small { color: var(--wb-muted); }
+.operations-report-comparison-rows li > strong { flex: 0 0 auto; color: var(--console-cyan); font-size: 10px; }
 
 .console-entity-inspector { min-width: 0; max-height: calc(100vh - 84px); border: 1px solid var(--wb-line-strong); border-radius: 6px; background: #fff; box-shadow: 0 12px 28px rgb(24 32 26 / 10%); overflow-y: auto; }
 .console-entity-inspector > header { position: sticky; z-index: 3; top: 0; display: flex; min-height: 76px; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--wb-line); background: rgb(255 255 255 / 97%); }
@@ -813,6 +829,7 @@
   .operations-metric-snapshot-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .operations-metric-snapshot-list article { grid-template-columns: 1fr; }
   .operations-metric-snapshot-list article > div:last-child { align-items: start; }
+  .operations-report-comparison-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .operations-attribution-session-picker { grid-template-columns: 1fr; }
   .content-project-rail, .knowledge-rail, .live-plan-rail, .video-plan-rail, .governance-catalog { position: static; max-height: none; }
   .live-plan-summary, .video-plan-summary, .live-material-snapshot { grid-template-columns: repeat(2, minmax(0, 1fr)); }

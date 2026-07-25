@@ -213,6 +213,41 @@ describe("OperationsPage", () => {
     expect(screen.getByText(/不代表场景真实归因或因果效果/)).toBeInTheDocument();
   });
 
+  it("compares frozen reports with the same metric at group and measured-scene level", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/data-governance/metrics") return response(metricCatalog);
+      if (url === "/api/functional-operations/sessions" || url === "/api/functional-operations/exposures" || url === "/api/functional-operations/schedule-plans" || url === "/api/functional-live-room-plans") return response([]);
+      if (url === "/api/functional-operations/attribution-reports") return response([
+        {
+          report_code: "ATTR-CANDIDATE", metric_key: "orders", evidence_level: "descriptive", session_codes: ["OPS-002"], status: "review_required", fingerprint_sha256: "b".repeat(64),
+          results: {
+            groups: { "plan:PLAN-001": { scope_type: "live_room_plan", scope_code: "PLAN-001", display_label: "实际展示计划 PLAN-001", average: 12, sample_size: 2, session_codes: ["OPS-002"], source_evidence: { exposure_count: 2, release_bound_exposure_count: 2, coverage_seconds: 60, source_kind_counts: { recording_match: 2 }, scene_codes: ["SCENE-001"], release_codes: ["REL-001"] }, limitations: [] } },
+            measured_scene_allocations: [{ scope_type: "measured_event_time_bucket", plan_code: "PLAN-001", scene_code: "SCENE-001", aggregation: "sum", measured_metric_value: 7, event_count: 2, source_session_codes: ["OPS-002"], source_snapshot_codes: ["METRIC-SNAP-002"], source_bucket_codes: ["METRIC-BUCKET-002"], release_codes: ["REL-001"], allocation_basis: "event_time_within_active_content_exposure", limitations: [] }],
+            metadata: { method: "descriptive", metric_grain: "live_session", selected_session_count: 2, observed_session_count: 2, session_only_count: 0, source_kind_counts: { recording_match: 2 }, release_bound_exposure_count: 2, metric_definition_state: "resolved", scene_allocation_method: "event_time", scene_allocation_count: 1 },
+          }, created_at: "2026-07-25T12:10:00Z",
+        },
+        {
+          report_code: "ATTR-BASELINE", metric_key: "orders", evidence_level: "descriptive", session_codes: ["OPS-001"], status: "published_descriptive", fingerprint_sha256: "a".repeat(64),
+          results: {
+            groups: { "plan:PLAN-001": { scope_type: "live_room_plan", scope_code: "PLAN-001", display_label: "实际展示计划 PLAN-001", average: 8, sample_size: 2, session_codes: ["OPS-001"], source_evidence: { exposure_count: 2, release_bound_exposure_count: 2, coverage_seconds: 60, source_kind_counts: { recording_match: 2 }, scene_codes: ["SCENE-001"], release_codes: ["REL-001"] }, limitations: [] } },
+            measured_scene_allocations: [{ scope_type: "measured_event_time_bucket", plan_code: "PLAN-001", scene_code: "SCENE-001", aggregation: "sum", measured_metric_value: 5, event_count: 2, source_session_codes: ["OPS-001"], source_snapshot_codes: ["METRIC-SNAP-001"], source_bucket_codes: ["METRIC-BUCKET-001"], release_codes: ["REL-001"], allocation_basis: "event_time_within_active_content_exposure", limitations: [] }],
+            metadata: { method: "descriptive", metric_grain: "live_session", selected_session_count: 2, observed_session_count: 2, session_only_count: 0, source_kind_counts: { recording_match: 2 }, release_bound_exposure_count: 2, metric_definition_state: "resolved", scene_allocation_method: "event_time", scene_allocation_count: 1 },
+          }, created_at: "2026-07-25T12:00:00Z",
+        },
+      ]);
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+
+    renderPage("attribution");
+
+    expect(await screen.findByRole("heading", { name: "描述性报告比较" })).toBeInTheDocument();
+    expect(screen.getByText("同一指标")).toBeInTheDocument();
+    expect(screen.getByText("场景 SCENE-001 · PLAN-001")).toBeInTheDocument();
+    expect(screen.getAllByText("+2.00")).toHaveLength(1);
+    expect(screen.getAllByText("+4.00")).toHaveLength(1);
+  });
+
   it("labels a session as observed only when it has an active exposure", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
