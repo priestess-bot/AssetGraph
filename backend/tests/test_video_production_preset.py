@@ -9,7 +9,11 @@ import pytest
 from app.schemas.video_productions import VideoProductionArtifactRegistration
 from app.domain.contracts import canonical_fingerprint
 from app.services.video_production_models import ArtifactStore, VideoProductionError
-from app.services.video_production_pipeline import VideoProductionPipeline, build_render_manifest
+from app.services.video_production_pipeline import (
+    VideoProductionPipeline,
+    build_render_manifest,
+    build_render_manifest_difference,
+)
 from app.services.video_production_preset import (
     DEFAULT_TOPIC,
     PRODUCT_FACTS,
@@ -268,6 +272,58 @@ def test_render_manifest_freezes_functional_production_timeline(tmp_path: Path) 
         "shot_list_fingerprint_sha256": canonical_fingerprint(shot_list),
         "document": production_timeline,
     }
+
+
+def test_render_manifest_retry_diff_separates_input_and_output_changes() -> None:
+    previous = {
+        "manifest_fingerprint": "a" * 64,
+        "renderer": {"source": "ffmpeg_render_v1"},
+        "timeline": {"fingerprint_sha256": "b" * 64},
+        "inputs": {"asset_plan_fingerprint_sha256": "c" * 64},
+        "commands": {"checksum_sha256": "d" * 64},
+        "toolchain": {"ffmpeg": "version 1"},
+        "encoding": {"audio_codec": "aac"},
+        "outputs": {
+            "video": {"checksum_sha256": "e" * 64},
+            "poster": {"checksum_sha256": "f" * 64},
+            "contact_sheet": {"checksum_sha256": "0" * 64},
+        },
+    }
+    current = {
+        **previous,
+        "manifest_fingerprint": "1" * 64,
+        "outputs": {
+            **previous["outputs"],
+            "video": {"checksum_sha256": "2" * 64},
+        },
+    }
+
+    diff = build_render_manifest_difference(
+        previous,
+        current,
+        previous_relative_path="VIDJOB-000001/attempt-1/render/manifest.json",
+    )
+
+    assert diff == {
+        "schema_version": "render-manifest-diff.v1",
+        "previous_relative_path": "VIDJOB-000001/attempt-1/render/manifest.json",
+        "previous_manifest_fingerprint": "a" * 64,
+        "current_manifest_fingerprint": "1" * 64,
+        "same_input": True,
+        "same_output": False,
+        "same_manifest": False,
+        "changed_input_sections": [],
+        "changed_output_sections": ["video"],
+        "classification": "output_changed_with_fixed_inputs",
+    }
+
+    changed_input = build_render_manifest_difference(
+        previous,
+        {**current, "toolchain": {"ffmpeg": "version 2"}},
+        previous_relative_path="VIDJOB-000001/attempt-1/render/manifest.json",
+    )
+    assert changed_input["classification"] == "input_changed"
+    assert changed_input["changed_input_sections"] == ["toolchain"]
 
 
 def test_poster_generation_uses_the_selected_timeline_time(tmp_path: Path) -> None:

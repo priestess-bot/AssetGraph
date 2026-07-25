@@ -31,6 +31,7 @@ VideoProductionArtifactKey = Literal[
     "video",
     "render_log",
     "render_manifest",
+    "render_manifest_diff",
 ]
 
 VIDEO_PRODUCTION_STAGES: tuple[str, ...] = (
@@ -57,6 +58,7 @@ VIDEO_PRODUCTION_ARTIFACT_KEYS: frozenset[str] = frozenset(
         "video",
         "render_log",
         "render_manifest",
+        "render_manifest_diff",
     }
 )
 

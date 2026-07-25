@@ -371,6 +371,12 @@ class VideoProductionPipeline:
 
     def _rendering(self, context: dict[str, Any]) -> StageExecutionResult:
         store: ArtifactStore = context["store"]
+        previous_manifest_path = store.find_previous("render/manifest.json")
+        previous_manifest = (
+            _load_json_file(previous_manifest_path)
+            if previous_manifest_path is not None
+            else None
+        )
         video_path, render_result = self.renderer.render(
             shot_list=context["shot_list"],
             asset_plan=context["asset_plan"],
@@ -422,6 +428,23 @@ class VideoProductionPipeline:
             manifest,
             metadata={"manifest_fingerprint": manifest["manifest_fingerprint"]},
         )
+        retry_diff_artifact: Artifact | None = None
+        if previous_manifest is not None:
+            retry_diff = build_render_manifest_difference(
+                previous_manifest,
+                manifest,
+                previous_relative_path=store.relative_to_output_root(previous_manifest_path),
+            )
+            retry_diff_artifact = store.write_json(
+                "render_manifest_diff",
+                "render/retry-diff.json",
+                retry_diff,
+                metadata={
+                    "previous_manifest_fingerprint": retry_diff["previous_manifest_fingerprint"],
+                    "current_manifest_fingerprint": retry_diff["current_manifest_fingerprint"],
+                    "classification": retry_diff["classification"],
+                },
+            )
         context["video_path"] = video_path
         context["render_manifest"] = manifest
         video_artifact = store.describe(
@@ -443,16 +466,16 @@ class VideoProductionPipeline:
             metadata=contact_sheet_metadata,
         )
         context["video_artifact"] = video_artifact
-        return StageExecutionResult(
-            manifest,
-            [
-                video_artifact,
-                poster_artifact,
-                contact_sheet_artifact,
-                command_log,
-                render_manifest,
-            ],
-        )
+        artifacts = [
+            video_artifact,
+            poster_artifact,
+            contact_sheet_artifact,
+            command_log,
+            render_manifest,
+        ]
+        if retry_diff_artifact is not None:
+            artifacts.append(retry_diff_artifact)
+        return StageExecutionResult(manifest, artifacts)
 
     def _poster(self, video: Path, store: ArtifactStore, *, at_seconds: float) -> Path:
         if not math.isfinite(at_seconds) or at_seconds < 0:
@@ -910,3 +933,47 @@ def build_render_manifest(
     }
     manifest["manifest_fingerprint"] = canonical_fingerprint(manifest)
     return manifest
+
+
+def build_render_manifest_difference(
+    previous: dict[str, Any],
+    current: dict[str, Any],
+    *,
+    previous_relative_path: str,
+) -> dict[str, Any]:
+    """Describe a retry without guessing why a renderer changed its bytes."""
+    input_sections = ("renderer", "timeline", "inputs", "commands", "toolchain", "encoding")
+    output_sections = ("video", "poster", "contact_sheet")
+    changed_input_sections = [
+        section
+        for section in input_sections
+        if canonical_fingerprint(previous.get(section)) != canonical_fingerprint(current.get(section))
+    ]
+    previous_outputs = previous.get("outputs") if isinstance(previous.get("outputs"), dict) else {}
+    current_outputs = current.get("outputs") if isinstance(current.get("outputs"), dict) else {}
+    changed_output_sections = [
+        section
+        for section in output_sections
+        if canonical_fingerprint(previous_outputs.get(section))
+        != canonical_fingerprint(current_outputs.get(section))
+    ]
+    same_input = not changed_input_sections
+    same_output = not changed_output_sections
+    if same_input and same_output:
+        classification = "identical"
+    elif same_input:
+        classification = "output_changed_with_fixed_inputs"
+    else:
+        classification = "input_changed"
+    return {
+        "schema_version": "render-manifest-diff.v1",
+        "previous_relative_path": previous_relative_path,
+        "previous_manifest_fingerprint": str(previous.get("manifest_fingerprint") or canonical_fingerprint(previous)),
+        "current_manifest_fingerprint": str(current.get("manifest_fingerprint") or canonical_fingerprint(current)),
+        "same_input": same_input,
+        "same_output": same_output,
+        "same_manifest": canonical_fingerprint(previous) == canonical_fingerprint(current),
+        "changed_input_sections": changed_input_sections,
+        "changed_output_sections": changed_output_sections,
+        "classification": classification,
+    }
