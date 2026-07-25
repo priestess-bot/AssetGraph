@@ -38,6 +38,7 @@ describe("LiveRoomPlannerPage", () => {
     await user.type(screen.getByLabelText("直播间 ID"), "room-001");
     await user.type(screen.getByLabelText("直播间标题"), "缺口计划");
     await user.click(screen.getByRole("checkbox", { name: /背景素材/ }));
+    await user.click(screen.getByLabelText("AG-IMG-001 至少使用一次"));
     await user.click(await screen.findByRole("checkbox", { name: "AG-IMG-001 仅当前直播间位置与图层" }));
     await user.type(screen.getByLabelText("AG-IMG-001 覆盖原因"), "适配当前房间背景构图");
     await user.click(screen.getByRole("checkbox", { name: /需要审核的背景/ }));
@@ -45,7 +46,7 @@ describe("LiveRoomPlannerPage", () => {
     await user.click(screen.getByRole("button", { name: "生成场景与 BuildPlan" }));
 
     const request = requests.find((item) => item.url === "/api/functional-live-room-plans" && item.init?.method === "POST");
-    expect(JSON.parse(String(request?.init?.body))).toMatchObject({ primary_template_code: "TPL-PRIMARY", secondary_template_codes: ["TPL-SECONDARY"], asset_gap_codes: ["AG-GAP-001"], asset_gap_waivers: { "AG-GAP-001": "本次活动使用临时审核素材" }, asset_codes: ["AG-IMG-001"], room_constraint_overrides: { "AG-IMG-001": { reason: "适配当前房间背景构图", geometry: { x: 0, y: 0, width: 1, height: 1 } } } });
+    expect(JSON.parse(String(request?.init?.body))).toMatchObject({ primary_template_code: "TPL-PRIMARY", secondary_template_codes: ["TPL-SECONDARY"], asset_gap_codes: ["AG-GAP-001"], asset_gap_waivers: { "AG-GAP-001": "本次活动使用临时审核素材" }, asset_codes: ["AG-IMG-001"], required_loose_asset_codes: ["AG-IMG-001"], room_constraint_overrides: { "AG-IMG-001": { reason: "适配当前房间背景构图", geometry: { x: 0, y: 0, width: 1, height: 1 } } } });
   });
 
   it("promotes a persisted room geometry through an explicit global Profile revision", async () => {

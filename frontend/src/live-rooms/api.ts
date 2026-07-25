@@ -12,6 +12,7 @@ export interface FunctionalLiveRoomPlan {
   primaryTemplateCode?: string;
   secondaryTemplateCodes: string[];
   selectedAssetCodes: string[];
+  requiredLooseAssetCodes: string[];
   selectedGroupCodes: string[];
   selectedMaterialPackCodes: string[];
   selectedAssetGapCodes: string[];
@@ -116,6 +117,7 @@ function plan(value: unknown): FunctionalLiveRoomPlan {
     primaryTemplateCode: asOptionalString(value.primary_template_code),
     secondaryTemplateCodes: strings(value.secondary_template_codes),
     selectedAssetCodes: strings(value.selected_asset_codes),
+    requiredLooseAssetCodes: strings(inventorySnapshot.required_loose_asset_codes),
     selectedGroupCodes: strings(value.selected_group_codes),
     selectedMaterialPackCodes: strings(value.selected_material_pack_codes),
     selectedAssetGapCodes: strings(value.selected_asset_gap_codes),
@@ -187,8 +189,9 @@ export const functionalLiveRoomsApi = {
   list: () => requestJson<unknown[]>(ROOT).then((rows) => rows.map(plan)),
   get: (planCode: string) => requestJson<unknown>(`${ROOT}/${planCode}`).then(plan),
   getTrace: (planCode: string) => requestJson<unknown>(`${ROOT}/${planCode}/trace`).then(trace),
-  create: (payload: { project_code: string; target_live_room_id: string; expected_title: string; primary_template_code?: string; secondary_template_codes: string[]; asset_codes: string[]; group_codes: string[]; material_pack_codes: string[]; asset_gap_codes: string[]; asset_gap_waivers?: Record<string, string>; material_role_overrides: Record<string, string>; material_role_modes?: Record<string, "inherit" | "append" | "replace">; room_constraint_overrides: Record<string, RoomConstraintOverride> }) => postJson<unknown>(ROOT, {
+  create: (payload: { project_code: string; target_live_room_id: string; expected_title: string; primary_template_code?: string; secondary_template_codes: string[]; asset_codes: string[]; required_loose_asset_codes?: string[]; group_codes: string[]; material_pack_codes: string[]; asset_gap_codes: string[]; asset_gap_waivers?: Record<string, string>; material_role_overrides: Record<string, string>; material_role_modes?: Record<string, "inherit" | "append" | "replace">; room_constraint_overrides: Record<string, RoomConstraintOverride> }) => postJson<unknown>(ROOT, {
     ...payload,
+    required_loose_asset_codes: payload.required_loose_asset_codes ?? [],
     material_role_modes: payload.material_role_modes ?? {},
     room_constraint_overrides: Object.fromEntries(Object.entries(payload.room_constraint_overrides).map(([assetCode, override]) => [assetCode, {
       reason: override.reason,

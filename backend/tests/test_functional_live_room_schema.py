@@ -31,6 +31,18 @@ def test_live_room_plan_input_accepts_a_scoped_asset_gap_waiver_reason() -> None
     assert payload.asset_gap_waivers == {"AG-GAP-001": "本次活动使用已审核的临时背景。"}
 
 
+def test_live_room_plan_input_accepts_explicit_required_loose_assets() -> None:
+    payload = FunctionalLiveRoomPlanCreate(
+        project_code="CONTENT-001",
+        target_live_room_id="room-001",
+        expected_title="必用素材计划",
+        asset_codes=["AG-IMG-001"],
+        required_loose_asset_codes=["AG-IMG-001"],
+    )
+
+    assert payload.required_loose_asset_codes == ["AG-IMG-001"]
+
+
 def test_live_room_plan_input_rejects_blank_asset_gap_waiver_reason() -> None:
     with pytest.raises(ValidationError, match="asset gap waivers"):
         FunctionalLiveRoomPlanCreate(

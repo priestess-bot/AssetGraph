@@ -81,6 +81,11 @@ class FunctionalLiveRoomService:
         )
         if not selected_assets:
             raise DomainValidationError("LIVE_ROOM_ASSETS_REQUIRED", "Select at least one asset or group before planning")
+        required_loose_asset_codes = self._validate_required_loose_asset_codes(
+            payload.get("required_loose_asset_codes") or [],
+            payload.get("asset_codes") or [],
+            selected_assets,
+        )
         material_rules_by_asset: dict[str, list[dict[str, Any]]] = {}
         for rule in material_pack_resolution["material_rules"]:
             material_rules_by_asset.setdefault(str(rule["asset_code"]), []).append(rule)
@@ -130,6 +135,7 @@ class FunctionalLiveRoomService:
             },
             "asset_gap_refs": asset_gap_refs,
             "asset_gap_waivers": dict(payload.get("asset_gap_waivers") or {}),
+            "required_loose_asset_codes": required_loose_asset_codes,
             "material_role_overrides": material_role_overrides,
             "material_role_modes": dict(payload.get("material_role_modes") or {}),
             "room_constraint_overrides": room_constraint_overrides,
@@ -147,6 +153,7 @@ class FunctionalLiveRoomService:
             configuration={
                 "templates": templates,
                 "selected_asset_codes": snapshot["asset_codes"],
+                "required_loose_asset_codes": required_loose_asset_codes,
                 "selected_material_pack_codes": payload.get("material_pack_codes") or [],
                 "selected_asset_gap_codes": payload.get("asset_gap_codes") or [],
                 "asset_gap_waivers": dict(payload.get("asset_gap_waivers") or {}),
@@ -187,6 +194,7 @@ class FunctionalLiveRoomService:
             configuration={
                 "templates": templates,
                 "selected_asset_codes": snapshot["asset_codes"],
+                "required_loose_asset_codes": required_loose_asset_codes,
                 "selected_group_codes": payload.get("group_codes") or [],
                 "selected_material_pack_codes": payload.get("material_pack_codes") or [],
                 "selected_asset_gap_codes": payload.get("asset_gap_codes") or [],
@@ -206,6 +214,7 @@ class FunctionalLiveRoomService:
             payload,
             variant_code=variant["variant_code"],
             material_pack_entry_requirements=material_pack_resolution["entry_requirements"],
+            required_loose_asset_codes=required_loose_asset_codes,
         )
         blocked_reasons = list(
             dict.fromkeys(
@@ -471,6 +480,9 @@ class FunctionalLiveRoomService:
                 "primary_template_code": source["primary_template_code"],
                 "secondary_template_codes": list(source["secondary_template_codes"] or []),
                 "asset_codes": list(source["selected_asset_codes"] or []),
+                "required_loose_asset_codes": list(
+                    (source["build_plan"] or {}).get("inventory_snapshot", {}).get("required_loose_asset_codes") or []
+                ),
                 "group_codes": list(source["selected_group_codes"] or []),
                 "material_pack_codes": list(source["selected_material_pack_codes"] or []),
                 "asset_gap_codes": [
@@ -494,6 +506,7 @@ class FunctionalLiveRoomService:
                 "content_project_revision",
                 "pinned_template_revisions",
                 "selected_asset_codes",
+                "required_loose_asset_codes",
                 "selected_group_codes",
                 "selected_material_pack_codes",
                 "selected_asset_gap_codes",
@@ -1313,6 +1326,7 @@ class FunctionalLiveRoomService:
             "material_role_modes": dict(blueprint.get("material_role_modes") or {}),
             "material_selection_decisions": list(blueprint.get("material_selection_decisions") or []),
             "material_pack_requirement_evidence": list(blueprint.get("material_pack_requirement_evidence") or []),
+            "required_loose_asset_evidence": list(blueprint.get("required_loose_asset_evidence") or []),
         }
         return gates, quality_report
 
@@ -1344,6 +1358,26 @@ class FunctionalLiveRoomService:
                     details={"role": role, "asset_code": asset_code, "asset_roles": asset.get("material_roles") or []},
                 )
             normalized[role] = asset_code
+        return normalized
+
+    @staticmethod
+    def _validate_required_loose_asset_codes(
+        required_codes: list[str],
+        loose_asset_codes: list[str],
+        selected_assets: list[dict[str, Any]],
+    ) -> list[str]:
+        """Only explicitly chosen loose assets can become branch-level must-use inputs."""
+        selected_by_code = {str(asset["asset_code"]) for asset in selected_assets}
+        loose_codes = {str(code).strip() for code in loose_asset_codes if str(code).strip()}
+        normalized = list(dict.fromkeys(str(code).strip() for code in required_codes if str(code).strip()))
+        invalid = sorted(set(normalized) - loose_codes)
+        missing = sorted(set(normalized) - selected_by_code)
+        if invalid or missing:
+            raise DomainValidationError(
+                "LIVE_ROOM_REQUIRED_LOOSE_ASSET_INVALID",
+                "A required loose asset must be an explicitly selected current asset",
+                details={"not_explicitly_selected": invalid, "not_found": missing},
+            )
         return normalized
 
     @staticmethod
@@ -1642,6 +1676,32 @@ class FunctionalLiveRoomService:
         return evidence, failures
 
     @staticmethod
+    def _evaluate_required_loose_asset_codes(
+        *, asset_codes: list[str], decisions: list[dict[str, Any]]
+    ) -> tuple[list[dict[str, Any]], list[str]]:
+        """Prove that a direct must-use selection appears in emitted scene layers."""
+        evidence: list[dict[str, Any]] = []
+        failures: list[str] = []
+        for asset_code in dict.fromkeys(str(code).strip() for code in asset_codes if str(code).strip()):
+            observed = sum(
+                1 for decision in decisions if str(decision.get("selected_asset_code") or "") == asset_code
+            )
+            status = "satisfied" if observed >= 1 else "unsatisfied_minimum"
+            evidence.append(
+                {
+                    "source_kind": "loose_asset",
+                    "asset_code": asset_code,
+                    "mode": "required",
+                    "min_occurrences": 1,
+                    "observed_occurrences": observed,
+                    "status": status,
+                }
+            )
+            if status != "satisfied":
+                failures.append(f"required_loose_asset_{status}:{asset_code}")
+        return evidence, failures
+
+    @staticmethod
     def _requirement_occurrence_count(
         requirement: dict[str, Any], decisions: list[dict[str, Any]]
     ) -> int:
@@ -1669,6 +1729,7 @@ class FunctionalLiveRoomService:
         *,
         variant_code: str,
         material_pack_entry_requirements: list[dict[str, Any]] | None = None,
+        required_loose_asset_codes: list[str] | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
         room_constraint_overrides = dict(payload.get("room_constraint_overrides") or {})
         assets = [
@@ -1772,6 +1833,13 @@ class FunctionalLiveRoomService:
             decisions=material_selection_decisions,
         )
         blocked.extend(requirement_failures)
+        loose_requirement_evidence, loose_requirement_failures = (
+            FunctionalLiveRoomService._evaluate_required_loose_asset_codes(
+                asset_codes=required_loose_asset_codes or [],
+                decisions=material_selection_decisions,
+            )
+        )
+        blocked.extend(loose_requirement_failures)
         operations.append({"kind": "save_draft"})
         return (
             {
@@ -1782,6 +1850,7 @@ class FunctionalLiveRoomService:
                 "room_constraint_overrides": room_constraint_overrides,
                 "material_selection_decisions": material_selection_decisions,
                 "material_pack_requirement_evidence": pack_requirement_evidence,
+                "required_loose_asset_evidence": loose_requirement_evidence,
             },
             {"schema_version": "maitu-build-plan.functional.v1", "target_live_room_id": payload["target_live_room_id"], "operations": operations, "go_live": False},
             list(dict.fromkeys(blocked)),
