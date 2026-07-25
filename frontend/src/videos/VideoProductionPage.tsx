@@ -1059,6 +1059,9 @@ function Detail({
   const posterUrl = plan.artifacts.find(
     (artifact) => artifact.artifact_key === "poster",
   )?.download_url;
+  const hasFrozenMaterialEvidence = Boolean(
+    plan.renderProfile.visualAssets?.length || plan.renderProfile.backgroundMusic,
+  );
   return (
     <div className="video-plan-detail">
       <section className="wb-section">
@@ -1101,10 +1104,10 @@ function Detail({
         <div className="video-progress">
           <i style={{ width: `${plan.progressPercent}%` }} />
         </div>
-        {plan.renderProfile.visualAssets?.length ? (
+        {hasFrozenMaterialEvidence ? (
           <div className="video-frozen-assets">
             <span>冻结视觉素材</span>
-            {plan.renderProfile.visualAssets.map((asset) => (
+            {plan.renderProfile.visualAssets?.map((asset) => (
               <code key={asset.assetCode}>
                 {asset.assetCode} · {asset.checksumSha256.slice(0, 12)}
               </code>
@@ -1132,8 +1135,10 @@ function Detail({
           </InlineNotice>
         ) : (
           <InlineNotice tone="info" title="已固定内容项目输入">
-            剧本与镜头来自内容项目；当前视觉源为已验证的基线素材，等待本地渲染
-            Worker 执行。
+            剧本与镜头来自内容项目；
+            {hasFrozenMaterialEvidence
+              ? "当前素材输入已经冻结，等待本地渲染 Worker 执行。"
+              : "当前视觉源为已验证的基线素材，等待本地渲染 Worker 执行。"}
           </InlineNotice>
         )}
       </section>
