@@ -208,12 +208,16 @@ describe("VideoProductionPage", () => {
 
     await user.selectOptions(await screen.findByRole("combobox", { name: "内容来源" }), "live_room");
     await user.selectOptions(screen.getByRole("combobox", { name: "直播间计划" }), "LIVEPLAN-001");
+    expect(screen.getByLabelText("预览 本地商品讲解")).toHaveAttribute("src", "/api/assets/AG-VID-000001/preview");
     await user.click(screen.getByRole("checkbox", { name: "选择 本地商品讲解" }));
     await user.click(screen.getByRole("checkbox", { name: "选择分组 商品讲解组" }));
     await user.click(screen.getByRole("checkbox", { name: "选择素材包 讲解素材包" }));
     await user.selectOptions(screen.getByRole("combobox", { name: "品牌标识" }), "AG-IMG-000002");
     await user.selectOptions(screen.getByRole("combobox", { name: "商品贴片" }), "AG-IMG-000001");
     await user.selectOptions(screen.getByRole("combobox", { name: "背景音乐" }), "AG-AUD-000001");
+    expect(screen.getByAltText("预览 本地品牌标识")).toHaveAttribute("src", "/api/assets/AG-IMG-000002/preview");
+    expect(screen.getByAltText("预览 本地商品贴片")).toHaveAttribute("src", "/api/assets/AG-IMG-000001/preview");
+    expect(screen.getByLabelText("预览 本地背景音乐")).toHaveAttribute("src", "/api/assets/AG-AUD-000001/preview");
     fireEvent.change(screen.getByRole("slider", { name: "背景音乐增益" }), { target: { value: "-20" } });
     await user.click(screen.getByRole("button", { name: "创建渲染任务" }));
 

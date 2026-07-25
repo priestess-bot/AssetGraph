@@ -14,7 +14,7 @@ import {
   Send,
 } from "lucide-react";
 import { contentProjectsApi } from "../content/api";
-import { assetLibraryApi } from "../assets/api";
+import { assetLibraryApi, type LibraryAsset } from "../assets/api";
 import { functionalLiveRoomsApi } from "../live-rooms/api";
 import {
   EmptyBlock,
@@ -119,6 +119,36 @@ function timelineDiff(
 
 function timelineSeconds(value: number): string {
   return `${(value / 1000).toFixed(1)} 秒`;
+}
+
+function assetPreviewUrl(assetCode: string): string {
+  return `/api/assets/${encodeURIComponent(assetCode)}/preview`;
+}
+
+function LocalMaterialPreview({ asset }: { asset: LibraryAsset }) {
+  const source = assetPreviewUrl(asset.assetCode);
+  return (
+    <figure className={`video-material-preview is-${asset.mediaKind ?? "unknown"}`}>
+      {asset.mediaKind === "image" ? (
+        <img src={source} alt={`预览 ${asset.title}`} />
+      ) : asset.mediaKind === "audio" ? (
+        <audio aria-label={`预览 ${asset.title}`} controls preload="metadata" src={source} />
+      ) : (
+        <video
+          aria-label={`预览 ${asset.title}`}
+          controls
+          muted
+          playsInline
+          preload="metadata"
+          src={source}
+        />
+      )}
+      <figcaption>
+        <strong>{asset.title}</strong>
+        <code>{asset.assetCode}</code>
+      </figcaption>
+    </figure>
+  );
 }
 
 function FixedInputTrace({ plan }: { plan: FunctionalVideoPlan }) {
@@ -1516,6 +1546,9 @@ export function VideoProductionPage() {
   const localVideoAssetCodes = new Set(
     localVideoAssets.map((asset) => asset.assetCode),
   );
+  const assetsByCode = new Map(
+    (assets.data ?? []).map((asset) => [asset.assetCode, asset]),
+  );
   const groupsByCode = new Map(
     (groups.data ?? []).map((group) => [group.groupCode, group]),
   );
@@ -1570,6 +1603,15 @@ export function VideoProductionPage() {
       ]),
     );
   const selectedVisualSourceCodes = visualSelectionCodes();
+  const selectedVisualPreviewAssets = selectedVisualSourceCodes.flatMap(
+    (assetCode) => {
+      const asset = assetsByCode.get(assetCode);
+      return asset?.mediaKind === "video" ? [asset] : [];
+    },
+  );
+  const selectedBrandLogo = assetsByCode.get(brandLogoAssetCode);
+  const selectedProductSticker = assetsByCode.get(productStickerAssetCode);
+  const selectedBackgroundMusic = assetsByCode.get(backgroundMusicAssetCode);
   const toggleVisualAsset = (assetCode: string) =>
     setVisualAssetCodes((current) =>
       current.includes(assetCode)
@@ -1720,23 +1762,32 @@ export function VideoProductionPage() {
             <fieldset className="video-visual-assets">
               <legend>视觉素材（{selectedVisualSourceCodes.length}/6）</legend>
               {localVideoAssets.map((asset) => (
-                <label key={asset.assetCode}>
-                  <input
-                    type="checkbox"
-                    aria-label={`选择 ${asset.title}`}
-                    checked={visualAssetCodes.includes(asset.assetCode)}
-                    disabled={
-                      !visualAssetCodes.includes(asset.assetCode) &&
-                      visualSelectionCodes([
-                        ...visualAssetCodes,
-                        asset.assetCode,
-                      ]).length > 6
-                    }
-                    onChange={() => toggleVisualAsset(asset.assetCode)}
+                <div className="video-visual-option" key={asset.assetCode}>
+                  <video
+                    aria-label={`预览 ${asset.title}`}
+                    muted
+                    playsInline
+                    preload="metadata"
+                    src={assetPreviewUrl(asset.assetCode)}
                   />
-                  <span>{asset.title}</span>
-                  <code>{asset.assetCode}</code>
-                </label>
+                  <label>
+                    <input
+                      type="checkbox"
+                      aria-label={`选择 ${asset.title}`}
+                      checked={visualAssetCodes.includes(asset.assetCode)}
+                      disabled={
+                        !visualAssetCodes.includes(asset.assetCode) &&
+                        visualSelectionCodes([
+                          ...visualAssetCodes,
+                          asset.assetCode,
+                        ]).length > 6
+                      }
+                      onChange={() => toggleVisualAsset(asset.assetCode)}
+                    />
+                    <span>{asset.title}</span>
+                    <code>{asset.assetCode}</code>
+                  </label>
+                </div>
               ))}
               {selectableGroups.map((group) => (
                 <label key={group.groupCode}>
@@ -1779,43 +1830,56 @@ export function VideoProductionPage() {
               ))}
             </fieldset>
           ) : null}
+          {selectedVisualPreviewAssets.length ? (
+            <div className="video-selected-previews">
+              {selectedVisualPreviewAssets.map((asset) => (
+                <LocalMaterialPreview key={asset.assetCode} asset={asset} />
+              ))}
+            </div>
+          ) : null}
           {localBrandLogoAssets.length ? (
-            <label className="wb-field">
-              <span>品牌标识</span>
-              <select
-                aria-label="品牌标识"
-                className="wb-input"
-                value={brandLogoAssetCode}
-                onChange={(event) => setBrandLogoAssetCode(event.target.value)}
-              >
-                <option value="">使用基线标识</option>
-                {localBrandLogoAssets.map((asset) => (
-                  <option key={asset.assetCode} value={asset.assetCode}>
-                    {asset.title} · {asset.assetCode}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <>
+              <label className="wb-field">
+                <span>品牌标识</span>
+                <select
+                  aria-label="品牌标识"
+                  className="wb-input"
+                  value={brandLogoAssetCode}
+                  onChange={(event) => setBrandLogoAssetCode(event.target.value)}
+                >
+                  <option value="">使用基线标识</option>
+                  {localBrandLogoAssets.map((asset) => (
+                    <option key={asset.assetCode} value={asset.assetCode}>
+                      {asset.title} · {asset.assetCode}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {selectedBrandLogo ? <LocalMaterialPreview asset={selectedBrandLogo} /> : null}
+            </>
           ) : null}
           {localProductStickerAssets.length ? (
-            <label className="wb-field">
-              <span>商品贴片</span>
-              <select
-                aria-label="商品贴片"
-                className="wb-input"
-                value={productStickerAssetCode}
-                onChange={(event) =>
-                  setProductStickerAssetCode(event.target.value)
-                }
-              >
-                <option value="">使用基线贴片</option>
-                {localProductStickerAssets.map((asset) => (
-                  <option key={asset.assetCode} value={asset.assetCode}>
-                    {asset.title} · {asset.assetCode}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <>
+              <label className="wb-field">
+                <span>商品贴片</span>
+                <select
+                  aria-label="商品贴片"
+                  className="wb-input"
+                  value={productStickerAssetCode}
+                  onChange={(event) =>
+                    setProductStickerAssetCode(event.target.value)
+                  }
+                >
+                  <option value="">使用基线贴片</option>
+                  {localProductStickerAssets.map((asset) => (
+                    <option key={asset.assetCode} value={asset.assetCode}>
+                      {asset.title} · {asset.assetCode}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {selectedProductSticker ? <LocalMaterialPreview asset={selectedProductSticker} /> : null}
+            </>
           ) : null}
           {localBackgroundMusicAssets.length ? (
             <>
@@ -1837,6 +1901,9 @@ export function VideoProductionPage() {
                   ))}
                 </select>
               </label>
+              {selectedBackgroundMusic ? (
+                <LocalMaterialPreview asset={selectedBackgroundMusic} />
+              ) : null}
               <label className="wb-field">
                 <span>背景音乐增益 {backgroundMusicGainDb.toFixed(1)} dB</span>
                 <input

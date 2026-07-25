@@ -199,6 +199,10 @@ class Settings(BaseSettings):
     )
     asset_retrieval_documents_path: str = "docs/asset-numbering/asset_retrieval_documents_20260709.jsonl"
     asset_retrieval_embeddings_path: str = "docs/asset-numbering/asset_retrieval_embeddings_20260709.jsonl"
+    asset_materials_root: Path = Field(
+        default=REPO_ROOT / "素材",
+        validation_alias=AliasChoices("ASSETGRAPH_ASSETS_ROOT", "ASSETS_ROOT"),
+    )
 
     video_production_root: Path = Field(
         default=Path("/DATA/Downloads/AssetGraph/video-productions"),

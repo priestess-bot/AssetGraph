@@ -34,7 +34,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--assets-root",
         type=Path,
-        default=Path(os.environ.get("ASSETGRAPH_ASSETS_ROOT", REPO_ROOT / "素材")),
+        default=settings.asset_materials_root,
     )
     parser.add_argument("--output-root", type=Path, default=settings.video_production_root)
     parser.add_argument(

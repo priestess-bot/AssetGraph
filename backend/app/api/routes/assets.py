@@ -1,12 +1,13 @@
-from typing import Annotated
-
 import hashlib
+import mimetypes
 import shutil
 import tempfile
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi.responses import FileResponse
 from psycopg import Connection
 
 from app.core.config import settings
@@ -53,6 +54,7 @@ from app.services.object_storage import MinioObjectStorage, ObjectStorage, build
 from app.services.qwen3_client import Qwen3Client, Qwen3ClientError
 
 router = APIRouter(prefix="/assets", tags=["assets"])
+_PREVIEWABLE_MEDIA_KINDS = frozenset({"audio", "image", "video"})
 
 
 def get_asset_repository(connection: Annotated[Connection, Depends(get_db)]) -> AssetRepository:
@@ -102,6 +104,31 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: file.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _local_preview_path(asset: dict, *, root: Path) -> Path:
+    if (
+        str(asset.get("execution_capability") or "") != ExecutionCapability.LOCAL_ONLY.value
+        or str(asset.get("media_kind") or "") not in _PREVIEWABLE_MEDIA_KINDS
+    ):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset preview not found")
+
+    relative_path = PurePosixPath(str(asset.get("local_relative_path") or "").replace("\\", "/"))
+    if not relative_path.parts or relative_path.is_absolute() or ".." in relative_path.parts:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset preview not found")
+
+    candidate = (root / Path(*relative_path.parts)).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset preview not found") from exc
+    if not candidate.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset preview not found")
+
+    expected_checksum = str(asset.get("checksum_sha256") or "").strip().lower()
+    if len(expected_checksum) != 64 or sha256_file(candidate) != expected_checksum:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Asset preview file changed")
+    return candidate
 
 
 @router.post("", response_model=AssetRead, status_code=status.HTTP_201_CREATED)
@@ -410,6 +437,29 @@ def asset_candidates(
         "filters": {key: value for key, value in filters.items() if value not in (None, "")},
         "candidates": response_candidates,
     }
+
+
+@router.get("/{asset_code}/preview")
+def get_asset_preview(
+    asset_code: str,
+    repository: Annotated[AssetRepository, Depends(get_asset_repository)],
+) -> FileResponse:
+    asset = repository.get_by_code(asset_code)
+    if asset is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset preview not found")
+
+    root = settings.asset_materials_root.expanduser().resolve()
+    candidate = _local_preview_path(asset, root=root)
+    media_type = (
+        str(asset.get("mime_type") or "").strip()
+        or mimetypes.guess_type(candidate.name)[0]
+        or "application/octet-stream"
+    )
+    return FileResponse(
+        candidate,
+        media_type=media_type,
+        headers={"Cache-Control": "private, no-store"},
+    )
 
 
 @router.get("/{asset_code}", response_model=AssetRead)

@@ -8,6 +8,7 @@ def test_qwen3_timeout_default_allows_cold_model_loads() -> None:
 
 
 def test_video_production_defaults_use_data_volume_and_safe_lease_intervals() -> None:
+    assert Settings.model_fields["asset_materials_root"].default == Path(__file__).resolve().parents[2] / "素材"
     assert Settings.model_fields["video_production_root"].default == Path(
         "/DATA/Downloads/AssetGraph/video-productions"
     )
