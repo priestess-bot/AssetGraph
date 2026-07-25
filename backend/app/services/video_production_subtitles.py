@@ -70,6 +70,14 @@ def build_ass_subtitles(
         if caption_position not in {"bottom", "center"}:
             raise ValueError("subtitle caption position is unsupported")
         caption_style = "CaptionCenter" if caption_position == "center" else "Caption"
+        source_shot_code = str(shot.get("source_shot_code") or "").strip()
+        source_script_block_codes = list(
+            dict.fromkeys(
+                str(code).strip()
+                for code in shot.get("source_script_block_codes") or []
+                if str(code).strip()
+            )
+        )
         weights = [_text_weight(text) for text in captions]
         total_weight = sum(weights) or 1.0
         cursor = shot_start
@@ -88,6 +96,10 @@ def build_ass_subtitles(
                 "text": wrapped.replace("\\N", "\n"),
                 "source_text": caption,
                 "caption_position": caption_position,
+                "source_shot_code": source_shot_code,
+                "source_script_block_codes": source_script_block_codes,
+                "timing_source": "text_weight_estimate_v1",
+                "word_timing": _word_timing(caption, cursor, end),
             }
             events.append(event)
             lines.append(_dialogue_line(cursor, end, caption_style, wrapped))
@@ -104,6 +116,8 @@ def build_ass_subtitles(
                     "start_seconds": round(shot_start, 3),
                     "end_seconds": round(headline_end, 3),
                     "text": wrapped_headline.replace("\\N", "\n"),
+                    "source_shot_code": source_shot_code,
+                    "source_script_block_codes": source_script_block_codes,
                 }
             )
             lines.append(_dialogue_line(shot_start, headline_end, "Headline", wrapped_headline, layer=1))
@@ -123,6 +137,12 @@ def build_ass_subtitles(
             "bottom": sum(event.get("caption_position") == "bottom" for event in events),
             "center": sum(event.get("caption_position") == "center" for event in events),
         },
+        "word_timing_source": "text_weight_estimate_v1",
+        "word_timing_count": sum(
+            len(event.get("word_timing") or [])
+            for event in events
+            if event["kind"] == "caption"
+        ),
         "events": events,
     }
 
@@ -207,6 +227,31 @@ def _text_weight(text: str) -> float:
     chinese = len(re.findall(r"[\u3400-\u9fff]", text))
     ascii_characters = len(re.findall(r"[A-Za-z0-9]", text))
     return max(1.0, chinese + ascii_characters * 0.5)
+
+
+def _word_timing(text: str, start_seconds: float, end_seconds: float) -> list[dict[str, float | str]]:
+    tokens = re.findall(r"[\u3400-\u9fff]|[A-Za-z0-9]+|[^\s]", text)
+    if not tokens or end_seconds <= start_seconds:
+        return []
+    weights = [_text_weight(token) for token in tokens]
+    total_weight = sum(weights) or 1.0
+    cursor = start_seconds
+    timing: list[dict[str, float | str]] = []
+    for index, (token, weight) in enumerate(zip(tokens, weights, strict=True)):
+        end = (
+            end_seconds
+            if index == len(tokens) - 1
+            else cursor + (end_seconds - start_seconds) * weight / total_weight
+        )
+        timing.append(
+            {
+                "text": token,
+                "start_seconds": round(cursor, 6),
+                "end_seconds": round(end, 6),
+            }
+        )
+        cursor = end
+    return timing
 
 
 def _ass_timestamp(seconds: float) -> str:

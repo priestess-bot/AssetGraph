@@ -640,6 +640,16 @@ class VideoProductionRepository:
                         "kind": str(event.get("kind") or "caption"),
                         "start_seconds": event.get("start_seconds"),
                         "end_seconds": event.get("end_seconds"),
+                        "source_shot_code": str(event.get("source_shot_code") or ""),
+                        "source_script_block_codes": [
+                            str(code)
+                            for code in event.get("source_script_block_codes") or []
+                            if str(code)
+                        ],
+                        "timing_source": str(event.get("timing_source") or ""),
+                        "word_timing": event.get("word_timing")
+                        if isinstance(event.get("word_timing"), list)
+                        else [],
                     }
                 )
             evidence_by_shot = {

@@ -73,6 +73,7 @@ class FunctionalVideoService:
             detail,
             duration,
             source_shot_codes=self._source_shot_codes(detail),
+            source_shot_script_blocks=self._source_shot_script_blocks(detail),
             visual_assets=visual_assets,
             background_music=background_music,
             sound_effect=sound_effect,
@@ -1158,6 +1159,25 @@ class FunctionalVideoService:
                 "A generated ContentProject must expose fixed Shots before video planning",
             )
         return codes
+
+    @staticmethod
+    def _source_shot_script_blocks(detail: dict[str, Any]) -> dict[str, list[str]]:
+        shot_list = detail.get("shot_list") or {}
+        result: dict[str, list[str]] = {}
+        for shot in shot_list.get("shots") or []:
+            if not isinstance(shot, dict):
+                continue
+            shot_code = str(shot.get("shot_code") or "").strip()
+            if not shot_code:
+                continue
+            result[shot_code] = list(
+                dict.fromkeys(
+                    str(code).strip()
+                    for code in shot.get("script_block_codes") or []
+                    if str(code).strip()
+                )
+            )
+        return result
 
     @staticmethod
     def _timeline_segment_code(
@@ -2394,6 +2414,7 @@ class FunctionalVideoService:
         duration: int,
         *,
         source_shot_codes: list[str] | None = None,
+        source_shot_script_blocks: dict[str, list[str]] | None = None,
         visual_assets: list[dict[str, Any]] | None = None,
         background_music: dict[str, Any] | None = None,
         sound_effect: dict[str, Any] | None = None,
@@ -2409,6 +2430,7 @@ class FunctionalVideoService:
         cursor = 0.0
         compiled: list[dict[str, Any]] = []
         source_shot_codes = source_shot_codes or [f"SOURCE-SHOT-{index + 1:02d}" for index in range(6)]
+        source_shot_script_blocks = source_shot_script_blocks or {}
         for index, (chunk, item_duration, clip) in enumerate(zip(chunks, durations, clip_specs, strict=True)):
             asset_code, source_start, source_end, fit = clip
             selected_asset = visual_assets[index % len(visual_assets)] if visual_assets else None
@@ -2418,7 +2440,7 @@ class FunctionalVideoService:
                 source_end = 6.0
             end = round(cursor + item_duration, 3)
             source_shot_code = source_shot_codes[min(len(source_shot_codes) - 1, index * len(source_shot_codes) // 6)]
-            shot = {"shot_index": index, "shot_code": f"SHOT-{index + 1:02d}", "source_shot_code": source_shot_code, "start_seconds": cursor, "end_seconds": end, "duration_seconds": item_duration, "goal": "content_project", "narration": chunk, "tts_text": chunk.replace("PRO", "P R O"), "screen_text": chunk[:28], "asset_code": asset_code, "asset_relative_path": selected_asset["relative_path"] if selected_asset else None, "asset_expected_checksum": selected_asset["checksum_sha256"] if selected_asset else None, "source_start_seconds": source_start, "source_end_seconds": source_end, "source_available_seconds": source_end - source_start, "fit": fit, "playback_rate": 1.0, "visual_role": "selected_library_video" if selected_asset else "baseline_visual", "transition": "fade_out" if index == 5 else "cut", "overlay_roles": ["brand_logo"] if index in {0, 5} else []}
+            shot = {"shot_index": index, "shot_code": f"SHOT-{index + 1:02d}", "source_shot_code": source_shot_code, "source_script_block_codes": source_shot_script_blocks.get(source_shot_code, []), "start_seconds": cursor, "end_seconds": end, "duration_seconds": item_duration, "goal": "content_project", "narration": chunk, "tts_text": chunk.replace("PRO", "P R O"), "screen_text": chunk[:28], "asset_code": asset_code, "asset_relative_path": selected_asset["relative_path"] if selected_asset else None, "asset_expected_checksum": selected_asset["checksum_sha256"] if selected_asset else None, "source_start_seconds": source_start, "source_end_seconds": source_end, "source_available_seconds": source_end - source_start, "fit": fit, "playback_rate": 1.0, "visual_role": "selected_library_video" if selected_asset else "baseline_visual", "transition": "fade_out" if index == 5 else "cut", "overlay_roles": ["brand_logo"] if index in {0, 5} else []}
             sticker_suggestion = FunctionalVideoService._product_sticker_layout_suggestion(
                 selected_asset,
                 product_sticker,
@@ -2476,7 +2498,7 @@ class FunctionalVideoService:
         audio_clips = [{"clip_code": f"VOICE-{shot['shot_code']}", "linked_shot_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "gain_db": 0.0} for shot in compiled]
         if background_music is not None:
             audio_clips.append({"clip_code": "BGM-01", "timeline_range": {"start_ms": 0, "duration_ms": duration * 1000}, "asset_code": background_music["asset_code"], "gain_db": background_music["gain_db"]})
-        timeline = {"schema_version": "otio-compatible-production-timeline.v1", "global_start_ms": 0, "global_end_ms": duration * 1000, "poster_time_ms": poster_time_ms, "subtitle_style": subtitle_style, "tracks": [{"track_kind": "video", "clips": [{"clip_code": shot["shot_code"], "source_shot_code": shot["source_shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "source_range": {"asset_code": shot["asset_code"], "asset_checksum_sha256": shot.get("asset_expected_checksum"), "asset_relative_path": shot.get("asset_relative_path"), "start_seconds": shot["source_start_seconds"], "end_seconds": shot["source_end_seconds"], "available_start_seconds": shot["source_start_seconds"], "available_end_seconds": shot["source_end_seconds"]}, "fit": shot["fit"], "crop_x": 0.5, "crop_y": 0.5, "playback_rate": shot["playback_rate"], "overlay_roles": shot["overlay_roles"], "overlay_z_order": shot["overlay_z_order"], "product_sticker_layout_suggestion": shot.get("product_sticker_layout_suggestion"), "audio_roles": shot.get("audio_roles", []), "transition": shot["transition"]} for shot in compiled]}, {"track_kind": "audio", "clips": audio_clips}, {"track_kind": "subtitle", "clips": [{"clip_code": f"SUBTITLE-{shot['shot_code']}", "linked_shot_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "subtitle_text": shot["narration"], "headline_text": shot["screen_text"], "caption_position": "bottom"} for shot in compiled]}]}
+        timeline = {"schema_version": "otio-compatible-production-timeline.v1", "global_start_ms": 0, "global_end_ms": duration * 1000, "poster_time_ms": poster_time_ms, "subtitle_style": subtitle_style, "tracks": [{"track_kind": "video", "clips": [{"clip_code": shot["shot_code"], "source_shot_code": shot["source_shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "source_range": {"asset_code": shot["asset_code"], "asset_checksum_sha256": shot.get("asset_expected_checksum"), "asset_relative_path": shot.get("asset_relative_path"), "start_seconds": shot["source_start_seconds"], "end_seconds": shot["source_end_seconds"], "available_start_seconds": shot["source_start_seconds"], "available_end_seconds": shot["source_end_seconds"]}, "fit": shot["fit"], "crop_x": 0.5, "crop_y": 0.5, "playback_rate": shot["playback_rate"], "overlay_roles": shot["overlay_roles"], "overlay_z_order": shot["overlay_z_order"], "product_sticker_layout_suggestion": shot.get("product_sticker_layout_suggestion"), "audio_roles": shot.get("audio_roles", []), "transition": shot["transition"]} for shot in compiled]}, {"track_kind": "audio", "clips": audio_clips}, {"track_kind": "subtitle", "clips": [{"clip_code": f"SUBTITLE-{shot['shot_code']}", "linked_shot_code": shot["shot_code"], "source_script_block_codes": shot["source_script_block_codes"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "subtitle_text": shot["narration"], "headline_text": shot["screen_text"], "caption_position": "bottom"} for shot in compiled]}]}
         timeline = FunctionalVideoService._with_rational_time_projection(timeline)
         return story, script, shots, timeline
 

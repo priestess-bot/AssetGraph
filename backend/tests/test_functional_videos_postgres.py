@@ -72,6 +72,7 @@ def test_functional_video_plan_seeds_content_stages_and_queues_renderer() -> Non
         job = VideoProductionRepository(connection).get_by_code(plan["video_job_code"])
         assert job is not None
         assert job["shot_list"]["production_timeline"] == plan["production_timeline"]
+        assert all(shot["source_script_block_codes"] for shot in job["shot_list"]["shots"])
 
         clips = plan["production_timeline"]["tracks"][0]["clips"]
         subtitles = next(

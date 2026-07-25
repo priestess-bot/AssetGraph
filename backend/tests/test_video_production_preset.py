@@ -135,6 +135,40 @@ def test_ass_subtitles_stop_at_real_speech_duration() -> None:
         assert captions[-1]["end_seconds"] == pytest.approx(shot["start_seconds"] + 4.25, abs=0.001)
 
 
+def test_ass_subtitles_freeze_source_blocks_and_estimated_word_timing() -> None:
+    shot_list = {
+        "shots": [
+            {
+                "shot_index": 0,
+                "shot_code": "SHOT-01",
+                "source_shot_code": "CONTENT-SHOT-01",
+                "source_script_block_codes": ["BLOCK-001", "BLOCK-002"],
+                "start_seconds": 0.0,
+                "end_seconds": 4.0,
+                "narration": "你好 world！",
+                "screen_text": "标题",
+            }
+        ]
+    }
+
+    _, manifest = build_ass_subtitles(shot_list)
+
+    caption = next(event for event in manifest["events"] if event["kind"] == "caption")
+    timing = caption["word_timing"]
+    assert caption["source_shot_code"] == "CONTENT-SHOT-01"
+    assert caption["source_script_block_codes"] == ["BLOCK-001", "BLOCK-002"]
+    assert caption["timing_source"] == "text_weight_estimate_v1"
+    assert "".join(item["text"] for item in timing) == "你好world！"
+    assert timing[0]["start_seconds"] == 0.0
+    assert timing[-1]["end_seconds"] == 4.0
+    assert all(
+        left["end_seconds"] <= right["start_seconds"]
+        for left, right in zip(timing, timing[1:])
+    )
+    assert manifest["word_timing_source"] == "text_weight_estimate_v1"
+    assert manifest["word_timing_count"] == len(timing)
+
+
 def test_ass_subtitles_honor_the_fixed_caption_position() -> None:
     brief = generate_story_brief(DEFAULT_TOPIC)
     script = generate_commercial_script(brief)
