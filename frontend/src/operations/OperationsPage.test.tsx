@@ -116,6 +116,36 @@ describe("OperationsPage", () => {
     });
   });
 
+  it("creates a frozen metric snapshot for a selected operation session", async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); requests.push({ url, init });
+      if (url === "/api/data-governance/metrics") return response(metricCatalog);
+      if (url === "/api/functional-operations/sessions") return response([
+        { session_code: "OPS-001", title: "有事件的场次", platform: "douyin", source_timezone: "Asia/Shanghai", source_evidence: {}, started_at: "2026-07-20T12:00:00Z", ended_at: "2026-07-20T13:00:00Z", metrics: {}, source_kind: "adapter_import", import_version: 1, created_at: "2026-07-20T13:01:00Z" },
+      ]);
+      if (url === "/api/functional-operations/sessions/OPS-001/metric-snapshots" && init?.method === "POST") return response({ snapshot_code: "METRIC-SNAP-001", session_code: "OPS-001", metric_key: "orders", metric_code: "orders", metric_revision: 2, aggregation: "count", status: "ready", value: 2, source_event_count: 2, source_batches: [], quality_summary: {}, input_snapshot: {}, fingerprint_sha256: "a".repeat(64), created_at: "2026-07-20T13:02:00Z" });
+      if (url === "/api/functional-operations/sessions/OPS-001/metric-snapshots") return response([]);
+      if (url === "/api/functional-operations/exposures" || url === "/api/functional-operations/attribution-reports" || url === "/api/functional-operations/schedule-plans" || url === "/api/functional-live-room-plans") return response([]);
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText("有事件的场次");
+    await user.click(screen.getByRole("button", { name: "指标快照" }));
+    expect(await screen.findByText(/会话指标快照 · OPS-001/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "生成冻结快照" }));
+
+    await waitFor(() => expect(requests.some((item) => item.url === "/api/functional-operations/sessions/OPS-001/metric-snapshots" && item.init?.method === "POST")).toBe(true));
+    const request = requests.find((item) => item.url === "/api/functional-operations/sessions/OPS-001/metric-snapshots" && item.init?.method === "POST");
+    expect(JSON.parse(String(request?.init?.body))).toEqual({
+      metric_key: "orders",
+      metric_code: "orders",
+      revision_number: 2,
+    });
+  });
+
   it("creates descriptive attribution from an explicit session selection", async () => {
     const requests: Array<{ url: string; init?: RequestInit }> = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

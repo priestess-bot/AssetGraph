@@ -79,6 +79,53 @@ class OperationSessionRead(OperationSessionCreate):
     metric_definition_refs: list[OperationMetricDefinitionRef] = Field(default_factory=list)
 
 
+class SessionMetricSnapshotCreate(BaseModel):
+    """A reproducible event-derived metric for one operation session.
+
+    JSON Pointer selectors intentionally keep the first local implementation
+    declarative. Arbitrary catalog expressions are not evaluated in the
+    request path.
+    """
+
+    metric_key: str = Field(min_length=1, max_length=80)
+    metric_code: str = Field(min_length=1, max_length=80)
+    revision_number: int = Field(ge=1)
+    value_json_pointer: str | None = Field(default=None, max_length=512)
+    numerator_json_pointer: str | None = Field(default=None, max_length=512)
+    denominator_json_pointer: str | None = Field(default=None, max_length=512)
+
+    @field_validator(
+        "value_json_pointer", "numerator_json_pointer", "denominator_json_pointer"
+    )
+    @classmethod
+    def validate_json_pointer(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not value.startswith("/"):
+            raise ValueError("JSON Pointer selectors must start with '/'")
+        return value
+
+
+class SessionMetricSnapshotRead(BaseModel):
+    snapshot_code: str
+    session_code: str
+    metric_key: str
+    metric_code: str
+    metric_revision: int
+    aggregation: str
+    status: str
+    value: float | None = None
+    source_event_count: int
+    value_json_pointer: str | None = None
+    numerator_json_pointer: str | None = None
+    denominator_json_pointer: str | None = None
+    source_batches: list[dict[str, Any]] = Field(default_factory=list)
+    quality_summary: dict[str, Any] = Field(default_factory=dict)
+    input_snapshot: dict[str, Any] = Field(default_factory=dict)
+    fingerprint_sha256: str
+    created_at: datetime
+
+
 class ContentExposureCreate(BaseModel):
     session_code: str = Field(min_length=1, max_length=64)
     plan_code: str = Field(min_length=1, max_length=64)

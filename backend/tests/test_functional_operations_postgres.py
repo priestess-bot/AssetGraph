@@ -8,9 +8,14 @@ import psycopg
 import pytest
 from psycopg.types.json import Jsonb
 
+from app.domain.contracts import EventEnvelope
 from app.domain.errors import DomainValidationError
 from app.repositories.data_governance import DataGovernanceRepository
-from app.schemas.data_governance import MetricRevisionDefinition
+from app.schemas.data_governance import (
+    DataContractDefinition,
+    MetricRevisionDefinition,
+    StandardEventBatchIngest,
+)
 from app.services.data_governance import DataGovernanceService
 from app.services.functional_operations import FunctionalOperationsService
 
@@ -358,3 +363,133 @@ def test_session_time_mapping_is_revisioned_and_bounded_by_session_duration() ->
                 },
             )
         assert outside.value.code == "TIME_MAPPING_COVERAGE_OUTSIDE_SESSION"
+
+
+def test_event_batch_metric_snapshot_is_frozen_and_preferred_by_descriptive_attribution() -> None:
+    suffix = uuid4().hex
+    contract_code = f"session-orders-{suffix}"
+    metric_code = f"session-gmv-{suffix}"
+    start = datetime.now(UTC).replace(microsecond=0)
+    with psycopg.connect(DATABASE_URL) as connection:
+        governance = DataGovernanceService(DataGovernanceRepository(connection))
+        governance.put_contract(
+            contract_code=contract_code,
+            revision_number=1,
+            owner_principal="data-owner",
+            activate=True,
+            definition=DataContractDefinition.model_validate(
+                {
+                    "source_system": "commerce-platform",
+                    "schema_version": "commerce-event.v1",
+                    "json_schema": {
+                        "type": "object",
+                        "properties": {
+                            "order_id": {"type": "string", "minLength": 1},
+                            "amount": {"type": "number", "minimum": 0},
+                        },
+                        "required": ["order_id", "amount"],
+                        "additionalProperties": False,
+                    },
+                    "event_id_path": "/event_id",
+                    "event_time_path": "/event_time",
+                    "operation_path": "/operation",
+                    "primary_key_paths": ["/order_id"],
+                    "upsert_delete_semantics": {
+                        "allowed_operations": ["insert", "upsert", "delete"],
+                        "delete_requires_tombstone": True,
+                    },
+                    "lateness_policy": {"max_lateness_seconds": 3600},
+                    "compatibility_window": {"accepted_revisions": [1]},
+                    "expected_volume": {"events_per_hour": 100},
+                    "quality_slo": {"completeness": 0.99},
+                }
+            ),
+        )
+        metric = governance.put_metric_revision(
+            metric_code=metric_code,
+            expected_revision=0,
+            owner_principal="metrics-owner",
+            activate=True,
+            definition=MetricRevisionDefinition.model_validate(
+                {
+                    "name": "Session GMV",
+                    "description": "Accepted order amount within a live session.",
+                    "grain": "live_session",
+                    "unit": "CNY",
+                    "currency": "CNY",
+                    "value_type": "currency",
+                    "aggregation": "sum",
+                    "event_time_field": "event_time",
+                    "timezone": "UTC",
+                    "deduplication_keys": ["order_id"],
+                    "null_rule": {"amount": "reject"},
+                    "outlier_rule": {},
+                    "event_contract_refs": [
+                        {"code": contract_code, "revision": 1}
+                    ],
+                    "schema_compatibility": {},
+                    "quality_slo": {},
+                }
+            ),
+        )
+        operations = FunctionalOperationsService(connection)
+        session = operations.import_session(
+            {
+                "title": f"Event metric session {suffix}",
+                "platform": "douyin",
+                "external_session_id": f"external-{suffix}",
+                "started_at": start,
+                "ended_at": start + timedelta(minutes=20),
+                "metrics": {},
+            }
+        )
+        rows = []
+        for index, amount in enumerate((12.5, 7.5), start=1):
+            event_time = start + timedelta(minutes=index)
+            rows.append(
+                {
+                    "entity_type": "live_session",
+                    "entity_id": session["session_code"],
+                    "envelope": EventEnvelope(
+                        event_id=uuid4(),
+                        source_system="commerce-platform",
+                        source_event_id=f"order-{suffix}-{index}",
+                        schema_version="commerce-event.v1",
+                        operation="upsert",
+                        event_time=event_time,
+                        processing_time=event_time,
+                        payload={"order_id": f"order-{suffix}-{index}", "amount": amount},
+                    ),
+                }
+            )
+        batch = governance.ingest_event_batch(
+            StandardEventBatchIngest(
+                contract_code=contract_code,
+                contract_revision=1,
+                source_batch_id=f"export-{suffix}",
+                rows=rows,
+            )
+        )
+        snapshot = operations.create_session_metric_snapshot(
+            session["session_code"],
+            {
+                "metric_key": "gmv",
+                "metric_code": metric_code,
+                "revision_number": metric["revision_number"],
+                "value_json_pointer": "/amount",
+            },
+        )
+        report = operations.create_report(
+            {"metric_key": "gmv", "session_codes": [session["session_code"]]}
+        )
+
+        assert batch["status"] == "accepted"
+        assert snapshot["status"] == "ready"
+        assert float(snapshot["value"]) == 20.0
+        assert snapshot["source_event_count"] == 2
+        assert snapshot["source_batches"][0]["batch_code"] == batch["batch_code"]
+        assert snapshot["fingerprint_sha256"]
+        frozen_session = report["input_snapshot"]["sessions"][0]
+        assert frozen_session["metric_value"] == 20.0
+        assert frozen_session["metric_snapshot"]["snapshot_code"] == snapshot["snapshot_code"]
+        assert report["metric_definition_ref"]["metric_code"] == metric_code

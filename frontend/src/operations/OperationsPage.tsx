@@ -485,6 +485,12 @@ export function OperationsPage({ view }: { view: "sessions" | "attribution" }) {
   const [room, setRoom] = useState("");
   const [scheduleAt, setScheduleAt] = useState("");
   const [timelineSession, setTimelineSession] = useState("");
+  const [metricSnapshotSession, setMetricSnapshotSession] = useState("");
+  const [metricSnapshotBinding, setMetricSnapshotBinding] = useState("");
+  const [metricSnapshotKey, setMetricSnapshotKey] = useState("");
+  const [metricValuePointer, setMetricValuePointer] = useState("");
+  const [metricNumeratorPointer, setMetricNumeratorPointer] = useState("");
+  const [metricDenominatorPointer, setMetricDenominatorPointer] = useState("");
   const [correctionSource, setCorrectionSource] = useState<ContentExposure>();
   const [correctionKind, setCorrectionKind] = useState<"supersede" | "retract">(
     "supersede",
@@ -557,6 +563,30 @@ export function OperationsPage({ view }: { view: "sessions" | "attribution" }) {
       ).sort(),
     [metricCatalog.data, sessions.data],
   );
+  const snapshotMetric = useMemo(
+    () =>
+      metricCatalog.data?.find(
+        (metric) =>
+          `${metric.metricCode}:${metric.revisionNumber}` ===
+          metricSnapshotBinding,
+      ),
+    [metricCatalog.data, metricSnapshotBinding],
+  );
+  const snapshotMetricIssue =
+    !metricSnapshotSession
+      ? "请选择一个运营场次。"
+      : !snapshotMetric
+        ? "请选择一个 live_session 指标定义。"
+        : !metricSnapshotKey.trim()
+          ? "请填写归因使用的指标名。"
+          : snapshotMetric.aggregation === "ratio" &&
+              (!metricNumeratorPointer.trim() || !metricDenominatorPointer.trim())
+            ? "比例指标需要分子和分母 JSON Pointer。"
+            : snapshotMetric.aggregation !== "count" &&
+                snapshotMetric.aggregation !== "ratio" &&
+                !metricValuePointer.trim()
+              ? "该聚合方式需要数值 JSON Pointer。"
+              : undefined;
   const attributionSessions = useMemo(
     () =>
       (sessions.data ?? []).filter((session) =>
@@ -720,6 +750,24 @@ export function OperationsPage({ view }: { view: "sessions" | "attribution" }) {
       });
     },
   });
+  const createMetricSnapshot = useMutation({
+    mutationFn: () => {
+      if (!snapshotMetric) throw new Error("请先选择指标定义");
+      return operationsApi.createSessionMetricSnapshot(metricSnapshotSession, {
+        metric_key: metricSnapshotKey.trim(),
+        metric_code: snapshotMetric.metricCode,
+        revision_number: snapshotMetric.revisionNumber,
+        value_json_pointer: metricValuePointer.trim() || undefined,
+        numerator_json_pointer: metricNumeratorPointer.trim() || undefined,
+        denominator_json_pointer: metricDenominatorPointer.trim() || undefined,
+      });
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["operations", "metric-snapshots", metricSnapshotSession],
+      });
+    },
+  });
   const contentTimeline = useQuery({
     queryKey: ["operations", "content-timeline", timelineSession],
     queryFn: () => operationsApi.getContentTimeline(timelineSession),
@@ -730,6 +778,11 @@ export function OperationsPage({ view }: { view: "sessions" | "attribution" }) {
     queryFn: () => operationsApi.listTimeMappings(timelineSession),
     enabled: view === "sessions" && Boolean(timelineSession),
   });
+  const metricSnapshots = useQuery({
+    queryKey: ["operations", "metric-snapshots", metricSnapshotSession],
+    queryFn: () => operationsApi.listSessionMetricSnapshots(metricSnapshotSession),
+    enabled: view === "sessions" && Boolean(metricSnapshotSession),
+  });
   const error =
     createSession.error ??
     createExposure.error ??
@@ -738,7 +791,8 @@ export function OperationsPage({ view }: { view: "sessions" | "attribution" }) {
     publishReport.error ??
     rerunReport.error ??
     createSchedule.error ??
-    createTimeMapping.error;
+    createTimeMapping.error ??
+    createMetricSnapshot.error;
   if (
     sessions.isLoading ||
     exposures.isLoading ||
@@ -1364,6 +1418,27 @@ export function OperationsPage({ view }: { view: "sessions" | "attribution" }) {
                     <ListTree size={14} aria-hidden="true" />
                     查看时间线
                   </button>
+                  <button
+                    type="button"
+                    className="wb-button operations-timeline-button"
+                    onClick={() => {
+                      setMetricSnapshotSession(session.sessionCode);
+                      if (!metricSnapshotBinding) {
+                        const firstMetric = metricCatalog.data?.find(
+                          (metric) => metric.grain === "live_session",
+                        );
+                        if (firstMetric) {
+                          setMetricSnapshotBinding(
+                            `${firstMetric.metricCode}:${firstMetric.revisionNumber}`,
+                          );
+                          setMetricSnapshotKey(firstMetric.metricCode);
+                        }
+                      }
+                    }}
+                  >
+                    <ChartNoAxesCombined size={14} aria-hidden="true" />
+                    指标快照
+                  </button>
                 </div>
               ))}
               {exposures.data?.map((exposure) => (
@@ -1428,6 +1503,155 @@ export function OperationsPage({ view }: { view: "sessions" | "attribution" }) {
                 mappingError={createTimeMapping.error}
                 onCreateMapping={(payload) => createTimeMapping.mutate(payload)}
               />
+            ) : null}
+            {metricSnapshotSession ? (
+              <section className="operations-metric-snapshot-panel">
+                <div className="operations-timeline-heading">
+                  <div>
+                    <span>FROZEN EVENT METRICS</span>
+                    <h3>会话指标快照 · {metricSnapshotSession}</h3>
+                  </div>
+                  <StatusBadge
+                    label={`${metricSnapshots.data?.length ?? 0} 个快照`}
+                    tone={metricSnapshots.data?.some((item) => item.status === "ready") ? "info" : "warning"}
+                  />
+                </div>
+                <form
+                  className="operations-metric-snapshot-form"
+                  onSubmit={(event: FormEvent) => {
+                    event.preventDefault();
+                    if (!snapshotMetricIssue) createMetricSnapshot.mutate();
+                  }}
+                >
+                  <label className="wb-field">
+                    <span>指标定义</span>
+                    <select
+                      className="wb-input"
+                      value={metricSnapshotBinding}
+                      onChange={(event) => {
+                        const selected = metricCatalog.data?.find(
+                          (metric) =>
+                            `${metric.metricCode}:${metric.revisionNumber}` ===
+                            event.target.value,
+                        );
+                        setMetricSnapshotBinding(event.target.value);
+                        if (selected) setMetricSnapshotKey(selected.metricCode);
+                      }}
+                      required
+                    >
+                      <option value="">选择 live_session 指标</option>
+                      {metricCatalog.data
+                        ?.filter((metric) => metric.grain === "live_session")
+                        .map((metric) => (
+                          <option
+                            key={`${metric.metricCode}:${metric.revisionNumber}`}
+                            value={`${metric.metricCode}:${metric.revisionNumber}`}
+                          >
+                            {metricCatalogLabel(metric)}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                  <label className="wb-field">
+                    <span>归因指标名</span>
+                    <input
+                      className="wb-input"
+                      value={metricSnapshotKey}
+                      onChange={(event) => setMetricSnapshotKey(event.target.value)}
+                      required
+                    />
+                  </label>
+                  {snapshotMetric?.aggregation !== "count" &&
+                  snapshotMetric?.aggregation !== "ratio" ? (
+                    <label className="wb-field">
+                      <span>数值 JSON Pointer</span>
+                      <input
+                        className="wb-input"
+                        placeholder="/amount"
+                        value={metricValuePointer}
+                        onChange={(event) => setMetricValuePointer(event.target.value)}
+                        required
+                      />
+                    </label>
+                  ) : null}
+                  {snapshotMetric?.aggregation === "ratio" ? (
+                    <>
+                      <label className="wb-field">
+                        <span>分子 JSON Pointer</span>
+                        <input
+                          className="wb-input"
+                          placeholder="/purchases"
+                          value={metricNumeratorPointer}
+                          onChange={(event) =>
+                            setMetricNumeratorPointer(event.target.value)
+                          }
+                          required
+                        />
+                      </label>
+                      <label className="wb-field">
+                        <span>分母 JSON Pointer</span>
+                        <input
+                          className="wb-input"
+                          placeholder="/visitors"
+                          value={metricDenominatorPointer}
+                          onChange={(event) =>
+                            setMetricDenominatorPointer(event.target.value)
+                          }
+                          required
+                        />
+                      </label>
+                    </>
+                  ) : null}
+                  <button
+                    className="wb-button wb-button-primary"
+                    disabled={createMetricSnapshot.isPending || Boolean(snapshotMetricIssue)}
+                  >
+                    <ChartNoAxesCombined size={15} aria-hidden="true" />
+                    生成冻结快照
+                  </button>
+                </form>
+                {snapshotMetricIssue ? (
+                  <InlineNotice tone="warning" title="快照待补全">
+                    {snapshotMetricIssue}
+                  </InlineNotice>
+                ) : null}
+                {metricSnapshots.isLoading ? <LoadingBlock label="正在读取指标快照" /> : null}
+                {metricSnapshots.error ? (
+                  <InlineNotice tone="danger" title="指标快照读取失败">
+                    {errorText(metricSnapshots.error)}
+                  </InlineNotice>
+                ) : null}
+                {metricSnapshots.data?.length ? (
+                  <div className="operations-metric-snapshot-list">
+                    {metricSnapshots.data.map((snapshot) => (
+                      <article key={snapshot.snapshotCode}>
+                        <div>
+                          <strong>
+                            {snapshot.metricKey}: {snapshot.value?.toFixed(4) ?? "数据不足"}
+                          </strong>
+                          <small>
+                            {snapshot.metricCode} r{snapshot.metricRevision} · {snapshot.aggregation} · {snapshot.sourceEventCount} 个事件
+                          </small>
+                          <code>{snapshot.snapshotCode} · {snapshot.fingerprintSha256.slice(0, 12)}</code>
+                        </div>
+                        <div>
+                          <StatusBadge
+                            label={snapshot.status}
+                            tone={snapshot.status === "ready" ? "success" : "warning"}
+                          />
+                          {snapshot.sourceBatches.map((batch) => (
+                            <small key={batch.batchCode}>
+                              {batch.batchCode} · {batch.includedEventCount} · {batch.sourceChecksum?.slice(0, 10) ?? "无校验和"}
+                            </small>
+                          ))}
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                ) : !metricSnapshots.isLoading && !metricSnapshots.error ? (
+                  <EmptyBlock icon={ChartNoAxesCombined} title="尚未冻结会话指标" />
+                ) : null}
+              </section>
             ) : null}
           </>
         ) : (

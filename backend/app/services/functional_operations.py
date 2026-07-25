@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal, InvalidOperation
+import math
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -178,6 +180,477 @@ class FunctionalOperationsService:
                 "SELECT * FROM functional_operation_sessions ORDER BY started_at DESC"
             )
             return [dict(row) for row in cursor.fetchall()]
+
+    @staticmethod
+    def _json_pointer_value(payload: Any, pointer: str) -> Any:
+        """Resolve a RFC 6901 JSON Pointer without interpreting expressions."""
+
+        value = payload
+        for segment in pointer[1:].split("/"):
+            token = segment.replace("~1", "/").replace("~0", "~")
+            if isinstance(value, dict) and token in value:
+                value = value[token]
+            elif isinstance(value, list) and token.isdigit() and int(token) < len(value):
+                value = value[int(token)]
+            else:
+                raise DomainValidationError(
+                    "SESSION_METRIC_SNAPSHOT_SELECTOR_MISSING",
+                    "A required JSON Pointer value is missing from a source event",
+                    details={"json_pointer": pointer},
+                )
+        return value
+
+    @classmethod
+    def _numeric_pointer_value(
+        cls, payload: dict[str, Any], pointer: str, *, event_id: str
+    ) -> float:
+        raw = cls._json_pointer_value(payload, pointer)
+        if isinstance(raw, bool):
+            raise DomainValidationError(
+                "SESSION_METRIC_SNAPSHOT_SELECTOR_NOT_NUMERIC",
+                "A selected metric value must be numeric",
+                details={"json_pointer": pointer, "event_id": event_id},
+            )
+        try:
+            number = float(Decimal(str(raw)))
+        except (InvalidOperation, ValueError) as exc:
+            raise DomainValidationError(
+                "SESSION_METRIC_SNAPSHOT_SELECTOR_NOT_NUMERIC",
+                "A selected metric value must be numeric",
+                details={"json_pointer": pointer, "event_id": event_id},
+            ) from exc
+        if not math.isfinite(number):
+            raise DomainValidationError(
+                "SESSION_METRIC_SNAPSHOT_SELECTOR_NOT_NUMERIC",
+                "A selected metric value must be finite",
+                details={"json_pointer": pointer, "event_id": event_id},
+            )
+        return number
+
+    @staticmethod
+    def _metric_snapshot_definition(
+        cursor: Any, *, metric_code: str, revision_number: int
+    ) -> dict[str, Any]:
+        cursor.execute(
+            """
+            SELECT revisions.metric_code, revisions.revision_number, revisions.name,
+                   revisions.grain, revisions.unit, revisions.currency,
+                   revisions.value_type, revisions.aggregation,
+                   revisions.event_time_field, revisions.timezone,
+                   revisions.business_day_boundary, revisions.deduplication_keys,
+                   revisions.event_contract_refs,
+                   revisions.fingerprint_sha256
+            FROM metric_definition_revisions AS revisions
+            JOIN metric_definitions AS definitions ON definitions.id = revisions.metric_id
+            WHERE revisions.metric_code = %s
+              AND revisions.revision_number = %s
+              AND revisions.status = 'active'
+              AND definitions.status = 'active'
+            """,
+            (metric_code, revision_number),
+        )
+        definition = cursor.fetchone()
+        if definition is None:
+            raise DomainValidationError(
+                "SESSION_METRIC_SNAPSHOT_DEFINITION_NOT_ACTIVE",
+                "The selected metric definition revision is not active",
+                details={
+                    "metric_code": metric_code,
+                    "revision_number": revision_number,
+                },
+            )
+        if definition["grain"] != "live_session":
+            raise DomainValidationError(
+                "SESSION_METRIC_SNAPSHOT_GRAIN_UNSUPPORTED",
+                "Only live_session metric definitions can be computed for an operation session",
+                details={"grain": definition["grain"]},
+            )
+        return dict(definition)
+
+    @staticmethod
+    def _metric_definition_ref(
+        definition: dict[str, Any], *, metric_key: str
+    ) -> dict[str, Any]:
+        return {
+            "metric_key": metric_key,
+            "metric_code": definition["metric_code"],
+            "revision_number": int(definition["revision_number"]),
+            "name": definition["name"],
+            "grain": definition["grain"],
+            "unit": definition["unit"],
+            "currency": definition["currency"],
+            "value_type": definition["value_type"],
+            "aggregation": definition["aggregation"],
+            "event_time_field": definition["event_time_field"],
+            "timezone": definition["timezone"],
+            "business_day_boundary": definition["business_day_boundary"],
+            "fingerprint_sha256": definition["fingerprint_sha256"],
+        }
+
+    @staticmethod
+    def _metric_source_contract_refs(definition: dict[str, Any]) -> set[tuple[str, int]]:
+        refs: set[tuple[str, int]] = set()
+        for reference in definition.get("event_contract_refs") or []:
+            if not isinstance(reference, dict):
+                continue
+            code = reference.get("code")
+            revision = reference.get("revision")
+            if isinstance(code, str) and isinstance(revision, int):
+                refs.add((code, revision))
+        if not refs:
+            raise DomainValidationError(
+                "SESSION_METRIC_SNAPSHOT_CONTRACTS_MISSING",
+                "The selected metric definition has no usable event contract references",
+            )
+        return refs
+
+    @classmethod
+    def _deduplicate_metric_events(
+        cls, events: list[dict[str, Any]], deduplication_keys: list[str]
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Keep the latest accepted operation for each catalog-defined business key."""
+
+        if not deduplication_keys:
+            raise DomainValidationError(
+                "SESSION_METRIC_SNAPSHOT_DEDUPLICATION_MISSING",
+                "The selected metric definition has no deduplication keys",
+            )
+        latest: dict[str, dict[str, Any]] = {}
+        for event in events:
+            values: list[Any] = []
+            for key in deduplication_keys:
+                pointer = (
+                    key
+                    if key.startswith("/")
+                    else f"/{key.replace('~', '~0').replace('/', '~1')}"
+                )
+                try:
+                    values.append(cls._json_pointer_value(event["payload"], pointer))
+                except DomainValidationError as exc:
+                    raise DomainValidationError(
+                        "SESSION_METRIC_SNAPSHOT_DEDUPLICATION_KEY_MISSING",
+                        "A catalog deduplication key is missing from a source event",
+                        details={
+                            "deduplication_key": key,
+                            "event_id": str(event["event_id"]),
+                        },
+                    ) from exc
+            latest[canonical_fingerprint(values)] = event
+        selected = sorted(
+            latest.values(), key=lambda event: (event["event_time"], str(event["event_id"]))
+        )
+        effective = [event for event in selected if not event["tombstone"]]
+        return effective, len(selected) - len(effective)
+
+    @classmethod
+    def _aggregate_metric_events(
+        cls,
+        *,
+        aggregation: str,
+        events: list[dict[str, Any]],
+        value_json_pointer: str | None,
+        numerator_json_pointer: str | None,
+        denominator_json_pointer: str | None,
+    ) -> tuple[float | None, str, dict[str, Any]]:
+        if not events:
+            return None, "insufficient_data", {"reason": "no_accepted_source_events"}
+        if aggregation == "count":
+            return float(len(events)), "ready", {}
+        if aggregation == "ratio":
+            if not numerator_json_pointer or not denominator_json_pointer:
+                raise DomainValidationError(
+                    "SESSION_METRIC_SNAPSHOT_RATIO_SELECTORS_REQUIRED",
+                    "Ratio metrics require numerator and denominator JSON Pointer selectors",
+                )
+            numerators = [
+                cls._numeric_pointer_value(
+                    event["payload"], numerator_json_pointer, event_id=str(event["event_id"])
+                )
+                for event in events
+            ]
+            denominators = [
+                cls._numeric_pointer_value(
+                    event["payload"], denominator_json_pointer, event_id=str(event["event_id"])
+                )
+                for event in events
+            ]
+            denominator = sum(denominators)
+            if denominator == 0:
+                return None, "insufficient_data", {"reason": "ratio_denominator_is_zero"}
+            return sum(numerators) / denominator, "ready", {
+                "numerator": sum(numerators),
+                "denominator": denominator,
+            }
+        if not value_json_pointer:
+            raise DomainValidationError(
+                "SESSION_METRIC_SNAPSHOT_VALUE_SELECTOR_REQUIRED",
+                "This metric aggregation requires a value JSON Pointer selector",
+                details={"aggregation": aggregation},
+            )
+        values = [
+            cls._numeric_pointer_value(
+                event["payload"], value_json_pointer, event_id=str(event["event_id"])
+            )
+            for event in events
+        ]
+        if aggregation == "sum":
+            return sum(values), "ready", {}
+        if aggregation == "min":
+            return min(values), "ready", {}
+        if aggregation == "max":
+            return max(values), "ready", {}
+        if aggregation == "average":
+            return sum(values) / len(values), "ready", {}
+        if aggregation == "last":
+            return values[-1], "ready", {}
+        raise DomainValidationError(
+            "SESSION_METRIC_SNAPSHOT_AGGREGATION_UNSUPPORTED",
+            "The selected metric aggregation is not supported",
+            details={"aggregation": aggregation},
+        )
+
+    def create_session_metric_snapshot(
+        self, session_code: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Freeze a session metric computed from quality-accepted event batches."""
+
+        try:
+            with self.connection.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    "SELECT * FROM functional_operation_sessions WHERE session_code = %s FOR UPDATE",
+                    (session_code,),
+                )
+                session = cursor.fetchone()
+                if session is None:
+                    raise DomainValidationError(
+                        "SESSION_METRIC_SNAPSHOT_SESSION_NOT_FOUND",
+                        "The operation session does not exist",
+                        details={"session_code": session_code},
+                    )
+                definition = self._metric_snapshot_definition(
+                    cursor,
+                    metric_code=payload["metric_code"],
+                    revision_number=payload["revision_number"],
+                )
+                contract_refs = self._metric_source_contract_refs(definition)
+                cursor.execute(
+                    """
+                    SELECT event.event_id, event.source_event_id, event.event_time,
+                           event.payload, event.payload_fingerprint, event.operation, event.tombstone,
+                           contract.contract_code, contract.revision_number,
+                           batch.batch_code, batch.source_checksum, batch.status AS batch_status
+                    FROM standard_events AS event
+                    JOIN data_contracts AS contract ON contract.id = event.contract_id
+                    JOIN data_quality_batches AS batch ON batch.id = event.quality_batch_id
+                    WHERE event.entity_type = 'live_session'
+                      AND event.entity_id = %s
+                      AND event.event_time >= %s
+                      AND event.event_time < %s
+                      AND event.quality_status = 'accepted'
+                      AND batch.status IN ('accepted', 'partial_failed')
+                    ORDER BY event.event_time, event.event_id
+                    """,
+                    (session_code, session["started_at"], session["ended_at"]),
+                )
+                candidate_events = [
+                    dict(event)
+                    for event in cursor.fetchall()
+                    if (str(event["contract_code"]), int(event["revision_number"]))
+                    in contract_refs
+                ]
+                events, tombstoned_key_count = self._deduplicate_metric_events(
+                    candidate_events, list(definition["deduplication_keys"] or [])
+                )
+                value, snapshot_status, aggregation_details = self._aggregate_metric_events(
+                    aggregation=definition["aggregation"],
+                    events=events,
+                    value_json_pointer=payload.get("value_json_pointer"),
+                    numerator_json_pointer=payload.get("numerator_json_pointer"),
+                    denominator_json_pointer=payload.get("denominator_json_pointer"),
+                )
+                batches: dict[str, dict[str, Any]] = {}
+                for event in candidate_events:
+                    batch = batches.setdefault(
+                        str(event["batch_code"]),
+                        {
+                            "batch_code": event["batch_code"],
+                            "source_checksum": event["source_checksum"],
+                            "status": event["batch_status"],
+                            "included_event_count": 0,
+                        },
+                    )
+                    batch["included_event_count"] += 1
+                source_batches = [batches[key] for key in sorted(batches)]
+                metric_ref = self._metric_definition_ref(
+                    definition, metric_key=payload["metric_key"]
+                )
+                input_snapshot = {
+                    "schema_version": "functional-session-metric-snapshot.v1",
+                    "session": {
+                        "session_code": session["session_code"],
+                        "started_at": session["started_at"],
+                        "ended_at": session["ended_at"],
+                    },
+                    "metric_definition_ref": metric_ref,
+                    "selectors": {
+                        "value_json_pointer": payload.get("value_json_pointer"),
+                        "numerator_json_pointer": payload.get("numerator_json_pointer"),
+                        "denominator_json_pointer": payload.get("denominator_json_pointer"),
+                    },
+                    "source_events": [
+                        {
+                            "event_id": event["event_id"],
+                            "source_event_id": event["source_event_id"],
+                            "event_time": event["event_time"],
+                            "contract_code": event["contract_code"],
+                            "contract_revision": int(event["revision_number"]),
+                            "operation": event["operation"],
+                            "tombstone": event["tombstone"],
+                            "payload_fingerprint": event["payload_fingerprint"],
+                            "batch_code": event["batch_code"],
+                            "source_checksum": event["source_checksum"],
+                        }
+                        for event in candidate_events
+                    ],
+                    "effective_source_event_ids": [
+                        event["event_id"] for event in events
+                    ],
+                }
+                quality_summary = {
+                    "schema_version": "functional-session-metric-quality.v1",
+                    "source_event_count": len(events),
+                    "candidate_event_count": len(candidate_events),
+                    "deduplicated_event_count": len(candidate_events) - len(events),
+                    "tombstoned_key_count": tombstoned_key_count,
+                    "source_batch_count": len(source_batches),
+                    "accepted_event_only": True,
+                    "batch_statuses": sorted(
+                        {str(batch["status"]) for batch in source_batches}
+                    ),
+                    **aggregation_details,
+                }
+                fingerprint = canonical_fingerprint(
+                    {
+                        "input_snapshot": input_snapshot,
+                        "source_batches": source_batches,
+                        "quality_summary": quality_summary,
+                        "status": snapshot_status,
+                        "value": value,
+                    }
+                )
+                code = self._next(cursor, "METRIC-SNAP", "functional_session_metric_snapshot")
+                cursor.execute(
+                    """INSERT INTO functional_session_metric_snapshots
+                       (snapshot_code,session_id,session_code,metric_key,metric_code,metric_revision,
+                        aggregation,status,value,source_event_count,value_json_pointer,
+                        numerator_json_pointer,denominator_json_pointer,source_batches,quality_summary,
+                        input_snapshot,fingerprint_sha256)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                       RETURNING *""",
+                    (
+                        code,
+                        session["id"],
+                        session["session_code"],
+                        payload["metric_key"],
+                        definition["metric_code"],
+                        definition["revision_number"],
+                        definition["aggregation"],
+                        snapshot_status,
+                        value,
+                        len(events),
+                        payload.get("value_json_pointer"),
+                        payload.get("numerator_json_pointer"),
+                        payload.get("denominator_json_pointer"),
+                        Jsonb(source_batches),
+                        Jsonb(quality_summary),
+                        Jsonb(input_snapshot),
+                        fingerprint,
+                    ),
+                )
+                row = cursor.fetchone()
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+        return dict(row)
+
+    def list_session_metric_snapshots(self, session_code: str) -> list[dict[str, Any]]:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                "SELECT 1 FROM functional_operation_sessions WHERE session_code = %s",
+                (session_code,),
+            )
+            if cursor.fetchone() is None:
+                raise DomainValidationError(
+                    "SESSION_METRIC_SNAPSHOT_SESSION_NOT_FOUND",
+                    "The operation session does not exist",
+                    details={"session_code": session_code},
+                )
+            cursor.execute(
+                """SELECT * FROM functional_session_metric_snapshots
+                   WHERE session_code = %s
+                   ORDER BY created_at DESC, snapshot_code DESC""",
+                (session_code,),
+            )
+            return [dict(row) for row in cursor.fetchall()]
+
+    @staticmethod
+    def _apply_ready_metric_snapshots(
+        cursor: Any, sessions: list[dict[str, Any]], *, metric_key: str
+    ) -> None:
+        """Prefer the latest event-derived value without mutating session imports."""
+
+        session_codes = [str(session["session_code"]) for session in sessions]
+        if not session_codes:
+            return
+        cursor.execute(
+            """
+            SELECT DISTINCT ON (session_code) *
+            FROM functional_session_metric_snapshots
+            WHERE session_code = ANY(%s) AND metric_key = %s AND status = 'ready'
+            ORDER BY session_code, created_at DESC, snapshot_code DESC
+            """,
+            (session_codes, metric_key),
+        )
+        snapshots = {
+            str(row["session_code"]): dict(row) for row in cursor.fetchall()
+        }
+        for session in sessions:
+            snapshot = snapshots.get(str(session["session_code"]))
+            if snapshot is None:
+                continue
+            metric_ref = (snapshot.get("input_snapshot") or {}).get(
+                "metric_definition_ref"
+            )
+            if not isinstance(metric_ref, dict):
+                continue
+            metrics = dict(session.get("metrics") or {})
+            metrics[metric_key] = float(snapshot["value"])
+            pins = [
+                pin
+                for pin in (session.get("metric_definition_refs") or [])
+                if pin.get("metric_key") != metric_key
+            ]
+            pins.append(metric_ref)
+            session["metrics"] = metrics
+            session["metric_definition_refs"] = pins
+            session["_metric_snapshot"] = {
+                key: snapshot.get(key)
+                for key in (
+                    "snapshot_code",
+                    "metric_key",
+                    "metric_code",
+                    "metric_revision",
+                    "aggregation",
+                    "status",
+                    "value",
+                    "source_event_count",
+                    "source_batches",
+                    "quality_summary",
+                    "fingerprint_sha256",
+                    "created_at",
+                )
+            }
 
     def _exposure_context(
         self,
@@ -700,6 +1173,9 @@ class FunctionalOperationsService:
                     "ATTRIBUTION_SESSION_NOT_FOUND",
                     "Every selected operation session must exist",
                 )
+            self._apply_ready_metric_snapshots(
+                cursor, rows, metric_key=payload["metric_key"]
+            )
             metric_definition_ref, metric_definition_state = self._attribution_metric_definition_ref(
                 rows, payload["metric_key"]
             )
@@ -896,18 +1372,19 @@ class FunctionalOperationsService:
                 for pin in (session.get("metric_definition_refs") or [])
                 if pin.get("metric_key") == metric_key
             ]
-            frozen_sessions.append(
-                {
-                    "session_code": session["session_code"],
-                    "started_at": session["started_at"],
-                    "ended_at": session["ended_at"],
-                    "source_kind": session["source_kind"],
-                    "import_version": session["import_version"],
-                    "metric_key": metric_key,
-                    "metric_value": (session.get("metrics") or {}).get(metric_key),
-                    "metric_definition_refs": metric_pins,
-                }
-            )
+            frozen_session = {
+                "session_code": session["session_code"],
+                "started_at": session["started_at"],
+                "ended_at": session["ended_at"],
+                "source_kind": session["source_kind"],
+                "import_version": session["import_version"],
+                "metric_key": metric_key,
+                "metric_value": (session.get("metrics") or {}).get(metric_key),
+                "metric_definition_refs": metric_pins,
+            }
+            if session.get("_metric_snapshot") is not None:
+                frozen_session["metric_snapshot"] = session["_metric_snapshot"]
+            frozen_sessions.append(frozen_session)
             for exposure in exposures_by_session.get(session["session_code"], []):
                 frozen_exposures.append(
                     {

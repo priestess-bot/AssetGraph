@@ -170,6 +170,46 @@ describe("operations api", () => {
     expect(mapping).toMatchObject({ mappingCode: "TIME-MAP-001", revisionNumber: 1 });
   });
 
+  it("creates and parses a frozen event-derived session metric snapshot", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response({
+      snapshot_code: "METRIC-SNAP-001",
+      session_code: "OPS-001",
+      metric_key: "gmv",
+      metric_code: "gmv",
+      metric_revision: 2,
+      aggregation: "sum",
+      status: "ready",
+      value: 128.5,
+      source_event_count: 2,
+      value_json_pointer: "/amount",
+      source_batches: [{ batch_code: "DQB-001", source_checksum: "a".repeat(64), status: "accepted", included_event_count: 2 }],
+      quality_summary: { accepted_event_only: true },
+      input_snapshot: { schema_version: "functional-session-metric-snapshot.v1" },
+      fingerprint_sha256: "b".repeat(64),
+      created_at: "2026-07-25T12:11:00Z",
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const payload = {
+      metric_key: "gmv",
+      metric_code: "gmv",
+      revision_number: 2,
+      value_json_pointer: "/amount",
+    };
+
+    const snapshot = await operationsApi.createSessionMetricSnapshot("OPS-001", payload);
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
+      "/api/functional-operations/sessions/OPS-001/metric-snapshots",
+    );
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual(payload);
+    expect(snapshot).toMatchObject({
+      snapshotCode: "METRIC-SNAP-001",
+      value: 128.5,
+      sourceEventCount: 2,
+      sourceBatches: [{ batchCode: "DQB-001", includedEventCount: 2 }],
+    });
+  });
+
   it("publishes only the descriptive report endpoint and can request a fresh rerun", async () => {
     const reportResponse = () => response({
       report_code: "ATTR-001",

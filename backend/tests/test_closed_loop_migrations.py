@@ -143,6 +143,22 @@ def test_standard_event_quality_batch_migration_links_normalized_events_to_sourc
     assert "idx_standard_events_quality_batch" in sql
 
 
+def test_session_metric_snapshot_migration_freezes_event_derived_session_values() -> None:
+    sql = (MIGRATIONS / "071_functional_session_metric_snapshots.sql").read_text(encoding="utf-8")
+
+    assert "CREATE TABLE IF NOT EXISTS functional_session_metric_snapshots" in sql
+    for column in (
+        "metric_key",
+        "source_event_count",
+        "source_batches",
+        "quality_summary",
+        "input_snapshot",
+        "fingerprint_sha256",
+    ):
+        assert column in sql
+    assert "idx_functional_session_metric_snapshots_session_metric_created" in sql
+
+
 def test_console_draft_migration_separates_mutable_saves_from_explicit_commands() -> None:
     sql = (MIGRATIONS / "041_console_drafts_and_explicit_commands.sql").read_text(encoding="utf-8")
 

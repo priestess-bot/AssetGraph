@@ -102,6 +102,30 @@ export interface TimeMapping {
   createdAt: string;
 }
 
+export interface SessionMetricSnapshot {
+  snapshotCode: string;
+  sessionCode: string;
+  metricKey: string;
+  metricCode: string;
+  metricRevision: number;
+  aggregation: string;
+  status: string;
+  value?: number;
+  sourceEventCount: number;
+  valueJsonPointer?: string;
+  numeratorJsonPointer?: string;
+  denominatorJsonPointer?: string;
+  sourceBatches: Array<{
+    batchCode: string;
+    sourceChecksum?: string;
+    status: string;
+    includedEventCount: number;
+  }>;
+  qualitySummary: Record<string, unknown>;
+  fingerprintSha256: string;
+  createdAt: string;
+}
+
 export interface ContentTimeline {
   sessionCode: string;
   startedAt: string;
@@ -370,6 +394,39 @@ function timeMapping(value: unknown): TimeMapping | undefined {
   };
 }
 
+function sessionMetricSnapshot(value: unknown): SessionMetricSnapshot {
+  if (!isRecord(value)) throw new Error("会话指标快照响应无效");
+  return {
+    snapshotCode: asString(value.snapshot_code),
+    sessionCode: asString(value.session_code),
+    metricKey: asString(value.metric_key),
+    metricCode: asString(value.metric_code),
+    metricRevision: asNumber(value.metric_revision),
+    aggregation: asString(value.aggregation),
+    status: asString(value.status),
+    value: typeof value.value === "number" ? value.value : undefined,
+    sourceEventCount: asNumber(value.source_event_count),
+    valueJsonPointer: asOptionalString(value.value_json_pointer),
+    numeratorJsonPointer: asOptionalString(value.numerator_json_pointer),
+    denominatorJsonPointer: asOptionalString(value.denominator_json_pointer),
+    sourceBatches: asArray(value.source_batches).flatMap((batch) => {
+      if (!isRecord(batch)) return [];
+      const batchCode = asString(batch.batch_code);
+      return batchCode
+        ? [{
+            batchCode,
+            sourceChecksum: asOptionalString(batch.source_checksum),
+            status: asString(batch.status),
+            includedEventCount: asNumber(batch.included_event_count),
+          }]
+        : [];
+    }),
+    qualitySummary: isRecord(value.quality_summary) ? value.quality_summary : {},
+    fingerprintSha256: asString(value.fingerprint_sha256),
+    createdAt: asString(value.created_at),
+  };
+}
+
 function timeline(value: unknown): ContentTimeline {
   if (!isRecord(value)) throw new Error("内容时间线响应无效");
   return {
@@ -563,6 +620,8 @@ function schedule(value: unknown): SchedulePlan {
 export const operationsApi = {
   listSessions: () => requestJson<unknown[]>(`${ROOT}/sessions`).then((rows) => rows.map(session)),
   createSession: (payload: Record<string, unknown>) => postJson<unknown>(`${ROOT}/sessions`, payload).then(session),
+  listSessionMetricSnapshots: (sessionCode: string) => requestJson<unknown[]>(`${ROOT}/sessions/${encodeURIComponent(sessionCode)}/metric-snapshots`).then((rows) => rows.map(sessionMetricSnapshot)),
+  createSessionMetricSnapshot: (sessionCode: string, payload: Record<string, unknown>) => postJson<unknown>(`${ROOT}/sessions/${encodeURIComponent(sessionCode)}/metric-snapshots`, payload).then(sessionMetricSnapshot),
   getContentTimeline: (sessionCode: string) => requestJson<unknown>(`${ROOT}/sessions/${encodeURIComponent(sessionCode)}/content-timeline`).then(timeline),
   listTimeMappings: (sessionCode: string) => requestJson<unknown[]>(`${ROOT}/sessions/${encodeURIComponent(sessionCode)}/time-mappings`).then((rows) => rows.flatMap((row) => {
     const parsed = timeMapping(row);

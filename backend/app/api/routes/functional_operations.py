@@ -14,6 +14,8 @@ from app.schemas.functional_operations import (
     ContentTimelineRead,
     OperationSessionCreate,
     OperationSessionRead,
+    SessionMetricSnapshotCreate,
+    SessionMetricSnapshotRead,
     SchedulePlanCreate,
     SchedulePlanRead,
     TimeMappingCreate,
@@ -54,6 +56,30 @@ def list_sessions(
     instance: Annotated[FunctionalOperationsService, Depends(service)],
 ) -> list[dict]:
     return instance.list_sessions()
+
+
+@router.get(
+    "/sessions/{session_code}/metric-snapshots",
+    response_model=list[SessionMetricSnapshotRead],
+)
+def list_session_metric_snapshots(
+    session_code: str,
+    instance: Annotated[FunctionalOperationsService, Depends(service)],
+) -> list[dict]:
+    return call(instance.list_session_metric_snapshots, session_code)
+
+
+@router.post(
+    "/sessions/{session_code}/metric-snapshots",
+    response_model=SessionMetricSnapshotRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_session_metric_snapshot(
+    session_code: str,
+    payload: SessionMetricSnapshotCreate,
+    instance: Annotated[FunctionalOperationsService, Depends(service)],
+) -> dict:
+    return call(instance.create_session_metric_snapshot, session_code, payload.model_dump())
 
 
 @router.get(

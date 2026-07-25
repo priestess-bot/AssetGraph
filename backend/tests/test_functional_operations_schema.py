@@ -5,9 +5,11 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from pydantic import ValidationError
 
+from app.domain.errors import DomainValidationError
 from app.schemas.functional_operations import (
     ContentExposureCorrection,
     OperationSessionCreate,
+    SessionMetricSnapshotCreate,
     TimeMappingCreate,
 )
 from app.services.functional_operations import FunctionalOperationsService
@@ -134,6 +136,120 @@ def test_time_mapping_requires_a_nonempty_half_open_coverage_interval() -> None:
             coverage_end_ms=60_000,
             evidence_note="Invalid interval.",
         )
+
+
+def test_session_metric_snapshot_selectors_are_declarative_json_pointers() -> None:
+    ratio = SessionMetricSnapshotCreate(
+        metric_key="conversion_rate",
+        metric_code="conversion-rate",
+        revision_number=1,
+        numerator_json_pointer="/purchases",
+        denominator_json_pointer="/visitors",
+    )
+    assert ratio.numerator_json_pointer == "/purchases"
+
+    with pytest.raises(ValidationError, match="must start"):
+        SessionMetricSnapshotCreate(
+            metric_key="gmv",
+            metric_code="gmv",
+            revision_number=1,
+            value_json_pointer="amount",
+        )
+
+
+def test_session_metric_snapshot_aggregation_is_deterministic_and_never_zero_fills() -> None:
+    events = [
+        {"event_id": "EVENT-001", "payload": {"amount": 3, "visitors": 10}},
+        {"event_id": "EVENT-002", "payload": {"amount": 5, "visitors": 20}},
+    ]
+    summed = FunctionalOperationsService._aggregate_metric_events(
+        aggregation="sum",
+        events=events,
+        value_json_pointer="/amount",
+        numerator_json_pointer=None,
+        denominator_json_pointer=None,
+    )
+    counted = FunctionalOperationsService._aggregate_metric_events(
+        aggregation="count",
+        events=events,
+        value_json_pointer=None,
+        numerator_json_pointer=None,
+        denominator_json_pointer=None,
+    )
+    ratio = FunctionalOperationsService._aggregate_metric_events(
+        aggregation="ratio",
+        events=events,
+        value_json_pointer=None,
+        numerator_json_pointer="/amount",
+        denominator_json_pointer="/visitors",
+    )
+    missing = FunctionalOperationsService._aggregate_metric_events(
+        aggregation="count",
+        events=[],
+        value_json_pointer=None,
+        numerator_json_pointer=None,
+        denominator_json_pointer=None,
+    )
+
+    assert summed == (8.0, "ready", {})
+    assert counted == (2.0, "ready", {})
+    assert ratio == (8 / 30, "ready", {"numerator": 8.0, "denominator": 30.0})
+    assert missing == (None, "insufficient_data", {"reason": "no_accepted_source_events"})
+
+    with pytest.raises(DomainValidationError) as missing_selector:
+        FunctionalOperationsService._aggregate_metric_events(
+            aggregation="sum",
+            events=events,
+            value_json_pointer=None,
+            numerator_json_pointer=None,
+            denominator_json_pointer=None,
+        )
+    assert missing_selector.value.code == "SESSION_METRIC_SNAPSHOT_VALUE_SELECTOR_REQUIRED"
+
+    with pytest.raises(DomainValidationError) as unknown_value:
+        FunctionalOperationsService._aggregate_metric_events(
+            aggregation="sum",
+            events=events,
+            value_json_pointer="/missing",
+            numerator_json_pointer=None,
+            denominator_json_pointer=None,
+        )
+    assert unknown_value.value.code == "SESSION_METRIC_SNAPSHOT_SELECTOR_MISSING"
+
+
+def test_session_metric_snapshot_uses_catalog_deduplication_keys_and_tombstones() -> None:
+    events = [
+        {
+            "event_id": "EVENT-001",
+            "event_time": datetime(2026, 7, 25, 12, tzinfo=UTC),
+            "payload": {"order_id": "order-1", "amount": 3},
+            "tombstone": False,
+        },
+        {
+            "event_id": "EVENT-002",
+            "event_time": datetime(2026, 7, 25, 12, 1, tzinfo=UTC),
+            "payload": {"order_id": "order-1", "amount": 5},
+            "tombstone": False,
+        },
+        {
+            "event_id": "EVENT-003",
+            "event_time": datetime(2026, 7, 25, 12, 2, tzinfo=UTC),
+            "payload": {"order_id": "order-2", "amount": 7},
+            "tombstone": True,
+        },
+    ]
+
+    effective, tombstoned = FunctionalOperationsService._deduplicate_metric_events(
+        events, ["order_id"]
+    )
+
+    assert [event["event_id"] for event in effective] == ["EVENT-002"]
+    assert tombstoned == 1
+    with pytest.raises(DomainValidationError) as missing_key:
+        FunctionalOperationsService._deduplicate_metric_events(
+            [{**events[0], "payload": {"amount": 3}}], ["order_id"]
+        )
+    assert missing_key.value.code == "SESSION_METRIC_SNAPSHOT_DEDUPLICATION_KEY_MISSING"
 
 
 def test_attribution_input_snapshot_and_quality_are_deterministic_and_descriptive() -> None:
