@@ -14,6 +14,7 @@ import {
   Send,
 } from "lucide-react";
 import { contentProjectsApi } from "../content/api";
+import { assetLibraryApi } from "../assets/api";
 import { functionalLiveRoomsApi } from "../live-rooms/api";
 import {
   EmptyBlock,
@@ -1226,6 +1227,7 @@ export function VideoProductionPage() {
   const [projectCode, setProjectCode] = useState("");
   const [liveRoomPlanCode, setLiveRoomPlanCode] = useState("");
   const [duration, setDuration] = useState(55);
+  const [visualAssetCodes, setVisualAssetCodes] = useState<string[]>([]);
   const [selected, setSelected] = useState("");
   const projects = useQuery({
     queryKey: ["content-projects"],
@@ -1238,6 +1240,10 @@ export function VideoProductionPage() {
   const plans = useQuery({
     queryKey: ["functional-videos"],
     queryFn: functionalVideosApi.list,
+  });
+  const assets = useQuery({
+    queryKey: ["assets"],
+    queryFn: assetLibraryApi.listAssets,
   });
   useEffect(() => {
     if (!projectCode && projects.data?.[0])
@@ -1264,14 +1270,37 @@ export function VideoProductionPage() {
   });
   const sourceReady =
     sourceKind === "project" ? Boolean(projectCode) : Boolean(liveRoomPlanCode);
+  const localVideoAssets = (assets.data ?? []).filter(
+    (asset) =>
+      asset.assetType === "VID" &&
+      asset.mediaKind === "video" &&
+      asset.executionCapability === "local_only",
+  );
+  const toggleVisualAsset = (assetCode: string) =>
+    setVisualAssetCodes((current) =>
+      current.includes(assetCode)
+        ? current.filter((code) => code !== assetCode)
+        : current.length < 6
+          ? [...current, assetCode]
+          : current,
+    );
   const create = useMutation({
     mutationFn: () =>
       functionalVideosApi.create(
         sourceKind === "project"
-          ? { project_code: projectCode, target_duration_seconds: duration }
+          ? {
+              project_code: projectCode,
+              target_duration_seconds: duration,
+              ...(visualAssetCodes.length
+                ? { visual_asset_codes: visualAssetCodes }
+                : {}),
+            }
           : {
               live_room_plan_code: liveRoomPlanCode,
               target_duration_seconds: duration,
+              ...(visualAssetCodes.length
+                ? { visual_asset_codes: visualAssetCodes }
+                : {}),
             },
       ),
     onSuccess: (plan) => {
@@ -1345,6 +1374,27 @@ export function VideoProductionPage() {
               onChange={(event) => setDuration(Number(event.target.value))}
             />
           </label>
+          {localVideoAssets.length ? (
+            <fieldset className="video-visual-assets">
+              <legend>视觉素材（可选，最多 6 个）</legend>
+              {localVideoAssets.map((asset) => (
+                <label key={asset.assetCode}>
+                  <input
+                    type="checkbox"
+                    aria-label={`选择 ${asset.title}`}
+                    checked={visualAssetCodes.includes(asset.assetCode)}
+                    disabled={
+                      !visualAssetCodes.includes(asset.assetCode) &&
+                      visualAssetCodes.length >= 6
+                    }
+                    onChange={() => toggleVisualAsset(asset.assetCode)}
+                  />
+                  <span>{asset.title}</span>
+                  <code>{asset.assetCode}</code>
+                </label>
+              ))}
+            </fieldset>
+          ) : null}
           <button
             className="wb-button wb-button-primary"
             disabled={!sourceReady || create.isPending}

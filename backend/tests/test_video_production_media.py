@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import wave
+from hashlib import sha256
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -8,6 +9,7 @@ import pytest
 
 from app.services.video_production_media import (
     AudioProcessor,
+    AssetSelector,
     FFmpegRenderer,
     NARRATION_AUDIO_FILTER,
     SubprocessRunner,
@@ -113,6 +115,59 @@ def test_source_range_filter_applies_playback_rate_after_looping_only_the_select
     with pytest.raises(VideoProductionError) as error:
         _source_range_filter(3, 5, 2.1)
     assert error.value.error_code == "PLAYBACK_RATE_INVALID"
+
+
+def test_asset_selector_uses_a_checksummed_library_video_source(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "video" / "selected.mp4"
+    source.parent.mkdir()
+    source.write_bytes(b"selected library video")
+    for relative_path in (
+        "装饰/MT-DEC-0003_装饰_品牌Logo_logo.png",
+        "装饰/MT-DEC-0024_装饰_商品贴片_品酒大师PRO.png",
+    ):
+        overlay = tmp_path / relative_path
+        overlay.parent.mkdir(exist_ok=True)
+        overlay.write_bytes(b"overlay")
+    checksum = sha256(source.read_bytes()).hexdigest()
+    monkeypatch.setattr(
+        "app.services.video_production_media.probe_media",
+        lambda *_args: {
+            "streams": [{"codec_type": "video", "codec_name": "h264", "width": 1080, "height": 1920}],
+            "format": {"duration": "8"},
+        },
+    )
+    shot_list = {
+        "shots": [
+            {
+                "shot_index": 0,
+                "shot_code": "SHOT-01",
+                "asset_code": "AG-VID-000001",
+                "asset_relative_path": "video/selected.mp4",
+                "asset_expected_checksum": checksum,
+                "source_start_seconds": 0,
+                "source_end_seconds": 6,
+                "fit": "cover",
+                "playback_rate": 1,
+                "visual_role": "selected_library_video",
+                "overlay_roles": [],
+            }
+        ]
+    }
+
+    plan = AssetSelector(tmp_path, SimpleNamespace()).select(shot_list)
+
+    assert plan["source"] == "asset_library_local_video_asset_plan_v1"
+    assert plan["assets"][0]["checksum_sha256"] == checksum
+    assert plan["shot_assets"][0]["relative_path"] == "video/selected.mp4"
+    assert plan["shot_assets"][0]["selection_reason"] == "operator-selected material-library video"
+
+    shot_list["shots"][0]["asset_expected_checksum"] = "0" * 64
+    with pytest.raises(VideoProductionError) as error:
+        AssetSelector(tmp_path, SimpleNamespace()).select(shot_list)
+    assert error.value.error_code == "SOURCE_ASSET_CHECKSUM_MISMATCH"
 
 
 def test_shot_render_command_honors_source_end_instead_of_looping_the_full_file(tmp_path: Path) -> None:

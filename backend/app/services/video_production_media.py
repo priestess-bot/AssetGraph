@@ -106,21 +106,42 @@ class AssetSelector:
         self.runner = runner
 
     def select(self, shot_list: dict[str, Any]) -> dict[str, Any]:
+        shot_sources: dict[str, dict[str, str]] = {}
+        for shot in shot_list.get("shots") or []:
+            asset_code = str(shot["asset_code"])
+            relative_path = str(shot.get("asset_relative_path") or "").strip()
+            expected_checksum = str(shot.get("asset_expected_checksum") or "").strip()
+            if not relative_path:
+                continue
+            source = {"relative_path": relative_path, "expected_checksum": expected_checksum}
+            existing = shot_sources.setdefault(asset_code, source)
+            if existing != source:
+                raise VideoProductionError(
+                    "VISUAL_ASSET_SOURCE_CONFLICT",
+                    f"asset {asset_code} resolves to conflicting material sources",
+                )
         selected_codes = {str(shot["asset_code"]) for shot in shot_list.get("shots") or []}
         selected_codes.update({"MT-DEC-0003", "MT-DEC-0024"})
         assets: list[dict[str, Any]] = []
         for asset_code in sorted(selected_codes):
-            relative_path = ASSET_PATHS.get(asset_code)
+            source = shot_sources.get(asset_code)
+            relative_path = source["relative_path"] if source else ASSET_PATHS.get(asset_code)
             if relative_path is None:
-                raise VideoProductionError("UNKNOWN_DEMO_ASSET", f"no fixed path for asset {asset_code}")
+                raise VideoProductionError("UNKNOWN_VISUAL_ASSET", f"no local source was selected for asset {asset_code}")
             path = self.resolve(relative_path)
+            checksum = sha256_file(path)
+            if source and source["expected_checksum"] and checksum != source["expected_checksum"]:
+                raise VideoProductionError(
+                    "SOURCE_ASSET_CHECKSUM_MISMATCH",
+                    f"selected source asset checksum changed: {asset_code}",
+                )
             item: dict[str, Any] = {
                 "asset_code": asset_code,
                 "relative_path": relative_path,
                 "file_size": path.stat().st_size,
-                "checksum_sha256": sha256_file(path),
+                "checksum_sha256": checksum,
             }
-            if asset_code.startswith("MT-VID-"):
+            if asset_code in shot_sources or asset_code.startswith("MT-VID-"):
                 probe = probe_media(path, self.runner)
                 item.update(_video_summary(probe))
             else:
@@ -150,7 +171,7 @@ class AssetSelector:
                     f"{shot['shot_code']} ends at {source_end:.3f}s but {shot['asset_code']} is {duration:.3f}s",
                 )
         return {
-            "source": "fixed_maitu_asset_plan_v1",
+            "source": "asset_library_local_video_asset_plan_v1" if shot_sources else "fixed_maitu_asset_plan_v1",
             "assets_root_label": "maitu_materials",
             "asset_count": len(assets),
             "assets": assets,
@@ -170,7 +191,7 @@ class AssetSelector:
                         for role in shot.get("overlay_roles") or []
                         if str(role) in {"brand_logo", "product_sticker"}
                     ],
-                    "selection_reason": f"preset role: {shot['visual_role']}",
+                    "selection_reason": "operator-selected material-library video" if str(shot.get("visual_role")) == "selected_library_video" else f"preset role: {shot['visual_role']}",
                 }
                 for shot in shot_list.get("shots") or []
             ],

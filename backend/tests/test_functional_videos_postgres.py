@@ -141,6 +141,40 @@ def test_functional_video_plan_seeds_content_stages_and_queues_renderer() -> Non
             assert cursor.fetchone()[0] == 3
 
 
+def test_functional_video_plan_freezes_selected_local_library_videos() -> None:
+    suffix = uuid4().hex
+    with psycopg.connect(DATABASE_URL) as connection:
+        generated = _generated_project(connection, suffix)
+        asset = AssetRepository(connection).create(
+            {
+                "asset_type": "VID",
+                "title": f"Local clip {suffix}",
+                "original_filename": f"local-{suffix}.mp4",
+                "media_kind": "video",
+                "material_roles": ["supporting_video"],
+                "execution_capability": "local_only",
+                "local_relative_path": f"video/local-{suffix}.mp4",
+                "checksum_sha256": "a" * 64,
+            }
+        )
+
+        plan = FunctionalVideoService(connection).create_plan(
+            {
+                "project_code": generated["project_code"],
+                "target_duration_seconds": 55,
+                "visual_asset_codes": [asset["asset_code"]],
+            },
+            actor_id="test-operator",
+        )
+
+        assert plan["render_profile"]["visual_asset_mode"] == "asset_library_local_video_assets"
+        assert plan["render_profile"]["visual_asset_codes"] == [asset["asset_code"]]
+        assert {clip["source_range"]["asset_code"] for clip in plan["production_timeline"]["tracks"][0]["clips"]} == {
+            asset["asset_code"]
+        }
+        connection.rollback()
+
+
 def test_functional_video_plan_can_use_the_fixed_content_chain_of_a_live_room_plan() -> None:
     suffix = uuid4().hex
     with psycopg.connect(DATABASE_URL) as connection:

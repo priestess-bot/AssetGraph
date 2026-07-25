@@ -383,6 +383,7 @@ export const functionalVideosApi = {
     live_room_plan_code?: string;
     title?: string;
     target_duration_seconds: number;
+    visual_asset_codes?: string[];
   }) => postJson<unknown>(ROOT, payload).then(plan),
   updateTimeline: (
     code: string,

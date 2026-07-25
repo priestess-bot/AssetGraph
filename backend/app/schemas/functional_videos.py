@@ -11,6 +11,15 @@ class FunctionalVideoPlanCreate(BaseModel):
     live_room_plan_code: str | None = Field(default=None, min_length=1, max_length=64)
     title: str | None = Field(default=None, max_length=255)
     target_duration_seconds: int = Field(default=55, ge=30, le=120)
+    visual_asset_codes: list[str] = Field(default_factory=list, max_length=6)
+
+    @field_validator("visual_asset_codes")
+    @classmethod
+    def unique_visual_asset_codes(cls, value: list[str]) -> list[str]:
+        codes = [code.strip() for code in value if code.strip()]
+        if len(codes) != len(set(codes)):
+            raise ValueError("visual asset codes must be unique")
+        return codes
 
     @model_validator(mode="after")
     def exactly_one_content_source(self) -> "FunctionalVideoPlanCreate":

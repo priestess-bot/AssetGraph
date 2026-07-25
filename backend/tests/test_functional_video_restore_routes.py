@@ -148,6 +148,34 @@ def test_create_video_plan_accepts_a_fixed_live_room_source(client: tuple[TestCl
             "live_room_plan_code": "LIVEPLAN-001",
             "title": None,
             "target_duration_seconds": 55,
+            "visual_asset_codes": [],
+            "actor_id": "functional-operator",
+        }
+    ]
+
+
+def test_create_video_plan_accepts_up_to_six_explicit_visual_assets(
+    client: tuple[TestClient, FakeFunctionalVideoService],
+) -> None:
+    test_client, service = client
+
+    response = test_client.post(
+        "/api/functional-video-plans",
+        json={
+            "project_code": "CONTENT-001",
+            "target_duration_seconds": 55,
+            "visual_asset_codes": ["AG-VID-000001", "AG-VID-000002"],
+        },
+    )
+
+    assert response.status_code == 201
+    assert service.create_calls == [
+        {
+            "project_code": "CONTENT-001",
+            "live_room_plan_code": None,
+            "title": None,
+            "target_duration_seconds": 55,
+            "visual_asset_codes": ["AG-VID-000001", "AG-VID-000002"],
             "actor_id": "functional-operator",
         }
     ]

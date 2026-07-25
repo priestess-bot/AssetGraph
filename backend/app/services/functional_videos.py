@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from psycopg import Connection
@@ -42,7 +43,8 @@ class FunctionalVideoService:
         if not detail["generated"] or not detail["story_brief"] or not detail["script"] or not detail["shot_list"]:
             raise DomainValidationError("VIDEO_CONTENT_CHAIN_REQUIRED", "Generate the ContentProject before creating a video plan")
         duration = int(payload["target_duration_seconds"])
-        story, script, shots, timeline = self._compile_content(detail, duration)
+        visual_assets = self._resolve_visual_assets(payload.get("visual_asset_codes") or [])
+        story, script, shots, timeline = self._compile_content(detail, duration, visual_assets=visual_assets)
         variant = self.production.create_production_variant(
             project_code=detail["project_code"], project_revision=int(detail["revision_number"]),
             story_brief_code=detail["story_brief"]["story_brief_code"], story_brief_revision=int(detail["story_brief"]["revision_number"]),
@@ -58,7 +60,11 @@ class FunctionalVideoService:
                 "target_duration_seconds": duration,
                 "source_live_room_plan_code": detail.get("source_live_room_plan_code"),
             },
-            material_snapshot_ref={"source": "baseline_verified_video_assets.v1", "asset_codes": [shot["asset_code"] for shot in shots["shots"]]},
+            material_snapshot_ref={
+                "source": "asset_library_local_video_assets.v1" if visual_assets else "baseline_verified_video_assets.v1",
+                "asset_codes": [shot["asset_code"] for shot in shots["shots"]],
+                "assets": visual_assets,
+            },
             constraint_snapshot_ref={"source": "functional-content-timeline.v1"},
             actor_id=actor_id, producer_strategy_revision="functional-video.v1",
         )
@@ -70,7 +76,10 @@ class FunctionalVideoService:
         self.production.bind_video_production_job(job_code=job["job_code"], variant_code=variant["variant_code"], variant_revision=int(variant["revision_number"]), actor_id=actor_id)
         render_profile = {
             "schema_version": "functional-render-profile.v1", "canvas": {"width": 1080, "height": 1920, "fps": 30},
-            "subtitle": "ass", "audio": "local_tts", "visual_asset_mode": "baseline_verified_video_assets", "target_duration_seconds": duration,
+            "subtitle": "ass", "audio": "local_tts",
+            "visual_asset_mode": "asset_library_local_video_assets" if visual_assets else "baseline_verified_video_assets",
+            "visual_asset_codes": [asset["asset_code"] for asset in visual_assets],
+            "target_duration_seconds": duration,
             "source_live_room_plan_code": detail.get("source_live_room_plan_code"),
         }
         with self.connection.cursor(row_factory=dict_row) as cursor:
@@ -95,6 +104,63 @@ class FunctionalVideoService:
         if live_room_plan_code:
             return self._live_room_source_detail(str(live_room_plan_code))
         return self.content.get_detail(str(payload["project_code"]))
+
+    def _resolve_visual_assets(self, codes: list[Any]) -> list[dict[str, str]]:
+        selected_codes = [str(code).strip() for code in codes if str(code).strip()]
+        if not selected_codes:
+            return []
+        if len(selected_codes) != len(set(selected_codes)):
+            raise DomainValidationError(
+                "VIDEO_VISUAL_ASSET_DUPLICATE",
+                "Visual asset codes must be unique",
+            )
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT asset_code, asset_type, media_kind, execution_capability,
+                       local_relative_path, checksum_sha256
+                FROM assets
+                WHERE asset_code = ANY(%s) AND deleted_at IS NULL
+                """,
+                (selected_codes,),
+            )
+            rows = cursor.fetchall()
+        assets_by_code = {str(row["asset_code"]): row for row in rows}
+        missing = [code for code in selected_codes if code not in assets_by_code]
+        if missing:
+            raise DomainValidationError(
+                "VIDEO_VISUAL_ASSET_NOT_FOUND",
+                "Every selected visual asset must exist in the material library",
+                details={"asset_codes": missing},
+            )
+        resolved: list[dict[str, str]] = []
+        for code in selected_codes:
+            row = assets_by_code[code]
+            local_relative_path = str(row.get("local_relative_path") or "").strip()
+            checksum = str(row.get("checksum_sha256") or "").strip()
+            checksum_is_valid = len(checksum) == 64 and all(character in "0123456789abcdef" for character in checksum)
+            path_is_safe = not Path(local_relative_path).is_absolute() and ".." not in Path(local_relative_path).parts
+            if (
+                str(row.get("asset_type") or "") != "VID"
+                or str(row.get("media_kind") or "") != "video"
+                or str(row.get("execution_capability") or "") != "local_only"
+                or not local_relative_path
+                or not checksum_is_valid
+                or not path_is_safe
+            ):
+                raise DomainValidationError(
+                    "VIDEO_VISUAL_ASSET_NOT_RENDERABLE",
+                    "A visual asset must be a checksummed local video with a relative material path",
+                    details={"asset_code": code},
+                )
+            resolved.append(
+                {
+                    "asset_code": code,
+                    "relative_path": local_relative_path,
+                    "checksum_sha256": checksum,
+                }
+            )
+        return resolved
 
     def _live_room_source_detail(self, live_room_plan_code: str) -> dict[str, Any] | None:
         """Load the exact confirmed content chain frozen by an existing live-room Variant."""
@@ -1169,7 +1235,12 @@ class FunctionalVideoService:
         return result
 
     @staticmethod
-    def _compile_content(detail: dict[str, Any], duration: int) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
+    def _compile_content(
+        detail: dict[str, Any],
+        duration: int,
+        *,
+        visual_assets: list[dict[str, str]] | None = None,
+    ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
         source_blocks = detail["script"]["blocks"]
         text = [str(block["content"]) for block in source_blocks]
         chunks = FunctionalVideoService._chunks(text, 6)
@@ -1180,8 +1251,13 @@ class FunctionalVideoService:
         compiled: list[dict[str, Any]] = []
         for index, (chunk, item_duration, clip) in enumerate(zip(chunks, durations, clip_specs, strict=True)):
             asset_code, source_start, source_end, fit = clip
+            selected_asset = visual_assets[index % len(visual_assets)] if visual_assets else None
+            if selected_asset is not None:
+                asset_code = selected_asset["asset_code"]
+                source_start = 0.0
+                source_end = 6.0
             end = round(cursor + item_duration, 3)
-            compiled.append({"shot_index": index, "shot_code": f"SHOT-{index + 1:02d}", "start_seconds": cursor, "end_seconds": end, "duration_seconds": item_duration, "goal": "content_project", "narration": chunk, "tts_text": chunk.replace("PRO", "P R O"), "screen_text": chunk[:28], "asset_code": asset_code, "source_start_seconds": source_start, "source_end_seconds": source_end, "source_available_seconds": source_end - source_start, "fit": fit, "playback_rate": 1.0, "visual_role": "baseline_visual", "transition": "fade_out" if index == 5 else "cut", "overlay_roles": ["brand_logo"] if index in {0, 5} else []})
+            compiled.append({"shot_index": index, "shot_code": f"SHOT-{index + 1:02d}", "start_seconds": cursor, "end_seconds": end, "duration_seconds": item_duration, "goal": "content_project", "narration": chunk, "tts_text": chunk.replace("PRO", "P R O"), "screen_text": chunk[:28], "asset_code": asset_code, "asset_relative_path": selected_asset["relative_path"] if selected_asset else None, "asset_expected_checksum": selected_asset["checksum_sha256"] if selected_asset else None, "source_start_seconds": source_start, "source_end_seconds": source_end, "source_available_seconds": source_end - source_start, "fit": fit, "playback_rate": 1.0, "visual_role": "selected_library_video" if selected_asset else "baseline_visual", "transition": "fade_out" if index == 5 else "cut", "overlay_roles": ["brand_logo"] if index in {0, 5} else []})
             cursor = end
         story = {"source": "content_project_revision", "project_code": detail["project_code"], "objective": detail["generation_goal"], "content": detail["story_brief"]["content"], "format": {"orientation": "vertical", "width": 1080, "height": 1920, "target_duration_seconds": duration, "shot_count": 6}}
         script = {"source": "content_project_revision", "title": detail["title"], "spoken_script": "".join(chunks), "sections": [{"section_index": index, "section_type": "content_project", "narration": chunk, "tts_text": chunk.replace("PRO", "P R O"), "screen_text": chunk[:28]} for index, chunk in enumerate(chunks)], "section_count": len(chunks)}

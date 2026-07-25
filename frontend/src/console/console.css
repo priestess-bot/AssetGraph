@@ -421,6 +421,12 @@
 .video-plan-rail { position: sticky; top: 84px; align-self: start; max-height: calc(100vh - 105px); overflow-y: auto; }
 .video-plan-form { display: grid; gap: 10px; padding: 12px; border-bottom: 1px solid var(--wb-line); }
 .video-plan-form .wb-button { width: 100%; justify-content: center; }
+.video-visual-assets { display: grid; gap: 1px; min-width: 0; margin: 0; padding: 0; border: 1px solid var(--wb-line); }
+.video-visual-assets legend { padding: 0 4px; color: var(--wb-muted); font-size: 8px; }
+.video-visual-assets label { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px; align-items: center; padding: 7px; background: var(--wb-subtle); }
+.video-visual-assets input { accent-color: var(--console-cyan); }
+.video-visual-assets span { min-width: 0; overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.video-visual-assets code { grid-column: 2; color: var(--wb-muted); font-size: 7px; }
 .video-plan-list { display: grid; }
 .video-plan-list button { display: grid; min-height: 68px; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 9px 11px; border: 0; border-bottom: 1px solid var(--wb-line); background: #fff; color: var(--wb-text); text-align: left; cursor: pointer; }
 .video-plan-list button:hover, .video-plan-list button.active { background: var(--wb-accent-soft); }
