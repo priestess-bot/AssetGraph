@@ -98,9 +98,15 @@ class FunctionalVideoAudioClipUpdate(BaseModel):
     gain_db: float = Field(default=0.0, ge=-24, le=12)
 
 
+class FunctionalVideoSubtitleStyle(BaseModel):
+    preset: str = Field(default="standard", pattern="^(compact|standard|large)$")
+    safe_bottom_px: int = Field(default=160, ge=80, le=360)
+
+
 class FunctionalVideoTimelineUpdate(BaseModel):
     expected_revision: int = Field(ge=1)
     poster_time_ms: int | None = Field(default=None, ge=0)
+    subtitle_style: FunctionalVideoSubtitleStyle | None = None
     video_clips: list[FunctionalVideoTimelineClipUpdate] = Field(min_length=1, max_length=100)
     subtitle_clips: list[FunctionalVideoSubtitleClipUpdate] = Field(default_factory=list, max_length=100)
     audio_clips: list[FunctionalVideoAudioClipUpdate] = Field(default_factory=list, max_length=100)

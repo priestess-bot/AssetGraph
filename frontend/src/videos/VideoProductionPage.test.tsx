@@ -123,11 +123,14 @@ describe("VideoProductionPage", () => {
     await user.clear(screen.getByRole("textbox", { name: "字幕文本 SHOT-02" }));
     await user.type(screen.getByRole("textbox", { name: "字幕文本 SHOT-02" }), "更新后的第二段字幕");
     await user.selectOptions(screen.getByRole("combobox", { name: "字幕位置 SHOT-02" }), "center");
+    await user.selectOptions(screen.getByRole("combobox", { name: "字幕样式" }), "large");
+    await user.clear(screen.getByRole("spinbutton", { name: "字幕底部安全边距（像素）" }));
+    await user.type(screen.getByRole("spinbutton", { name: "字幕底部安全边距（像素）" }), "240");
     fireEvent.change(screen.getByRole("slider", { name: "配音增益 SHOT-02" }), { target: { value: "1" } });
     await user.click(screen.getByRole("button", { name: "保存时间轴修订" }));
 
     const request = requests.find((item) => item.url.endsWith("/timeline") && item.init?.method === "PUT");
-    expect(request?.init?.body).toBe(JSON.stringify({ expected_revision: 1, poster_time_ms: 7_500, video_clips: [
+    expect(request?.init?.body).toBe(JSON.stringify({ expected_revision: 1, poster_time_ms: 7_500, subtitle_style: { preset: "large", safe_bottom_px: 240 }, video_clips: [
       { clip_code: "SHOT-02", duration_ms: 30_000, transition: "cut", source_asset_code: "AG-VID-000001", source_start_seconds: 1, source_end_seconds: 6, fit: "cover", crop_x: 0.25, crop_y: 0.75, playback_rate: 1.5, show_brand_logo: true, show_product_sticker: true, product_sticker_x: 0.2, product_sticker_y: 0.7, product_sticker_width_ratio: 0.4 },
       { clip_code: "SHOT-01", duration_ms: 30_000, transition: "cut", source_start_seconds: 0, source_end_seconds: 40 },
     ], subtitle_clips: [

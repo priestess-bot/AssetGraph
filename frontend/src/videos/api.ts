@@ -20,6 +20,10 @@ export interface FunctionalVideoPlan {
   productionTimeline: {
     global_end_ms: number;
     poster_time_ms?: number;
+    subtitle_style?: {
+      preset: "compact" | "standard" | "large";
+      safe_bottom_px: number;
+    };
     tracks: Array<{
       track_kind: string;
       clips: Array<{
@@ -227,6 +231,17 @@ function productionTimeline(
     poster_time_ms:
       typeof timeline.poster_time_ms === "number"
         ? timeline.poster_time_ms
+        : undefined,
+    subtitle_style:
+      isRecord(timeline.subtitle_style) &&
+      (timeline.subtitle_style.preset === "compact" ||
+        timeline.subtitle_style.preset === "standard" ||
+        timeline.subtitle_style.preset === "large") &&
+      typeof timeline.subtitle_style.safe_bottom_px === "number"
+        ? {
+            preset: timeline.subtitle_style.preset,
+            safe_bottom_px: timeline.subtitle_style.safe_bottom_px,
+          }
         : undefined,
     tracks: asArray(timeline.tracks).flatMap((track) =>
       isRecord(track)
@@ -580,6 +595,10 @@ export const functionalVideosApi = {
     payload: {
       expected_revision: number;
       poster_time_ms?: number;
+      subtitle_style?: {
+        preset: "compact" | "standard" | "large";
+        safe_bottom_px: number;
+      };
       video_clips: Array<{
         clip_code: string;
         duration_ms: number;

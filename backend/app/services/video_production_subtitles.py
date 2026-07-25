@@ -4,7 +4,16 @@ import re
 from typing import Any
 
 
-ASS_HEADER = """[Script Info]
+SUBTITLE_PRESETS = {
+    "compact": {"caption_font_size": 44, "center_font_size": 50, "headline_font_size": 54},
+    "standard": {"caption_font_size": 52, "center_font_size": 58, "headline_font_size": 60},
+    "large": {"caption_font_size": 62, "center_font_size": 68, "headline_font_size": 72},
+}
+
+
+def _ass_header(*, preset: str, safe_bottom_px: int) -> str:
+    sizes = SUBTITLE_PRESETS[preset]
+    return f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
 PlayResY: 1920
@@ -13,21 +22,30 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Caption,Noto Sans CJK SC,52,&H00FFFFFF,&H00FFFFFF,&H00202020,&H90000000,0,0,0,0,100,100,0,0,1,3,0,2,72,72,160,1
-Style: CaptionCenter,Noto Sans CJK SC,58,&H00FFFFFF,&H00FFFFFF,&H00202020,&H90000000,-1,0,0,0,100,100,0,0,1,3,0,5,96,96,0,1
-Style: Headline,Noto Sans CJK SC,60,&H00FFFFFF,&H00FFFFFF,&H00181030,&HC0181030,-1,0,0,0,100,100,0,0,3,2,0,8,90,90,220,1
+Style: Caption,Noto Sans CJK SC,{sizes['caption_font_size']},&H00FFFFFF,&H00FFFFFF,&H00202020,&H90000000,0,0,0,0,100,100,0,0,1,3,0,2,72,72,{safe_bottom_px},1
+Style: CaptionCenter,Noto Sans CJK SC,{sizes['center_font_size']},&H00FFFFFF,&H00FFFFFF,&H00202020,&H90000000,-1,0,0,0,100,100,0,0,1,3,0,5,96,96,0,1
+Style: Headline,Noto Sans CJK SC,{sizes['headline_font_size']},&H00FFFFFF,&H00FFFFFF,&H00181030,&HC0181030,-1,0,0,0,100,100,0,0,3,2,0,8,90,90,220,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
 
 
+ASS_HEADER = _ass_header(preset="standard", safe_bottom_px=160)
+
+
 def build_ass_subtitles(
     shot_list: dict[str, Any],
     voice_manifest: dict[str, Any] | None = None,
 ) -> tuple[str, dict[str, Any]]:
+    subtitle_style = _subtitle_style(shot_list.get("subtitle_style"))
     events: list[dict[str, Any]] = []
-    lines: list[str] = [ASS_HEADER.rstrip("\n")]
+    lines: list[str] = [
+        _ass_header(
+            preset=subtitle_style["preset"],
+            safe_bottom_px=subtitle_style["safe_bottom_px"],
+        ).rstrip("\n")
+    ]
     incomplete_shot_indices: list[int] = []
     voice_by_shot = {
         int(segment["shot_index"]): segment
@@ -99,13 +117,29 @@ def build_ass_subtitles(
         "incomplete_shot_indices": incomplete_shot_indices,
         "font": "Noto Sans CJK SC",
         "play_resolution": {"width": 1080, "height": 1920},
-        "safe_margins": {"left": 72, "right": 72, "bottom": 160, "headline_top": 220},
+        "subtitle_style": subtitle_style,
+        "safe_margins": {"left": 72, "right": 72, "bottom": subtitle_style["safe_bottom_px"], "headline_top": 220},
         "caption_position_counts": {
             "bottom": sum(event.get("caption_position") == "bottom" for event in events),
             "center": sum(event.get("caption_position") == "center" for event in events),
         },
         "events": events,
     }
+
+
+def _subtitle_style(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {"preset": "standard", "safe_bottom_px": 160}
+    preset = str(value.get("preset") or "standard")
+    safe_bottom_px = value.get("safe_bottom_px", 160)
+    if (
+        preset not in SUBTITLE_PRESETS
+        or not isinstance(safe_bottom_px, int)
+        or isinstance(safe_bottom_px, bool)
+        or not 80 <= safe_bottom_px <= 360
+    ):
+        raise ValueError("subtitle style is unsupported")
+    return {"preset": preset, "safe_bottom_px": safe_bottom_px}
 
 
 def _caption_chunks(text: str, *, maximum: int) -> list[str]:

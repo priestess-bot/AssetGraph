@@ -505,6 +505,19 @@ type EditableSubtitleClip = {
   captionPosition: "bottom" | "center";
 };
 
+type EditableSubtitleStyle = {
+  preset: "compact" | "standard" | "large";
+  safeBottomPx: number;
+};
+
+function editableSubtitleStyle(plan: FunctionalVideoPlan): EditableSubtitleStyle {
+  const style = plan.productionTimeline.subtitle_style;
+  return {
+    preset: style?.preset ?? "standard",
+    safeBottomPx: style?.safe_bottom_px ?? 160,
+  };
+}
+
 function editableSubtitleClips(
   subtitleTrack:
     | FunctionalVideoPlan["productionTimeline"]["tracks"][number]
@@ -565,6 +578,9 @@ function TimelineEditor({ plan }: { plan: FunctionalVideoPlan }) {
   const [subtitleClips, setSubtitleClips] = useState<EditableSubtitleClip[]>(
     () => editableSubtitleClips(subtitleTrack),
   );
+  const [subtitleStyle, setSubtitleStyle] = useState<EditableSubtitleStyle>(
+    () => editableSubtitleStyle(plan),
+  );
   const [posterTimeMs, setPosterTimeMs] = useState(
     () => plan.productionTimeline.poster_time_ms ?? 2_000,
   );
@@ -581,6 +597,10 @@ function TimelineEditor({ plan }: { plan: FunctionalVideoPlan }) {
     [plan.timelineRevision, subtitleTrack],
   );
   useEffect(
+    () => setSubtitleStyle(editableSubtitleStyle(plan)),
+    [plan.timelineRevision, plan.productionTimeline.subtitle_style],
+  );
+  useEffect(
     () => setPosterTimeMs(plan.productionTimeline.poster_time_ms ?? 2_000),
     [plan.timelineRevision, plan.productionTimeline.poster_time_ms],
   );
@@ -589,6 +609,10 @@ function TimelineEditor({ plan }: { plan: FunctionalVideoPlan }) {
       functionalVideosApi.updateTimeline(plan.planCode, {
         expected_revision: plan.timelineRevision,
         poster_time_ms: posterTimeMs,
+        subtitle_style: {
+          preset: subtitleStyle.preset,
+          safe_bottom_px: subtitleStyle.safeBottomPx,
+        },
         video_clips: clips.map((clip) => ({
           clip_code: clip.clipCode,
           duration_ms: clip.durationMs,
@@ -690,6 +714,10 @@ function TimelineEditor({ plan }: { plan: FunctionalVideoPlan }) {
   const subtitleContentInvalid = subtitleClips.some(
     (clip) => !clip.subtitleText.trim(),
   );
+  const subtitleStyleInvalid =
+    !Number.isInteger(subtitleStyle.safeBottomPx) ||
+    subtitleStyle.safeBottomPx < 80 ||
+    subtitleStyle.safeBottomPx > 360;
   const posterTimeInvalid =
     !Number.isInteger(posterTimeMs) ||
     posterTimeMs < 0 ||
@@ -1165,7 +1193,50 @@ function TimelineEditor({ plan }: { plan: FunctionalVideoPlan }) {
         <div className="video-subtitle-editor">
           <header>
             <strong>字幕轨</strong>
-            <small>字幕与标题始终绑定固定镜头，并随镜头时间范围同步。</small>
+            <div className="video-subtitle-style">
+              <label className="wb-field">
+                <span>字幕样式</span>
+                <select
+                  aria-label="字幕样式"
+                  className="wb-input"
+                  value={subtitleStyle.preset}
+                  disabled={!editable}
+                  onChange={(event) =>
+                    setSubtitleStyle((current) => ({
+                      ...current,
+                      preset:
+                        event.target.value === "compact" ||
+                        event.target.value === "large"
+                          ? event.target.value
+                          : "standard",
+                    }))
+                  }
+                >
+                  <option value="compact">紧凑</option>
+                  <option value="standard">标准</option>
+                  <option value="large">大字</option>
+                </select>
+              </label>
+              <label className="wb-field">
+                <span>字幕底部安全边距（像素）</span>
+                <input
+                  aria-label="字幕底部安全边距（像素）"
+                  className="wb-input"
+                  type="number"
+                  min="80"
+                  max="360"
+                  step="1"
+                  value={subtitleStyle.safeBottomPx}
+                  disabled={!editable}
+                  onChange={(event) =>
+                    setSubtitleStyle((current) => ({
+                      ...current,
+                      safeBottomPx: Number(event.target.value),
+                    }))
+                  }
+                />
+              </label>
+            </div>
           </header>
           {subtitleClips.map((clip, index) => (
             <div key={clip.clipCode}>
@@ -1224,6 +1295,11 @@ function TimelineEditor({ plan }: { plan: FunctionalVideoPlan }) {
           每个固定镜头均需保留一段字幕文本。
         </InlineNotice>
       ) : null}
+      {subtitleStyleInvalid ? (
+        <InlineNotice tone="warning" title="字幕安全边距无效">
+          字幕底部安全边距必须在 80 到 360 像素之间。
+        </InlineNotice>
+      ) : null}
       <TimelineRevisionHistory plan={plan} />
       {editable ? (
         <div className="wb-form-actions">
@@ -1235,6 +1311,7 @@ function TimelineEditor({ plan }: { plan: FunctionalVideoPlan }) {
                 totalSeconds < 30 ||
                 totalSeconds > 120 ||
                 subtitleContentInvalid ||
+                subtitleStyleInvalid ||
                 posterTimeInvalid
               }
             onClick={() => update.mutate()}

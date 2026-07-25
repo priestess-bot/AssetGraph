@@ -164,6 +164,26 @@ def test_timeline_can_enable_the_brand_logo_for_an_individual_shot() -> None:
     )["shots"][0]["overlay_roles"] == ["brand_logo"]
 
 
+def test_timeline_freezes_a_subtitle_style_and_safe_bottom_margin() -> None:
+    updated = FunctionalVideoService._apply_timeline_update(
+        _timeline(),
+        [
+            {"clip_code": "SHOT-01", "duration_ms": 30_000},
+            {"clip_code": "SHOT-02", "duration_ms": 30_000},
+        ],
+        subtitle_style={"preset": "large", "safe_bottom_px": 240},
+    )
+
+    assert updated["subtitle_style"] == {
+        "preset": "large",
+        "safe_bottom_px": 240,
+    }
+    assert FunctionalVideoService._timeline_shot_list(
+        {"shots": [{"shot_code": "SHOT-01"}, {"shot_code": "SHOT-02"}]},
+        updated,
+    )["subtitle_style"] == {"preset": "large", "safe_bottom_px": 240}
+
+
 def test_timeline_rebinds_a_shot_only_to_its_frozen_visual_source_pool() -> None:
     updated = FunctionalVideoService._apply_timeline_update(
         _timeline(),

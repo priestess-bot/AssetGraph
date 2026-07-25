@@ -144,6 +144,20 @@ def test_ass_subtitles_honor_the_fixed_caption_position() -> None:
     assert ",CaptionCenter," in content
 
 
+def test_ass_subtitles_honor_the_frozen_preset_and_safe_bottom_margin() -> None:
+    brief = generate_story_brief(DEFAULT_TOPIC)
+    script = generate_commercial_script(brief)
+    shot_list = plan_shots(brief, script)
+    shot_list["subtitle_style"] = {"preset": "large", "safe_bottom_px": 240}
+
+    content, manifest = build_ass_subtitles(shot_list)
+
+    assert "Style: Caption,Noto Sans CJK SC,62," in content
+    assert ",72,72,240,1" in content
+    assert manifest["subtitle_style"] == {"preset": "large", "safe_bottom_px": 240}
+    assert manifest["safe_margins"]["bottom"] == 240
+
+
 def test_render_manifest_fixes_input_and_output_checksums_without_local_paths(tmp_path: Path) -> None:
     store = ArtifactStore(tmp_path / "output", "VIDJOB-000001", 1)
     store.write_text("subtitles", "subtitles/subtitles.ass", "[Events]\n", mime_type="text/x-ssa")
