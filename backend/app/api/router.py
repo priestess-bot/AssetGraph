@@ -10,6 +10,7 @@ from app.api.routes import (
     functional_learning,
     functional_knowledge,
     assets,
+    broadcast_schedules,
     console,
     control_plane,
     digital_humans,
@@ -33,6 +34,7 @@ api_router.include_router(console.router)
 api_router.include_router(control_plane.router)
 api_router.include_router(policy.router)
 api_router.include_router(assets.router)
+api_router.include_router(broadcast_schedules.router)
 api_router.include_router(content_projects.router)
 api_router.include_router(data_governance.router)
 api_router.include_router(functional_live_rooms.router)

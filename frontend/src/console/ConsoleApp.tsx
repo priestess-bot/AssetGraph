@@ -5,6 +5,7 @@ import {
   Bell,
   BookOpen,
   BrainCircuit,
+  CalendarClock,
   ChartNoAxesCombined,
   ChevronRight,
   CircleUserRound,
@@ -32,6 +33,7 @@ import { LiveRoomPlannerPage } from "../live-rooms/LiveRoomPlannerPage";
 import { VideoProductionPage } from "../videos/VideoProductionPage";
 import { ReleaseWorkspacePage } from "../releases/ReleaseWorkspacePage";
 import { OperationsPage } from "../operations/OperationsPage";
+import { SchedulesPage } from "../schedules/SchedulesPage";
 import { LearningPage } from "../learning/LearningPage";
 import { KnowledgePage } from "../knowledge/KnowledgePage";
 import { DataGovernancePage } from "../governance/DataGovernancePage";
@@ -80,6 +82,7 @@ const NAVIGATION: NavSection[] = [
   { label: "运营与学习", items: [
     { href: "/operations/live-sessions", label: "运营场次", icon: Radio },
     { href: "/operations/attribution", label: "归因", icon: ChartNoAxesCombined },
+    { href: "/operations/schedules", label: "排播", icon: CalendarClock },
     { href: "/learning/effects", label: "效果学习", icon: BrainCircuit },
   ] },
   { label: "控制", items: [{ href: "/governance/data", label: "数据治理", icon: Database }, { href: "/governance/runs", label: "治理与运行", icon: ShieldCheck }] },
@@ -276,6 +279,7 @@ export function Workspace({ pathname, search, tasks, notifications, loading, dem
   if (pathname.startsWith("/production/releases")) return <ReleaseWorkspacePage search={search} />;
   if (pathname.startsWith("/operations/live-sessions")) return <OperationsPage view="sessions" />;
   if (pathname.startsWith("/operations/attribution")) return <OperationsPage view="attribution" />;
+  if (pathname.startsWith("/operations/schedules")) return <SchedulesPage />;
   if (pathname.startsWith("/learning")) return <LearningPage />;
   return <section className="console-empty-workspace"><EmptyBlock icon={AlertTriangle} title="路由不存在" detail={pathname} /></section>;
 }
