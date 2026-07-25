@@ -244,6 +244,18 @@ class AssetSelector:
                     "crop_x": shot.get("crop_x", 0.5),
                     "crop_y": shot.get("crop_y", 0.5),
                     "playback_rate": float(shot.get("playback_rate", 1.0)),
+                    "stream_time_base": by_code[str(shot["asset_code"])].get(
+                        "stream_time_base"
+                    ),
+                    "stream_start_pts": by_code[str(shot["asset_code"])].get(
+                        "stream_start_pts"
+                    ),
+                    "stream_start_time_seconds": by_code[
+                        str(shot["asset_code"])
+                    ].get("stream_start_time_seconds"),
+                    "stream_frame_rate": by_code[str(shot["asset_code"])].get(
+                        "stream_frame_rate"
+                    ),
                     "overlay_roles": [
                         str(role)
                         for role in shot.get("overlay_roles") or []
@@ -495,13 +507,31 @@ def _video_summary(probe: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(video, dict):
         raise VideoProductionError("VIDEO_STREAM_MISSING", "source media has no video stream")
     duration = float((probe.get("format") or {}).get("duration") or video.get("duration") or 0)
+    start_time = _finite_optional_float(video.get("start_time"))
     return {
         "media_type": "video",
         "duration_seconds": round(duration, 3),
         "width": int(video.get("width") or 0),
         "height": int(video.get("height") or 0),
         "codec_name": video.get("codec_name"),
+        "stream_time_base": _ffprobe_string(video.get("time_base")),
+        "stream_start_pts": _ffprobe_string(video.get("start_pts")),
+        "stream_start_time_seconds": start_time,
+        "stream_frame_rate": _ffprobe_string(video.get("avg_frame_rate")),
     }
+
+
+def _ffprobe_string(value: Any) -> str | None:
+    normalized = str(value or "").strip()
+    return normalized if normalized and normalized != "N/A" else None
+
+
+def _finite_optional_float(value: Any) -> float | None:
+    try:
+        normalized = float(value)
+    except (TypeError, ValueError):
+        return None
+    return normalized if math.isfinite(normalized) else None
 
 
 class AudioProcessor:

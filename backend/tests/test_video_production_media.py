@@ -135,7 +135,7 @@ def test_asset_selector_uses_a_checksummed_library_video_source(
     monkeypatch.setattr(
         "app.services.video_production_media.probe_media",
         lambda *_args: {
-            "streams": [{"codec_type": "video", "codec_name": "h264", "width": 1080, "height": 1920}],
+            "streams": [{"codec_type": "video", "codec_name": "h264", "width": 1080, "height": 1920, "time_base": "1/90000", "start_pts": "3600", "start_time": "0.04", "avg_frame_rate": "30000/1001"}],
             "format": {"duration": "8"},
         },
     )
@@ -163,6 +163,9 @@ def test_asset_selector_uses_a_checksummed_library_video_source(
     assert plan["assets"][0]["checksum_sha256"] == checksum
     assert plan["shot_assets"][0]["relative_path"] == "video/selected.mp4"
     assert plan["shot_assets"][0]["selection_reason"] == "operator-selected material-library video"
+    assert plan["shot_assets"][0]["stream_time_base"] == "1/90000"
+    assert plan["shot_assets"][0]["stream_start_pts"] == "3600"
+    assert plan["shot_assets"][0]["stream_start_time_seconds"] == 0.04
 
     shot_list["shots"][0]["asset_expected_checksum"] = "0" * 64
     with pytest.raises(VideoProductionError) as error:

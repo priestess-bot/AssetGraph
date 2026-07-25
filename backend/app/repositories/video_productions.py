@@ -562,6 +562,14 @@ class VideoProductionRepository:
         output_payload: dict[str, Any],
         artifacts: dict[str, dict[str, Any]],
     ) -> None:
+        if stage_name == "asset_selection":
+            VideoProductionRepository._persist_functional_timeline_source_media_probes(
+                cursor,
+                job=job,
+                output_payload=output_payload,
+                artifacts=artifacts,
+            )
+            return
         if stage_name == "rendering":
             VideoProductionRepository._persist_functional_timeline_render_artifacts(
                 cursor,
@@ -660,6 +668,88 @@ class VideoProductionRepository:
                     int(job["attempt"]),
                     role,
                     artifact_key,
+                    relative_path,
+                    checksum,
+                    Jsonb(evidence),
+                ),
+            )
+
+    @staticmethod
+    def _persist_functional_timeline_source_media_probes(
+        cursor: Any,
+        *,
+        job: dict[str, Any],
+        output_payload: dict[str, Any],
+        artifacts: dict[str, dict[str, Any]],
+    ) -> None:
+        artifact = artifacts.get("asset_plan")
+        if artifact is None:
+            return
+        checksum = str(artifact.get("checksum_sha256") or "")
+        relative_path = str(artifact.get("relative_path") or "")
+        if not VideoProductionRepository._valid_checksum(checksum) or not relative_path:
+            return
+        shot_codes = {
+            int(shot["shot_index"]): str(shot.get("shot_code") or "")
+            for shot in (job.get("shot_list") or {}).get("shots") or []
+            if isinstance(shot, dict) and isinstance(shot.get("shot_index"), int)
+        }
+        probes_by_shot: dict[str, dict[str, Any]] = {}
+        for shot_asset in output_payload.get("shot_assets") or []:
+            if not isinstance(shot_asset, dict) or not isinstance(
+                shot_asset.get("shot_index"), int
+            ):
+                continue
+            shot_code = shot_codes.get(int(shot_asset["shot_index"]))
+            time_base = str(shot_asset.get("stream_time_base") or "").strip()
+            start_pts = str(shot_asset.get("stream_start_pts") or "").strip()
+            if not shot_code or not time_base or not start_pts:
+                continue
+            probes_by_shot[shot_code] = {
+                "schema_version": "functional-video-source-media-pts.v1",
+                "asset_code": str(shot_asset.get("asset_code") or ""),
+                "source_relative_path": str(shot_asset.get("relative_path") or ""),
+                "stream_time_base": time_base,
+                "stream_start_pts": start_pts,
+                "stream_start_time_seconds": shot_asset.get(
+                    "stream_start_time_seconds"
+                ),
+                "stream_frame_rate": shot_asset.get("stream_frame_rate"),
+                "source_start_seconds": shot_asset.get("source_start_seconds"),
+                "source_end_seconds": shot_asset.get("source_end_seconds"),
+                "playback_rate": shot_asset.get("playback_rate"),
+            }
+        if not probes_by_shot:
+            return
+        cursor.execute(
+            """SELECT segment.id, segment.clip_code, segment.timeline_start_ms,
+                      segment.timeline_end_ms
+               FROM functional_video_timeline_segments AS segment
+               JOIN functional_video_plans AS plan ON plan.id = segment.plan_id
+               WHERE plan.video_job_code = %s
+                 AND segment.timeline_revision = plan.timeline_revision""",
+            (job["job_code"],),
+        )
+        for timeline_segment in cursor.fetchall():
+            evidence = probes_by_shot.get(str(timeline_segment["clip_code"]))
+            if evidence is None:
+                continue
+            evidence = {
+                **evidence,
+                "timeline_start_ms": int(timeline_segment["timeline_start_ms"]),
+                "timeline_end_ms": int(timeline_segment["timeline_end_ms"]),
+            }
+            cursor.execute(
+                """INSERT INTO functional_video_timeline_segment_execution_artifacts (
+                       timeline_segment_id, video_artifact_id, job_attempt,
+                       artifact_role, artifact_key, relative_path,
+                       checksum_sha256, evidence
+                   ) VALUES (%s, %s, %s, 'source_media_probe', 'asset_plan', %s, %s, %s)
+                   ON CONFLICT (timeline_segment_id, job_attempt, artifact_role) DO NOTHING""",
+                (
+                    timeline_segment["id"],
+                    artifact["id"],
+                    int(job["attempt"]),
                     relative_path,
                     checksum,
                     Jsonb(evidence),

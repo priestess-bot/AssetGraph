@@ -206,8 +206,32 @@ def test_functional_video_timeline_segments_link_registered_voice_and_subtitle_a
         assert repository.complete_stage(
             job_code,
             "asset_selection",
-            {"source": "fixture"},
-            [],
+            {
+                "shot_assets": [
+                    {
+                        "shot_index": index,
+                        "asset_code": "AG-VID-FIXTURE",
+                        "relative_path": "video/fixture.mp4",
+                        "source_start_seconds": 0.0,
+                        "source_end_seconds": 6.0,
+                        "playback_rate": 1.0,
+                        "stream_time_base": "1/90000",
+                        "stream_start_pts": "3600",
+                        "stream_start_time_seconds": 0.04,
+                        "stream_frame_rate": "30000/1001",
+                    }
+                    for index in range(6)
+                ]
+            },
+            [
+                {
+                    "artifact_key": "asset_plan",
+                    "relative_path": f"{job_code}/attempt-1/assets/plan.json",
+                    "mime_type": "application/json",
+                    "file_size": 128,
+                    "checksum_sha256": "9" * 64,
+                }
+            ],
             "timeline-artifact-worker",
             lease_token,
         ) is not None
@@ -314,7 +338,13 @@ def test_functional_video_timeline_segments_link_registered_voice_and_subtitle_a
         assert refreshed is not None
         assert all(
             {reference["artifact_role"] for reference in segment["execution_artifact_refs"]}
-            >= {"voice_segment", "subtitle_track", "render_manifest", "rendered_video"}
+            >= {
+                "source_media_probe",
+                "voice_segment",
+                "subtitle_track",
+                "render_manifest",
+                "rendered_video",
+            }
             for segment in refreshed["timeline_segments"]
         )
         assert "poster" in {
@@ -337,7 +367,7 @@ def test_functional_video_timeline_segments_link_registered_voice_and_subtitle_a
                    )""",
                 (plan["plan_code"],),
             )
-            assert cursor.fetchone()[0] == 25
+            assert cursor.fetchone()[0] == 31
 
 
 def test_functional_video_plan_freezes_selected_local_library_videos() -> None:
