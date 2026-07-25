@@ -121,6 +121,7 @@ class FunctionalLiveRoomService:
                     "asset_code": asset["asset_code"], "media_kind": asset["media_kind"],
                     "material_roles": asset["material_roles"], "execution_capability": asset["execution_capability"],
                     "constraint_profile_ref": asset["constraint_profile_ref"],
+                    "qualified_effect_refs": list(asset.get("qualified_effect_refs") or []),
                     "selection_sources": selection_sources.get(asset["asset_code"], []),
                 }
                 for asset in selected_assets
@@ -1250,19 +1251,50 @@ class FunctionalLiveRoomService:
                        asset.media_kind, asset.material_roles, asset.execution_capability,
                        profile.profile_code, revision.revision_number AS constraint_profile_revision,
                        revision.constraints AS constraint_profile_constraints,
-                       revision.fingerprint_sha256 AS constraint_profile_fingerprint
+                       revision.fingerprint_sha256 AS constraint_profile_fingerprint,
+                       effect_refs.qualified_effect_refs
                 FROM assets AS asset
                 LEFT JOIN asset_constraint_profiles AS profile ON profile.asset_id = asset.id
                 LEFT JOIN asset_constraint_profile_revisions AS revision
                   ON revision.profile_id = profile.id AND revision.revision_number = profile.current_revision
+                LEFT JOIN LATERAL (
+                    SELECT COALESCE(
+                        jsonb_agg(
+                            jsonb_build_object(
+                                'effect_code', effect.effect_code,
+                                'revision_number', effect.revision_number,
+                                'metric_key', effect.metric_key,
+                                'selected_session_count', CASE
+                                    WHEN COALESCE(effect.eligibility_snapshot ->> 'selected_session_count', '') ~ '^[0-9]+$'
+                                    THEN (effect.eligibility_snapshot ->> 'selected_session_count')::integer
+                                    ELSE 0
+                                END
+                            ) ORDER BY effect.created_at DESC, effect.effect_code DESC, effect.revision_number DESC
+                        ),
+                        '[]'::jsonb
+                    ) AS qualified_effect_refs
+                    FROM functional_effect_estimates effect
+                    WHERE effect.subject_type = 'asset'
+                      AND effect.subject_code = asset.asset_code
+                      AND effect.status = 'approved'
+                      AND effect.evidence_level = 'associational'
+                      AND CASE
+                          WHEN COALESCE(effect.eligibility_snapshot ->> 'selected_session_count', '') ~ '^[0-9]+$'
+                          THEN (effect.eligibility_snapshot ->> 'selected_session_count')::integer
+                          ELSE 0
+                      END >= %s
+                ) effect_refs ON TRUE
                 WHERE asset.asset_code = ANY(%s) AND asset.deleted_at IS NULL
                 """,
-                (codes,),
+                (MaterialLibraryRepository.AUTOMATIC_RECOMMENDATION_MINIMUM_SESSION_COUNT, codes),
             )
             rows = cursor.fetchall()
         by_code = {
             row["asset_code"]: {
                 **row,
+                "qualified_effect_refs": MaterialLibraryRepository._qualified_effect_refs(
+                    row.get("qualified_effect_refs")
+                ),
                 "constraint_profile_ref": (
                     {
                         "profile_code": row["profile_code"],
@@ -1702,11 +1734,19 @@ class FunctionalLiveRoomService:
                 default=0,
             )
             prior_count = prior_selection_counts.get(str(asset["asset_code"]), 0)
+            qualified_effect_refs = MaterialLibraryRepository._qualified_effect_refs(
+                asset.get("qualified_effect_refs")
+            )
             score_parts = {
                 "role_match": 60,
                 "execution_capability": 30 if capability == "maitu_bound" else 0,
                 "constraint_profile": 10 if profile_bound else 0,
                 "material_pack_requirement": strongest_mode * 100,
+                "qualified_effect_evidence": (
+                    MaterialLibraryRepository.QUALIFIED_EFFECT_EVIDENCE_SCORE
+                    if qualified_effect_refs
+                    else 0
+                ),
                 "repeat_penalty": -20 * prior_count,
             }
             score = sum(score_parts.values())
@@ -1715,6 +1755,8 @@ class FunctionalLiveRoomService:
                 reasons.append("CONSTRAINT_PROFILE_BOUND")
             if strongest_mode:
                 reasons.append({1: "PACK_OPTIONAL", 2: "PACK_ALTERNATIVE", 3: "PACK_REQUIRED"}[strongest_mode])
+            if qualified_effect_refs:
+                reasons.append("QUALIFIED_EFFECT_EVIDENCE")
             if prior_count:
                 reasons.append(f"REPEAT_PENALTY_{prior_count}")
             return score, reasons, score_parts
@@ -1748,12 +1790,18 @@ class FunctionalLiveRoomService:
                     scene_type=scene_type,
                 )
             ],
+            "qualified_effect_refs": MaterialLibraryRepository._qualified_effect_refs(
+                selected.get("qualified_effect_refs")
+            ),
             "candidate_scores": [
                 {
                     "asset_code": candidate["asset_code"],
                     "score": candidate_score(candidate)[0],
                     "score_parts": candidate_score(candidate)[2],
                     "selection_reasons": candidate_score(candidate)[1],
+                    "qualified_effect_refs": MaterialLibraryRepository._qualified_effect_refs(
+                        candidate.get("qualified_effect_refs")
+                    ),
                 }
                 for candidate in ordered
             ],

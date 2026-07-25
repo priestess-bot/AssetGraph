@@ -798,6 +798,9 @@ function SelectionPreviewPanel() {
                   {candidate.constraintProfile
                     ? ` · ${candidate.constraintProfile.profileCode} r${candidate.constraintProfile.revisionNumber}`
                     : ""}
+                  {candidate.qualifiedEffectRefs.length
+                    ? ` · 效果 ${candidate.qualifiedEffectRefs.map((effect) => `${effect.effectCode} r${effect.revisionNumber}`).join(", ")}`
+                    : ""}
                 </small>
               </article>
             ))}

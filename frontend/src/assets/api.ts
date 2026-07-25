@@ -159,6 +159,12 @@ export interface MaterialSelectionPreview {
     score: number;
     scoreParts: Record<string, number>;
     reasons: string[];
+    qualifiedEffectRefs: Array<{
+      effectCode: string;
+      revisionNumber: number;
+      metricKey: string;
+      selectedSessionCount: number;
+    }>;
     constraintProfile?: { profileCode: string; revisionNumber: number };
   }>;
   excluded: Array<{
@@ -432,6 +438,22 @@ function selectionPreview(value: unknown): MaterialSelectionPreview {
                   )
                 : {},
               reasons: strings(item.selection_reasons),
+              qualifiedEffectRefs: asArray(item.qualified_effect_refs).flatMap(
+                (effect) =>
+                  isRecord(effect) && asString(effect.effect_code)
+                    ? [
+                        {
+                          effectCode: asString(effect.effect_code),
+                          revisionNumber: asNumber(effect.revision_number),
+                          metricKey: asString(effect.metric_key),
+                          selectedSessionCount: Math.max(
+                            0,
+                            asNumber(effect.selected_session_count),
+                          ),
+                        },
+                      ]
+                    : [],
+              ),
               constraintProfile:
                 isRecord(item.constraint_profile) &&
                 asString(item.constraint_profile.profile_code)

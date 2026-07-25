@@ -23,7 +23,8 @@ class MaterialLibraryConflictError(RuntimeError):
 
 
 class MaterialLibraryRepository:
-    _AUTOMATIC_RECOMMENDATION_MINIMUM_SESSION_COUNT = 3
+    AUTOMATIC_RECOMMENDATION_MINIMUM_SESSION_COUNT = 3
+    QUALIFIED_EFFECT_EVIDENCE_SCORE = 5
 
     def __init__(self, connection: Connection):
         self.connection = connection
@@ -767,13 +768,42 @@ class MaterialLibraryRepository:
             cursor.execute(
                 """SELECT asset.asset_code, COALESCE(asset.title, asset.original_filename) AS title,
                           asset.media_kind, asset.material_roles, asset.execution_capability,
-                          profile.profile_code, revision.revision_number, revision.fingerprint_sha256
+                          profile.profile_code, revision.revision_number, revision.fingerprint_sha256,
+                          effect_refs.qualified_effect_refs
                    FROM assets asset
                    LEFT JOIN asset_constraint_profiles profile ON profile.asset_id = asset.id
                    LEFT JOIN asset_constraint_profile_revisions revision
                      ON revision.profile_id = profile.id AND revision.revision_number = profile.current_revision
+                   LEFT JOIN LATERAL (
+                       SELECT COALESCE(
+                           jsonb_agg(
+                               jsonb_build_object(
+                                   'effect_code', effect.effect_code,
+                                   'revision_number', effect.revision_number,
+                                   'metric_key', effect.metric_key,
+                                   'selected_session_count', CASE
+                                       WHEN COALESCE(effect.eligibility_snapshot ->> 'selected_session_count', '') ~ '^[0-9]+$'
+                                       THEN (effect.eligibility_snapshot ->> 'selected_session_count')::integer
+                                       ELSE 0
+                                   END
+                               ) ORDER BY effect.created_at DESC, effect.effect_code DESC, effect.revision_number DESC
+                           ),
+                           '[]'::jsonb
+                       ) AS qualified_effect_refs
+                       FROM functional_effect_estimates effect
+                       WHERE effect.subject_type = 'asset'
+                         AND effect.subject_code = asset.asset_code
+                         AND effect.status = 'approved'
+                         AND effect.evidence_level = 'associational'
+                         AND CASE
+                             WHEN COALESCE(effect.eligibility_snapshot ->> 'selected_session_count', '') ~ '^[0-9]+$'
+                             THEN (effect.eligibility_snapshot ->> 'selected_session_count')::integer
+                             ELSE 0
+                         END >= %s
+                   ) effect_refs ON TRUE
                    WHERE asset.deleted_at IS NULL
-                   ORDER BY asset.asset_code"""
+                   ORDER BY asset.asset_code""",
+                (self.AUTOMATIC_RECOMMENDATION_MINIMUM_SESSION_COUNT,),
             )
             rows = cursor.fetchall()
         candidates: list[dict[str, Any]] = []
@@ -791,10 +821,12 @@ class MaterialLibraryRepository:
             if exclusion_codes:
                 excluded.append({"asset_code": row["asset_code"], "title": row["title"], "exclusion_codes": exclusion_codes})
                 continue
+            qualified_effect_refs = self._qualified_effect_refs(row.get("qualified_effect_refs"))
             score_parts = {
                 "role_match": 60,
                 "execution_capability": 30 if capability == "maitu_bound" else 20,
                 "constraint_profile": 10 if row["profile_code"] is not None else 0,
+                "qualified_effect_evidence": self.QUALIFIED_EFFECT_EVIDENCE_SCORE if qualified_effect_refs else 0,
             }
             candidates.append(
                 {
@@ -805,7 +837,12 @@ class MaterialLibraryRepository:
                     "execution_capability": capability,
                     "score": sum(score_parts.values()),
                     "score_parts": score_parts,
-                    "selection_reasons": ["ROLE_MATCH", f"CAPABILITY_{capability.upper()}"] + (["CONSTRAINT_PROFILE_BOUND"] if row["profile_code"] is not None else []),
+                    "selection_reasons": (
+                        ["ROLE_MATCH", f"CAPABILITY_{capability.upper()}"]
+                        + (["CONSTRAINT_PROFILE_BOUND"] if row["profile_code"] is not None else [])
+                        + (["QUALIFIED_EFFECT_EVIDENCE"] if qualified_effect_refs else [])
+                    ),
+                    "qualified_effect_refs": qualified_effect_refs,
                     "constraint_profile": {
                         "profile_code": row["profile_code"],
                         "revision_number": int(row["revision_number"]),
@@ -984,15 +1021,21 @@ class MaterialLibraryRepository:
             blockers.append("EFFECT_NOT_APPROVED")
         if result.get("evidence_level") != "associational":
             blockers.append("EFFECT_EVIDENCE_NOT_ASSOCIATIONAL")
-        if selected_session_count < cls._AUTOMATIC_RECOMMENDATION_MINIMUM_SESSION_COUNT:
+        if selected_session_count < cls.AUTOMATIC_RECOMMENDATION_MINIMUM_SESSION_COUNT:
             blockers.append("EFFECT_SAMPLE_SIZE_BELOW_MINIMUM")
         result["selected_session_count"] = selected_session_count
         result["automatic_recommendation_minimum_session_count"] = (
-            cls._AUTOMATIC_RECOMMENDATION_MINIMUM_SESSION_COUNT
+            cls.AUTOMATIC_RECOMMENDATION_MINIMUM_SESSION_COUNT
         )
         result["recommendation_blockers"] = blockers
         result["automatic_recommendation_eligible"] = not blockers
         return result
+
+    @staticmethod
+    def _qualified_effect_refs(value: Any) -> list[dict[str, Any]]:
+        if not isinstance(value, list):
+            return []
+        return [dict(item) for item in value if isinstance(item, dict)]
 
     @staticmethod
     def _canonical(value: Any) -> str:

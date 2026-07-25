@@ -208,7 +208,7 @@ describe("AssetLibraryPage", () => {
   });
 
   it("shows local material relationships and withholds automatic recommendation without effect samples", async () => {
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url === "/api/assets") return response([{ asset_code: "AG-IMG-001", title: "主背景", original_filename: "main.png", asset_type: "IMG", material_roles: ["background"], execution_capability: "maitu_bound" }]);
       if (url === "/api/assets/groups") return response([{ group_code: "AG-GRP-001", title: "主场景组", asset_codes: ["AG-IMG-001"], asset_count: 1, created_at: "2026-07-25T00:00:00Z", updated_at: "2026-07-25T00:00:00Z" }]);
@@ -217,8 +217,10 @@ describe("AssetLibraryPage", () => {
       if (url === "/api/assets/AG-IMG-001/constraint-profile") return response({ profile_code: "AG-CP-001", asset_code: "AG-IMG-001", revision_number: 1, constraints: [], fingerprint_sha256: "a".repeat(64), created_at: "2026-07-25T00:00:00Z" });
       if (url === "/api/assets/AG-IMG-001/constraint-profile/revisions") return response([{ profile_code: "AG-CP-001", asset_code: "AG-IMG-001", revision_number: 1, constraints: [], fingerprint_sha256: "a".repeat(64), created_at: "2026-07-25T00:00:00Z" }]);
       if (url === "/api/assets/AG-IMG-001/effects") return response([{ effect_code: "EFFECT-001", revision_number: 1, attribution_report_code: "ATTR-001", metric_key: "conversion_rate", evidence_level: "descriptive", status: "approved", selected_session_count: 2, automatic_recommendation_minimum_session_count: 3, automatic_recommendation_eligible: false, recommendation_blockers: ["EFFECT_EVIDENCE_NOT_ASSOCIATIONAL", "EFFECT_SAMPLE_SIZE_BELOW_MINIMUM"], note: "Observed only.", created_at: "2026-07-25T00:00:00Z" }]);
+      if (url === "/api/assets/selection-preview" && init?.method === "POST") return response({ role: "background", carrier_kind: "live_room", candidates: [{ asset_code: "AG-IMG-001", title: "主背景", score: 105, score_parts: { role_match: 60, execution_capability: 30, constraint_profile: 10, qualified_effect_evidence: 5 }, selection_reasons: ["ROLE_MATCH", "QUALIFIED_EFFECT_EVIDENCE"], qualified_effect_refs: [{ effect_code: "EFFECT-QUALIFIED", revision_number: 2, metric_key: "conversion_rate", selected_session_count: 4 }] }], excluded: [], unverified_gates: ["RIGHTS_GRANT_NOT_IMPLEMENTED"] });
       throw new Error(`Unexpected request: ${url}`);
     }));
+    const user = userEvent.setup();
     renderPage();
 
     expect(await screen.findByText("效果与关系")).toBeInTheDocument();
@@ -228,5 +230,7 @@ describe("AssetLibraryPage", () => {
     expect(screen.getByText("主场景组")).toBeInTheDocument();
     expect(screen.getByText("主背景包")).toBeInTheDocument();
     expect(screen.getByText("背景缺口")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "预览候选" }));
+    expect(await screen.findByText(/效果 EFFECT-QUALIFIED r2/)).toBeInTheDocument();
   });
 });
