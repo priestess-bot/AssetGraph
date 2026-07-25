@@ -379,6 +379,11 @@ class VideoProductionPipeline:
         )
         poster_time_seconds = float(context["shot_list"].get("poster_time_seconds") or 0)
         poster_path = self._poster(video_path, store, at_seconds=poster_time_seconds)
+        contact_sheet_path, contact_sheet_metadata = self._contact_sheet(
+            video_path,
+            store,
+            duration_seconds=float(context["shot_list"]["duration_seconds"]),
+        )
         command_log = store.write_json(
             "render_log",
             "render/commands.json",
@@ -404,6 +409,8 @@ class VideoProductionPipeline:
             video_path=video_path,
             poster_path=poster_path,
             poster_time_seconds=poster_time_seconds,
+            contact_sheet_path=contact_sheet_path,
+            contact_sheet_metadata=contact_sheet_metadata,
             command_log=command_log,
             toolchain=self._tool_versions(),
             store=store,
@@ -428,10 +435,22 @@ class VideoProductionPipeline:
             mime_type="image/jpeg",
             metadata={"at_seconds": poster_time_seconds},
         )
+        contact_sheet_artifact = store.describe(
+            "contact_sheet",
+            contact_sheet_path,
+            mime_type="image/jpeg",
+            metadata=contact_sheet_metadata,
+        )
         context["video_artifact"] = video_artifact
         return StageExecutionResult(
             manifest,
-            [video_artifact, poster_artifact, command_log, render_manifest],
+            [
+                video_artifact,
+                poster_artifact,
+                contact_sheet_artifact,
+                command_log,
+                render_manifest,
+            ],
         )
 
     def _poster(self, video: Path, store: ArtifactStore, *, at_seconds: float) -> Path:
@@ -468,6 +487,64 @@ class VideoProductionPipeline:
         finally:
             temporary.unlink(missing_ok=True)
         return destination
+
+    def _contact_sheet(
+        self,
+        video: Path,
+        store: ArtifactStore,
+        *,
+        duration_seconds: float,
+    ) -> tuple[Path, dict[str, Any]]:
+        if not math.isfinite(duration_seconds) or duration_seconds <= 0:
+            raise VideoProductionError(
+                "CONTACT_SHEET_DURATION_INVALID",
+                "Contact sheet requires a positive rendered duration",
+            )
+        sample_count = 6
+        sample_times = [
+            round(duration_seconds * index / (sample_count - 1), 3)
+            for index in range(sample_count)
+        ]
+        destination = store.path("contact-sheet.jpg")
+        temporary = destination.with_name(
+            f".{destination.stem}.{os.getpid()}.part{destination.suffix}"
+        )
+        try:
+            self.runner.run(
+                [
+                    "ffmpeg",
+                    "-nostdin",
+                    "-hide_banner",
+                    "-loglevel",
+                    "warning",
+                    "-y",
+                    "-i",
+                    video,
+                    "-vf",
+                    (
+                        f"fps={sample_count}/{duration_seconds:.3f},"
+                        "scale=270:480:force_original_aspect_ratio=decrease,"
+                        "pad=270:480:(ow-iw)/2:(oh-ih)/2:color=black,"
+                        "tile=3x2:padding=8:margin=8"
+                    ),
+                    "-frames:v",
+                    "1",
+                    "-q:v",
+                    "2",
+                    temporary,
+                ],
+                timeout_seconds=240,
+                error_code="CONTACT_SHEET_GENERATION_FAILED",
+            )
+            temporary.replace(destination)
+        finally:
+            temporary.unlink(missing_ok=True)
+        return destination, {
+            "sample_count": sample_count,
+            "sample_times_seconds": sample_times,
+            "sampling_rule": "equal_interval_fps_3x2",
+            "grid": {"columns": 3, "rows": 2},
+        }
 
     def _tool_versions(self) -> dict[str, str]:
         if self._tool_versions_cache is not None:
@@ -748,6 +825,8 @@ def build_render_manifest(
     video_path: Path,
     poster_path: Path,
     poster_time_seconds: float,
+    contact_sheet_path: Path,
+    contact_sheet_metadata: dict[str, Any],
     command_log: Artifact,
     toolchain: dict[str, str],
     store: ArtifactStore,
@@ -806,6 +885,11 @@ def build_render_manifest(
                 "relative_path": store.relative_to_output_root(poster_path),
                 "checksum_sha256": sha256_file(poster_path),
                 "at_seconds": poster_time_seconds,
+            },
+            "contact_sheet": {
+                "relative_path": store.relative_to_output_root(contact_sheet_path),
+                "checksum_sha256": sha256_file(contact_sheet_path),
+                **contact_sheet_metadata,
             },
         },
         "video": dict(render_result.get("video") or {}),

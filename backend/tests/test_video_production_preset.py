@@ -164,8 +164,10 @@ def test_render_manifest_fixes_input_and_output_checksums_without_local_paths(tm
     commands = store.write_json("render_log", "render/commands.json", {"commands": []})
     video = store.path("final.mp4")
     poster = store.path("poster.jpg")
+    contact_sheet = store.path("contact-sheet.jpg")
     video.write_bytes(b"video")
     poster.write_bytes(b"poster")
+    contact_sheet.write_bytes(b"contact-sheet")
     shot_list = {
         "duration_seconds": 55,
         "poster_time_seconds": 7.5,
@@ -184,6 +186,13 @@ def test_render_manifest_fixes_input_and_output_checksums_without_local_paths(tm
         video_path=video,
         poster_path=poster,
         poster_time_seconds=7.5,
+        contact_sheet_path=contact_sheet,
+        contact_sheet_metadata={
+            "sample_count": 6,
+            "sample_times_seconds": [0, 11, 22, 33, 44, 55],
+            "sampling_rule": "equal_interval_fps_3x2",
+            "grid": {"columns": 3, "rows": 2},
+        },
         command_log=commands,
         toolchain={"ffmpeg": "ffmpeg version fixture", "ffprobe": "ffprobe version fixture"},
         store=store,
@@ -195,6 +204,7 @@ def test_render_manifest_fixes_input_and_output_checksums_without_local_paths(tm
     assert manifest["outputs"]["video"]["relative_path"].startswith("VIDJOB-000001/")
     assert manifest["toolchain"]["ffmpeg"] == "ffmpeg version fixture"
     assert manifest["outputs"]["poster"]["at_seconds"] == 7.5
+    assert manifest["outputs"]["contact_sheet"]["sample_count"] == 6
     assert str(tmp_path) not in str(manifest)
     assert VideoProductionArtifactRegistration(
         artifact_key="render_manifest",
@@ -229,6 +239,39 @@ def test_poster_generation_uses_the_selected_timeline_time(tmp_path: Path) -> No
 
     assert poster.read_bytes() == b"poster"
     assert runner.commands[0][runner.commands[0].index("-ss") + 1] == "7.500"
+
+
+def test_contact_sheet_generation_uses_a_fixed_six_frame_grid(tmp_path: Path) -> None:
+    class ContactSheetRunner:
+        def __init__(self) -> None:
+            self.commands: list[list[str]] = []
+
+        def run(self, args, **_kwargs):  # type: ignore[no-untyped-def]
+            command = [str(argument) for argument in args]
+            self.commands.append(command)
+            Path(command[-1]).write_bytes(b"contact-sheet")
+            return SimpleNamespace(stdout="")
+
+    runner = ContactSheetRunner()
+    pipeline = VideoProductionPipeline(
+        assets_root=tmp_path / "materials",
+        output_root=tmp_path / "output",
+        tts=SimpleNamespace(),
+        runner=runner,
+    )
+    store = ArtifactStore(tmp_path / "output", "VIDJOB-000001", 1)
+
+    contact_sheet, metadata = pipeline._contact_sheet(
+        tmp_path / "final.mp4",
+        store,
+        duration_seconds=55,
+    )
+
+    assert contact_sheet.read_bytes() == b"contact-sheet"
+    filters = runner.commands[0][runner.commands[0].index("-vf") + 1]
+    assert "fps=6/55.000" in filters
+    assert "tile=3x2:padding=8:margin=8" in filters
+    assert metadata["sample_times_seconds"] == [0.0, 11.0, 22.0, 33.0, 44.0, 55.0]
 
 
 def test_render_pipeline_caches_its_local_tool_versions(tmp_path: Path) -> None:

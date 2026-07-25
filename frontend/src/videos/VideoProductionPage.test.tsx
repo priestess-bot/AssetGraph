@@ -21,7 +21,7 @@ const plan = {
     ] },
   ] },
   render_profile: { canvas: { width: 1080, height: 1920, fps: 30 }, visual_assets: [{ asset_code: "AG-VID-000001", checksum_sha256: "a".repeat(64) }], visual_selection: { group_refs: [{ group_code: "AG-GRP-001", title: "商品讲解组", asset_codes: ["AG-VID-000001"] }], material_pack_refs: [{ pack_code: "AG-PACK-001", role: "supporting_video", revision_number: 1, fingerprint_sha256: "b".repeat(64), resolved_asset_codes: ["AG-VID-000001"] }] }, brand_logo: { asset_code: "AG-IMG-000002", checksum_sha256: "e".repeat(64) }, product_sticker: { asset_code: "AG-IMG-000001", checksum_sha256: "d".repeat(64) }, background_music: { asset_code: "AG-AUD-000001", checksum_sha256: "c".repeat(64), gain_db: -20 }, sound_effect: { asset_code: "AG-AUD-000002", checksum_sha256: "f".repeat(64), gain_db: -9 } }, job_status: "queued", current_stage: "asset_selection", progress_percent: 37, error_message: null,
-  workflow_stages: [{ stage_name: "asset_selection", stage_order: 4, status: "succeeded", attempt: 1 }, { stage_name: "quality_check", stage_order: 8, status: "pending", attempt: 1 }], quality_report: { passed: true, checks: { video_stream: true, subtitle_text_complete: true }, media: { duration_seconds: 55, width: 1080, height: 1920, video_codec: "h264", audio_codec: "aac", audio_sample_rate: 48000 }, loudness: { integrated_lufs: -16.2, true_peak_db: -1.4, lra: 4.1 }, black_segments: [{ start_seconds: 2, end_seconds: 2.4, duration_seconds: .4 }], silence_segments: [], freeze_segments: [] }, artifacts: [{ artifact_key: "poster", download_url: "/files/poster.jpg", mime_type: "image/jpeg" }], created_at: "2026-07-25T00:00:00Z", updated_at: "2026-07-25T00:00:00Z",
+  workflow_stages: [{ stage_name: "asset_selection", stage_order: 4, status: "succeeded", attempt: 1 }, { stage_name: "quality_check", stage_order: 8, status: "pending", attempt: 1 }], quality_report: { passed: true, checks: { video_stream: true, subtitle_text_complete: true }, media: { duration_seconds: 55, width: 1080, height: 1920, video_codec: "h264", audio_codec: "aac", audio_sample_rate: 48000 }, loudness: { integrated_lufs: -16.2, true_peak_db: -1.4, lra: 4.1 }, black_segments: [{ start_seconds: 2, end_seconds: 2.4, duration_seconds: .4 }], silence_segments: [], freeze_segments: [] }, artifacts: [{ artifact_key: "poster", download_url: "/files/poster.jpg", mime_type: "image/jpeg" }, { artifact_key: "contact_sheet", download_url: "/files/contact-sheet.jpg", mime_type: "image/jpeg" }], created_at: "2026-07-25T00:00:00Z", updated_at: "2026-07-25T00:00:00Z",
 };
 const musicOnlyPlan = {
   ...plan,
@@ -103,6 +103,7 @@ describe("VideoProductionPage", () => {
     expect(within(trace!).getByText("第一段字幕")).toBeInTheDocument();
     expect(within(trace!).getByText("ASSET-01")).toBeInTheDocument();
     expect(await screen.findByText("修订历史")).toBeInTheDocument();
+    expect(screen.getByAltText("成片镜头联系表")).toHaveAttribute("src", "/files/contact-sheet.jpg");
     await user.click(screen.getByRole("button", { name: "上移 SHOT-02" }));
     await user.selectOptions(screen.getByRole("combobox", { name: "画面素材 SHOT-02" }), "AG-VID-000001");
     await user.clear(screen.getByRole("spinbutton", { name: "素材入点 SHOT-02" }));

@@ -1573,6 +1573,9 @@ function Detail({
   const posterUrl = plan.artifacts.find(
     (artifact) => artifact.artifact_key === "poster",
   )?.download_url;
+  const contactSheetUrl = plan.artifacts.find(
+    (artifact) => artifact.artifact_key === "contact_sheet",
+  )?.download_url;
   const hasFrozenMaterialEvidence = Boolean(
       plan.renderProfile.visualAssets?.length ||
       plan.renderProfile.brandLogo ||
@@ -1670,7 +1673,7 @@ function Detail({
         )}
       </section>
       <FixedInputTrace plan={plan} />
-      {videoUrl || posterUrl ? (
+      {videoUrl || posterUrl || contactSheetUrl ? (
         <section className="wb-section">
           <SectionHeader kicker="RENDER PREVIEW" title="成片预览" />
           <div className="video-render-preview-grid">
@@ -1686,6 +1689,12 @@ function Detail({
               <figure className="video-poster-preview">
                 <img src={posterUrl} alt="成片海报" />
                 <figcaption>已渲染海报帧</figcaption>
+              </figure>
+            ) : null}
+            {contactSheetUrl ? (
+              <figure className="video-poster-preview">
+                <img src={contactSheetUrl} alt="成片镜头联系表" />
+                <figcaption>等间隔镜头联系表</figcaption>
               </figure>
             ) : null}
           </div>
