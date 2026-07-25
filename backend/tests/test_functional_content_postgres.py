@@ -570,6 +570,16 @@ def test_content_project_pins_published_template_revision() -> None:
                 "accepted_modules": ["opening"],
                 "rejected_modules": [],
                 "material_cues": ["background", "promotion_text"],
+                "program_outline": [
+                    {
+                        "module_key": "opening",
+                        "title": "开场",
+                        "purpose": "建立选择目标",
+                        "source_session_code": source_session["session_code"],
+                        "start_ms": 0,
+                        "end_ms": 30_000,
+                    }
+                ],
                 "content_strategy_policy": {
                     "duration_policy": {"opening": {"ratio": 0.2}},
                     "module_recipes": [],
@@ -610,6 +620,14 @@ def test_content_project_pins_published_template_revision() -> None:
                     "conversion_policy": {"cta": "comment"},
                     "host_style": {"tone": "clear"},
                 },
+                "strategy_stage": {
+                    "module_key": "opening",
+                    "title": "开场",
+                    "purpose": "建立选择目标",
+                    "source_session_code": source_session["session_code"],
+                    "start_ms": 0,
+                    "end_ms": 30_000,
+                },
             }
         ]
         assert generated["script"]["blocks"][0]["interaction_intent"] == {
@@ -619,6 +637,14 @@ def test_content_project_pins_published_template_revision() -> None:
         assert generated["program"]["segments"][0]["metadata"] == {
             "template_duration_policy": {"opening": {"ratio": 0.2}},
             "template_host_style": {"tone": "clear"},
+            "template_strategy_stage": {
+                "module_key": "opening",
+                "title": "开场",
+                "purpose": "建立选择目标",
+                "source_session_code": source_session["session_code"],
+                "start_ms": 0,
+                "end_ms": 30_000,
+            },
         }
         assert generated["shot_list"]["shots"][0]["material_role_requirements"] == [
             "digital_human", "background", "promotion_text"

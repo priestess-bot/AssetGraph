@@ -18,7 +18,32 @@ const detail = {
   status: "confirmed",
   generation_goal: "完成商品讲解与互动转化",
   updated_at: "2026-07-25T00:00:00Z",
-  content: {},
+  content: {
+    template_contribution_decisions: [
+      {
+        template_code: "TPL-STRATEGY-001",
+        revision: 2,
+        selection_role: "primary",
+        available_modules: ["opening", "conversion"],
+        accepted_modules: ["opening", "conversion"],
+        rejected_modules: [],
+        material_cues: ["background"],
+        program_outline: [
+          {
+            module_key: "opening",
+            title: "开场",
+            purpose: "建立选择目标",
+            source_session_code: "CAPTURE-001",
+            start_ms: 0,
+            end_ms: 30_000,
+          },
+        ],
+        content_strategy_policy: {
+          duration_policy: { target_duration_seconds: 1800 },
+        },
+      },
+    ],
+  },
   generated: true,
   design_brief: {
     design_brief_code: "DBR-001",
@@ -39,7 +64,20 @@ const detail = {
         module_type: "opening",
         content: "先说明夏日晚场的选择场景。",
         fact_citations: [],
-        template_sources: [],
+        template_sources: [
+          {
+            template_code: "TPL-STRATEGY-001",
+            revision: 2,
+            strategy_stage: {
+              module_key: "opening",
+              title: "开场",
+              purpose: "建立选择目标",
+              source_session_code: "CAPTURE-001",
+              start_ms: 0,
+              end_ms: 30_000,
+            },
+          },
+        ],
       },
       {
         block_code: "BLOCK-002",
@@ -165,6 +203,9 @@ describe("ContentProjectsPage", () => {
     );
 
     await screen.findByRole("heading", { name: "人工编排节目段与镜头" });
+    expect(screen.getByText("固定阶段")).toBeInTheDocument();
+    expect(screen.getByText("开场 (opening)")).toBeInTheDocument();
+    expect(screen.getByText(/阶段：开场 \(CAPTURE-001 0-30000ms\)/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "新建" }));
     fireEvent.change(screen.getAllByLabelText("内容项目名称")[0], {
       target: { value: "新品讲解" },

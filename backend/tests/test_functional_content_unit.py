@@ -74,3 +74,87 @@ def test_selected_content_strategy_policy_reaches_script_and_program_actions() -
         "template_host_style": {"tone": "clear", "delivery": "short_sentences"},
     }
     assert segments[-1]["cta_actions"] == [conversion["cta_intent"]]
+
+
+def test_strategy_outline_compiles_primary_order_and_secondary_supplement() -> None:
+    def source_stage(
+        module_key: str, title: str, purpose: str, start_ms: int
+    ) -> dict[str, int | str]:
+        return {
+            "module_key": module_key,
+            "title": title,
+            "purpose": purpose,
+            "source_session_code": "CAPTURE-001",
+            "start_ms": start_ms,
+            "end_ms": start_ms + 30_000,
+        }
+    content = {
+        "theme": "夏日饮品选择",
+        "primary_template_ref": {
+            "template_code": "TPL-PRIMARY",
+            "revision": 4,
+            "contribution": "primary_structure",
+            "selection_role": "primary",
+        },
+        "secondary_template_refs": [
+            {
+                "template_code": "TPL-SUPPLEMENT",
+                "revision": 2,
+                "contribution": "secondary_supplement",
+                "selection_role": "secondary",
+            }
+        ],
+        "template_contribution_decisions": [
+            {
+                "template_code": "TPL-PRIMARY",
+                "accepted_modules": ["opening", "conversion"],
+                "program_outline": [
+                    source_stage("opening", "开场", "建立选择目标", 0),
+                    source_stage("conversion", "收束", "引导下一步", 60_000),
+                ],
+                "content_strategy_policy": {
+                    "interaction_policy": {"cadence": "module_end"},
+                    "conversion_policy": {"cta_style": "summarize_choice"},
+                },
+            },
+            {
+                "template_code": "TPL-SUPPLEMENT",
+                "accepted_modules": ["comparison"],
+                "program_outline": [
+                    source_stage("comparison", "对比", "说明适用差异", 30_000),
+                ],
+                "content_strategy_policy": {},
+            },
+        ],
+    }
+
+    blocks = FunctionalContentService._script_blocks("帮助观众选择", content, [])
+
+    assert [block["module_type"] for block in blocks] == [
+        "opening",
+        "comparison",
+        "conversion",
+    ]
+    assert blocks[1]["template_sources"][0]["template_code"] == "TPL-SUPPLEMENT"
+    assert blocks[1]["template_sources"][0]["strategy_stage"] == source_stage(
+        "comparison", "对比", "说明适用差异", 30_000
+    )
+    assert blocks[-1]["cta_intent"] == {
+        "type": "comment",
+        "policy": {"cta_style": "summarize_choice"},
+    }
+
+    segments = FunctionalContentService._segments(
+        [{**block, "block_code": f"BLOCK-{index}"} for index, block in enumerate(blocks)]
+    )
+    assert [segment["semantic_goal"] for segment in segments] == [
+        "建立选择目标",
+        "说明适用差异",
+        "引导下一步",
+    ]
+    assert [segment["program_phase"] for segment in segments] == [
+        "opening",
+        "body",
+        "conversion",
+    ]
+    assert segments[1]["metadata"]["template_strategy_stage"]["source_session_code"] == "CAPTURE-001"

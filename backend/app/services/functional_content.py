@@ -1143,6 +1143,9 @@ class FunctionalContentService:
                         for value in strategy.get("material_cues") or []
                         if str(value).strip()
                     ],
+                    "program_outline": self._content_strategy_outline_snapshot(
+                        strategy
+                    ),
                     "content_strategy_policy": self._content_strategy_policy_snapshot(
                         strategy
                     ),
@@ -1173,6 +1176,42 @@ class FunctionalContentService:
         document["primary_template_code"] = primary_code
         document["secondary_template_codes"] = secondary_codes
         document["template_contribution_decisions"] = decisions
+
+    @staticmethod
+    def _content_strategy_outline_snapshot(strategy: dict[str, Any]) -> list[dict[str, Any]]:
+        """Freeze reviewed stage semantics and bounded evidence, not source media."""
+        stages: list[dict[str, Any]] = []
+        for item in strategy.get("program_outline") or []:
+            if not isinstance(item, dict):
+                continue
+            module_key = str(item.get("module_key") or "").strip()
+            title = str(item.get("title") or "").strip()
+            purpose = str(item.get("purpose") or "").strip()
+            source_session_code = str(item.get("source_session_code") or "").strip()
+            start_ms = item.get("start_ms")
+            end_ms = item.get("end_ms")
+            if (
+                not module_key
+                or not title
+                or not purpose
+                or not source_session_code
+                or not isinstance(start_ms, int)
+                or not isinstance(end_ms, int)
+                or start_ms < 0
+                or end_ms <= start_ms
+            ):
+                continue
+            stages.append(
+                {
+                    "module_key": module_key,
+                    "title": title,
+                    "purpose": purpose,
+                    "source_session_code": source_session_code,
+                    "start_ms": start_ms,
+                    "end_ms": end_ms,
+                }
+            )
+        return stages
 
     @staticmethod
     def _content_strategy_policy_snapshot(strategy: dict[str, Any]) -> dict[str, Any]:
@@ -1556,6 +1595,15 @@ class FunctionalContentService:
             policy = decision.get("content_strategy_policy")
             if not isinstance(policy, dict):
                 return ref
+            stage = next(
+                (
+                    item
+                    for item in decision.get("program_outline") or []
+                    if isinstance(item, dict)
+                    and item.get("module_key") == module_type
+                ),
+                None,
+            )
             guidance = [
                 str(item.get("guidance") or "").strip()
                 for item in policy.get("module_recipes") or []
@@ -1566,6 +1614,7 @@ class FunctionalContentService:
                 **ref,
                 "content_strategy_policy": policy,
                 **({"module_guidance": guidance} if guidance else {}),
+                **({"strategy_stage": stage} if isinstance(stage, dict) else {}),
             }
         adopted = [
             ref for ref in refs
@@ -1584,6 +1633,40 @@ class FunctionalContentService:
         ):
             return [with_policy(ref) for ref in primary_sources]
         return []
+
+    @staticmethod
+    def _selected_strategy_stages(content: dict[str, Any]) -> list[dict[str, Any]]:
+        """Keep the primary order, then append only explicitly adopted supplements."""
+        decisions = {
+            str(item.get("template_code")): item
+            for item in content.get("template_contribution_decisions") or []
+            if isinstance(item, dict) and item.get("template_code")
+        }
+        primary_stages: list[dict[str, Any]] = []
+        secondary_stages: list[dict[str, Any]] = []
+        for ref in FunctionalContentService._template_refs(content):
+            decision = decisions.get(str(ref["template_code"]), {})
+            accepted = {
+                str(module).strip()
+                for module in decision.get("accepted_modules") or []
+                if str(module).strip()
+            }
+            for stage in decision.get("program_outline") or []:
+                if not isinstance(stage, dict):
+                    continue
+                module_key = str(stage.get("module_key") or "").strip()
+                if module_key in accepted:
+                    target = (
+                        primary_stages
+                        if ref.get("selection_role") == "primary"
+                        else secondary_stages
+                    )
+                    target.append(dict(stage))
+        # A named primary conversion stage remains terminal; secondary modules
+        # can only fill the body before it.
+        if primary_stages and primary_stages[-1].get("module_key") == "conversion":
+            return [*primary_stages[:-1], *secondary_stages, primary_stages[-1]]
+        return [*primary_stages, *secondary_stages]
 
     @staticmethod
     def _policy_for_sources(
@@ -1628,18 +1711,116 @@ class FunctionalContentService:
     ) -> list[dict[str, Any]]:
         theme = content.get("theme") or goal
         story = content.get("story") or "从真实使用场景出发，给出容易理解的选择建议。"
-        opening_sources = FunctionalContentService._template_sources_for_block(
-            content, "opening"
-        )
-        story_sources = FunctionalContentService._template_sources_for_block(
-            content, "story"
-        )
+
+        def fact_blocks(sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
+            facts: list[dict[str, Any]] = []
+            for fact in approved_facts:
+                fact_content = fact.get("content") or {}
+                verified_facts = fact_content.get("verified_facts") or []
+                if not isinstance(verified_facts, list):
+                    continue
+                for fact_index, raw_fact in enumerate(verified_facts[:3]):
+                    claim = str(raw_fact).strip()
+                    if not claim:
+                        continue
+                    facts.append(
+                        {
+                            "module_type": "product_fact",
+                            "content": claim,
+                            "estimated_duration_ms": 30_000,
+                            "template_sources": sources,
+                            "fact_citations": [
+                                (
+                                    {
+                                        "claim_code": fact["claim_code"],
+                                        "fact_code": fact["fact_code"],
+                                        "source_evidence_code": fact[
+                                            "source_evidence_code"
+                                        ],
+                                        "claim_text": claim,
+                                        "start_offset": 0,
+                                        "end_offset": len(claim),
+                                    }
+                                    if fact.get("kind") == "fact_claim"
+                                    else {
+                                        "fact_card_code": fact["fact_card_code"],
+                                        "version_number": fact["version_number"],
+                                        "field_path": f"verified_facts[{fact_index}]",
+                                        "claim_text": claim,
+                                        "start_offset": 0,
+                                        "end_offset": len(claim),
+                                    }
+                                )
+                            ],
+                        }
+                    )
+            return facts
+
         def interaction_intent(sources: list[dict[str, Any]]) -> dict[str, Any]:
             policy = FunctionalContentService._policy_for_sources(
                 sources, "interaction_policy"
             )
             return {"type": "template_interaction", "policy": policy} if policy else {}
 
+        strategy_stages = FunctionalContentService._selected_strategy_stages(content)
+        if strategy_stages:
+            # Approved facts are independent content inputs. Preserve the
+            # strategy order and insert them before a named conversion stage.
+            fact_stage_sources = (
+                FunctionalContentService._template_sources_for_block(
+                    content, "product_fact"
+                )
+                if any(stage.get("module_key") == "product_fact" for stage in strategy_stages)
+                else []
+            )
+            inserted_facts = fact_blocks(fact_stage_sources)
+            conversion_index = next(
+                (
+                    index
+                    for index, stage in enumerate(strategy_stages)
+                    if stage.get("module_key") == "conversion"
+                ),
+                None,
+            )
+            blocks: list[dict[str, Any]] = []
+            for index, stage in enumerate(strategy_stages):
+                if conversion_index == index:
+                    blocks.extend(inserted_facts)
+                module_type = str(stage["module_key"])
+                sources = FunctionalContentService._template_sources_for_block(
+                    content, module_type
+                )
+                stage_content = (
+                    f"{stage['title']}：围绕{theme}，{stage['purpose']}。"
+                    if module_type != "story"
+                    else f"{stage['title']}：{story} {stage['purpose']}。"
+                )
+                conversion_policy = FunctionalContentService._policy_for_sources(
+                    sources, "conversion_policy"
+                )
+                block = {
+                    "module_type": module_type,
+                    "content": stage_content,
+                    "estimated_duration_ms": 45_000 if index in {0, len(strategy_stages) - 1} else 60_000,
+                    "template_sources": sources,
+                    "interaction_intent": interaction_intent(sources),
+                }
+                if index == len(strategy_stages) - 1:
+                    block["cta_intent"] = {
+                        "type": "comment",
+                        **({"policy": conversion_policy} if conversion_policy else {}),
+                    }
+                blocks.append(block)
+            if conversion_index is None:
+                blocks.extend(inserted_facts)
+            return blocks
+
+        opening_sources = FunctionalContentService._template_sources_for_block(
+            content, "opening"
+        )
+        story_sources = FunctionalContentService._template_sources_for_block(
+            content, "story"
+        )
         blocks = [
             {
                 "module_type": "opening",
@@ -1656,43 +1837,13 @@ class FunctionalContentService:
                 "interaction_intent": interaction_intent(story_sources),
             },
         ]
-        for fact in approved_facts:
-            fact_content = fact.get("content") or {}
-            verified_facts = fact_content.get("verified_facts") or []
-            if not isinstance(verified_facts, list):
-                continue
-            for fact_index, raw_fact in enumerate(verified_facts[:3]):
-                claim = str(raw_fact).strip()
-                if not claim:
-                    continue
-                fact_sources = FunctionalContentService._template_sources_for_block(
+        blocks.extend(
+            fact_blocks(
+                FunctionalContentService._template_sources_for_block(
                     content, "product_fact"
                 )
-                blocks.append(
-                    {
-                        "module_type": "product_fact",
-                        "content": claim,
-                        "estimated_duration_ms": 30_000,
-                        "template_sources": fact_sources,
-                        "fact_citations": [
-                            ({
-                                "claim_code": fact["claim_code"],
-                                "fact_code": fact["fact_code"],
-                                "source_evidence_code": fact["source_evidence_code"],
-                                "claim_text": claim,
-                                "start_offset": 0,
-                                "end_offset": len(claim),
-                            } if fact.get("kind") == "fact_claim" else {
-                                "fact_card_code": fact["fact_card_code"],
-                                "version_number": fact["version_number"],
-                                "field_path": f"verified_facts[{fact_index}]",
-                                "claim_text": claim,
-                                "start_offset": 0,
-                                "end_offset": len(claim),
-                            })
-                        ],
-                    }
-                )
+            )
+        )
         conversion_sources = FunctionalContentService._template_sources_for_block(
             content, "conversion"
         )
@@ -1724,9 +1875,18 @@ class FunctionalContentService:
         ordered_products = [str(code).strip() for code in product_order if str(code).strip()]
         product_index = 0
         segments: list[dict[str, Any]] = []
-        for block in blocks:
+        for index, block in enumerate(blocks):
             module_type = str(block.get("module_type"))
             sources = block.get("template_sources") or []
+            strategy_stage = next(
+                (
+                    source.get("strategy_stage")
+                    for source in sources
+                    if isinstance(source, dict)
+                    and isinstance(source.get("strategy_stage"), dict)
+                ),
+                None,
+            )
             product_rotation_policy = FunctionalContentService._policy_for_sources(
                 sources, "product_rotation_policy"
             )
@@ -1740,11 +1900,33 @@ class FunctionalContentService:
             if module_type == "product_fact" and product_index < len(ordered_products):
                 product_refs = [ordered_products[product_index]]
                 product_index += 1
+            stage_title = (
+                str(strategy_stage.get("title") or "").strip()
+                if isinstance(strategy_stage, dict)
+                else ""
+            )
+            stage_purpose = (
+                str(strategy_stage.get("purpose") or "").strip()
+                if isinstance(strategy_stage, dict)
+                else ""
+            )
             segments.append(
                 {
-                    "semantic_goal": goal_by_module.get(module_type, "传达内容模块"),
-                    "program_phase": phase_by_module.get(module_type, "body"),
+                    "semantic_goal": stage_purpose or goal_by_module.get(module_type, "传达内容模块"),
+                    "program_phase": (
+                        "opening"
+                        if index == 0
+                        else "conversion"
+                        if block.get("cta_intent")
+                        else phase_by_module.get(module_type, "body")
+                    ),
                     "estimated_duration_ms": block.get("estimated_duration_ms"),
+                    "entry_condition": (
+                        f"进入{stage_title}" if stage_title else None
+                    ),
+                    "exit_condition": (
+                        f"完成{stage_purpose}" if stage_purpose else None
+                    ),
                     "product_refs": product_refs,
                     "interaction_actions": [block["interaction_intent"]] if block.get("interaction_intent") else [],
                     "cta_actions": [block["cta_intent"]] if block.get("cta_intent") else [],
@@ -1752,6 +1934,7 @@ class FunctionalContentService:
                         **({"template_product_rotation_policy": product_rotation_policy} if product_rotation_policy else {}),
                         **({"template_duration_policy": duration_policy} if duration_policy else {}),
                         **({"template_host_style": host_style} if host_style else {}),
+                        **({"template_strategy_stage": strategy_stage} if isinstance(strategy_stage, dict) else {}),
                     },
                     "script_block_adoptions": [{"block_code": block["block_code"], "content_action": "deliver"}],
                 }

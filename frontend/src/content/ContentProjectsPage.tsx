@@ -3215,6 +3215,10 @@ function Chain({
                   <span>节目策略</span>
                   <strong>{policySummary(decision.contentStrategyPolicy)}</strong>
                 </div>
+                <div>
+                  <span>固定阶段</span>
+                  <strong>{decision.programOutline.filter((stage) => decision.acceptedModules.includes(stage.moduleKey)).map((stage) => `${stage.title} (${stage.moduleKey})`).join(" / ") || "无"}</strong>
+                </div>
               </article>
             ))}
           </div>
@@ -3265,6 +3269,9 @@ function Chain({
                         : ""}
                       {block.template_sources.flatMap((source) => source.moduleGuidance).length
                         ? ` · 配方：${block.template_sources.flatMap((source) => source.moduleGuidance).join("；")}`
+                        : ""}
+                      {block.template_sources.flatMap((source) => source.strategyStage ? [`${source.strategyStage.title} (${source.strategyStage.sourceSessionCode} ${source.strategyStage.startMs}-${source.strategyStage.endMs}ms)`] : []).length
+                        ? ` · 阶段：${block.template_sources.flatMap((source) => source.strategyStage ? [`${source.strategyStage.title} (${source.strategyStage.sourceSessionCode} ${source.strategyStage.startMs}-${source.strategyStage.endMs}ms)`] : []).join("；")}`
                         : ""}
                       {actionPolicySummary(block.interaction_intent)
                         ? ` · 互动：${actionPolicySummary(block.interaction_intent)}`

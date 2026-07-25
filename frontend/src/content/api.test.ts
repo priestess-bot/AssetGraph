@@ -82,10 +82,11 @@ describe("content projects api", () => {
       content: {
         template_contribution_decisions: [{
           template_code: "TPL-WINE", revision: 2, selection_role: "primary", available_modules: ["opening"], accepted_modules: ["opening"], rejected_modules: [], material_cues: ["background"],
+          program_outline: [{ module_key: "opening", title: "开场", purpose: "建立选择目标", source_session_code: "CAPTURE-001", start_ms: 0, end_ms: 30_000 }],
           content_strategy_policy: { duration_policy: { target_duration_seconds: 1800 }, interaction_policy: { cadence: "module_end" } },
         }],
       },
-      script: { script_revision_code: "SCRIPT-001", revision_number: 1, title: "脚本", blocks: [{ block_code: "BLOCK-001", module_type: "opening", content: "从选择问题开始。", fact_citations: [], interaction_intent: { type: "template_interaction", policy: { cadence: "module_end" } }, template_sources: [{ template_code: "TPL-WINE", revision: 2, module_guidance: ["先建立选择问题"], content_strategy_policy: { interaction_policy: { cadence: "module_end" } } }] }] },
+      script: { script_revision_code: "SCRIPT-001", revision_number: 1, title: "脚本", blocks: [{ block_code: "BLOCK-001", module_type: "opening", content: "从选择问题开始。", fact_citations: [], interaction_intent: { type: "template_interaction", policy: { cadence: "module_end" } }, template_sources: [{ template_code: "TPL-WINE", revision: 2, module_guidance: ["先建立选择问题"], content_strategy_policy: { interaction_policy: { cadence: "module_end" } }, strategy_stage: { module_key: "opening", title: "开场", purpose: "建立选择目标", source_session_code: "CAPTURE-001", start_ms: 0, end_ms: 30_000 } }] }] },
     }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -93,11 +94,13 @@ describe("content projects api", () => {
 
     expect(detail.templateContributionDecisions[0]).toMatchObject({
       templateCode: "TPL-WINE",
+      programOutline: [{ moduleKey: "opening", title: "开场", purpose: "建立选择目标", sourceSessionCode: "CAPTURE-001", startMs: 0, endMs: 30_000 }],
       contentStrategyPolicy: { duration_policy: { target_duration_seconds: 1800 }, interaction_policy: { cadence: "module_end" } },
     });
     expect(detail.script?.blocks[0]?.template_sources[0]).toMatchObject({
       moduleGuidance: ["先建立选择问题"],
       contentStrategyPolicy: { interaction_policy: { cadence: "module_end" } },
+      strategyStage: { moduleKey: "opening", title: "开场", sourceSessionCode: "CAPTURE-001", startMs: 0, endMs: 30_000 },
     });
   });
 
