@@ -147,10 +147,13 @@ function EvidenceWorkspace({ onShowFactCards }: { onShowFactCards: () => void })
   const [sourceCode, setSourceCode] = useState("");
   const [citation, setCitation] = useState("");
   const [fieldPath, setFieldPath] = useState("");
+  const [validFrom, setValidFrom] = useState("");
+  const [validUntil, setValidUntil] = useState("");
+  const [claimQuery, setClaimQuery] = useState("");
   const [reviewer, setReviewer] = useState("console_reviewer");
   const [revocationReasons, setRevocationReasons] = useState<Record<string, string>>({});
   const sources = useQuery({ queryKey: ["knowledge-source-evidences"], queryFn: knowledgeApi.listSourceEvidences });
-  const claims = useQuery({ queryKey: ["knowledge-fact-claims"], queryFn: knowledgeApi.listFactClaims });
+  const claims = useQuery({ queryKey: ["knowledge-fact-claims", claimQuery], queryFn: () => claimQuery.trim() ? knowledgeApi.searchFactClaims(claimQuery) : knowledgeApi.listFactClaims() });
   const refresh = async () => {
     await Promise.all([
       client.invalidateQueries({ queryKey: ["knowledge-source-evidences"] }),
@@ -163,8 +166,8 @@ function EvidenceWorkspace({ onShowFactCards }: { onShowFactCards: () => void })
   });
   const approveSource = useMutation({ mutationFn: (code: string) => knowledgeApi.approveSourceEvidence(code, reviewer.trim()), onSuccess: refresh });
   const createClaim = useMutation({
-    mutationFn: () => knowledgeApi.createFactClaim({ fact_title: factTitle.trim(), claim: claimText.trim(), source_evidence_code: sourceCode, citation_excerpt: citation.trim(), field_path: fieldPath.trim() || undefined, created_by: author.trim() || undefined }),
-    onSuccess: async () => { setFactTitle(""); setClaimText(""); setCitation(""); setFieldPath(""); await refresh(); },
+    mutationFn: () => knowledgeApi.createFactClaim({ fact_title: factTitle.trim(), claim: claimText.trim(), source_evidence_code: sourceCode, citation_excerpt: citation.trim(), field_path: fieldPath.trim() || undefined, valid_from: validFrom.trim() || undefined, valid_until: validUntil.trim() || undefined, created_by: author.trim() || undefined }),
+    onSuccess: async () => { setFactTitle(""); setClaimText(""); setCitation(""); setFieldPath(""); setValidFrom(""); setValidUntil(""); await refresh(); },
   });
   const approveClaim = useMutation({ mutationFn: (code: string) => knowledgeApi.approveFactClaim(code, reviewer.trim()), onSuccess: refresh });
   const revokeSource = useMutation({
@@ -176,6 +179,7 @@ function EvidenceWorkspace({ onShowFactCards }: { onShowFactCards: () => void })
     onSuccess: async (_result, variables) => { setRevocationReasons((current) => ({ ...current, [variables.code]: "" })); await refresh(); },
   });
   const approvedSources = (sources.data ?? []).filter((source) => source.status === "approved");
+  const selectedSourceIsApproved = approvedSources.some((source) => source.evidenceCode === sourceCode);
   const problem = sources.error ?? claims.error ?? createSource.error ?? approveSource.error ?? revokeSource.error ?? createClaim.error ?? approveClaim.error ?? revokeClaim.error;
 
   return <div className="knowledge-layout">
@@ -198,13 +202,15 @@ function EvidenceWorkspace({ onShowFactCards }: { onShowFactCards: () => void })
           <label className="wb-field"><span>事实标题</span><input className="wb-input" value={factTitle} onChange={(event) => setFactTitle(event.target.value)} required /></label>
           <label className="wb-field"><span>批准来源</span><select className="wb-input" value={sourceCode} onChange={(event) => { const selected = approvedSources.find((source) => source.evidenceCode === event.target.value); setSourceCode(event.target.value); if (selected) setCitation(selected.excerpt); }} required><option value="">选择批准来源</option>{approvedSources.map((source) => <option key={source.evidenceCode} value={source.evidenceCode}>{source.title} · {source.evidenceCode}</option>)}</select></label>
           <label className="wb-field"><span>字段路径</span><input className="wb-input" value={fieldPath} onChange={(event) => setFieldPath(event.target.value)} placeholder="product.warranty" /></label>
+          <label className="wb-field"><span>有效开始时间 (UTC)</span><input className="wb-input" value={validFrom} onChange={(event) => setValidFrom(event.target.value)} placeholder="2026-07-25T00:00:00Z" /></label>
+          <label className="wb-field"><span>有效结束时间 (UTC)</span><input className="wb-input" value={validUntil} onChange={(event) => setValidUntil(event.target.value)} placeholder="2026-12-31T23:59:59Z" /></label>
           <label className="wb-field wide"><span>事实声明</span><textarea className="wb-textarea" value={claimText} onChange={(event) => setClaimText(event.target.value)} required /></label>
           <label className="wb-field wide"><span>引用摘录</span><textarea className="wb-textarea" value={citation} onChange={(event) => setCitation(event.target.value)} required /></label>
-        </div><button className="wb-button wb-button-primary" disabled={createClaim.isPending || !approvedSources.length}><FilePlus2 size={15} aria-hidden="true" />创建事实声明</button></form>
+        </div><button className="wb-button wb-button-primary" disabled={createClaim.isPending || !selectedSourceIsApproved}><FilePlus2 size={15} aria-hidden="true" />创建事实声明</button></form>
       </section>
-      <section className="wb-section"><SectionHeader kicker="CLAIM REVIEW" title="声明与引用" actions={<label className="wb-field"><span>审核/撤销操作人</span><input className="wb-input" value={reviewer} onChange={(event) => setReviewer(event.target.value)} required /></label>} />
+      <section className="wb-section"><SectionHeader kicker="CLAIM REVIEW" title="声明与引用" actions={<><label className="asset-search"><Search size={15} aria-hidden="true" /><input aria-label="搜索事实声明" value={claimQuery} onChange={(event) => setClaimQuery(event.target.value)} placeholder="搜索声明或事实标题" /></label><label className="wb-field"><span>审核/撤销操作人</span><input className="wb-input" value={reviewer} onChange={(event) => setReviewer(event.target.value)} required /></label></>} />
         {problem ? <InlineNotice tone="danger" title="知识操作未完成">{errorMessage(problem)}</InlineNotice> : null}
-        {claims.isLoading ? <LoadingBlock /> : claims.data?.length ? <div className="knowledge-usage-list">{claims.data.map((claim) => { const reason = revocationReasons[claim.claimCode] ?? ""; return <article key={claim.claimCode}><span><strong>{claim.factTitle}</strong><small>{claim.claim}</small><small>引用：{claim.citationExcerpt}</small><small>来源状态：{claim.sourceStatus}</small><code>{claim.claimCode} · {claim.sourceEvidenceCode} · {claim.fingerprint.slice(0, 12)}</code>{claim.status === "revoked" && claim.revokedReason ? <small>撤销：{claim.revokedReason}</small> : null}</span><div className="knowledge-source-actions"><StatusBadge label={claim.status} tone={versionTone(claim.status)} />{claim.status === "draft" ? <button type="button" className="wb-button" disabled={approveClaim.isPending || !reviewer.trim()} onClick={() => approveClaim.mutate(claim.claimCode)}><CheckCircle2 size={14} aria-hidden="true" />批准声明</button> : null}{claim.status === "approved" ? <><input aria-label={`${claim.claimCode} 撤销原因`} className="wb-input" value={reason} onChange={(event) => setRevocationReasons((current) => ({ ...current, [claim.claimCode]: event.target.value }))} placeholder="撤销原因" /><button type="button" className="wb-button" disabled={revokeClaim.isPending || !reviewer.trim() || !reason.trim()} onClick={() => revokeClaim.mutate({ code: claim.claimCode, reason: reason.trim() })}><XCircle size={14} aria-hidden="true" />撤销声明</button></> : null}</div></article>; })}</div> : <EmptyBlock icon={BookOpen} title="尚无事实声明" />}
+        {claims.isLoading ? <LoadingBlock /> : claims.data?.length ? <div className="knowledge-usage-list">{claims.data.map((claim) => { const reason = revocationReasons[claim.claimCode] ?? ""; return <article key={claim.claimCode}><span><strong>{claim.factTitle}</strong><small>{claim.claim}</small><small>引用：{claim.citationExcerpt}</small><small>来源状态：{claim.sourceStatus}</small><small>有效期：{claim.validFrom ? formatDate(claim.validFrom) : "未限制"} 至 {claim.validUntil ? formatDate(claim.validUntil) : "未限制"}</small><code>{claim.claimCode} · {claim.sourceEvidenceCode} · {claim.fingerprint.slice(0, 12)}</code>{claim.status === "revoked" && claim.revokedReason ? <small>撤销：{claim.revokedReason}</small> : null}</span><div className="knowledge-source-actions"><StatusBadge label={claim.status} tone={versionTone(claim.status)} />{claim.status === "draft" ? <button type="button" className="wb-button" disabled={approveClaim.isPending || !reviewer.trim()} onClick={() => approveClaim.mutate(claim.claimCode)}><CheckCircle2 size={14} aria-hidden="true" />批准声明</button> : null}{claim.status === "approved" ? <><input aria-label={`${claim.claimCode} 撤销原因`} className="wb-input" value={reason} onChange={(event) => setRevocationReasons((current) => ({ ...current, [claim.claimCode]: event.target.value }))} placeholder="撤销原因" /><button type="button" className="wb-button" disabled={revokeClaim.isPending || !reviewer.trim() || !reason.trim()} onClick={() => revokeClaim.mutate({ code: claim.claimCode, reason: reason.trim() })}><XCircle size={14} aria-hidden="true" />撤销声明</button></> : null}</div></article>; })}</div> : <EmptyBlock icon={BookOpen} title={claimQuery.trim() ? "未找到匹配声明" : "尚无事实声明"} />}
       </section>
     </main>
   </div>;

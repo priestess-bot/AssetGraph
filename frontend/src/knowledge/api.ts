@@ -250,6 +250,7 @@ export const knowledgeApi = {
   approveSourceEvidence: (evidenceCode: string, approvedBy: string) => postJson<unknown>(`${FUNCTIONAL_ROOT}/source-evidences/${encodeURIComponent(evidenceCode)}/approve`, { approved_by: approvedBy }).then(sourceEvidence),
   revokeSourceEvidence: (evidenceCode: string, actor: string, reason: string) => postJson<unknown>(`${FUNCTIONAL_ROOT}/source-evidences/${encodeURIComponent(evidenceCode)}/revoke`, { actor, reason }).then(sourceEvidence),
   listFactClaims: () => requestJson<unknown[]>(`${FUNCTIONAL_ROOT}/fact-claims`).then((items) => items.map(factClaim)),
+  searchFactClaims: (query: string) => requestJson<unknown[]>(`${FUNCTIONAL_ROOT}/fact-claims?q=${encodeURIComponent(query.trim())}`).then((items) => items.map(factClaim)),
   createFactClaim: (payload: FactClaimCreateInput) => postJson<unknown>(`${FUNCTIONAL_ROOT}/fact-claims`, payload).then(factClaim),
   approveFactClaim: (claimCode: string, approvedBy: string) => postJson<unknown>(`${FUNCTIONAL_ROOT}/fact-claims/${encodeURIComponent(claimCode)}/approve`, { approved_by: approvedBy }).then(factClaim),
   revokeFactClaim: (claimCode: string, actor: string, reason: string) => postJson<unknown>(`${FUNCTIONAL_ROOT}/fact-claims/${encodeURIComponent(claimCode)}/revoke`, { actor, reason }).then(factClaim),

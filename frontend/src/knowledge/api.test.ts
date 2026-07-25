@@ -61,4 +61,16 @@ describe("knowledge api", () => {
     expect(fetch).toHaveBeenNthCalledWith(1, "/api/functional-knowledge/source-evidences/EVIDENCE-001/revoke", expect.objectContaining({ method: "POST", body: JSON.stringify({ actor: "reviewer", reason: "Source corrected." }) }));
     expect(fetch).toHaveBeenNthCalledWith(2, "/api/functional-knowledge/fact-claims/CLAIM-001/revoke", expect.objectContaining({ method: "POST", body: JSON.stringify({ actor: "reviewer", reason: "Terms changed." }) }));
   });
+
+  it("queries fact claims by text without dropping validity metadata", async () => {
+    const fetch = vi.fn().mockResolvedValue(response([{
+      claim_code: "CLAIM-001", fact_code: "FACT-001", fact_title: "Warranty", source_evidence_code: "EVIDENCE-001", source_title: "Product sheet", source_status: "approved", claim: "Warranty is 12 months.", citation_excerpt: "Verified warranty is 12 months.", valid_from: "2026-07-25T00:00:00Z", valid_until: "2026-12-31T23:59:59Z", status: "approved", fingerprint_sha256: "b".repeat(64), created_at: "2026-07-25T00:00:00Z", updated_at: "2026-07-25T00:00:00Z",
+    }]));
+    vi.stubGlobal("fetch", fetch);
+
+    const claims = await knowledgeApi.searchFactClaims("Warranty term");
+
+    expect(claims[0]).toMatchObject({ validFrom: "2026-07-25T00:00:00Z", validUntil: "2026-12-31T23:59:59Z" });
+    expect(fetch).toHaveBeenCalledWith("/api/functional-knowledge/fact-claims?q=Warranty%20term", expect.any(Object));
+  });
 });
