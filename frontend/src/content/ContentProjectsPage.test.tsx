@@ -264,7 +264,7 @@ describe("ContentProjectsPage", () => {
     fireEvent.change(screen.getAllByLabelText("音频要求")[0], {
       target: { value: "降低背景音乐" },
     });
-    await user.click(screen.getByLabelText(/No unsupported price claim/));
+    await user.click(screen.getAllByLabelText(/No unsupported price claim/)[0]);
     await user.click(screen.getByRole("button", { name: "创建内容项目" }));
 
     await waitFor(() =>
@@ -476,8 +476,9 @@ describe("ContentProjectsPage", () => {
           url === "/api/maitu/workbench/product-fact-cards"
         )
           return response([]);
-        if (url === "/api/functional-knowledge/fact-claims" || url === "/api/functional-knowledge/content-rules")
+        if (url === "/api/functional-knowledge/fact-claims")
           return response([claim]);
+        if (url === "/api/functional-knowledge/content-rules") return response([]);
         throw new Error(`Unexpected request: ${url}`);
       }),
     );
@@ -498,7 +499,7 @@ describe("ContentProjectsPage", () => {
       name: /保修承诺 CLAIM-001/,
     });
     await user.click(claimOption);
-    await user.click(screen.getByRole("button", { name: "更新事实输入" }));
+    await user.click(screen.getByRole("button", { name: "更新事实与规则" }));
 
     await waitFor(() =>
       expect(
@@ -518,6 +519,95 @@ describe("ContentProjectsPage", () => {
       expected_revision: 1,
       fact_card_codes: [],
       fact_claim_codes: ["CLAIM-001"],
+      content_rule_codes: [],
+    });
+  });
+
+  it("updates approved content-rule selections in their own input revision", async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    const rule = {
+      rule_code: "RULE-001",
+      rule_kind: "compliance_rule",
+      directive: "must_include",
+      title: "State applicability",
+      rule_text: "请说明适用范围。",
+      scope: {},
+      status: "approved",
+      fingerprint_sha256: "c".repeat(64),
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        requests.push({ url, init });
+        if (url === "/api/content-projects") return response([detail]);
+        if (url === "/api/content-projects/CONTENT-001") {
+          if (init?.method === "PATCH")
+            return response({
+              ...detail,
+              revision_number: 2,
+              content_rules: [
+                {
+                  rule_code: rule.rule_code,
+                  rule_kind: rule.rule_kind,
+                  directive: rule.directive,
+                  title: rule.title,
+                  rule_text: rule.rule_text,
+                  fingerprint_sha256: rule.fingerprint_sha256,
+                },
+              ],
+            });
+          return response(detail);
+        }
+        if (url === "/api/content-projects/CONTENT-001/content-chain-revisions")
+          return response([]);
+        if (
+          url === "/api/live-research/room-templates" ||
+          url === "/api/maitu/workbench/product-fact-cards" ||
+          url === "/api/functional-knowledge/fact-claims"
+        )
+          return response([]);
+        if (url === "/api/functional-knowledge/content-rules") return response([rule]);
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    const user = userEvent.setup();
+    render(
+      <QueryClientProvider client={client}>
+        <ContentProjectsPage />
+      </QueryClientProvider>,
+    );
+
+    await user.click(
+      await screen.findByRole("checkbox", { name: /State applicability RULE-001/ }),
+    );
+    await user.click(screen.getByRole("button", { name: "更新事实与规则" }));
+
+    await waitFor(() =>
+      expect(
+        requests.some(
+          (request) =>
+            request.url === "/api/content-projects/CONTENT-001" &&
+            request.init?.method === "PATCH",
+        ),
+      ).toBe(true),
+    );
+    const request = requests.find(
+      (item) =>
+        item.url === "/api/content-projects/CONTENT-001" &&
+        item.init?.method === "PATCH",
+    );
+    expect(JSON.parse(String(request?.init?.body))).toEqual({
+      expected_revision: 1,
+      fact_card_codes: [],
+      fact_claim_codes: [],
+      content_rule_codes: ["RULE-001"],
     });
   });
 });

@@ -1622,6 +1622,10 @@ function ProjectFactEditor({
     queryKey: ["knowledge-fact-claims"],
     queryFn: knowledgeApi.listFactClaims,
   });
+  const rules = useQuery({
+    queryKey: ["knowledge-content-rules"],
+    queryFn: knowledgeApi.listContentRules,
+  });
   const approvedFacts = useMemo(
     () =>
       (facts.data ?? []).filter(
@@ -1655,12 +1659,32 @@ function ProjectFactEditor({
     () => detail.factClaims.map((claim) => claim.claim_code),
     [detail.factClaims],
   );
+  const approvedRules = useMemo(
+    () =>
+      (rules.data ?? []).filter(
+        (rule) =>
+          rule.status === "approved" &&
+          (!rule.sourceEvidenceCode || rule.sourceStatus === "approved"),
+      ),
+    [rules.data],
+  );
+  const approvedRuleCodes = useMemo(
+    () => new Set(approvedRules.map((rule) => rule.ruleCode)),
+    [approvedRules],
+  );
+  const pinnedRuleCodes = useMemo(
+    () => detail.contentRules.map((rule) => rule.rule_code),
+    [detail.contentRules],
+  );
   const pinnedCodeKey = pinnedCodes.join("|");
   const approvedCodeKey = approvedFacts
     .map((fact) => fact.factCardCode)
     .join("|");
+  const pinnedRuleCodeKey = pinnedRuleCodes.join("|");
+  const approvedRuleCodeKey = approvedRules.map((rule) => rule.ruleCode).join("|");
   const [factCodes, setFactCodes] = useState<string[]>([]);
   const [claimCodes, setClaimCodes] = useState<string[]>([]);
+  const [ruleCodes, setRuleCodes] = useState<string[]>([]);
   const [touched, setTouched] = useState(false);
   useEffect(() => {
     setFactCodes(pinnedCodes.filter((code) => approvedCodes.has(code)));
@@ -1669,6 +1693,7 @@ function ProjectFactEditor({
         approvedClaims.some((claim) => claim.claimCode === code),
       ),
     );
+    setRuleCodes(pinnedRuleCodes.filter((code) => approvedRuleCodes.has(code)));
     setTouched(false);
   }, [
     approvedCodeKey,
@@ -1677,9 +1702,14 @@ function ProjectFactEditor({
     pinnedCodeKey,
     approvedClaims,
     pinnedClaimCodes,
+    approvedRuleCodeKey,
+    pinnedRuleCodeKey,
   ]);
   const unavailablePins = detail.factCards.filter(
     (fact) => !approvedCodes.has(fact.fact_card_code),
+  );
+  const unavailableRulePins = detail.contentRules.filter(
+    (rule) => !approvedRuleCodes.has(rule.rule_code),
   );
   const factConflicts = findFactCardConflicts(
     approvedFacts,
@@ -1702,17 +1732,26 @@ function ProjectFactEditor({
         : [...current, claimCode],
     );
   };
+  const toggleRule = (ruleCode: string) => {
+    setTouched(true);
+    setRuleCodes((current) =>
+      current.includes(ruleCode)
+        ? current.filter((code) => code !== ruleCode)
+        : [...current, ruleCode],
+    );
+  };
   const submit = () =>
     onSave({
       expected_revision: detail.revisionNumber,
       fact_card_codes: factCodes,
       fact_claim_codes: claimCodes,
+      content_rule_codes: ruleCodes,
     });
   return (
     <section className="wb-section">
       <SectionHeader
-        kicker="FACT CARD PINS"
-        title="已批准事实卡"
+        kicker="FACT AND RULE PINS"
+        title="事实与规则版本"
         actions={
           <StatusBadge
             label={
@@ -1798,6 +1837,43 @@ function ProjectFactEditor({
                 <small>暂无已批准事实声明。</small>
               )}
             </div>
+            <div className="content-template-options">
+              <strong>已批准内容规则</strong>
+              {rules.isLoading ? (
+                <small>正在读取内容规则。</small>
+              ) : rules.error ? (
+                <InlineNotice tone="warning" title="内容规则暂不可用">
+                  无法修改规则选择。
+                </InlineNotice>
+              ) : approvedRules.length ? (
+                approvedRules.map((rule) => (
+                  <label key={rule.ruleCode}>
+                    <input
+                      type="checkbox"
+                      checked={ruleCodes.includes(rule.ruleCode)}
+                      onChange={() => toggleRule(rule.ruleCode)}
+                    />
+                    {rule.title}
+                    <code>
+                      {rule.ruleCode} · {rule.ruleKind} · {rule.directive}
+                    </code>
+                    <small>{rule.ruleText}</small>
+                  </label>
+                ))
+              ) : (
+                <small>暂无已批准内容规则。</small>
+              )}
+              {unavailableRulePins.length ? (
+                <InlineNotice
+                  tone="warning"
+                  title="当前修订包含不可重新选择的历史内容规则"
+                >
+                  {unavailableRulePins
+                    .map((rule) => `${rule.rule_code} ${rule.directive}`)
+                    .join("；")}
+                </InlineNotice>
+              ) : null}
+            </div>
             <div className="wb-form-actions">
               <button
                 type="button"
@@ -1806,7 +1882,7 @@ function ProjectFactEditor({
                 onClick={submit}
               >
                 <FilePenLine size={15} aria-hidden="true" />
-                更新事实输入
+                更新事实与规则
               </button>
             </div>
           </>
