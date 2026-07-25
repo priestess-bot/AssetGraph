@@ -833,6 +833,23 @@ def build_render_manifest(
     store: ArtifactStore,
 ) -> dict[str, Any]:
     """Freeze the local render inputs and outputs without machine-local path identities."""
+    production_timeline = shot_list.get("production_timeline")
+    if isinstance(production_timeline, dict):
+        timeline_manifest = {
+            "source": "functional_production_timeline.v2",
+            "shot_count": len(shot_list.get("shots") or []),
+            "duration_seconds": float(shot_list.get("duration_seconds") or 0),
+            "fingerprint_sha256": canonical_fingerprint(production_timeline),
+            "shot_list_fingerprint_sha256": canonical_fingerprint(shot_list),
+            "document": production_timeline,
+        }
+    else:
+        timeline_manifest = {
+            "source": "worker_shot_list.v1",
+            "shot_count": len(shot_list.get("shots") or []),
+            "duration_seconds": float(shot_list.get("duration_seconds") or 0),
+            "fingerprint_sha256": canonical_fingerprint(shot_list),
+        }
     assets = [
         {
             "asset_code": str(asset.get("asset_code") or ""),
@@ -854,12 +871,7 @@ def build_render_manifest(
     manifest = {
         "schema_version": "render-manifest.v1",
         "renderer": {"source": str(render_result.get("source") or "ffmpeg_render_v1")},
-        "timeline": {
-            "source": "worker_shot_list",
-            "shot_count": len(shot_list.get("shots") or []),
-            "duration_seconds": float(shot_list.get("duration_seconds") or 0),
-            "fingerprint_sha256": canonical_fingerprint(shot_list),
-        },
+        "timeline": timeline_manifest,
         "inputs": {
             "asset_plan_fingerprint_sha256": canonical_fingerprint(asset_plan),
             "assets": assets,

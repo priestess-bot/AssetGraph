@@ -113,6 +113,8 @@ class FunctionalVideoService:
         )
         variant = self.production.confirm_production_variant_revision(variant["variant_code"], revision_number=int(variant["revision_number"]), actor_id=actor_id)
         job = self.videos.create({"topic": detail["generation_goal"], "target_duration_seconds": duration})
+        # Keep the Worker input tied to the exact editable timeline revision that created it.
+        shots["production_timeline"] = deepcopy(timeline)
         seeded = self.videos.seed_content_project_job(job["job_code"], story_brief=story, script=script, shot_list=shots)
         if seeded is None:
             raise RuntimeError("created video job cannot be seeded")
@@ -2383,6 +2385,7 @@ class FunctionalVideoService:
             )
         ) / 1000
         result["timeline_revision"] = timeline.get("timeline_revision")
+        result["production_timeline"] = deepcopy(timeline)
         return result
 
     @staticmethod

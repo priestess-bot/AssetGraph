@@ -84,6 +84,7 @@ def test_timeline_update_preserves_requested_clip_order_across_tracks_and_shots(
     assert [shot["shot_code"] for shot in rendered_input["shots"]] == ["SHOT-02", "SHOT-01"]
     assert [shot["start_seconds"] for shot in rendered_input["shots"]] == [0.0, 35.0]
     assert rendered_input["shots"][0]["source_start_seconds"] == 12.0
+    assert rendered_input["production_timeline"] == updated
     assert rendered_input["shots"][0]["fit"] == "cover"
     assert rendered_input["shots"][0]["crop_x"] == 0.2
     assert rendered_input["shots"][0]["crop_y"] == 0.8

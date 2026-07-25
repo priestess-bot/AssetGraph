@@ -69,6 +69,9 @@ def test_functional_video_plan_seeds_content_stages_and_queues_renderer() -> Non
         assert {segment["source_shot_code"] for segment in plan["timeline_segments"]}
         assert all(segment["source_script_block_codes"] for segment in plan["timeline_segments"])
         assert plan["render_profile"]["visual_asset_mode"] == "baseline_verified_video_assets"
+        job = VideoProductionRepository(connection).get_by_code(plan["video_job_code"])
+        assert job is not None
+        assert job["shot_list"]["production_timeline"] == plan["production_timeline"]
 
         clips = plan["production_timeline"]["tracks"][0]["clips"]
         subtitles = next(

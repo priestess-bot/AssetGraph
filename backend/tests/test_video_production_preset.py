@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.schemas.video_productions import VideoProductionArtifactRegistration
+from app.domain.contracts import canonical_fingerprint
 from app.services.video_production_models import ArtifactStore, VideoProductionError
 from app.services.video_production_pipeline import VideoProductionPipeline, build_render_manifest
 from app.services.video_production_preset import (
@@ -199,6 +200,8 @@ def test_render_manifest_fixes_input_and_output_checksums_without_local_paths(tm
     )
 
     assert manifest["schema_version"] == "render-manifest.v1"
+    assert manifest["timeline"]["source"] == "worker_shot_list.v1"
+    assert manifest["timeline"]["fingerprint_sha256"] == canonical_fingerprint(shot_list)
     assert manifest["timeline"]["fingerprint_sha256"]
     assert manifest["inputs"]["assets"][0]["checksum_sha256"] == "a" * 64
     assert manifest["outputs"]["video"]["relative_path"].startswith("VIDJOB-000001/")
@@ -213,6 +216,58 @@ def test_render_manifest_fixes_input_and_output_checksums_without_local_paths(tm
         file_size=1,
         checksum_sha256="c" * 64,
     ).artifact_key == "render_manifest"
+
+
+def test_render_manifest_freezes_functional_production_timeline(tmp_path: Path) -> None:
+    store = ArtifactStore(tmp_path / "output", "VIDJOB-000001", 1)
+    store.write_text("subtitles", "subtitles/subtitles.ass", "[Events]\n", mime_type="text/x-ssa")
+    commands = store.write_json("render_log", "render/commands.json", {"commands": []})
+    video = store.path("final.mp4")
+    poster = store.path("poster.jpg")
+    contact_sheet = store.path("contact-sheet.jpg")
+    video.write_bytes(b"video")
+    poster.write_bytes(b"poster")
+    contact_sheet.write_bytes(b"contact-sheet")
+    production_timeline = {
+        "schema_version": "otio-compatible-production-timeline.v2",
+        "editorial_time_rate": 1000,
+        "global_time_range": {
+            "start_time": {"value": 0, "rate": 1000},
+            "duration": {"value": 55_000, "rate": 1000},
+        },
+        "tracks": [],
+    }
+    shot_list = {
+        "duration_seconds": 55,
+        "shots": [{"shot_code": "SHOT-01"}],
+        "production_timeline": production_timeline,
+    }
+
+    manifest = build_render_manifest(
+        render_result={"source": "ffmpeg_render_v1"},
+        shot_list=shot_list,
+        asset_plan={"assets": []},
+        voice_manifest={"segments": []},
+        subtitle_manifest={},
+        subtitles_path=store.job_root / "subtitles/subtitles.ass",
+        video_path=video,
+        poster_path=poster,
+        poster_time_seconds=1.0,
+        contact_sheet_path=contact_sheet,
+        contact_sheet_metadata={},
+        command_log=commands,
+        toolchain={},
+        store=store,
+    )
+
+    assert manifest["timeline"] == {
+        "source": "functional_production_timeline.v2",
+        "shot_count": 1,
+        "duration_seconds": 55.0,
+        "fingerprint_sha256": canonical_fingerprint(production_timeline),
+        "shot_list_fingerprint_sha256": canonical_fingerprint(shot_list),
+        "document": production_timeline,
+    }
 
 
 def test_poster_generation_uses_the_selected_timeline_time(tmp_path: Path) -> None:
