@@ -6,6 +6,7 @@ from app.core.database import get_db
 from app.domain.errors import DomainValidationError
 from app.schemas.functional_operations import (
     AttributionReportCreate,
+    AttributionReportPublish,
     AttributionReportRead,
     ContentExposureCorrection,
     ContentExposureCreate,
@@ -132,6 +133,30 @@ def list_reports(
     instance: Annotated[FunctionalOperationsService, Depends(service)],
 ) -> list[dict]:
     return instance.list_reports()
+
+
+@router.post(
+    "/attribution-reports/{report_code}/publish-descriptive",
+    response_model=AttributionReportRead,
+)
+def publish_descriptive_report(
+    report_code: str,
+    payload: AttributionReportPublish,
+    instance: Annotated[FunctionalOperationsService, Depends(service)],
+) -> dict:
+    return call(instance.publish_descriptive_report, report_code, payload.actor)
+
+
+@router.post(
+    "/attribution-reports/{report_code}/rerun",
+    response_model=AttributionReportRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def rerun_report(
+    report_code: str,
+    instance: Annotated[FunctionalOperationsService, Depends(service)],
+) -> dict:
+    return call(instance.rerun_report, report_code)
 
 
 @router.post(

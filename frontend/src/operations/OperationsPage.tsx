@@ -8,6 +8,7 @@ import {
   ListTree,
   Plus,
   Radio,
+  RotateCw,
   ScanLine,
   Trash2,
 } from "lucide-react";
@@ -679,6 +680,21 @@ export function OperationsPage({ view }: { view: "sessions" | "attribution" }) {
         queryKey: ["operations", "reports"],
       }),
   });
+  const publishReport = useMutation({
+    mutationFn: (reportCode: string) =>
+      operationsApi.publishDescriptiveReport(reportCode),
+    onSuccess: () =>
+      void queryClient.invalidateQueries({
+        queryKey: ["operations", "reports"],
+      }),
+  });
+  const rerunReport = useMutation({
+    mutationFn: (reportCode: string) => operationsApi.rerunReport(reportCode),
+    onSuccess: () =>
+      void queryClient.invalidateQueries({
+        queryKey: ["operations", "reports"],
+      }),
+  });
   const createSchedule = useMutation({
     mutationFn: () =>
       operationsApi.createSchedule({
@@ -719,6 +735,8 @@ export function OperationsPage({ view }: { view: "sessions" | "attribution" }) {
     createExposure.error ??
     correctExposure.error ??
     createReport.error ??
+    publishReport.error ??
+    rerunReport.error ??
     createSchedule.error ??
     createTimeMapping.error;
   if (
@@ -1442,6 +1460,17 @@ export function OperationsPage({ view }: { view: "sessions" | "attribution" }) {
                       ? `指标定义快照：${report.metricDefinitionRef.name ?? report.metricDefinitionRef.metricCode} · ${report.metricDefinitionRef.metricCode} r${report.metricDefinitionRef.revisionNumber}`
                       : "指标定义快照：未绑定（手工或跨修订指标）"}
                   </small>
+                  <small>
+                    运行状态：{report.status} · 输入指纹 {report.fingerprintSha256?.slice(0, 12) ?? "历史报告未冻结"}
+                    {report.supersedesReportCode
+                      ? ` · 基于 ${report.supersedesReportCode} 复算`
+                      : ""}
+                  </small>
+                  {report.qualitySnapshot.reasons.length ? (
+                    <InlineNotice tone="warning" title="证据尚不足以发布">
+                      {report.qualitySnapshot.reasons.join("、")}
+                    </InlineNotice>
+                  ) : null}
                   {report.sceneAllocations.length ? (
                     <div className="operations-scene-allocations">
                       <header>
@@ -1458,15 +1487,47 @@ export function OperationsPage({ view }: { view: "sessions" | "attribution" }) {
                       </ol>
                     </div>
                   ) : null}
+                  <div className="wb-actions">
+                    <button
+                      type="button"
+                      className="wb-button"
+                      disabled={rerunReport.isPending}
+                      onClick={() => rerunReport.mutate(report.reportCode)}
+                    >
+                      <RotateCw size={15} aria-hidden="true" />
+                      按当前证据复算
+                    </button>
+                    {report.status === "review_required" ? (
+                      <button
+                        type="button"
+                        className="wb-button wb-button-primary"
+                        disabled={publishReport.isPending}
+                        onClick={() => publishReport.mutate(report.reportCode)}
+                      >
+                        发布描述性结果
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
                 <StatusBadge
                   label={
-                    report.metadata.observedSessionCount
-                      ? "描述性 · 有展示证据"
-                      : "描述性 · 无展示证据"
+                    report.status === "published_descriptive"
+                      ? "已发布 · 描述性"
+                      : report.status === "review_required"
+                        ? "待人工发布 · 描述性"
+                        : report.status === "insufficient_data"
+                          ? "证据不足 · 描述性"
+                          : report.metadata.observedSessionCount
+                            ? "描述性 · 有展示证据"
+                            : "描述性 · 无展示证据"
                   }
                   tone={
-                    report.metadata.observedSessionCount ? "info" : "warning"
+                    report.status === "insufficient_data"
+                      ? "warning"
+                      : report.status === "published_descriptive" ||
+                          report.metadata.observedSessionCount
+                        ? "info"
+                        : "warning"
                   }
                 />
               </div>

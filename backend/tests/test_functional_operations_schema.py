@@ -135,6 +135,82 @@ def test_time_mapping_requires_a_nonempty_half_open_coverage_interval() -> None:
             evidence_note="Invalid interval.",
         )
 
+
+def test_attribution_input_snapshot_and_quality_are_deterministic_and_descriptive() -> None:
+    started_at = datetime(2026, 7, 25, 12, tzinfo=UTC)
+    snapshot = FunctionalOperationsService._attribution_input_snapshot(
+        [
+            {
+                "session_code": "OPS-002",
+                "started_at": started_at,
+                "ended_at": started_at + timedelta(minutes=1),
+                "source_kind": "manual_import",
+                "import_version": 1,
+                "metrics": {"orders": 4},
+                "metric_definition_refs": [
+                    {"metric_key": "orders", "metric_code": "orders", "revision_number": 2}
+                ],
+            },
+            {
+                "session_code": "OPS-001",
+                "started_at": started_at,
+                "ended_at": started_at + timedelta(minutes=1),
+                "source_kind": "adapter_import",
+                "import_version": 3,
+                "metrics": {"orders": 7},
+                "metric_definition_refs": [],
+            },
+        ],
+        {
+            "OPS-002": [
+                {
+                    "exposure_code": "EXP-002",
+                    "session_code": "OPS-002",
+                    "plan_code": "PLAN-002",
+                    "release_code": "REL-002",
+                    "scene_code": "SCENE-002",
+                    "started_at": started_at,
+                    "ended_at": started_at + timedelta(seconds=20),
+                    "source_kind": "recording_match",
+                    "confidence": 0.9,
+                }
+            ],
+            "OPS-001": [],
+        },
+        metric_key="orders",
+    )
+
+    assert [item["session_code"] for item in snapshot["sessions"]] == ["OPS-001", "OPS-002"]
+    assert snapshot["active_exposures"][0]["exposure_code"] == "EXP-002"
+    assert snapshot["sessions"][1]["metric_definition_refs"] == [
+        {"metric_key": "orders", "metric_code": "orders", "revision_number": 2}
+    ]
+
+    incomplete, incomplete_status = FunctionalOperationsService._attribution_quality_snapshot(
+        metric_definition_state="metric_unpinned",
+        selected_session_count=2,
+        observed_session_count=1,
+        active_exposure_count=1,
+        release_bound_exposure_count=1,
+    )
+    assert incomplete_status == "insufficient_data"
+    assert incomplete["eligible_for_descriptive_publication"] is False
+    assert incomplete["reasons"] == [
+        "metric_definition_not_resolved",
+        "some_sessions_have_no_observed_content",
+    ]
+
+    reviewable, reviewable_status = FunctionalOperationsService._attribution_quality_snapshot(
+        metric_definition_state="resolved",
+        selected_session_count=2,
+        observed_session_count=2,
+        active_exposure_count=3,
+        release_bound_exposure_count=3,
+    )
+    assert reviewable_status == "review_required"
+    assert reviewable["publication_scope"] == "descriptive_only"
+    assert reviewable["eligible_for_descriptive_publication"] is True
+
 def test_timeline_content_projection_uses_the_fixed_variant_chain() -> None:
     class ProjectionCursor:
         def execute(self, statement: str, parameters: object) -> None:

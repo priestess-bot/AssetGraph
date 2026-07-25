@@ -8,6 +8,7 @@ from psycopg import Connection
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
+from app.domain.contracts import canonical_fingerprint
 from app.domain.errors import DomainValidationError
 
 
@@ -681,7 +682,12 @@ class FunctionalOperationsService:
             else 0.0,
         }
 
-    def create_report(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def create_report(
+        self,
+        payload: dict[str, Any],
+        *,
+        supersedes_report_code: str | None = None,
+    ) -> dict[str, Any]:
         codes = list(dict.fromkeys(payload["session_codes"]))
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
@@ -828,21 +834,201 @@ class FunctionalOperationsService:
                     "scene_allocation_count": len(scene_allocations),
                 },
             }
+            input_snapshot = self._attribution_input_snapshot(
+                rows,
+                exposures_by_session,
+                metric_key=payload["metric_key"],
+            )
+            quality_snapshot, report_status = self._attribution_quality_snapshot(
+                metric_definition_state=metric_definition_state,
+                selected_session_count=len(rows),
+                observed_session_count=observed_sessions,
+                release_bound_exposure_count=release_bound_exposures,
+                active_exposure_count=sum(
+                    len(items) for items in exposures_by_session.values()
+                ),
+            )
+            fingerprint = canonical_fingerprint(
+                {
+                    "input_snapshot": input_snapshot,
+                    "results": results,
+                    "quality_snapshot": quality_snapshot,
+                    "evidence_level": "descriptive",
+                }
+            )
             code = self._next(cursor, "ATTR", "functional_attribution_report")
             cursor.execute(
                 """INSERT INTO functional_attribution_reports
-                   (report_code,metric_key,session_codes,results,metric_definition_ref)
-                   VALUES (%s,%s,%s,%s,%s) RETURNING *""",
+                   (report_code,metric_key,session_codes,results,metric_definition_ref,status,
+                    input_snapshot,quality_snapshot,fingerprint_sha256,supersedes_report_code)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
                 (
                     code,
                     payload["metric_key"],
                     Jsonb(codes),
                     Jsonb(results),
                     Jsonb(metric_definition_ref) if metric_definition_ref else None,
+                    report_status,
+                    Jsonb(input_snapshot),
+                    Jsonb(quality_snapshot),
+                    fingerprint,
+                    supersedes_report_code,
                 ),
             )
             row = cursor.fetchone()
         self.connection.commit()
+        return dict(row)
+
+    @staticmethod
+    def _attribution_input_snapshot(
+        sessions: list[dict[str, Any]],
+        exposures_by_session: dict[str, list[dict[str, Any]]],
+        *,
+        metric_key: str,
+    ) -> dict[str, Any]:
+        """Freeze the persisted facts that determine one attribution computation."""
+
+        frozen_sessions: list[dict[str, Any]] = []
+        frozen_exposures: list[dict[str, Any]] = []
+        for session in sorted(sessions, key=lambda item: str(item["session_code"])):
+            metric_pins = [
+                pin
+                for pin in (session.get("metric_definition_refs") or [])
+                if pin.get("metric_key") == metric_key
+            ]
+            frozen_sessions.append(
+                {
+                    "session_code": session["session_code"],
+                    "started_at": session["started_at"],
+                    "ended_at": session["ended_at"],
+                    "source_kind": session["source_kind"],
+                    "import_version": session["import_version"],
+                    "metric_key": metric_key,
+                    "metric_value": (session.get("metrics") or {}).get(metric_key),
+                    "metric_definition_refs": metric_pins,
+                }
+            )
+            for exposure in exposures_by_session.get(session["session_code"], []):
+                frozen_exposures.append(
+                    {
+                        key: exposure.get(key)
+                        for key in (
+                            "exposure_code",
+                            "session_code",
+                            "plan_code",
+                            "release_code",
+                            "scene_code",
+                            "started_at",
+                            "ended_at",
+                            "source_kind",
+                            "confidence",
+                        )
+                    }
+                )
+        return {
+            "schema_version": "functional-attribution-input.v1",
+            "metric_key": metric_key,
+            "sessions": frozen_sessions,
+            "active_exposures": sorted(
+                frozen_exposures,
+                key=lambda item: (str(item["session_code"]), str(item["exposure_code"])),
+            ),
+        }
+
+    @staticmethod
+    def _attribution_quality_snapshot(
+        *,
+        metric_definition_state: str,
+        selected_session_count: int,
+        observed_session_count: int,
+        release_bound_exposure_count: int,
+        active_exposure_count: int,
+    ) -> tuple[dict[str, Any], str]:
+        reasons: list[str] = []
+        if metric_definition_state != "resolved":
+            reasons.append("metric_definition_not_resolved")
+        if not active_exposure_count:
+            reasons.append("no_active_content_exposure")
+        if observed_session_count != selected_session_count:
+            reasons.append("some_sessions_have_no_observed_content")
+        if not release_bound_exposure_count:
+            reasons.append("no_release_bound_exposure")
+        report_status = "review_required" if not reasons else "insufficient_data"
+        return (
+            {
+                "schema_version": "functional-attribution-quality.v1",
+                "publication_scope": "descriptive_only",
+                "metric_definition_state": metric_definition_state,
+                "selected_session_count": selected_session_count,
+                "observed_session_count": observed_session_count,
+                "active_exposure_count": active_exposure_count,
+                "release_bound_exposure_count": release_bound_exposure_count,
+                "reasons": reasons,
+                "eligible_for_descriptive_publication": report_status == "review_required",
+            },
+            report_status,
+        )
+
+    def rerun_report(self, report_code: str) -> dict[str, Any]:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """SELECT metric_key, session_codes FROM functional_attribution_reports
+                   WHERE report_code = %s""",
+                (report_code,),
+            )
+            source = cursor.fetchone()
+        if source is None:
+            self.connection.rollback()
+            raise DomainValidationError(
+                "ATTRIBUTION_REPORT_NOT_FOUND",
+                "The attribution report does not exist",
+                details={"report_code": report_code},
+            )
+        return self.create_report(
+            {
+                "metric_key": source["metric_key"],
+                "session_codes": list(source["session_codes"] or []),
+            },
+            supersedes_report_code=report_code,
+        )
+
+    def publish_descriptive_report(self, report_code: str, actor: str) -> dict[str, Any]:
+        try:
+            with self.connection.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    "SELECT * FROM functional_attribution_reports WHERE report_code = %s FOR UPDATE",
+                    (report_code,),
+                )
+                report = cursor.fetchone()
+                if report is None:
+                    raise DomainValidationError(
+                        "ATTRIBUTION_REPORT_NOT_FOUND",
+                        "The attribution report does not exist",
+                        details={"report_code": report_code},
+                    )
+                if report["status"] == "published_descriptive":
+                    row = report
+                elif report["status"] != "review_required":
+                    raise DomainValidationError(
+                        "ATTRIBUTION_REPORT_NOT_PUBLISHABLE",
+                        "Only a report that passed the descriptive evidence check can be published",
+                        details={
+                            "status": report["status"],
+                            "quality_snapshot": report["quality_snapshot"],
+                        },
+                    )
+                else:
+                    cursor.execute(
+                        """UPDATE functional_attribution_reports
+                           SET status = 'published_descriptive', published_by = %s, published_at = now()
+                           WHERE id = %s RETURNING *""",
+                        (actor.strip(), report["id"]),
+                    )
+                    row = cursor.fetchone()
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
         return dict(row)
 
     @staticmethod

@@ -119,6 +119,22 @@ def test_policy_release_data_migration_keeps_completion_delivery_and_exposure_di
     assert "evidence_level IN ('descriptive', 'associational', 'quasi_experimental', 'randomized')" in sql
 
 
+def test_functional_attribution_run_migration_freezes_inputs_and_keeps_descriptive_publication_explicit() -> None:
+    sql = (MIGRATIONS / "069_functional_attribution_report_runs.sql").read_text(encoding="utf-8")
+
+    for column in (
+        "input_snapshot",
+        "quality_snapshot",
+        "fingerprint_sha256",
+        "supersedes_report_code",
+        "published_by",
+        "published_at",
+    ):
+        assert column in sql
+    assert "published_descriptive" in sql
+    assert "idx_functional_attribution_reports_status_created" in sql
+
+
 def test_console_draft_migration_separates_mutable_saves_from_explicit_commands() -> None:
     sql = (MIGRATIONS / "041_console_drafts_and_explicit_commands.sql").read_text(encoding="utf-8")
 

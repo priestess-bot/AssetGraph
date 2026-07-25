@@ -167,8 +167,18 @@ export interface AttributionReport {
   reportCode: string;
   metricKey: string;
   evidenceLevel: string;
+  status: string;
   sessionCodes: string[];
   metricDefinitionRef?: MetricDefinitionRef;
+  qualitySnapshot: {
+    publicationScope: string;
+    reasons: string[];
+    eligibleForDescriptivePublication: boolean;
+  };
+  fingerprintSha256?: string;
+  supersedesReportCode?: string;
+  publishedBy?: string;
+  publishedAt?: string;
   groups: AttributionGroup[];
   sceneAllocations: Array<{
     scopeType: string;
@@ -442,12 +452,26 @@ function report(value: unknown): AttributionReport {
   const raw = isRecord(value.results) ? value.results : {};
   const groupsRaw = isRecord(raw.groups) ? raw.groups : raw;
   const metadata = isRecord(raw.metadata) ? raw.metadata : {};
+  const quality = isRecord(value.quality_snapshot)
+    ? value.quality_snapshot
+    : {};
   return {
     reportCode: asString(value.report_code),
     metricKey: asString(value.metric_key),
     evidenceLevel: asString(value.evidence_level),
+    status: asString(value.status, "legacy"),
     sessionCodes: strings(value.session_codes),
     metricDefinitionRef: metricDefinitionRef(value.metric_definition_ref),
+    qualitySnapshot: {
+      publicationScope: asString(quality.publication_scope, "descriptive_only"),
+      reasons: strings(quality.reasons),
+      eligibleForDescriptivePublication:
+        quality.eligible_for_descriptive_publication === true,
+    },
+    fingerprintSha256: asOptionalString(value.fingerprint_sha256),
+    supersedesReportCode: asOptionalString(value.supersedes_report_code),
+    publishedBy: asOptionalString(value.published_by),
+    publishedAt: asOptionalString(value.published_at),
     groups: Object.entries(groupsRaw).flatMap(([key, item]) => {
       if (!isRecord(item)) return [];
       const evidence = isRecord(item.source_evidence)
@@ -554,6 +578,8 @@ export const operationsApi = {
   correctExposure: (payload: Record<string, unknown>) => postJson<unknown>(`${ROOT}/exposure-corrections`, payload).then(exposure),
   listReports: () => requestJson<unknown[]>(`${ROOT}/attribution-reports`).then((rows) => rows.map(report)),
   createReport: (payload: Record<string, unknown>) => postJson<unknown>(`${ROOT}/attribution-reports`, payload).then(report),
+  publishDescriptiveReport: (reportCode: string) => postJson<unknown>(`${ROOT}/attribution-reports/${encodeURIComponent(reportCode)}/publish-descriptive`, { actor: "functional-operator" }).then(report),
+  rerunReport: (reportCode: string) => postJson<unknown>(`${ROOT}/attribution-reports/${encodeURIComponent(reportCode)}/rerun`, {}).then(report),
   listSchedules: () => requestJson<unknown[]>(`${ROOT}/schedule-plans`).then((rows) => rows.map(schedule)),
   createSchedule: (payload: Record<string, unknown>) => postJson<unknown>(`${ROOT}/schedule-plans`, payload).then(schedule),
 };

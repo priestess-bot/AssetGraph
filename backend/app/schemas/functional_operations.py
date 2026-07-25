@@ -194,6 +194,10 @@ class AttributionReportCreate(BaseModel):
     session_codes: list[str] = Field(min_length=1)
 
 
+class AttributionReportPublish(BaseModel):
+    actor: str = Field(default="functional-operator", min_length=1, max_length=128)
+
+
 class AttributionReportRead(BaseModel):
     report_code: str
     metric_key: str
@@ -201,6 +205,13 @@ class AttributionReportRead(BaseModel):
     session_codes: list[str]
     results: dict[str, Any]
     metric_definition_ref: OperationMetricDefinitionRef | None = None
+    status: str = "legacy"
+    input_snapshot: dict[str, Any] = Field(default_factory=dict)
+    quality_snapshot: dict[str, Any] = Field(default_factory=dict)
+    fingerprint_sha256: str | None = None
+    supersedes_report_code: str | None = None
+    published_by: str | None = None
+    published_at: datetime | None = None
     created_at: datetime
 
 

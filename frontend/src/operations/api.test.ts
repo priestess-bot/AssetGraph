@@ -169,4 +169,42 @@ describe("operations api", () => {
     expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual(payload);
     expect(mapping).toMatchObject({ mappingCode: "TIME-MAP-001", revisionNumber: 1 });
   });
+
+  it("publishes only the descriptive report endpoint and can request a fresh rerun", async () => {
+    const reportResponse = () => response({
+      report_code: "ATTR-001",
+      metric_key: "orders",
+      evidence_level: "descriptive",
+      status: "review_required",
+      session_codes: ["OPS-001"],
+      results: { groups: {}, metadata: {} },
+      quality_snapshot: {
+        publication_scope: "descriptive_only",
+        reasons: [],
+        eligible_for_descriptive_publication: true,
+      },
+      fingerprint_sha256: "a".repeat(64),
+      created_at: "2026-07-25T12:11:00Z",
+    });
+    const fetchMock = vi.fn().mockImplementation(async () => reportResponse());
+    vi.stubGlobal("fetch", fetchMock);
+
+    const published = await operationsApi.publishDescriptiveReport("ATTR-001");
+    await operationsApi.rerunReport("ATTR-001");
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
+      "/api/functional-operations/attribution-reports/ATTR-001/publish-descriptive",
+    );
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      actor: "functional-operator",
+    });
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain(
+      "/api/functional-operations/attribution-reports/ATTR-001/rerun",
+    );
+    expect(published).toMatchObject({
+      status: "review_required",
+      qualitySnapshot: { eligibleForDescriptivePublication: true },
+      fingerprintSha256: "a".repeat(64),
+    });
+  });
 });

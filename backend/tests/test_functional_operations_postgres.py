@@ -6,6 +6,7 @@ from uuid import uuid4
 
 import psycopg
 import pytest
+from psycopg.types.json import Jsonb
 
 from app.domain.errors import DomainValidationError
 from app.repositories.data_governance import DataGovernanceRepository
@@ -73,6 +74,10 @@ def test_operations_import_descriptive_report_and_planning_conflicts() -> None:
             }
         )
         assert report["evidence_level"] == "descriptive"
+        assert report["status"] == "insufficient_data"
+        assert report["quality_snapshot"]["eligible_for_descriptive_publication"] is False
+        assert report["input_snapshot"]["schema_version"] == "functional-attribution-input.v1"
+        assert report["fingerprint_sha256"]
         assert report["results"]["metadata"] == {
             "method": "session_metric_grouped_by_source_backed_exposure",
             "metric_grain": "operation_session",
@@ -93,6 +98,12 @@ def test_operations_import_descriptive_report_and_planning_conflicts() -> None:
         assert {
             result["scope_type"] for result in report["results"]["groups"].values()
         } == {"session_only"}
+        rerun = service.rerun_report(report["report_code"])
+        assert rerun["supersedes_report_code"] == report["report_code"]
+        assert rerun["fingerprint_sha256"] == report["fingerprint_sha256"]
+        with pytest.raises(DomainValidationError) as non_publishable:
+            service.publish_descriptive_report(report["report_code"], "operator")
+        assert non_publishable.value.code == "ATTRIBUTION_REPORT_NOT_PUBLISHABLE"
         with pytest.raises(DomainValidationError) as invalid_timezone:
             service.import_session(
                 {
@@ -125,6 +136,40 @@ def test_operations_import_descriptive_report_and_planning_conflicts() -> None:
         assert initial["status"] == "planned"
         assert conflict["status"] == "conflict"
         assert conflict["conflict_codes"] == [initial["schedule_code"]]
+
+
+def test_reviewable_descriptive_report_can_be_published_idempotently() -> None:
+    suffix = uuid4().hex
+    with psycopg.connect(DATABASE_URL) as connection:
+        service = FunctionalOperationsService(connection)
+        report_code = f"ATTR-REVIEW-{suffix}"
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """INSERT INTO functional_attribution_reports
+                   (report_code, metric_key, evidence_level, session_codes, results, status,
+                    input_snapshot, quality_snapshot, fingerprint_sha256)
+                   VALUES (%s, 'orders', 'descriptive', '[]'::jsonb, '{}'::jsonb, 'review_required',
+                           '{}'::jsonb, %s, %s)""",
+                (
+                    report_code,
+                    Jsonb(
+                        {
+                            "publication_scope": "descriptive_only",
+                            "eligible_for_descriptive_publication": True,
+                        }
+                    ),
+                    "a" * 64,
+                ),
+            )
+        connection.commit()
+
+        published = service.publish_descriptive_report(report_code, "metrics-reviewer")
+        repeated = service.publish_descriptive_report(report_code, "other-reviewer")
+
+        assert published["status"] == "published_descriptive"
+        assert published["published_by"] == "metrics-reviewer"
+        assert published["published_at"] is not None
+        assert repeated["published_by"] == "metrics-reviewer"
 
 
 def test_operations_pin_active_metric_definition_revisions_in_session_and_report() -> None:
