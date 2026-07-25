@@ -36,11 +36,13 @@ def test_video_plan_create_validates_each_visual_selection_list() -> None:
 def test_video_plan_create_bounds_background_music_gain() -> None:
     plan = FunctionalVideoPlanCreate(
         project_code="CONTENT-001",
+        product_sticker_asset_code="AG-IMG-001",
         background_music_asset_code="AG-AUD-001",
         background_music_gain_db=-20,
     )
 
     assert plan.background_music_asset_code == "AG-AUD-001"
+    assert plan.product_sticker_asset_code == "AG-IMG-001"
     assert plan.background_music_gain_db == -20
     with pytest.raises(ValidationError):
         FunctionalVideoPlanCreate(

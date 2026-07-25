@@ -20,7 +20,7 @@ const plan = {
       { clip_code: "SUBTITLE-SHOT-02", linked_shot_code: "SHOT-02", timeline_range: { start_ms: 30_000, duration_ms: 30_000 }, subtitle_text: "第二段字幕", headline_text: "第二段标题" },
     ] },
   ] },
-  render_profile: { canvas: { width: 1080, height: 1920, fps: 30 }, visual_assets: [{ asset_code: "AG-VID-000001", checksum_sha256: "a".repeat(64) }], visual_selection: { group_refs: [{ group_code: "AG-GRP-001", title: "商品讲解组", asset_codes: ["AG-VID-000001"] }], material_pack_refs: [{ pack_code: "AG-PACK-001", role: "supporting_video", revision_number: 1, fingerprint_sha256: "b".repeat(64), resolved_asset_codes: ["AG-VID-000001"] }] }, background_music: { asset_code: "AG-AUD-000001", checksum_sha256: "c".repeat(64), gain_db: -20 } }, job_status: "queued", current_stage: "asset_selection", progress_percent: 37, error_message: null,
+  render_profile: { canvas: { width: 1080, height: 1920, fps: 30 }, visual_assets: [{ asset_code: "AG-VID-000001", checksum_sha256: "a".repeat(64) }], visual_selection: { group_refs: [{ group_code: "AG-GRP-001", title: "商品讲解组", asset_codes: ["AG-VID-000001"] }], material_pack_refs: [{ pack_code: "AG-PACK-001", role: "supporting_video", revision_number: 1, fingerprint_sha256: "b".repeat(64), resolved_asset_codes: ["AG-VID-000001"] }] }, product_sticker: { asset_code: "AG-IMG-000001", checksum_sha256: "d".repeat(64) }, background_music: { asset_code: "AG-AUD-000001", checksum_sha256: "c".repeat(64), gain_db: -20 } }, job_status: "queued", current_stage: "asset_selection", progress_percent: 37, error_message: null,
   workflow_stages: [{ stage_name: "asset_selection", stage_order: 4, status: "succeeded", attempt: 1 }, { stage_name: "quality_check", stage_order: 8, status: "pending", attempt: 1 }], quality_report: { passed: true, checks: { video_stream: true, subtitle_text_complete: true }, media: { duration_seconds: 55, width: 1080, height: 1920, video_codec: "h264", audio_codec: "aac", audio_sample_rate: 48000 }, loudness: { integrated_lufs: -16.2, true_peak_db: -1.4, lra: 4.1 }, black_segments: [{ start_seconds: 2, end_seconds: 2.4, duration_seconds: .4 }], silence_segments: [], freeze_segments: [] }, artifacts: [{ artifact_key: "poster", download_url: "/files/poster.jpg", mime_type: "image/jpeg" }], created_at: "2026-07-25T00:00:00Z", updated_at: "2026-07-25T00:00:00Z",
 };
 const musicOnlyPlan = {
@@ -57,6 +57,8 @@ describe("VideoProductionPage", () => {
     expect(trace).not.toBeNull();
     expect(within(trace!).getByText("BGM-01")).toBeInTheDocument();
     expect(within(trace!).getByText("AG-AUD-000001")).toBeInTheDocument();
+    expect(within(trace!).getByText("PRODUCT-STICKER")).toBeInTheDocument();
+    expect(within(trace!).getByText("AG-IMG-000001")).toBeInTheDocument();
   });
 
   it("saves the operator-selected clip order as a timeline revision", async () => {
@@ -89,6 +91,7 @@ describe("VideoProductionPage", () => {
     expect(screen.getByText("分组 商品讲解组 · AG-GRP-001 · 1 项")).toBeInTheDocument();
     expect(screen.getByText("素材包 AG-PACK-001 · r1 · bbbbbbbbbbbb")).toBeInTheDocument();
     expect(screen.getByText("BGM AG-AUD-000001 · cccccccccccc · -20.0 dB")).toBeInTheDocument();
+    expect(screen.getByText("商品贴片 AG-IMG-000001 · dddddddddddd")).toBeInTheDocument();
     const trace = screen.getByRole("heading", { name: "固定镜头输入" }).closest("section");
     expect(trace).not.toBeNull();
     expect(within(trace!).getByText("SHOT-01")).toBeInTheDocument();
@@ -187,7 +190,7 @@ describe("VideoProductionPage", () => {
       if (url === "/api/functional-live-room-plans") return new Response(JSON.stringify([{ plan_code: "LIVEPLAN-001", expected_title: "夏日直播间" }]), { status: 200, headers: { "Content-Type": "application/json" } });
       if (url === "/api/assets/groups") return new Response(JSON.stringify([{ group_code: "AG-GRP-001", title: "商品讲解组", asset_codes: ["AG-VID-000001"], asset_count: 1 }]), { status: 200, headers: { "Content-Type": "application/json" } });
       if (url === "/api/assets/material-packs") return new Response(JSON.stringify([{ pack_code: "AG-PACK-001", title: "讲解素材包", role: "supporting_video", revision_number: 1, status: "published", fingerprint_sha256: "b".repeat(64), entries: [], resolved_asset_codes: ["AG-VID-000001"] }]), { status: 200, headers: { "Content-Type": "application/json" } });
-      if (url === "/api/assets") return new Response(JSON.stringify([{ asset_code: "AG-VID-000001", title: "本地商品讲解", asset_type: "VID", media_kind: "video", execution_capability: "local_only" }, { asset_code: "AG-AUD-000001", title: "本地背景音乐", asset_type: "AUD", media_kind: "audio", material_roles: ["background_music"], execution_capability: "local_only" }]), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/assets") return new Response(JSON.stringify([{ asset_code: "AG-VID-000001", title: "本地商品讲解", asset_type: "VID", media_kind: "video", execution_capability: "local_only" }, { asset_code: "AG-IMG-000001", title: "本地商品贴片", asset_type: "IMG", media_kind: "image", material_roles: ["product_display"], execution_capability: "local_only" }, { asset_code: "AG-AUD-000001", title: "本地背景音乐", asset_type: "AUD", media_kind: "audio", material_roles: ["background_music"], execution_capability: "local_only" }]), { status: 200, headers: { "Content-Type": "application/json" } });
       if (url === "/api/functional-video-plans") {
         if (init?.method === "POST") return new Response(JSON.stringify(plan), { status: 201, headers: { "Content-Type": "application/json" } });
         return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -204,12 +207,13 @@ describe("VideoProductionPage", () => {
     await user.click(screen.getByRole("checkbox", { name: "选择 本地商品讲解" }));
     await user.click(screen.getByRole("checkbox", { name: "选择分组 商品讲解组" }));
     await user.click(screen.getByRole("checkbox", { name: "选择素材包 讲解素材包" }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "商品贴片" }), "AG-IMG-000001");
     await user.selectOptions(screen.getByRole("combobox", { name: "背景音乐" }), "AG-AUD-000001");
     fireEvent.change(screen.getByRole("slider", { name: "背景音乐增益" }), { target: { value: "-20" } });
     await user.click(screen.getByRole("button", { name: "创建渲染任务" }));
 
     const request = requests.find((item) => item.url === "/api/functional-video-plans" && item.init?.method === "POST");
-    expect(request?.init?.body).toBe(JSON.stringify({ live_room_plan_code: "LIVEPLAN-001", target_duration_seconds: 55, visual_asset_codes: ["AG-VID-000001"], visual_group_codes: ["AG-GRP-001"], visual_material_pack_codes: ["AG-PACK-001"], background_music_asset_code: "AG-AUD-000001", background_music_gain_db: -20 }));
+    expect(request?.init?.body).toBe(JSON.stringify({ live_room_plan_code: "LIVEPLAN-001", target_duration_seconds: 55, visual_asset_codes: ["AG-VID-000001"], visual_group_codes: ["AG-GRP-001"], visual_material_pack_codes: ["AG-PACK-001"], product_sticker_asset_code: "AG-IMG-000001", background_music_asset_code: "AG-AUD-000001", background_music_gain_db: -20 }));
   });
 
   it("creates a release candidate only from a QC-passed completed video", async () => {

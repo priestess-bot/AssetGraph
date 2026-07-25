@@ -140,8 +140,9 @@ function FixedInputTrace({ plan }: { plan: FunctionalVideoPlan }) {
       .map((clip) => [clip.linked_shot_code!, clip]),
   );
   const backgroundMusic = plan.renderProfile.backgroundMusic;
+  const productSticker = plan.renderProfile.productSticker;
 
-  if (!videoClips.length && !backgroundMusic) return null;
+  if (!videoClips.length && !backgroundMusic && !productSticker) return null;
 
   return (
     <section className="wb-section">
@@ -214,6 +215,22 @@ function FixedInputTrace({ plan }: { plan: FunctionalVideoPlan }) {
               <div>
                 <dt>增益</dt>
                 <dd>{backgroundMusic.gainDb.toFixed(1)} dB</dd>
+              </div>
+            </dl>
+          </article>
+        ) : null}
+        {productSticker ? (
+          <article className="video-input-trace-product">
+            <header>
+              <code>PRODUCT-STICKER</code>
+              <small>商品贴片</small>
+            </header>
+            <dl>
+              <div className="video-input-trace-wide">
+                <dt>图片源</dt>
+                <dd>
+                  <code>{productSticker.assetCode}</code> · {productSticker.checksumSha256.slice(0, 12)}
+                </dd>
               </div>
             </dl>
           </article>
@@ -1166,7 +1183,9 @@ function Detail({
     (artifact) => artifact.artifact_key === "poster",
   )?.download_url;
   const hasFrozenMaterialEvidence = Boolean(
-    plan.renderProfile.visualAssets?.length || plan.renderProfile.backgroundMusic,
+    plan.renderProfile.visualAssets?.length ||
+      plan.renderProfile.productSticker ||
+      plan.renderProfile.backgroundMusic,
   );
   return (
     <div className="video-plan-detail">
@@ -1231,6 +1250,11 @@ function Detail({
             {plan.renderProfile.backgroundMusic ? (
               <code>
                 BGM {plan.renderProfile.backgroundMusic.assetCode} · {plan.renderProfile.backgroundMusic.checksumSha256.slice(0, 12)} · {plan.renderProfile.backgroundMusic.gainDb.toFixed(1)} dB
+              </code>
+            ) : null}
+            {plan.renderProfile.productSticker ? (
+              <code>
+                商品贴片 {plan.renderProfile.productSticker.assetCode} · {plan.renderProfile.productSticker.checksumSha256.slice(0, 12)}
               </code>
             ) : null}
           </div>
@@ -1371,6 +1395,7 @@ export function VideoProductionPage() {
   >([]);
   const [backgroundMusicAssetCode, setBackgroundMusicAssetCode] = useState("");
   const [backgroundMusicGainDb, setBackgroundMusicGainDb] = useState(-18);
+  const [productStickerAssetCode, setProductStickerAssetCode] = useState("");
   const [selected, setSelected] = useState("");
   const projects = useQuery({
     queryKey: ["content-projects"],
@@ -1455,6 +1480,12 @@ export function VideoProductionPage() {
       asset.executionCapability === "local_only" &&
       asset.materialRoles.includes("background_music"),
   );
+  const localProductStickerAssets = (assets.data ?? []).filter(
+    (asset) =>
+      asset.mediaKind === "image" &&
+      asset.executionCapability === "local_only" &&
+      asset.materialRoles.includes("product_display"),
+  );
   const visualSelectionCodes = (
     assetCodes = visualAssetCodes,
     groupCodes = visualGroupCodes,
@@ -1508,6 +1539,9 @@ export function VideoProductionPage() {
               ...(visualMaterialPackCodes.length
                 ? { visual_material_pack_codes: visualMaterialPackCodes }
                 : {}),
+              ...(productStickerAssetCode
+                ? { product_sticker_asset_code: productStickerAssetCode }
+                : {}),
               ...(backgroundMusicAssetCode
                 ? {
                     background_music_asset_code: backgroundMusicAssetCode,
@@ -1526,6 +1560,9 @@ export function VideoProductionPage() {
                 : {}),
               ...(visualMaterialPackCodes.length
                 ? { visual_material_pack_codes: visualMaterialPackCodes }
+                : {}),
+              ...(productStickerAssetCode
+                ? { product_sticker_asset_code: productStickerAssetCode }
                 : {}),
               ...(backgroundMusicAssetCode
                 ? {
@@ -1668,6 +1705,26 @@ export function VideoProductionPage() {
                 </label>
               ))}
             </fieldset>
+          ) : null}
+          {localProductStickerAssets.length ? (
+            <label className="wb-field">
+              <span>商品贴片</span>
+              <select
+                aria-label="商品贴片"
+                className="wb-input"
+                value={productStickerAssetCode}
+                onChange={(event) =>
+                  setProductStickerAssetCode(event.target.value)
+                }
+              >
+                <option value="">使用基线贴片</option>
+                {localProductStickerAssets.map((asset) => (
+                  <option key={asset.assetCode} value={asset.assetCode}>
+                    {asset.title} · {asset.assetCode}
+                  </option>
+                ))}
+              </select>
+            </label>
           ) : null}
           {localBackgroundMusicAssets.length ? (
             <>

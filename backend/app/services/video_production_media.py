@@ -106,6 +106,7 @@ class AssetSelector:
         self.runner = runner
 
     def select(self, shot_list: dict[str, Any]) -> dict[str, Any]:
+        product_sticker = self._product_sticker(shot_list)
         shot_sources: dict[str, dict[str, str]] = {}
         for shot in shot_list.get("shots") or []:
             asset_code = str(shot["asset_code"])
@@ -121,7 +122,9 @@ class AssetSelector:
                     f"asset {asset_code} resolves to conflicting material sources",
                 )
         selected_codes = {str(shot["asset_code"]) for shot in shot_list.get("shots") or []}
-        selected_codes.update({"MT-DEC-0003", "MT-DEC-0024"})
+        selected_codes.add("MT-DEC-0003")
+        if product_sticker is None:
+            selected_codes.add("MT-DEC-0024")
         assets: list[dict[str, Any]] = []
         for asset_code in sorted(selected_codes):
             source = shot_sources.get(asset_code)
@@ -149,6 +152,16 @@ class AssetSelector:
             assets.append(item)
 
         background_music = self._background_music(shot_list)
+        if product_sticker is not None:
+            assets.append(
+                {
+                    "asset_code": product_sticker["asset_code"],
+                    "relative_path": product_sticker["relative_path"],
+                    "file_size": product_sticker["file_size"],
+                    "checksum_sha256": product_sticker["checksum_sha256"],
+                    "media_type": "image",
+                }
+            )
         if background_music is not None:
             assets.append(
                 {
@@ -189,6 +202,8 @@ class AssetSelector:
                 if shot_sources
                 else "asset_library_local_audio_asset_plan_v1"
                 if background_music is not None
+                else "asset_library_local_overlay_asset_plan_v1"
+                if product_sticker is not None
                 else "fixed_maitu_asset_plan_v1"
             ),
             "assets_root_label": "maitu_materials",
@@ -204,7 +219,7 @@ class AssetSelector:
                     "fit": shot["fit"],
                     "crop_x": shot.get("crop_x", 0.5),
                     "crop_y": shot.get("crop_y", 0.5),
-                    "playback_rate": playback_rate,
+                    "playback_rate": float(shot.get("playback_rate", 1.0)),
                     "overlay_roles": [
                         str(role)
                         for role in shot.get("overlay_roles") or []
@@ -216,9 +231,45 @@ class AssetSelector:
             ],
             "overlays": {
                 "brand_logo": ASSET_PATHS["MT-DEC-0003"],
-                "product_sticker": ASSET_PATHS["MT-DEC-0024"],
+                "product_sticker": (
+                    product_sticker["relative_path"]
+                    if product_sticker is not None
+                    else ASSET_PATHS["MT-DEC-0024"]
+                ),
             },
+            "product_sticker": product_sticker,
             "background_music": background_music,
+        }
+
+    def _product_sticker(self, shot_list: dict[str, Any]) -> dict[str, Any] | None:
+        candidate = shot_list.get("product_sticker")
+        if candidate is None:
+            return None
+        if not isinstance(candidate, dict):
+            raise VideoProductionError(
+                "PRODUCT_STICKER_INVALID",
+                "product sticker selection must be an object",
+            )
+        asset_code = str(candidate.get("asset_code") or "").strip()
+        relative_path = str(candidate.get("asset_relative_path") or "").strip()
+        expected_checksum = str(candidate.get("asset_expected_checksum") or "").strip()
+        if not asset_code or not relative_path:
+            raise VideoProductionError(
+                "PRODUCT_STICKER_INVALID",
+                "product sticker must include an asset code and local path",
+            )
+        path = self.resolve(relative_path)
+        checksum = sha256_file(path)
+        if not expected_checksum or checksum != expected_checksum:
+            raise VideoProductionError(
+                "PRODUCT_STICKER_CHECKSUM_MISMATCH",
+                f"selected product sticker checksum changed: {asset_code}",
+            )
+        return {
+            "asset_code": asset_code,
+            "relative_path": relative_path,
+            "file_size": path.stat().st_size,
+            "checksum_sha256": checksum,
         }
 
     def _background_music(self, shot_list: dict[str, Any]) -> dict[str, Any] | None:

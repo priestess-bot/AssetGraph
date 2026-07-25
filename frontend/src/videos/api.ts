@@ -60,6 +60,7 @@ export interface FunctionalVideoPlan {
         assetCodes: string[];
       }>;
     };
+    productSticker?: { assetCode: string; checksumSha256: string };
     backgroundMusic?: {
       assetCode: string;
       checksumSha256: string;
@@ -348,6 +349,15 @@ function plan(value: unknown): FunctionalVideoPlan {
               : [],
         ),
       },
+      productSticker:
+        isRecord(profile.product_sticker) &&
+        asString(profile.product_sticker.asset_code) &&
+        asString(profile.product_sticker.checksum_sha256)
+          ? {
+              assetCode: asString(profile.product_sticker.asset_code),
+              checksumSha256: asString(profile.product_sticker.checksum_sha256),
+            }
+          : undefined,
       backgroundMusic:
         isRecord(profile.background_music) &&
         asString(profile.background_music.asset_code) &&
@@ -451,6 +461,7 @@ export const functionalVideosApi = {
     visual_asset_codes?: string[];
     visual_group_codes?: string[];
     visual_material_pack_codes?: string[];
+    product_sticker_asset_code?: string;
     background_music_asset_code?: string;
     background_music_gain_db?: number;
   }) => postJson<unknown>(ROOT, payload).then(plan),

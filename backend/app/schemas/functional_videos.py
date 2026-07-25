@@ -14,6 +14,7 @@ class FunctionalVideoPlanCreate(BaseModel):
     visual_asset_codes: list[str] = Field(default_factory=list, max_length=6)
     visual_group_codes: list[str] = Field(default_factory=list, max_length=6)
     visual_material_pack_codes: list[str] = Field(default_factory=list, max_length=6)
+    product_sticker_asset_code: str | None = Field(default=None, min_length=1, max_length=64)
     background_music_asset_code: str | None = Field(default=None, min_length=1, max_length=64)
     background_music_gain_db: float = Field(default=-18.0, ge=-36, le=-6)
 
