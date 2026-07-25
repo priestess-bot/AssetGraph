@@ -7,6 +7,45 @@ Locally deployable PostgreSQL, MinIO, Milvus, Neo4j, Qwen3, Kokoro and FFmpeg ar
 not external API dependencies. They still require version, capacity and recovery
 records, but are outside this register.
 
+## Non-blocking input queue
+
+This table is the single collection point for inputs that cannot be manufactured
+inside this repository.  It is deliberately **not** a request to stop
+implementation: until an input is available, continue with the local domain
+model, fake/contract adapter, UI, validation and deterministic test fixtures.
+Only the stated production action is blocked.  When an owner provides an input,
+attach a versioned evidence reference to the corresponding `EXT-*` entry and
+the checklist execution log; do not paste credentials, cookies or raw personal
+data into this document.
+
+| Input code | Needed only for | Minimum material to collect | Blocked until supplied | Local work that continues |
+| --- | --- | --- | --- | --- |
+| `EXT-P1-FACT-SOURCES` | Approving production ProductFactCard facts | Approved source document/URL or export, quoted span, source owner, validity window, platform scope and classification/retention decision | Real fact approval based on external evidence | Fact/revision/lineage UI, validation and local draft fixtures |
+| `EXT-P1-RELEASE-SIGNING` | Approving a live-room or rendered-video release | Named signing principal, key-reference mechanism, rotation/revocation owner and signing policy | Production release approval/signature | Candidate snapshots, deterministic manifests and approval-state UX |
+| `EXT-P1-RELEASE-EVIDENCE` | Actual remote draft write and authoritative readback | Target account/room authorization, approved API or browser route, readback identity contract and evidence-retention owner | Draft delivery, authoritative readback and reconciliation | BuildPlan generation, local draft projection and fake adapter contract tests |
+| `EXT-P2-RECORDING-SAMPLES` | Publishing a template derived from real recordings | Authorized recordings from one source room per CaptureSession, source-room IDs, capture interval/checksums, rights basis and deletion owner | Real CaptureSession import/template publication | Cleaning workflow, template provenance rules and synthetic/authorized fixture tests |
+| `EXT-P3-RENDITION-METADATA` | Strict reproducibility for selectable visual media | Immutable rendition checksum, dimensions/aspect, duration, frame-rate/timebase, PTS bounds, probe evidence and availability semantics | Strict source-window/geometric/replay gates | Local asset selection, FFmpeg rendering and deterministic declared-boundary tests |
+| `EXT-P3-AUDIO-ASSETS` | Production use of BGM/SFX assets | Approved rendition checksum, duration/timebase/PTS, rights scope, stable material binding and probe evidence | Rights-qualified audio release | Local BGM/SFX lanes, previews, mixing and local-media tests |
+| `EXT-P3-VIDEO-DELIVERY-AUTHORIZATION` | Uploading a rendered video to any target channel | Target principal/account, upload scope, API capability, idempotency/rate/error contract, object/checksum readback and revoke/deletion procedure | Video delivery, channel readback and revoke propagation | Render, QC, candidate release and delivery-package sidecar generation |
+| `EXT-P3-C2PA-SIGNING` | Issuing a verifiable C2PA Content Credential | Supported signer/certificate chain, timestamp policy, ingredient requirements, verifier and key custody owner | Signed C2PA credential only | Local XMP/IPTC sidecar and release-evidence model |
+| `EXT-P4-EVENT-GRAIN-METRICS` | Measured platform attribution and production metric import | Source schema/mapping, immutable batch ID/checksum/watermark, event and processing time/timezone, primary keys, update/delete/refund/backfill rules, release/exposure keys, quality thresholds and data owner | Measured attribution, reconciliation and production metric SLOs | Local JSON import, quality validation, snapshots and descriptive attribution |
+| `EXT-P5-OBSERVATION-DATA` | Associational/causal effect eligibility | Versioned immutable metric snapshots, exposure reconciliation IDs, freshness/alignment/sample thresholds, deletion/refund/backfill semantics and approved decision-use rule | Associational/causal estimates and automated learning decisions | Descriptive effect candidates, manual review and frozen-source reproduction |
+| `EXT-P7-KNOWLEDGE-SOURCES` | SourceEvidence/FactClaim completion and governed knowledge ingestion | Approved documents/URLs, extraction rights, classification/retention, quoted spans, validity/platform scope and evidence-review owner | External-source ingestion and claim approval | Local knowledge drafts, exact-version usage projection and lineage UI |
+| `EXT-PLATFORM-MAITU` | Any real Maitu read/write operation | Approved target-scoped credential, current API/UI contract, terms, quota/cost/region decision and kill-switch owner | Real Maitu delivery/readback | Fake adapter, BuildPlan, local preview and browser/API contract tests |
+| `EXT-PLATFORM-DOUYIN` | Authorized recording capture, go-live or operations import | Authorized capture/delivery basis, target account scope, endpoint/export contract, quota/cost/region decision and deletion owner | Real capture, go-live and served-log ingestion | Local CaptureSession model, schedule prototype and import adapters |
+| `EXT-PROVIDER-GENERATION` | Using a remote text/vision/ASR provider in production | Provider approval, backend-only credential reference, processor/region/retention decision, budget/quota and fallback owner | Remote provider execution | Local/provider-fake generation, schema validation and deterministic fallback fixtures |
+
+### Local environment conditions (not external inputs)
+
+- `ASSETGRAPH_TEST_DATABASE_URL` is a local PostgreSQL integration-test target.
+  It must be migrated to the required revision before PostgreSQL journey tests
+  can run, but it never requires a third-party credential or API account.
+- Locally deployed Qwen3, Kokoro, MinIO, Milvus, Neo4j and FFmpeg are operated
+  as versioned local dependencies. Their availability can limit a local run, but
+  does not block repository implementation or create an external-input request.
+- A new external dependency must first be added to this queue and the table
+  below, with an exit plan, before any production adapter starts using it.
+
 | Dependency | Purpose and data sent | Credential and boundary | Timeout/rate/cost | Failure and fallback | Region/retention | Exit plan |
 | --- | --- | --- | --- | --- | --- | --- |
 | Maitu authoritative API | Verify room, draft/live state, inventory/material identity and readback; sends target IDs and typed queries | Backend-only bearer token; model/browser never receives it | 30s configured timeout; quota and commercial terms require owner confirmation | Hard fail closed; stable contract fake in tests; no cached approval fallback | Provider policy must be approved before production | Keep authority adapter; replace provider without changing domain attestation contract. |
