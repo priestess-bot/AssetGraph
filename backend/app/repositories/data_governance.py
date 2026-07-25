@@ -307,55 +307,182 @@ class DataGovernanceRepository:
         payload_fingerprint: str,
         quality_status: str,
         quarantine_reason: str | None,
+        quality_batch_id: str | None = None,
     ) -> dict[str, Any]:
+        try:
+            with self.connection.cursor(row_factory=dict_row) as cursor:
+                row, _replayed = self.ingest_standard_event_in_cursor(
+                    cursor,
+                    contract_id=contract_id,
+                    envelope=envelope,
+                    entity_type=entity_type,
+                    entity_id=entity_id,
+                    payload_fingerprint=payload_fingerprint,
+                    quality_status=quality_status,
+                    quarantine_reason=quarantine_reason,
+                    quality_batch_id=quality_batch_id,
+                )
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+        return self._serialize(row)
+
+    def ingest_standard_event_in_cursor(
+        self,
+        cursor: Any,
+        *,
+        contract_id: str,
+        envelope: dict[str, Any],
+        entity_type: str,
+        entity_id: str,
+        payload_fingerprint: str,
+        quality_status: str,
+        quarantine_reason: str | None,
+        quality_batch_id: str | None,
+    ) -> tuple[dict[str, Any], bool]:
+        cursor.execute(
+            """
+            SELECT * FROM standard_events
+            WHERE source_system = %s AND source_event_id = %s
+            """,
+            (envelope["source_system"], envelope["source_event_id"]),
+        )
+        existing = cursor.fetchone()
+        if existing is not None:
+            if existing["payload_fingerprint"] != payload_fingerprint:
+                raise DomainConflictError(
+                    "SOURCE_EVENT_ID_REUSED",
+                    "Source event id was reused with different content",
+                )
+            return dict(existing), True
+        cursor.execute(
+            """
+            INSERT INTO standard_events (
+                event_id, source_system, source_event_id, contract_id,
+                operation, entity_type, entity_id, event_time,
+                processing_time, payload, payload_fingerprint, tombstone,
+                quality_status, quarantine_reason, quality_batch_id
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING *
+            """,
+            (
+                envelope["event_id"],
+                envelope["source_system"],
+                envelope["source_event_id"],
+                contract_id,
+                envelope["operation"],
+                entity_type,
+                entity_id,
+                envelope["event_time"],
+                envelope["processing_time"],
+                Jsonb(envelope["payload"]),
+                payload_fingerprint,
+                envelope["tombstone"],
+                quality_status,
+                quarantine_reason,
+                quality_batch_id,
+            ),
+        )
+        return dict(cursor.fetchone()), False
+
+    def begin_quality_batch(
+        self,
+        cursor: Any,
+        *,
+        contract_id: str,
+        source_batch_id: str,
+        source_checksum: str,
+        source_watermark: datetime | None,
+    ) -> tuple[dict[str, Any], bool]:
+        cursor.execute(
+            """SELECT * FROM data_quality_batches
+               WHERE contract_id = %s AND source_batch_id = %s FOR UPDATE""",
+            (contract_id, source_batch_id),
+        )
+        existing = cursor.fetchone()
+        if existing is not None:
+            if existing["source_checksum"] != source_checksum:
+                raise DomainConflictError(
+                    "SOURCE_BATCH_ID_REUSED",
+                    "Source batch id was reused with different content",
+                )
+            return dict(existing), True
+        batch_code = self.next_batch_code(cursor)
+        cursor.execute(
+            """INSERT INTO data_quality_batches
+               (batch_code, contract_id, source_batch_id, source_checksum, source_watermark)
+               VALUES (%s, %s, %s, %s, %s) RETURNING *""",
+            (batch_code, contract_id, source_batch_id, source_checksum, source_watermark),
+        )
+        return dict(cursor.fetchone()), False
+
+    @staticmethod
+    def add_quality_violation(
+        cursor: Any,
+        *,
+        batch_id: str,
+        event_id: UUID | None,
+        rule_code: str,
+        severity: str,
+        details: dict[str, Any],
+    ) -> None:
+        cursor.execute(
+            """INSERT INTO data_quality_violations
+               (batch_id, event_id, rule_code, severity, details)
+               VALUES (%s, %s, %s, %s, %s)""",
+            (batch_id, event_id, rule_code, severity, Jsonb(details)),
+        )
+
+    def finish_quality_batch(
+        self,
+        cursor: Any,
+        *,
+        batch_id: str,
+        row_count: int,
+        accepted_count: int,
+        quarantined_count: int,
+        rejected_count: int,
+        quality_summary: dict[str, Any],
+    ) -> dict[str, Any]:
+        status = (
+            "accepted"
+            if not quarantined_count and not rejected_count
+            else "quarantined"
+            if quarantined_count and not rejected_count
+            else "rejected"
+            if rejected_count == row_count
+            else "partial_failed"
+        )
+        cursor.execute(
+            """UPDATE data_quality_batches
+               SET status = %s, row_count = %s, accepted_count = %s,
+                   quarantined_count = %s, rejected_count = %s,
+                   quality_summary = %s, validated_at = now()
+               WHERE id = %s RETURNING *""",
+            (
+                status,
+                row_count,
+                accepted_count,
+                quarantined_count,
+                rejected_count,
+                Jsonb(quality_summary),
+                batch_id,
+            ),
+        )
+        return dict(cursor.fetchone())
+
+    def list_quality_batches(self) -> list[dict[str, Any]]:
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
-                """
-                SELECT * FROM standard_events
-                WHERE source_system = %s AND source_event_id = %s
-                """,
-                (envelope["source_system"], envelope["source_event_id"]),
+                """SELECT batches.*, contracts.contract_code, contracts.revision_number AS contract_revision
+                   FROM data_quality_batches AS batches
+                   JOIN data_contracts AS contracts ON contracts.id = batches.contract_id
+                   ORDER BY batches.created_at DESC, batches.batch_code DESC"""
             )
-            existing = cursor.fetchone()
-            if existing is not None:
-                self.connection.rollback()
-                if existing["payload_fingerprint"] != payload_fingerprint:
-                    raise DomainConflictError(
-                        "SOURCE_EVENT_ID_REUSED",
-                        "Source event id was reused with different content",
-                    )
-                return self._serialize(existing)
-            cursor.execute(
-                """
-                INSERT INTO standard_events (
-                    event_id, source_system, source_event_id, contract_id,
-                    operation, entity_type, entity_id, event_time,
-                    processing_time, payload, payload_fingerprint, tombstone,
-                    quality_status, quarantine_reason
-                )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                RETURNING *
-                """,
-                (
-                    envelope["event_id"],
-                    envelope["source_system"],
-                    envelope["source_event_id"],
-                    contract_id,
-                    envelope["operation"],
-                    entity_type,
-                    entity_id,
-                    envelope["event_time"],
-                    envelope["processing_time"],
-                    Jsonb(envelope["payload"]),
-                    payload_fingerprint,
-                    envelope["tombstone"],
-                    quality_status,
-                    quarantine_reason,
-                ),
-            )
-            row = cursor.fetchone()
-        self.connection.commit()
-        return self._serialize(row)
+            rows = cursor.fetchall()
+        return [self._serialize(row) for row in rows]
 
     @staticmethod
     def _serialize(row: dict[str, Any]) -> dict[str, Any]:

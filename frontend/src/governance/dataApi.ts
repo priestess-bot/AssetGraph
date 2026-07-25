@@ -63,6 +63,24 @@ export interface DataContractConsumer {
   eventContractRefs: Array<Record<string, unknown>>;
 }
 
+export interface DataQualityBatch {
+  batchCode: string;
+  contractCode: string;
+  contractRevision: number;
+  sourceBatchId: string;
+  sourceChecksum?: string;
+  status: string;
+  rowCount: number;
+  acceptedCount: number;
+  quarantinedCount: number;
+  rejectedCount: number;
+  qualitySummary: Record<string, unknown>;
+  sourceWatermark?: string;
+  validatedAt?: string;
+  createdAt?: string;
+  replayed: boolean;
+}
+
 export interface MetricRevisionWrite {
   owner_principal: string;
   expected_revision: number;
@@ -163,6 +181,27 @@ function consumer(value: unknown): DataContractConsumer {
   };
 }
 
+function batch(value: unknown): DataQualityBatch {
+  if (!isRecord(value)) throw new Error("事件批次响应无效");
+  return {
+    batchCode: asString(value.batch_code),
+    contractCode: asString(value.contract_code),
+    contractRevision: typeof value.contract_revision === "number" ? value.contract_revision : 0,
+    sourceBatchId: asString(value.source_batch_id),
+    sourceChecksum: asOptionalString(value.source_checksum),
+    status: asString(value.status),
+    rowCount: typeof value.row_count === "number" ? value.row_count : 0,
+    acceptedCount: typeof value.accepted_count === "number" ? value.accepted_count : 0,
+    quarantinedCount: typeof value.quarantined_count === "number" ? value.quarantined_count : 0,
+    rejectedCount: typeof value.rejected_count === "number" ? value.rejected_count : 0,
+    qualitySummary: record(value.quality_summary),
+    sourceWatermark: asOptionalString(value.source_watermark),
+    validatedAt: asOptionalString(value.validated_at),
+    createdAt: asOptionalString(value.created_at),
+    replayed: value.replayed === true,
+  };
+}
+
 const ROOT = "/api/data-governance";
 
 export const dataGovernanceApi = {
@@ -173,4 +212,6 @@ export const dataGovernanceApi = {
   listContractRevisions: (contractCode: string) => requestJson<unknown[]>(`${ROOT}/contracts/${encodeURIComponent(contractCode)}/revisions`).then((items) => items.map(contract)),
   listContractConsumers: (contractCode: string) => requestJson<unknown[]>(`${ROOT}/contracts/${encodeURIComponent(contractCode)}/consumers`).then((items) => items.map(consumer)),
   createContractRevision: (contractCode: string, revision: number, payload: DataContractRevisionWrite) => postJson<unknown>(`${ROOT}/contracts/${encodeURIComponent(contractCode)}/revisions/${revision}`, payload).then(contract),
+  listQualityBatches: () => requestJson<unknown[]>(`${ROOT}/batches`).then((items) => items.map(batch)),
+  ingestEventBatch: (payload: Record<string, unknown>) => postJson<unknown>(`${ROOT}/batches`, payload).then(batch),
 };

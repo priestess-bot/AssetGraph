@@ -135,6 +135,14 @@ def test_functional_attribution_run_migration_freezes_inputs_and_keeps_descripti
     assert "idx_functional_attribution_reports_status_created" in sql
 
 
+def test_standard_event_quality_batch_migration_links_normalized_events_to_source_checksums() -> None:
+    sql = (MIGRATIONS / "070_standard_event_quality_batches.sql").read_text(encoding="utf-8")
+
+    assert "source_checksum" in sql
+    assert "quality_batch_id" in sql
+    assert "idx_standard_events_quality_batch" in sql
+
+
 def test_console_draft_migration_separates_mutable_saves_from_explicit_commands() -> None:
     sql = (MIGRATIONS / "041_console_drafts_and_explicit_commands.sql").read_text(encoding="utf-8")
 

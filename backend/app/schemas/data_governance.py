@@ -69,6 +69,45 @@ class StandardEventIngest(StrictModel):
     envelope: EventEnvelope
 
 
+class StandardEventBatchRow(StrictModel):
+    entity_type: str = Field(..., min_length=1, max_length=64)
+    entity_id: str = Field(..., min_length=1, max_length=255)
+    envelope: EventEnvelope
+
+
+class StandardEventBatchIngest(StrictModel):
+    contract_code: str = Field(..., min_length=1, max_length=80)
+    contract_revision: int = Field(..., ge=1)
+    source_batch_id: str = Field(..., min_length=1, max_length=255)
+    source_watermark: datetime | None = None
+    rows: list[StandardEventBatchRow] = Field(..., min_length=1, max_length=1000)
+
+    @model_validator(mode="after")
+    def validate_unique_source_events(self) -> "StandardEventBatchIngest":
+        source_ids = [row.envelope.source_event_id for row in self.rows]
+        if len(source_ids) != len(set(source_ids)):
+            raise ValueError("a source event id may appear at most once in one batch")
+        return self
+
+
+class DataQualityBatchRead(StrictModel):
+    batch_code: str
+    contract_code: str
+    contract_revision: int
+    source_batch_id: str
+    source_checksum: str | None = None
+    status: str
+    row_count: int
+    accepted_count: int
+    quarantined_count: int
+    rejected_count: int
+    quality_summary: dict[str, Any] = Field(default_factory=dict)
+    source_watermark: datetime | None = None
+    validated_at: datetime | None = None
+    created_at: datetime
+    replayed: bool = False
+
+
 class EvidenceAssignment(StrictModel):
     declared_level: EvidenceLevel
     method: str = Field(..., min_length=1, max_length=64)

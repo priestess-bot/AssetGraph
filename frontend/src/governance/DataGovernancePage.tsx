@@ -1,9 +1,10 @@
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Database, FileDiff, FilePlus2, UsersRound } from "lucide-react";
+import { Database, FileDiff, FilePlus2, FileUp, UsersRound } from "lucide-react";
 import { EmptyBlock, InlineNotice, LoadingBlock, SectionHeader, StatusBadge, formatDate } from "../workbench/components";
 import {
   dataGovernanceApi,
+  type DataQualityBatch,
   type DataContractRevision,
   type MetricRevision,
 } from "./dataApi";
@@ -80,6 +81,17 @@ function jsonObject(value: string, label: string): Record<string, unknown> {
   }
   if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") throw new Error(`${label} 必须是 JSON 对象`);
   return parsed as Record<string, unknown>;
+}
+
+function jsonArray(value: string, label: string): unknown[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value || "[]");
+  } catch {
+    throw new Error(`${label} 必须是 JSON 数组`);
+  }
+  if (!Array.isArray(parsed)) throw new Error(`${label} 必须是 JSON 数组`);
+  return parsed;
 }
 
 function contractRefs(value: string): Array<Record<string, unknown>> {
@@ -159,9 +171,9 @@ function contractEditor(contract?: DataContractRevision): ContractEditorValues {
 }
 
 function statusTone(status: string): "neutral" | "success" | "warning" | "danger" {
-  if (status === "active") return "success";
-  if (status === "draft") return "warning";
-  if (status === "retired" || status === "deprecated") return "danger";
+  if (status === "active" || status === "accepted") return "success";
+  if (status === "draft" || status === "validating" || status === "quarantined" || status === "partial_failed") return "warning";
+  if (status === "retired" || status === "deprecated" || status === "rejected") return "danger";
   return "neutral";
 }
 
@@ -250,8 +262,11 @@ export function DataGovernancePage() {
   const [selectedContractCode, setSelectedContractCode] = useState<string>();
   const [showMetricForm, setShowMetricForm] = useState(false);
   const [showContractForm, setShowContractForm] = useState(false);
+  const [showBatchForm, setShowBatchForm] = useState(false);
   const [metricValues, setMetricValues] = useState<MetricEditorValues>(EMPTY_METRIC);
   const [contractValues, setContractValues] = useState<ContractEditorValues>(EMPTY_CONTRACT);
+  const [sourceBatchId, setSourceBatchId] = useState("");
+  const [batchRows, setBatchRows] = useState("[]");
   const [formError, setFormError] = useState<string>();
   const metrics = useQuery({ queryKey: ["data-governance", "metrics"], queryFn: dataGovernanceApi.listMetrics });
   const contracts = useQuery({ queryKey: ["data-governance", "contracts"], queryFn: dataGovernanceApi.listContracts });
@@ -260,6 +275,7 @@ export function DataGovernancePage() {
   const metricRevisions = useQuery({ queryKey: ["data-governance", "metric-revisions", selectedMetric?.metricCode], queryFn: () => dataGovernanceApi.listMetricRevisions(selectedMetric!.metricCode), enabled: Boolean(selectedMetric) });
   const contractRevisions = useQuery({ queryKey: ["data-governance", "contract-revisions", selectedContract?.contractCode], queryFn: () => dataGovernanceApi.listContractRevisions(selectedContract!.contractCode), enabled: Boolean(selectedContract) });
   const consumers = useQuery({ queryKey: ["data-governance", "contract-consumers", selectedContract?.contractCode], queryFn: () => dataGovernanceApi.listContractConsumers(selectedContract!.contractCode), enabled: Boolean(selectedContract) });
+  const batches = useQuery({ queryKey: ["data-governance", "batches"], queryFn: dataGovernanceApi.listQualityBatches });
 
   useEffect(() => {
     if (!selectedMetricCode && metrics.data?.[0]) setSelectedMetricCode(metrics.data[0].metricCode);
@@ -296,19 +312,42 @@ export function DataGovernancePage() {
     onSuccess: (saved) => { setSelectedContractCode(saved.contractCode); setShowContractForm(false); setFormError(undefined); void client.invalidateQueries({ queryKey: ["data-governance", "contracts"] }); void client.invalidateQueries({ queryKey: ["data-governance", "contract-revisions", saved.contractCode] }); void client.invalidateQueries({ queryKey: ["data-governance", "contract-consumers", saved.contractCode] }); },
     onError: (error) => setFormError(errorMessage(error) ?? "数据契约修订未创建"),
   });
+  const batchMutation = useMutation({
+    mutationFn: () => {
+      if (!selectedContract) throw new Error("请先选择活动数据契约");
+      const sourceBatch = sourceBatchId.trim();
+      const rows = jsonArray(batchRows, "事件行");
+      if (!sourceBatch) throw new Error("来源批次 ID 不能为空");
+      if (!rows.length) throw new Error("事件行不能为空");
+      return dataGovernanceApi.ingestEventBatch({
+        contract_code: selectedContract.contractCode,
+        contract_revision: selectedContract.revisionNumber,
+        source_batch_id: sourceBatch,
+        rows,
+      });
+    },
+    onSuccess: () => {
+      setSourceBatchId("");
+      setBatchRows("[]");
+      setShowBatchForm(false);
+      setFormError(undefined);
+      void client.invalidateQueries({ queryKey: ["data-governance", "batches"] });
+    },
+    onError: (error) => setFormError(errorMessage(error) ?? "事件批次未导入"),
+  });
 
   const activeRevisions = kind === "metrics" ? metricRevisions.data : contractRevisions.data;
   const latestRevision = activeRevisions?.[0];
   const previousRevision = activeRevisions?.[1];
   const changes = useMemo(() => latestRevision && previousRevision ? changedFields(latestRevision as unknown as Record<string, unknown>, previousRevision as unknown as Record<string, unknown>) : [], [latestRevision, previousRevision]);
   const loading = metrics.isLoading || contracts.isLoading || (kind === "metrics" && metricRevisions.isLoading) || (kind === "contracts" && contractRevisions.isLoading);
-  const queryError = errorMessage(metrics.error ?? contracts.error ?? metricRevisions.error ?? contractRevisions.error ?? consumers.error);
+  const queryError = errorMessage(metrics.error ?? contracts.error ?? metricRevisions.error ?? contractRevisions.error ?? consumers.error ?? batches.error);
 
   if (loading) return <LoadingBlock label="正在读取数据治理目录" />;
   return <div className="governance-layout">
     <section className="wb-section governance-catalog">
       <SectionHeader kicker="DATA CATALOG" title="指标与契约" actions={<div className="wb-segmented" role="tablist" aria-label="数据治理目录"><button type="button" className={kind === "metrics" ? "active" : undefined} aria-selected={kind === "metrics"} onClick={() => setKind("metrics")}>指标</button><button type="button" className={kind === "contracts" ? "active" : undefined} aria-selected={kind === "contracts"} onClick={() => setKind("contracts")}>数据契约</button></div>} />
-      <div className="governance-catalog-actions"><button className="wb-button" type="button" onClick={() => { setShowMetricForm(true); setShowContractForm(false); setMetricValues(EMPTY_METRIC); setFormError(undefined); }}><FilePlus2 size={14} aria-hidden="true" />新指标</button><button className="wb-button" type="button" onClick={() => { setShowContractForm(true); setShowMetricForm(false); setContractValues(EMPTY_CONTRACT); setFormError(undefined); }}><FilePlus2 size={14} aria-hidden="true" />新契约</button></div>
+      <div className="governance-catalog-actions"><button className="wb-button" type="button" onClick={() => { setShowMetricForm(true); setShowContractForm(false); setShowBatchForm(false); setMetricValues(EMPTY_METRIC); setFormError(undefined); }}><FilePlus2 size={14} aria-hidden="true" />新指标</button><button className="wb-button" type="button" onClick={() => { setShowContractForm(true); setShowMetricForm(false); setShowBatchForm(false); setContractValues(EMPTY_CONTRACT); setFormError(undefined); }}><FilePlus2 size={14} aria-hidden="true" />新契约</button>{kind === "contracts" ? <button className="wb-button" type="button" disabled={!selectedContract} onClick={() => { setShowBatchForm(true); setShowMetricForm(false); setShowContractForm(false); setFormError(undefined); }}><FileUp size={14} aria-hidden="true" />导入事件</button> : null}</div>
       <div className="governance-catalog-list">
         {kind === "metrics" ? metrics.data?.map((item) => <button type="button" key={item.metricCode} className={selectedMetric?.metricCode === item.metricCode ? "active" : undefined} onClick={() => { setSelectedMetricCode(item.metricCode); setShowMetricForm(false); }}><span><strong>{item.name}</strong><code>{item.metricCode} · r{item.revisionNumber}</code><small>{item.grain} · {item.unit}</small></span><StatusBadge label={item.status} tone={statusTone(item.status)} /></button>) : contracts.data?.map((item) => <button type="button" key={item.contractCode} className={selectedContract?.contractCode === item.contractCode ? "active" : undefined} onClick={() => { setSelectedContractCode(item.contractCode); setShowContractForm(false); }}><span><strong>{item.contractCode}</strong><code>{item.schemaVersion} · r{item.revisionNumber}</code><small>{item.sourceSystem}</small></span><StatusBadge label={item.status} tone={statusTone(item.status)} /></button>)}
         {kind === "metrics" && !metrics.data?.length ? <EmptyBlock icon={Database} title="尚无指标定义" detail="创建第一个可版本化的指标定义。" /> : null}
@@ -320,12 +359,30 @@ export function DataGovernancePage() {
       {queryError ? <InlineNotice tone="danger" title="目录读取失败">{queryError}</InlineNotice> : null}
       {showMetricForm ? <div className="governance-form-panel"><h3>{metricValues.expectedRevision ? `创建 ${metricValues.code} 的新修订` : "创建指标定义"}</h3><MetricForm values={metricValues} setValues={setMetricValues} pending={metricMutation.isPending} onSubmit={() => { setFormError(undefined); metricMutation.mutate(); }} /></div> : null}
       {showContractForm ? <div className="governance-form-panel"><h3>{contractValues.revision === "1" ? "创建数据契约" : `创建 ${contractValues.code} 的新修订`}</h3><ContractForm values={contractValues} setValues={setContractValues} pending={contractMutation.isPending} onSubmit={() => { setFormError(undefined); contractMutation.mutate(); }} /></div> : null}
+      {showBatchForm && selectedContract ? <div className="governance-form-panel"><h3>导入 {selectedContract.contractCode} r{selectedContract.revisionNumber} 事件批次</h3><BatchImportForm sourceBatchId={sourceBatchId} rows={batchRows} pending={batchMutation.isPending} onSourceBatchIdChange={setSourceBatchId} onRowsChange={setBatchRows} onSubmit={() => { setFormError(undefined); batchMutation.mutate(); }} /></div> : null}
       {formError ? <InlineNotice tone="danger" title="修订未创建">{formError}</InlineNotice> : null}
-      {!showMetricForm && !showContractForm && kind === "metrics" && selectedMetric ? <MetricDetail metric={selectedMetric} revisions={metricRevisions.data ?? []} changes={changes} /> : null}
-      {!showMetricForm && !showContractForm && kind === "contracts" && selectedContract ? <ContractDetail contract={selectedContract} revisions={contractRevisions.data ?? []} consumers={consumers.data ?? []} changes={changes} /> : null}
-      {!showMetricForm && !showContractForm && !(kind === "metrics" ? selectedMetric : selectedContract) ? <EmptyBlock icon={Database} title="选择或创建目录项" /> : null}
+      {!showMetricForm && !showContractForm && !showBatchForm && kind === "metrics" && selectedMetric ? <MetricDetail metric={selectedMetric} revisions={metricRevisions.data ?? []} changes={changes} /> : null}
+      {!showMetricForm && !showContractForm && !showBatchForm && kind === "contracts" && selectedContract ? <><ContractDetail contract={selectedContract} revisions={contractRevisions.data ?? []} consumers={consumers.data ?? []} changes={changes} /><BatchHistory batches={(batches.data ?? []).filter((batch) => batch.contractCode === selectedContract.contractCode && batch.contractRevision === selectedContract.revisionNumber)} /></> : null}
+      {!showMetricForm && !showContractForm && !showBatchForm && !(kind === "metrics" ? selectedMetric : selectedContract) ? <EmptyBlock icon={Database} title="选择或创建目录项" /> : null}
     </section>
   </div>;
+}
+
+function BatchImportForm({ sourceBatchId, rows, pending, onSourceBatchIdChange, onRowsChange, onSubmit }: { sourceBatchId: string; rows: string; pending: boolean; onSourceBatchIdChange: (value: string) => void; onRowsChange: (value: string) => void; onSubmit: () => void }) {
+  return <form className="governance-form" onSubmit={(event: FormEvent) => { event.preventDefault(); onSubmit(); }}>
+    <div className="governance-form-grid">
+      <label className="wb-field"><span>来源批次 ID</span><input className="wb-input" value={sourceBatchId} onChange={(event) => onSourceBatchIdChange(event.target.value)} required /></label>
+      <label className="wb-field wide"><span>事件行 JSON</span><textarea className="wb-textarea" value={rows} onChange={(event) => onRowsChange(event.target.value)} required /></label>
+    </div>
+    <div className="wb-form-actions"><button className="wb-button wb-button-primary" disabled={pending}><FileUp size={15} aria-hidden="true" />导入批次</button></div>
+  </form>;
+}
+
+function BatchHistory({ batches }: { batches: DataQualityBatch[] }) {
+  return <section className="governance-consumers">
+    <header><FileUp size={15} aria-hidden="true" /><strong>事件批次</strong></header>
+    {batches.length ? <ul>{batches.map((batch) => <li key={batch.batchCode}><span><strong>{batch.sourceBatchId}</strong><code>{batch.batchCode} · {batch.sourceChecksum?.slice(0, 12) ?? "历史批次"}</code><small>行 {batch.rowCount} · 接受 {batch.acceptedCount} · 隔离 {batch.quarantinedCount} · 拒绝 {batch.rejectedCount}{batch.replayed ? " · 重放" : ""}</small>{Object.keys(batch.qualitySummary).length ? <small>{JSON.stringify(batch.qualitySummary)}</small> : null}</span><StatusBadge label={batch.status} tone={statusTone(batch.status)} /></li>)}</ul> : <span>尚未导入此契约修订的事件批次。</span>}
+  </section>;
 }
 
 function MetricDetail({ metric, revisions, changes }: { metric: MetricRevision; revisions: MetricRevision[]; changes: string[] }) {

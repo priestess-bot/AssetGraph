@@ -15,6 +15,7 @@ from app.schemas.data_governance import (
     DataContractDefinition,
     EvidenceAssignment,
     MetricRevisionDefinition,
+    StandardEventBatchIngest,
     StandardEventIngest,
 )
 from app.services.data_governance import DataGovernanceService, validate_evidence_assignment
@@ -198,6 +199,78 @@ def test_unknown_schema_and_invalid_payload_fail_closed_without_zero_filling() -
                 payload={},
                 tombstone=False,
             )
+
+
+def test_event_batches_seal_a_checksum_and_isolate_rejected_rows() -> None:
+    suffix = uuid4().hex
+    contract_code = f"batch-contract-{suffix}"
+    now = datetime.now(UTC).replace(microsecond=0)
+    with psycopg.connect(DATABASE_URL) as connection:
+        service = DataGovernanceService(DataGovernanceRepository(connection))
+        service.put_contract(
+            contract_code=contract_code,
+            revision_number=1,
+            owner_principal="data-owner",
+            definition=_contract(),
+            activate=True,
+        )
+        accepted = _event(
+            f"accepted-{suffix}", event_time=now, processing_time=now
+        ).model_copy(update={"contract_code": contract_code})
+        late = _event(
+            f"late-{suffix}",
+            event_time=now - timedelta(hours=2),
+            processing_time=now,
+        ).model_copy(update={"contract_code": contract_code})
+        invalid = _event(
+            f"invalid-{suffix}",
+            event_time=now,
+            processing_time=now,
+            payload={"order_id": f"invalid-{suffix}", "amount": 1, "extra": True},
+        ).model_copy(update={"contract_code": contract_code})
+        request = StandardEventBatchIngest(
+            contract_code=contract_code,
+            contract_revision=1,
+            source_batch_id=f"export-{suffix}",
+            rows=[
+                {
+                    "entity_type": accepted.entity_type,
+                    "entity_id": accepted.entity_id,
+                    "envelope": accepted.envelope,
+                },
+                {
+                    "entity_type": late.entity_type,
+                    "entity_id": late.entity_id,
+                    "envelope": late.envelope,
+                },
+                {
+                    "entity_type": invalid.entity_type,
+                    "entity_id": invalid.entity_id,
+                    "envelope": invalid.envelope,
+                },
+            ],
+        )
+
+        batch = service.ingest_event_batch(request)
+        replay = service.ingest_event_batch(request)
+
+        assert batch["status"] == "partial_failed"
+        assert batch["accepted_count"] == 1
+        assert batch["quarantined_count"] == 1
+        assert batch["rejected_count"] == 1
+        assert batch["source_checksum"]
+        assert replay["batch_code"] == batch["batch_code"]
+        assert replay["replayed"] is True
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT count(*) FROM standard_events WHERE quality_batch_id IS NOT NULL"
+            )
+            assert cursor.fetchone()[0] >= 2
+            cursor.execute(
+                "SELECT count(*) FROM data_quality_violations WHERE batch_id = %s",
+                (batch["id"],),
+            )
+            assert cursor.fetchone()[0] == 2
 
 
 def test_metric_revisions_require_expected_revision_and_active_rows_are_immutable() -> None:

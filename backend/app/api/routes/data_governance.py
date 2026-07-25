@@ -12,8 +12,10 @@ from app.schemas.data_governance import (
     DataContractConsumerRead,
     DataContractRead,
     DataContractRevisionWrite,
+    DataQualityBatchRead,
     MetricRevisionRead,
     MetricRevisionWrite,
+    StandardEventBatchIngest,
 )
 from app.services.data_governance import DataGovernanceService
 
@@ -113,3 +115,22 @@ def create_contract_revision(
         definition=payload.definition,
         activate=payload.activate,
     )
+
+
+@router.get("/batches", response_model=list[DataQualityBatchRead])
+def list_quality_batches(
+    instance: Annotated[DataGovernanceService, Depends(get_service)],
+) -> list[dict]:
+    return instance.list_quality_batches()
+
+
+@router.post(
+    "/batches",
+    response_model=DataQualityBatchRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def ingest_event_batch(
+    payload: StandardEventBatchIngest,
+    instance: Annotated[DataGovernanceService, Depends(get_service)],
+) -> dict:
+    return write(instance.ingest_event_batch, payload)

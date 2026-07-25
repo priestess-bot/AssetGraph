@@ -272,6 +272,7 @@ def test_migration_discovery_is_contiguous() -> None:
                 "functional_video_release_candidates.sql",
                 "video_render_manifest_artifact.sql",
                 "functional_attribution_report_runs.sql",
+                "standard_event_quality_batches.sql",
             ],
             start=1,
         )

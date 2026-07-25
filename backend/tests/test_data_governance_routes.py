@@ -108,6 +108,35 @@ class FakeDataGovernanceService:
         self.contract_write = kwargs
         return _contract(revision=kwargs["revision_number"])
 
+    def list_quality_batches(self) -> list[dict[str, Any]]:
+        return [self._batch()]
+
+    def ingest_event_batch(self, payload: Any) -> dict[str, Any]:
+        result = self._batch()
+        result["source_batch_id"] = payload.source_batch_id
+        result["row_count"] = len(payload.rows)
+        return result
+
+    @staticmethod
+    def _batch() -> dict[str, Any]:
+        return {
+            "batch_code": "DQB-20260725-000001",
+            "contract_code": "commerce-orders",
+            "contract_revision": 1,
+            "source_batch_id": "export-001",
+            "source_checksum": "c" * 64,
+            "status": "accepted",
+            "row_count": 1,
+            "accepted_count": 1,
+            "quarantined_count": 0,
+            "rejected_count": 0,
+            "quality_summary": {},
+            "source_watermark": NOW,
+            "validated_at": NOW,
+            "created_at": NOW,
+            "replayed": False,
+        }
+
 
 @pytest.fixture
 def client() -> tuple[TestClient, FakeDataGovernanceService]:
@@ -139,6 +168,30 @@ def _metric_write() -> dict[str, Any]:
             "schema_compatibility": {"minimum": "commerce-event.v1"},
             "quality_slo": {"completeness": 0.99},
         },
+    }
+
+
+def _batch_write() -> dict[str, Any]:
+    return {
+        "contract_code": "commerce-orders",
+        "contract_revision": 1,
+        "source_batch_id": "export-20260725-001",
+        "rows": [
+            {
+                "entity_type": "live_session",
+                "entity_id": "OPS-001",
+                "envelope": {
+                    "event_id": "4b6d5675-7a11-4628-82e0-8b7c60d934c5",
+                    "source_system": "commerce-platform",
+                    "source_event_id": "order-001",
+                    "schema_version": "commerce-event.v1",
+                    "operation": "upsert",
+                    "event_time": "2026-07-25T00:00:00Z",
+                    "processing_time": "2026-07-25T00:01:00Z",
+                    "payload": {"order_id": "order-001"},
+                },
+            }
+        ],
     }
 
 
@@ -195,3 +248,18 @@ def test_catalog_write_routes_delegate_typed_new_revisions(
     assert contract.json()["revision_number"] == 2
     assert service.contract_write is not None
     assert service.contract_write["definition"].schema_version == "commerce-event.v1"
+
+
+def test_quality_batch_routes_list_and_delegate_typed_event_rows(
+    client: tuple[TestClient, FakeDataGovernanceService],
+) -> None:
+    test_client, _service = client
+
+    listed = test_client.get("/api/data-governance/batches")
+    created = test_client.post("/api/data-governance/batches", json=_batch_write())
+
+    assert listed.status_code == 200
+    assert listed.json()[0]["batch_code"] == "DQB-20260725-000001"
+    assert created.status_code == 201
+    assert created.json()["source_batch_id"] == "export-20260725-001"
+    assert created.json()["row_count"] == 1
