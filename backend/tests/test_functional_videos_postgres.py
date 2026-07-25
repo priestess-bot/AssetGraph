@@ -169,6 +169,9 @@ def test_functional_video_plan_freezes_selected_local_library_videos() -> None:
 
         assert plan["render_profile"]["visual_asset_mode"] == "asset_library_local_video_assets"
         assert plan["render_profile"]["visual_asset_codes"] == [asset["asset_code"]]
+        assert plan["render_profile"]["visual_assets"] == [
+            {"asset_code": asset["asset_code"], "checksum_sha256": "a" * 64}
+        ]
         assert {clip["source_range"]["asset_code"] for clip in plan["production_timeline"]["tracks"][0]["clips"]} == {
             asset["asset_code"]
         }

@@ -20,7 +20,7 @@ const plan = {
       { clip_code: "SUBTITLE-SHOT-02", linked_shot_code: "SHOT-02", timeline_range: { start_ms: 30_000, duration_ms: 30_000 }, subtitle_text: "第二段字幕", headline_text: "第二段标题" },
     ] },
   ] },
-  render_profile: { canvas: { width: 1080, height: 1920, fps: 30 } }, job_status: "queued", current_stage: "asset_selection", progress_percent: 37, error_message: null,
+  render_profile: { canvas: { width: 1080, height: 1920, fps: 30 }, visual_assets: [{ asset_code: "AG-VID-000001", checksum_sha256: "a".repeat(64) }] }, job_status: "queued", current_stage: "asset_selection", progress_percent: 37, error_message: null,
   workflow_stages: [{ stage_name: "asset_selection", stage_order: 4, status: "succeeded", attempt: 1 }, { stage_name: "quality_check", stage_order: 8, status: "pending", attempt: 1 }], quality_report: { passed: true, checks: { video_stream: true, subtitle_text_complete: true }, media: { duration_seconds: 55, width: 1080, height: 1920, video_codec: "h264", audio_codec: "aac", audio_sample_rate: 48000 }, loudness: { integrated_lufs: -16.2, true_peak_db: -1.4, lra: 4.1 }, black_segments: [{ start_seconds: 2, end_seconds: 2.4, duration_seconds: .4 }], silence_segments: [], freeze_segments: [] }, artifacts: [{ artifact_key: "poster", download_url: "/files/poster.jpg", mime_type: "image/jpeg" }], created_at: "2026-07-25T00:00:00Z", updated_at: "2026-07-25T00:00:00Z",
 };
 
@@ -54,6 +54,7 @@ describe("VideoProductionPage", () => {
     expect(screen.getByText("-16.2 LUFS · 峰值 -1.4 dB")).toBeInTheDocument();
     expect(screen.getByText("黑帧")).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "成片海报" })).toHaveAttribute("src", "/files/poster.jpg");
+    expect(screen.getByText("AG-VID-000001 · aaaaaaaaaaaa")).toBeInTheDocument();
     expect(await screen.findByText("修订历史")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "上移 SHOT-02" }));
     await user.clear(screen.getByRole("spinbutton", { name: "素材入点 SHOT-02" }));

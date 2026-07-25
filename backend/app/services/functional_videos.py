@@ -79,6 +79,13 @@ class FunctionalVideoService:
             "subtitle": "ass", "audio": "local_tts",
             "visual_asset_mode": "asset_library_local_video_assets" if visual_assets else "baseline_verified_video_assets",
             "visual_asset_codes": [asset["asset_code"] for asset in visual_assets],
+            "visual_assets": [
+                {
+                    "asset_code": asset["asset_code"],
+                    "checksum_sha256": asset["checksum_sha256"],
+                }
+                for asset in visual_assets
+            ],
             "target_duration_seconds": duration,
             "source_live_room_plan_code": detail.get("source_live_room_plan_code"),
         }

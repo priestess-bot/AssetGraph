@@ -1101,6 +1101,16 @@ function Detail({
         <div className="video-progress">
           <i style={{ width: `${plan.progressPercent}%` }} />
         </div>
+        {plan.renderProfile.visualAssets?.length ? (
+          <div className="video-frozen-assets">
+            <span>冻结视觉素材</span>
+            {plan.renderProfile.visualAssets.map((asset) => (
+              <code key={asset.assetCode}>
+                {asset.assetCode} · {asset.checksumSha256.slice(0, 12)}
+              </code>
+            ))}
+          </div>
+        ) : null}
         {plan.errorMessage ? (
           <InlineNotice tone="danger" title="渲染任务失败">
             {plan.errorMessage}

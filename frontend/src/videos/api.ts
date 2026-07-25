@@ -48,6 +48,7 @@ export interface FunctionalVideoPlan {
   };
   renderProfile: {
     visual_asset_mode?: string;
+    visualAssets?: Array<{ assetCode: string; checksumSha256: string }>;
     target_duration_seconds?: number;
     canvas?: { width: number; height: number; fps: number };
   };
@@ -293,6 +294,11 @@ function plan(value: unknown): FunctionalVideoPlan {
     productionTimeline: productionTimeline(value.production_timeline),
     renderProfile: {
       visual_asset_mode: asOptionalString(profile.visual_asset_mode),
+      visualAssets: asArray(profile.visual_assets).flatMap((asset) =>
+        isRecord(asset) && asString(asset.asset_code) && asString(asset.checksum_sha256)
+          ? [{ assetCode: asString(asset.asset_code), checksumSha256: asString(asset.checksum_sha256) }]
+          : [],
+      ),
       target_duration_seconds:
         typeof profile.target_duration_seconds === "number"
           ? profile.target_duration_seconds
