@@ -1,3 +1,6 @@
+import pytest
+
+from app.domain.errors import DomainValidationError
 from app.services.functional_content import FunctionalContentService
 
 
@@ -44,6 +47,81 @@ def test_pinned_content_rules_extend_frozen_story_and_shot_constraints() -> None
     assert story["must_avoid"] == ["手工禁用表达", "不得承诺未核验价格"]
     assert shots[0]["must_include"] == story["must_include"]
     assert shots[0]["must_avoid"] == story["must_avoid"]
+
+
+def test_literal_content_rules_are_compiled_and_checked_in_script_blocks() -> None:
+    content = {
+        "content_rule_refs": [
+            {
+                "rule_code": "RULE-INCLUDE",
+                "directive": "must_include",
+                "rule_text": "请先说明适用范围。",
+            },
+            {
+                "rule_code": "RULE-BAN",
+                "directive": "must_avoid",
+                "rule_text": "保证最低价",
+            },
+            {"rule_code": "RULE-GUIDANCE", "directive": "guidance", "rule_text": "保持简洁"},
+        ]
+    }
+
+    blocks = FunctionalContentService._script_blocks("帮助观众选择", content, [])
+
+    assert blocks[-2] == {
+        "module_type": "content_rule",
+        "content": "请先说明适用范围。",
+        "estimated_duration_ms": 15_000,
+        "template_sources": [],
+        "content_rule_refs": [
+            {
+                "rule_code": "RULE-INCLUDE",
+                "rule_kind": None,
+                "directive": "must_include",
+                "rule_text": "请先说明适用范围。",
+                "fingerprint_sha256": None,
+            }
+        ],
+    }
+    FunctionalContentService._validate_literal_content_rules(blocks, content)
+    assert FunctionalContentService._attach_literal_content_rule_refs(blocks, content)[-2]["content_rule_refs"] == [
+        {
+            "rule_code": "RULE-INCLUDE",
+            "rule_kind": None,
+            "directive": "must_include",
+            "rule_text": "请先说明适用范围。",
+            "fingerprint_sha256": None,
+        }
+    ]
+
+    with pytest.raises(DomainValidationError, match="forbids literal text") as exc_info:
+        FunctionalContentService._validate_literal_content_rules(
+            [{"module_type": "opening", "content": "现在保证最低价"}], content
+        )
+
+    assert exc_info.value.code == "CONTENT_RULE_BANNED_TEXT"
+    assert exc_info.value.details == {
+        "rules": [{"rule_code": "RULE-BAN", "rule_text": "保证最低价"}]
+    }
+
+
+def test_literal_content_rules_reject_missing_required_text_in_human_script() -> None:
+    content = {
+        "content_rule_refs": [
+            {
+                "rule_code": "RULE-INCLUDE",
+                "directive": "must_include",
+                "rule_text": "请先说明适用范围。",
+            }
+        ]
+    }
+
+    with pytest.raises(DomainValidationError, match="requires literal text") as exc_info:
+        FunctionalContentService._validate_literal_content_rules(
+            [{"module_type": "opening", "content": "今天介绍产品。"}], content
+        )
+
+    assert exc_info.value.code == "CONTENT_RULE_REQUIRED_TEXT_MISSING"
 
 
 def test_selected_content_strategy_policy_reaches_script_and_program_actions() -> None:

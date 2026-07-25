@@ -199,6 +199,7 @@ class ScriptBlockRevisionInput(BaseModel):
     estimated_duration_ms: int | None = Field(default=None, ge=0, le=3_600_000)
     fact_citations: list[dict[str, Any]] = Field(default_factory=list, max_length=50)
     template_sources: list[dict[str, Any]] = Field(default_factory=list, max_length=50)
+    content_rule_refs: list[dict[str, Any]] = Field(default_factory=list, max_length=50)
     interaction_intent: dict[str, Any] = Field(default_factory=dict)
     cta_intent: dict[str, Any] = Field(default_factory=dict)
 

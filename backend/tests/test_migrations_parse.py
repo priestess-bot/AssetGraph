@@ -306,6 +306,15 @@ def test_claim_citation_offset_migration_preserves_historical_nulls() -> None:
     assert "chk_functional_knowledge_claim_citation_offsets" in sql
 
 
+def test_script_block_rule_reference_migration_preserves_frozen_rule_evidence() -> None:
+    migration = MIGRATIONS_DIR / "094_content_script_block_rule_refs.sql"
+
+    assert migration.exists()
+    sql = migration.read_text(encoding="utf-8")
+    assert "content_rule_refs JSONB" in sql
+    assert "chk_content_script_block_content_rule_refs" in sql
+
+
 def test_constraint_profile_promotion_migration_keeps_room_override_provenance() -> None:
     migration = MIGRATIONS_DIR / "081_constraint_profile_promotion_provenance.sql"
 

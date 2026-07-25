@@ -243,6 +243,7 @@ class ContentProductionRepository:
                     "product_ref": block.get("product_ref"),
                     "fact_citations": block.get("fact_citations") or [],
                     "template_sources": block.get("template_sources") or [],
+                    "content_rule_refs": block.get("content_rule_refs") or [],
                     "interaction_intent": block.get("interaction_intent") or {},
                     "cta_intent": block.get("cta_intent") or {},
                 }
@@ -252,8 +253,8 @@ class ContentProductionRepository:
                     INSERT INTO content_script_blocks (
                         block_code, script_revision_id, sort_order, module_type,
                         content, estimated_duration_ms, product_ref, fact_citations,
-                        template_sources, fingerprint_sha256, interaction_intent, cta_intent
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        template_sources, content_rule_refs, fingerprint_sha256, interaction_intent, cta_intent
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING *
                     """,
                     (
@@ -266,6 +267,7 @@ class ContentProductionRepository:
                         block_payload["product_ref"],
                         Jsonb(block_payload["fact_citations"]),
                         Jsonb(block_payload["template_sources"]),
+                        Jsonb(block_payload["content_rule_refs"]),
                         canonical_fingerprint(block_payload),
                         Jsonb(block_payload["interaction_intent"]),
                         Jsonb(block_payload["cta_intent"]),

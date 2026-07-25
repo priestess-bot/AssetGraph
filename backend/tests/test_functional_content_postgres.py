@@ -349,6 +349,51 @@ def test_content_project_pins_approved_content_rules_into_story_and_shots() -> N
         assert "Do not promise a price unless it has been approved." in generated["shot_list"]["shots"][0]["must_avoid"]
 
 
+def test_generated_script_persists_literal_required_rule_references() -> None:
+    with psycopg.connect(DATABASE_URL) as connection:
+        knowledge = FunctionalKnowledgeService(connection)
+        rule = knowledge.create_content_rule(
+            {
+                "rule_kind": "content_guidance",
+                "directive": "must_include",
+                "title": "State the applicability boundary",
+                "rule_text": "Please state the applicable audience.",
+                "created_by": "test-author",
+            }
+        )
+        knowledge.approve_content_rule(rule["rule_code"], "test-reviewer")
+
+        content = FunctionalContentService(connection)
+        project = content.create_project(
+            {
+                "title": f"Required rule project {uuid4().hex}",
+                "generation_goal": "Explain a product choice with an explicit audience boundary.",
+                "content_rule_codes": [rule["rule_code"]],
+            },
+            actor_id="test-operator",
+        )
+        content.confirm_project(project["project_code"], expected_revision=1, actor_id="test-operator")
+        content.parse_design_brief(project["project_code"], expected_revision=1, raw_input="Use approved content rules.", actor_id="test-operator")
+        content.confirm_design_brief(project["project_code"], expected_revision=1, actor_id="test-operator")
+        generated = content.generate_chain(project["project_code"], actor_id="test-operator")
+
+        rule_block = next(
+            block
+            for block in generated["script"]["blocks"]
+            if block["module_type"] == "content_rule"
+        )
+        assert rule_block["content"] == "Please state the applicable audience."
+        assert rule_block["content_rule_refs"] == [
+            {
+                "rule_code": rule["rule_code"],
+                "rule_kind": "content_guidance",
+                "directive": "must_include",
+                "rule_text": "Please state the applicable audience.",
+                "fingerprint_sha256": rule["fingerprint_sha256"],
+            }
+        ]
+
+
 def test_content_project_update_requires_current_revision() -> None:
     with psycopg.connect(DATABASE_URL) as connection:
         service = FunctionalContentService(connection)

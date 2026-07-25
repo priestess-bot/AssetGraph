@@ -175,13 +175,14 @@ describe("content projects api", () => {
     const fetchMock = vi.fn().mockResolvedValue(response({
       project_code: "CONTENT-001", title: "选酒直播", revision_number: 1, status: "confirmed", generation_goal: "帮助观众选酒",
       updated_at: "2026-07-25T00:00:00Z", content: {}, generated: true,
-      script: { script_revision_code: "SCRIPT-001", revision_number: 1, title: "脚本", blocks: [{ block_code: "BLOCK-1", module_type: "product_fact", content: "库存充足。", fact_citations: [{ fact_card_code: "FACT-001", version_number: 1, claim_text: "库存充足", start_offset: 0, end_offset: 4 }], template_sources: [] }] },
+      script: { script_revision_code: "SCRIPT-001", revision_number: 1, title: "脚本", blocks: [{ block_code: "BLOCK-1", module_type: "product_fact", content: "库存充足。", fact_citations: [{ fact_card_code: "FACT-001", version_number: 1, claim_text: "库存充足", start_offset: 0, end_offset: 4 }], template_sources: [], content_rule_refs: [{ rule_code: "RULE-001", rule_kind: "compliance_rule", directive: "must_include", rule_text: "请说明适用范围。", fingerprint_sha256: "b".repeat(64) }] }] },
     }));
     vi.stubGlobal("fetch", fetchMock);
 
     const detail = await contentProjectsApi.get("CONTENT-001");
 
     expect(detail.script?.blocks[0]?.fact_citations[0]).toMatchObject({ start_offset: 0, end_offset: 4 });
+    expect(detail.script?.blocks[0]?.contentRuleRefs).toEqual([{ ruleCode: "RULE-001", ruleKind: "compliance_rule", directive: "must_include", ruleText: "请说明适用范围。", fingerprintSha256: "b".repeat(64) }]);
   });
 
   it("explains mismatched fact-card scope and product metadata before confirmation", () => {

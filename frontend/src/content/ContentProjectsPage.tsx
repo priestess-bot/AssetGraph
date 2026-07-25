@@ -200,6 +200,7 @@ function newScriptBlockDraft(): ScriptBlockDraft {
     estimated_duration_ms: 30_000,
     fact_citations: [],
     template_sources: [],
+    contentRuleRefs: [],
     interaction_intent: {},
     cta_intent: {},
   };
@@ -3320,9 +3321,12 @@ function Chain({
                       {block.fact_citations.length
                         ? ` · 事实：${block.fact_citations.map((citation) => citation.claim_code ?? `${citation.fact_card_code} v${citation.version_number}`).join("、")}`
                         : ""}
-                      {block.template_sources.length
-                        ? ` · 模板：${block.template_sources.map((source) => `${source.template_code} r${source.revision}`).join("、")}`
-                        : ""}
+                    {block.template_sources.length
+                      ? ` · 模板：${block.template_sources.map((source) => `${source.template_code} r${source.revision}`).join("、")}`
+                      : ""}
+                    {block.contentRuleRefs.length
+                      ? ` · 规则：${block.contentRuleRefs.map((rule) => `${rule.ruleCode} ${rule.directive}`).join("、")}`
+                      : ""}
                       {block.template_sources.flatMap((source) => source.moduleGuidance).length
                         ? ` · 配方：${block.template_sources.flatMap((source) => source.moduleGuidance).join("；")}`
                         : ""}

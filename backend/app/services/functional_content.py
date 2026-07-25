@@ -390,6 +390,8 @@ class FunctionalContentService:
             raise DomainConflictError("CONTENT_PROJECT_CONFIRM_REQUIRED", "Confirm the content project before revising its script")
         content = dict(current["content"] or {})
         self._pin_fact_cards(content, require_existing_pins=True)
+        self._pin_fact_claims(content, require_existing_pins=True)
+        self._pin_content_rules(content, require_existing_pins=True)
         self._pin_template_refs(content, require_existing_pins=True)
         design_brief = self._confirmed_design_brief(current["project_id"], expected_revision)
         if design_brief is None:
@@ -412,7 +414,9 @@ class FunctionalContentService:
         if story is None:
             raise KeyError(f"{project_code}@{expected_revision}:story_brief")
         approved_facts = self._generation_context(current, design_brief, content)["approved_facts"]
+        blocks = self._attach_literal_content_rule_refs(blocks, content)
         self._validate_fact_citations(blocks, approved_facts)
+        self._validate_literal_content_rules(blocks, content)
         script_draft = self.production.create_script_revision(
             story_brief_code=story["story_brief_code"],
             story_brief_revision=int(story["revision_number"]),
@@ -832,7 +836,9 @@ class FunctionalContentService:
             story["story_brief_code"], revision_number=int(story["revision_number"]), actor_id=actor_id
         )
         blocks = self._script_blocks(current["generation_goal"], content, generation_context["approved_facts"])
+        blocks = self._attach_literal_content_rule_refs(blocks, content)
         self._validate_fact_citations(blocks, generation_context["approved_facts"])
+        self._validate_literal_content_rules(blocks, content)
         script_draft = self.production.create_script_revision(
             story_brief_code=story["story_brief_code"],
             story_brief_revision=int(story["revision_number"]),
@@ -1755,6 +1761,73 @@ class FunctionalContentService:
                     details={"module_type": block.get("module_type")},
                 )
 
+    @staticmethod
+    def _validate_literal_content_rules(blocks: list[dict[str, Any]], content: dict[str, Any]) -> None:
+        """Enforce only exact text directives from pinned content rules.
+
+        This is deliberately a bounded compiler check. It does not infer
+        paraphrases, regulatory meaning, or approval of a human exception.
+        """
+        script_text = "\n".join(str(block.get("content") or "") for block in blocks).casefold()
+        missing: list[dict[str, str]] = []
+        forbidden: list[dict[str, str]] = []
+        for ref in content.get("content_rule_refs") or []:
+            if not isinstance(ref, dict):
+                continue
+            directive = str(ref.get("directive") or "").strip()
+            rule_text = str(ref.get("rule_text") or "").strip()
+            if directive not in {"must_include", "must_avoid"} or not rule_text:
+                continue
+            rule = {
+                "rule_code": str(ref.get("rule_code") or ""),
+                "rule_text": rule_text,
+            }
+            if directive == "must_include" and rule_text.casefold() not in script_text:
+                missing.append(rule)
+            if directive == "must_avoid" and rule_text.casefold() in script_text:
+                forbidden.append(rule)
+        if forbidden:
+            raise DomainValidationError(
+                "CONTENT_RULE_BANNED_TEXT",
+                "A pinned content rule forbids literal text in the script",
+                details={"rules": forbidden},
+            )
+        if missing:
+            raise DomainValidationError(
+                "CONTENT_RULE_REQUIRED_TEXT_MISSING",
+                "A pinned content rule requires literal text in the script",
+                details={"rules": missing},
+            )
+
+    @staticmethod
+    def _attach_literal_content_rule_refs(
+        blocks: list[dict[str, Any]], content: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        """Attach frozen must-include evidence to the ScriptBlock that contains it."""
+        attached: list[dict[str, Any]] = []
+        for block in blocks:
+            block_payload = dict(block)
+            text = str(block_payload.get("content") or "").casefold()
+            refs: list[dict[str, Any]] = []
+            for ref in content.get("content_rule_refs") or []:
+                if not isinstance(ref, dict) or ref.get("directive") != "must_include":
+                    continue
+                rule_text = str(ref.get("rule_text") or "").strip()
+                if not rule_text or rule_text.casefold() not in text:
+                    continue
+                refs.append(
+                    {
+                        "rule_code": ref.get("rule_code"),
+                        "rule_kind": ref.get("rule_kind"),
+                        "directive": "must_include",
+                        "rule_text": rule_text,
+                        "fingerprint_sha256": ref.get("fingerprint_sha256"),
+                    }
+                )
+            block_payload["content_rule_refs"] = refs
+            attached.append(block_payload)
+        return attached
+
     def _current_project_revision(self, table: str, project_id: str) -> int:
         allowed = {"content_script_revisions", "content_program_revisions", "shot_list_revisions"}
         if table not in allowed:
@@ -1978,6 +2051,35 @@ class FunctionalContentService:
             )
             return {"type": "template_interaction", "policy": policy} if policy else {}
 
+        required_rule_blocks: list[dict[str, Any]] = []
+        required_rule_refs: dict[str, list[dict[str, Any]]] = {}
+        for ref in content.get("content_rule_refs") or []:
+            if not isinstance(ref, dict) or ref.get("directive") != "must_include":
+                continue
+            rule_text = str(ref.get("rule_text") or "").strip()
+            if not rule_text:
+                continue
+            frozen_ref = {
+                "rule_code": ref.get("rule_code"),
+                "rule_kind": ref.get("rule_kind"),
+                "directive": "must_include",
+                "rule_text": rule_text,
+                "fingerprint_sha256": ref.get("fingerprint_sha256"),
+            }
+            refs = required_rule_refs.setdefault(rule_text, [])
+            if frozen_ref not in refs:
+                refs.append(frozen_ref)
+        for rule_text, refs in required_rule_refs.items():
+            required_rule_blocks.append(
+                {
+                    "module_type": "content_rule",
+                    "content": rule_text,
+                    "estimated_duration_ms": 15_000,
+                    "template_sources": [],
+                    "content_rule_refs": refs,
+                }
+            )
+
         strategy_stages = FunctionalContentService._selected_strategy_stages(content)
         if strategy_stages:
             # Approved facts are independent content inputs. Preserve the
@@ -2002,6 +2104,7 @@ class FunctionalContentService:
             for index, stage in enumerate(strategy_stages):
                 if conversion_index == index:
                     blocks.extend(inserted_facts)
+                    blocks.extend(required_rule_blocks)
                 module_type = str(stage["module_key"])
                 sources = FunctionalContentService._template_sources_for_block(
                     content, module_type
@@ -2029,6 +2132,7 @@ class FunctionalContentService:
                 blocks.append(block)
             if conversion_index is None:
                 blocks.extend(inserted_facts)
+                blocks.extend(required_rule_blocks)
             return blocks
 
         opening_sources = FunctionalContentService._template_sources_for_block(
@@ -2060,6 +2164,7 @@ class FunctionalContentService:
                 )
             )
         )
+        blocks.extend(required_rule_blocks)
         conversion_sources = FunctionalContentService._template_sources_for_block(
             content, "conversion"
         )
@@ -2221,7 +2326,7 @@ class FunctionalContentService:
     def _script_view(cursor: Any, row: dict[str, Any] | None) -> dict[str, Any] | None:
         if row is None:
             return None
-        cursor.execute("SELECT block_code, module_type, content, estimated_duration_ms, fact_citations, template_sources, interaction_intent, cta_intent FROM content_script_blocks WHERE script_revision_id = %s ORDER BY sort_order", (row["id"],))
+        cursor.execute("SELECT block_code, module_type, content, estimated_duration_ms, fact_citations, template_sources, content_rule_refs, interaction_intent, cta_intent FROM content_script_blocks WHERE script_revision_id = %s ORDER BY sort_order", (row["id"],))
         return {"script_revision_code": row["script_revision_code"], "revision_number": row["revision_number"], "title": row["title"], "blocks": cursor.fetchall()}
 
     @staticmethod

@@ -296,6 +296,7 @@ def test_migration_discovery_is_contiguous() -> None:
                 "functional_video_material_selection_decisions.sql",
                 "knowledge_content_rules.sql",
                 "knowledge_claim_citation_offsets.sql",
+                "content_script_block_rule_refs.sql",
             ],
             start=1,
         )
