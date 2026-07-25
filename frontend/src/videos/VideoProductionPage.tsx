@@ -344,9 +344,23 @@ function FixedInputTrace({ plan }: { plan: FunctionalVideoPlan }) {
                     <dt>执行产物</dt>
                     <dd>
                       {segment.executionArtifactRefs.map((artifact) => (
-                        <code key={`${artifact.artifactRole}-${artifact.jobAttempt}`}>
-                          {artifact.artifactRole} r{artifact.jobAttempt} {artifact.checksumSha256.slice(0, 12)}
-                        </code>
+                        <span key={`${artifact.artifactRole}-${artifact.jobAttempt}`}>
+                          <code>
+                            {artifact.artifactRole} r{artifact.jobAttempt} {artifact.checksumSha256.slice(0, 12)}
+                          </code>
+                          {artifact.artifactRole === "source_media_probe" ? (
+                            <span>
+                              PTS {String(artifact.evidence.stream_start_pts ?? "--")} / {String(artifact.evidence.stream_time_base ?? "--")}
+                              {typeof artifact.evidence.source_start_seconds === "number" &&
+                              typeof artifact.evidence.source_end_seconds === "number"
+                                ? ` · ${artifact.evidence.source_start_seconds.toFixed(2)}-${artifact.evidence.source_end_seconds.toFixed(2)} 秒`
+                                : ""}
+                              {typeof artifact.evidence.playback_rate === "number"
+                                ? ` · ${artifact.evidence.playback_rate.toFixed(2)}x`
+                                : ""}
+                            </span>
+                          ) : null}
+                        </span>
                       ))}
                     </dd>
                   </div>

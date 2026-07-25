@@ -152,6 +152,7 @@ export interface FunctionalVideoPlan {
       artifactKey: string;
       relativePath: string;
       checksumSha256: string;
+      evidence: Record<string, unknown>;
     }>;
     sourceAssetFileRefs: Array<{
       assetFileId: string;
@@ -598,6 +599,7 @@ function plan(value: unknown): FunctionalVideoPlan {
                       artifactKey: asString(artifact.artifact_key),
                       relativePath: asString(artifact.relative_path),
                       checksumSha256: asString(artifact.checksum_sha256),
+                      evidence: isRecord(artifact.evidence) ? artifact.evidence : {},
                     }]
                   : [],
               ),
