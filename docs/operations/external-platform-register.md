@@ -34,6 +34,7 @@ data into this document.
 | `EXT-PLATFORM-MAITU` | Any real Maitu read/write operation | Approved target-scoped credential, current API/UI contract, terms, quota/cost/region decision and kill-switch owner | Real Maitu delivery/readback | Fake adapter, BuildPlan, local preview and browser/API contract tests |
 | `EXT-PLATFORM-DOUYIN` | Authorized recording capture, go-live or operations import | Authorized capture/delivery basis, target account scope, endpoint/export contract, quota/cost/region decision and deletion owner | Real capture, go-live and served-log ingestion | Local CaptureSession model, schedule prototype and import adapters |
 | `EXT-PROVIDER-GENERATION` | Using a remote text/vision/ASR provider in production | Provider approval, backend-only credential reference, processor/region/retention decision, budget/quota and fallback owner | Remote provider execution | Local/provider-fake generation, schema validation and deterministic fallback fixtures |
+| `EXT-SCM-PRIESTESS-BOT` | Moving repository synchronization to the requested GitHub account | A reachable private repository URL under `priestess-bot` and an authenticated git credential that can read/write it | Changing the git remote and pushing history to that account | Local commits, tests and the currently reachable non-`ym-origin` remote remain usable |
 
 ### Local environment conditions (not external inputs)
 
@@ -45,6 +46,11 @@ data into this document.
   does not block repository implementation or create an external-input request.
 - A new external dependency must first be added to this queue and the table
   below, with an exit plan, before any production adapter starts using it.
+- Repository migration status on 2026-07-25: a read-only `git ls-remote` for
+  `https://github.com/priestess-bot/AssetGraph.git` returned repository-not-found
+  / invalid-credential.  The configured `origin` remains reachable and has not
+  been rewritten.  This blocks only the requested account migration, not local
+  development or the existing remote's synchronization.
 
 | Dependency | Purpose and data sent | Credential and boundary | Timeout/rate/cost | Failure and fallback | Region/retention | Exit plan |
 | --- | --- | --- | --- | --- | --- | --- |
