@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import Annotated
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from psycopg import Connection
 from app.core.database import get_db
 from app.domain.errors import DomainValidationError
@@ -13,6 +13,7 @@ from app.schemas.functional_learning import (
     EffectEstimateRevoke,
     EffectReproductionCreate,
     EffectReproductionRead,
+    ExperimentAssignmentRead,
     ExperimentCreate,
     ExperimentRead,
     OutcomeCreate,
@@ -128,6 +129,18 @@ def list_experiments(
     s: Annotated[FunctionalLearningService, Depends(service)],
 ) -> list[dict]:
     return s.list_experiments()
+
+
+@router.get("/experiments/{code}/assignment", response_model=ExperimentAssignmentRead)
+def get_experiment_assignment(
+    code: str,
+    subject_key: Annotated[str, Query(min_length=1, max_length=255)],
+    s: Annotated[FunctionalLearningService, Depends(service)],
+) -> dict:
+    result = s.get_experiment_assignment(code, subject_key)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+    return result
 
 
 @router.post("/experiments/{code}/outcomes", response_model=ExperimentRead)

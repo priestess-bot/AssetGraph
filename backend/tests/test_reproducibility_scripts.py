@@ -276,6 +276,7 @@ def test_migration_discovery_is_contiguous() -> None:
                 "functional_session_metric_snapshots.sql",
                 "functional_session_metric_buckets.sql",
                 "functional_effect_revocation_details.sql",
+                "functional_experiment_registrations.sql",
             ],
             start=1,
         )

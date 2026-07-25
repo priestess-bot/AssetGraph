@@ -289,9 +289,32 @@ class FunctionalLearningService:
             )
         with self.connection.cursor(row_factory=dict_row) as c:
             code = self._next(c, "EXP", "functional_experiment")
+            assignment_strategy = "stable_hash_sha256_v1"
+            registration = dict(p["registration"])
+            registration_fingerprint = canonical_fingerprint(
+                {
+                    "experiment_code": code,
+                    "title": p["title"],
+                    "metric_key": p["metric_key"],
+                    "variants": variants,
+                    "assignment_strategy": assignment_strategy,
+                    "registration": registration,
+                }
+            )
             c.execute(
-                "INSERT INTO functional_experiments (experiment_code,title,metric_key,variants) VALUES (%s,%s,%s,%s) RETURNING *",
-                (code, p["title"], p["metric_key"], Jsonb(variants)),
+                """INSERT INTO functional_experiments
+                   (experiment_code,title,metric_key,variants,registration,assignment_strategy,
+                    registration_fingerprint_sha256)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
+                (
+                    code,
+                    p["title"],
+                    p["metric_key"],
+                    Jsonb(variants),
+                    Jsonb(registration),
+                    assignment_strategy,
+                    registration_fingerprint,
+                ),
             )
             row = c.fetchone()
         self.connection.commit()
@@ -306,16 +329,34 @@ class FunctionalLearningService:
             if not e:
                 self.connection.rollback()
                 return None
-            variants = e["variants"]
-            variant = variants[
-                int(hashlib.sha256(p["subject_key"].encode()).hexdigest(), 16) % 2
-            ]
+            variant = self._assigned_variant(e["variants"], p["subject_key"])
             c.execute(
                 "INSERT INTO functional_experiment_outcomes (experiment_code,subject_key,variant_key,metric_value) VALUES (%s,%s,%s,%s) ON CONFLICT (experiment_code,subject_key) DO UPDATE SET metric_value=EXCLUDED.metric_value RETURNING id",
                 (code, p["subject_key"], variant, p["metric_value"]),
             )
         self.connection.commit()
         return self.get_experiment(code)
+
+    def get_experiment_assignment(
+        self, code: str, subject_key: str
+    ) -> dict[str, Any] | None:
+        with self.connection.cursor(row_factory=dict_row) as c:
+            c.execute(
+                """SELECT experiment_code, variants, assignment_strategy,
+                          registration_fingerprint_sha256
+                   FROM functional_experiments WHERE experiment_code=%s""",
+                (code,),
+            )
+            row = c.fetchone()
+        if row is None:
+            return None
+        return {
+            "experiment_code": row["experiment_code"],
+            "subject_key": subject_key,
+            "variant_key": self._assigned_variant(row["variants"], subject_key),
+            "assignment_strategy": row["assignment_strategy"],
+            "registration_fingerprint_sha256": row["registration_fingerprint_sha256"],
+        }
 
     def get_experiment(self, code: str) -> dict[str, Any] | None:
         with self.connection.cursor(row_factory=dict_row) as c:
@@ -347,6 +388,10 @@ class FunctionalLearningService:
             v: out.get(v, {"average": 0.0, "sample_size": 0}) for v in row["variants"]
         }
         return row
+
+    @staticmethod
+    def _assigned_variant(variants: list[str], subject_key: str) -> str:
+        return variants[int(hashlib.sha256(subject_key.encode()).hexdigest(), 16) % len(variants)]
 
     @staticmethod
     def _subject_snapshot(c: Any, subject_type: str, subject_code: str) -> dict[str, Any] | None:

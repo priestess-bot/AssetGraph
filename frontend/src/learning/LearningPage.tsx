@@ -22,7 +22,21 @@ type Experiment = {
   title: string;
   metric_key: string;
   variants: string[];
+  registration: {
+    hypothesis?: string;
+    observation_window?: string;
+  };
+  assignment_strategy: string;
+  registration_fingerprint_sha256?: string;
   results: Record<string, { average: number; sample_size: number }>;
+};
+
+type ExperimentAssignment = {
+  experiment_code: string;
+  subject_key: string;
+  variant_key: string;
+  assignment_strategy: string;
+  registration_fingerprint_sha256?: string;
 };
 
 type AttributionReport = {
@@ -60,6 +74,42 @@ type EffectReproduction = {
   reproduced_project_code: string;
 };
 
+function ExperimentOutcomeForm({ experiment, onRecorded }: { experiment: Experiment; onRecorded: () => void }) {
+  const [subject, setSubject] = useState("");
+  const [assignmentSubject, setAssignmentSubject] = useState("");
+  const [value, setValue] = useState(0);
+  const assignment = useQuery({
+    queryKey: ["learning", "experiment-assignment", experiment.experiment_code, assignmentSubject],
+    queryFn: () => requestJson<ExperimentAssignment>(`/api/functional-learning/experiments/${experiment.experiment_code}/assignment?subject_key=${encodeURIComponent(assignmentSubject)}`),
+    enabled: Boolean(assignmentSubject),
+  });
+  const outcome = useMutation({
+    mutationFn: () => postJson(`/api/functional-learning/experiments/${experiment.experiment_code}/outcomes`, {
+      subject_key: subject,
+      metric_value: value,
+    }),
+    onSuccess: onRecorded,
+  });
+  const assignmentMatchesSubject = assignment.data?.subject_key === subject.trim();
+
+  return (
+    <form className="operations-form" onSubmit={(event: FormEvent) => { event.preventDefault(); outcome.mutate(); }}>
+      <input
+        className="wb-input"
+        aria-label={`实验主体 ${experiment.experiment_code}`}
+        value={subject}
+        onChange={(event) => { setSubject(event.target.value); setAssignmentSubject(""); }}
+        required
+      />
+      <button type="button" className="wb-button" onClick={() => setAssignmentSubject(subject.trim())} disabled={!subject.trim() || assignment.isFetching}>确定分组</button>
+      {assignment.data && assignmentMatchesSubject ? <small>固定版本：{assignment.data.variant_key}</small> : null}
+      <input className="wb-input" aria-label={`实验指标值 ${experiment.experiment_code}`} type="number" value={value} onChange={(event) => setValue(Number(event.target.value))} />
+      <button className="wb-button" disabled={outcome.isPending || !assignmentMatchesSubject}>回填结果</button>
+      {assignment.error || outcome.error ? <InlineNotice tone="danger" title="实验结果未保存">{assignment.error instanceof Error ? assignment.error.message : outcome.error instanceof Error ? outcome.error.message : "请求失败"}</InlineNotice> : null}
+    </form>
+  );
+}
+
 export function LearningPage() {
   const queryClient = useQueryClient();
   const [observation, setObservation] = useState("");
@@ -73,8 +123,14 @@ export function LearningPage() {
   const [title, setTitle] = useState("");
   const [metric, setMetric] = useState("watchers");
   const [variants, setVariants] = useState("control,treatment");
-  const [subject, setSubject] = useState("");
-  const [value, setValue] = useState(0);
+  const [hypothesis, setHypothesis] = useState("");
+  const [treatmentMechanism, setTreatmentMechanism] = useState("");
+  const [estimand, setEstimand] = useState("");
+  const [inclusionRules, setInclusionRules] = useState("");
+  const [observationWindow, setObservationWindow] = useState("");
+  const [covariates, setCovariates] = useState("");
+  const [identificationAssumptions, setIdentificationAssumptions] = useState("");
+  const [analysisPlan, setAnalysisPlan] = useState("");
 
   const decisions = useQuery({
     queryKey: ["learning", "decisions"],
@@ -155,16 +211,29 @@ export function LearningPage() {
         title,
         metric_key: metric,
         variants: variants.split(",").map((item) => item.trim()).filter(Boolean),
+        registration: {
+          hypothesis,
+          treatment_mechanism: treatmentMechanism,
+          estimand,
+          inclusion_rules: inclusionRules,
+          observation_window: observationWindow,
+          covariates: covariates.split(",").map((item) => item.trim()).filter(Boolean),
+          identification_assumptions: identificationAssumptions,
+          analysis_plan: analysisPlan,
+        },
       }),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["learning", "experiments"] }),
-  });
-  const outcome = useMutation({
-    mutationFn: (code: string) =>
-      postJson(`/api/functional-learning/experiments/${code}/outcomes`, {
-        subject_key: subject,
-        metric_value: value,
-      }),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["learning", "experiments"] }),
+    onSuccess: () => {
+      setTitle("");
+      setHypothesis("");
+      setTreatmentMechanism("");
+      setEstimand("");
+      setInclusionRules("");
+      setObservationWindow("");
+      setCovariates("");
+      setIdentificationAssumptions("");
+      setAnalysisPlan("");
+      void queryClient.invalidateQueries({ queryKey: ["learning", "experiments"] });
+    },
   });
 
   if (
@@ -174,7 +243,7 @@ export function LearningPage() {
   }
   const error =
     decision.error ?? createEffect.error ?? approveEffect.error ?? revokeEffect.error ?? reproduceEffect.error ?? experiment.error ??
-    outcome.error ?? reports.error ?? projects.error;
+    reports.error ?? projects.error;
 
   return (
     <div className="operations-layout">
@@ -219,8 +288,16 @@ export function LearningPage() {
           }}
         >
           <label className="wb-field"><span>实验名称</span><input className="wb-input" value={title} onChange={(event) => setTitle(event.target.value)} required /></label>
-          <label className="wb-field"><span>指标</span><input className="wb-input" value={metric} onChange={(event) => setMetric(event.target.value)} /></label>
-          <label className="wb-field"><span>两个版本</span><input className="wb-input" value={variants} onChange={(event) => setVariants(event.target.value)} /></label>
+          <label className="wb-field"><span>指标</span><input className="wb-input" value={metric} onChange={(event) => setMetric(event.target.value)} required /></label>
+          <label className="wb-field"><span>两个版本</span><input className="wb-input" value={variants} onChange={(event) => setVariants(event.target.value)} required /></label>
+          <label className="wb-field"><span>假设</span><textarea className="wb-textarea" value={hypothesis} onChange={(event) => setHypothesis(event.target.value)} required /></label>
+          <label className="wb-field"><span>处理机制</span><textarea className="wb-textarea" value={treatmentMechanism} onChange={(event) => setTreatmentMechanism(event.target.value)} required /></label>
+          <label className="wb-field"><span>目标估计量</span><textarea className="wb-textarea" value={estimand} onChange={(event) => setEstimand(event.target.value)} required /></label>
+          <label className="wb-field"><span>纳入规则</span><textarea className="wb-textarea" value={inclusionRules} onChange={(event) => setInclusionRules(event.target.value)} required /></label>
+          <label className="wb-field"><span>观察窗口</span><input className="wb-input" value={observationWindow} onChange={(event) => setObservationWindow(event.target.value)} required /></label>
+          <label className="wb-field"><span>协变量</span><input className="wb-input" value={covariates} onChange={(event) => setCovariates(event.target.value)} /></label>
+          <label className="wb-field"><span>识别假设</span><textarea className="wb-textarea" value={identificationAssumptions} onChange={(event) => setIdentificationAssumptions(event.target.value)} required /></label>
+          <label className="wb-field"><span>分析计划</span><textarea className="wb-textarea" value={analysisPlan} onChange={(event) => setAnalysisPlan(event.target.value)} required /></label>
           <button className="wb-button" disabled={experiment.isPending}><FlaskConical size={15} aria-hidden="true" />创建 A/B</button>
         </form>
         {error ? <InlineNotice tone="danger" title="学习操作失败">{error instanceof Error ? error.message : "请求失败"}</InlineNotice> : null}
@@ -326,12 +403,8 @@ export function LearningPage() {
         ))}
         {experiments.data?.map((item) => (
           <div className="operations-list" key={item.experiment_code}>
-            <div><span><strong>{item.title} · {item.metric_key}</strong><small>{Object.entries(item.results).map(([key, result]) => `${key}: ${result.average.toFixed(2)} (${result.sample_size})`).join(" / ")}</small><code>{item.experiment_code}</code></span><StatusBadge label="A/B 描述性" tone="warning" /></div>
-            <form className="operations-form" onSubmit={(event: FormEvent) => { event.preventDefault(); outcome.mutate(item.experiment_code); }}>
-              <input className="wb-input" aria-label={`实验主体 ${item.experiment_code}`} value={subject} onChange={(event) => setSubject(event.target.value)} required />
-              <input className="wb-input" aria-label={`实验指标值 ${item.experiment_code}`} type="number" value={value} onChange={(event) => setValue(Number(event.target.value))} />
-              <button className="wb-button" disabled={outcome.isPending}>回填结果</button>
-            </form>
+            <div><span><strong>{item.title} · {item.metric_key}</strong><small>{item.registration.hypothesis ?? "历史实验未登记假设"}</small><small>{item.registration.observation_window ?? "历史实验未登记窗口"} · {item.assignment_strategy}</small><small>{Object.entries(item.results).map(([key, result]) => `${key}: ${result.average.toFixed(2)} (${result.sample_size})`).join(" / ")}</small><code>{item.experiment_code}</code></span><StatusBadge label="A/B 描述性" tone="warning" /></div>
+            <ExperimentOutcomeForm experiment={item} onRecorded={() => void queryClient.invalidateQueries({ queryKey: ["learning", "experiments"] })} />
           </div>
         ))}
         {!effects.data?.length && !decisions.data?.length && !experiments.data?.length ? <EmptyBlock icon={FlaskConical} title="尚无学习记录" /> : null}

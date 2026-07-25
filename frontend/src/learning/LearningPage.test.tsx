@@ -102,4 +102,40 @@ describe("LearningPage", () => {
     const request = requests.find((item) => item.url === "/api/functional-learning/effects/EFFECT-001/revoke" && item.init?.method === "POST");
     expect(JSON.parse(String(request?.init?.body))).toEqual({ actor: "functional-operator", reason: "Metric input was corrected." });
   });
+
+  it("shows the stable assignment before an operator records an experiment outcome", async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); requests.push({ url, init });
+      if (url === "/api/functional-learning/decisions") return response([]);
+      if (url === "/api/functional-learning/effects") return response([]);
+      if (url === "/api/functional-learning/experiments") return response([{
+        experiment_code: "EXP-001", title: "Opening", metric_key: "watchers", variants: ["control", "treatment"],
+        registration: { hypothesis: "A concise opening improves watchers.", observation_window: "one day" },
+        assignment_strategy: "stable_hash_sha256_v1", results: { control: { average: 0, sample_size: 0 }, treatment: { average: 0, sample_size: 0 } },
+      }]);
+      if (url === "/api/functional-learning/experiments/EXP-001/assignment?subject_key=session-001") {
+        return response({ experiment_code: "EXP-001", subject_key: "session-001", variant_key: "treatment", assignment_strategy: "stable_hash_sha256_v1" });
+      }
+      if (url === "/api/functional-learning/experiments/EXP-001/outcomes") return response({});
+      if (url === "/api/functional-operations/attribution-reports") return response([]);
+      if (url === "/api/content-projects") return response([]);
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    const user = userEvent.setup();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    render(<QueryClientProvider client={client}><LearningPage /></QueryClientProvider>);
+
+    await screen.findByText("Opening · watchers");
+    await user.type(screen.getByLabelText("实验主体 EXP-001"), "session-001");
+    await user.click(screen.getByRole("button", { name: "确定分组" }));
+    await screen.findByText("固定版本：treatment");
+    await user.clear(screen.getByLabelText("实验指标值 EXP-001"));
+    await user.type(screen.getByLabelText("实验指标值 EXP-001"), "42");
+    await user.click(screen.getByRole("button", { name: "回填结果" }));
+
+    await waitFor(() => expect(requests.some((request) => request.url === "/api/functional-learning/experiments/EXP-001/outcomes" && request.init?.method === "POST")).toBe(true));
+    const request = requests.find((item) => item.url === "/api/functional-learning/experiments/EXP-001/outcomes" && item.init?.method === "POST");
+    expect(JSON.parse(String(request?.init?.body))).toEqual({ subject_key: "session-001", metric_value: 42 });
+  });
 });

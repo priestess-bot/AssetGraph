@@ -15,21 +15,44 @@ class DecisionRead(DecisionCreate):
     created_at: datetime
 
 
+class ExperimentRegistration(BaseModel):
+    hypothesis: str = Field(min_length=1, max_length=4000)
+    treatment_mechanism: str = Field(min_length=1, max_length=4000)
+    estimand: str = Field(min_length=1, max_length=4000)
+    inclusion_rules: str = Field(min_length=1, max_length=4000)
+    observation_window: str = Field(min_length=1, max_length=1000)
+    covariates: list[str] = Field(default_factory=list, max_length=50)
+    identification_assumptions: str = Field(min_length=1, max_length=4000)
+    analysis_plan: str = Field(min_length=1, max_length=4000)
+
+
 class ExperimentCreate(BaseModel):
     title: str = Field(min_length=1)
     metric_key: str = Field(min_length=1)
     variants: list[str] = Field(min_length=2, max_length=2)
+    registration: ExperimentRegistration
 
 
 class ExperimentRead(ExperimentCreate):
     experiment_code: str
     created_at: datetime
+    registration: dict[str, object] = Field(default_factory=dict)
+    assignment_strategy: str = "stable_hash_sha256_v1"
+    registration_fingerprint_sha256: str | None = None
     results: dict[str, dict[str, float | int]]
 
 
 class OutcomeCreate(BaseModel):
     subject_key: str = Field(min_length=1)
     metric_value: float
+
+
+class ExperimentAssignmentRead(BaseModel):
+    experiment_code: str
+    subject_key: str
+    variant_key: str
+    assignment_strategy: str
+    registration_fingerprint_sha256: str | None = None
 
 
 class EffectEstimateCreate(BaseModel):

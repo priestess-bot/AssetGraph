@@ -50,6 +50,18 @@ class FakeFunctionalLearningService:
             return None
         return _effect(effect_code=effect_code, revoked_by=actor, revoked_reason=reason)
 
+    @staticmethod
+    def get_experiment_assignment(code: str, subject_key: str) -> dict[str, Any] | None:
+        if code == "EXP-MISSING":
+            return None
+        return {
+            "experiment_code": code,
+            "subject_key": subject_key,
+            "variant_key": "treatment",
+            "assignment_strategy": "stable_hash_sha256_v1",
+            "registration_fingerprint_sha256": "b" * 64,
+        }
+
 
 @pytest.fixture
 def client() -> tuple[TestClient, FakeFunctionalLearningService]:
@@ -98,3 +110,23 @@ def test_revoke_effect_route_rejects_empty_reason_and_handles_missing_effect(
     assert service.revoke_calls == [
         ("EFFECT-MISSING", "functional-operator", "Evidence was withdrawn.")
     ]
+
+
+def test_experiment_assignment_route_returns_stable_assignment(
+    client: tuple[TestClient, FakeFunctionalLearningService],
+) -> None:
+    test_client, _service = client
+
+    assigned = test_client.get(
+        "/api/functional-learning/experiments/EXP-001/assignment",
+        params={"subject_key": "session-001"},
+    )
+    missing = test_client.get(
+        "/api/functional-learning/experiments/EXP-MISSING/assignment",
+        params={"subject_key": "session-001"},
+    )
+
+    assert assigned.status_code == 200
+    assert assigned.json()["variant_key"] == "treatment"
+    assert assigned.json()["assignment_strategy"] == "stable_hash_sha256_v1"
+    assert missing.status_code == 404

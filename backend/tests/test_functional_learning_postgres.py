@@ -16,6 +16,19 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+def _registration() -> dict[str, object]:
+    return {
+        "hypothesis": "A concise opening improves watcher count.",
+        "treatment_mechanism": "Use the approved concise opening in the treatment variant.",
+        "estimand": "Mean watcher-count difference between assigned variants.",
+        "inclusion_rules": "Include eligible sessions during the stated window.",
+        "observation_window": "2026-07-25T00:00:00Z/2026-07-26T00:00:00Z",
+        "covariates": ["weekday"],
+        "identification_assumptions": "Stable assignment and no cross-variant interference.",
+        "analysis_plan": "Report descriptive per-variant averages only.",
+    }
+
+
 def test_decisions_and_stable_experiment_outcomes() -> None:
     with psycopg.connect(DATABASE_URL) as c:
         s = FunctionalLearningService(c)
@@ -111,8 +124,14 @@ def test_decisions_and_stable_experiment_outcomes() -> None:
                 "title": "Opening",
                 "metric_key": "watchers",
                 "variants": ["control", "treatment"],
+                "registration": _registration(),
             }
         )
+        assert e["registration"]["hypothesis"] == _registration()["hypothesis"]
+        assert e["registration_fingerprint_sha256"]
+        assignment = s.get_experiment_assignment(e["experiment_code"], "viewer-1")
+        assert assignment is not None
+        assert assignment["assignment_strategy"] == "stable_hash_sha256_v1"
         first = s.record_outcome(
             e["experiment_code"], {"subject_key": "viewer-1", "metric_value": 12}
         )
@@ -121,3 +140,4 @@ def test_decisions_and_stable_experiment_outcomes() -> None:
         )
         assert first and second
         assert sum(item["sample_size"] for item in second["results"].values()) == 1
+        assert assignment["variant_key"] in second["results"]
