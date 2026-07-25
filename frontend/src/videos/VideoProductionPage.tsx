@@ -351,6 +351,18 @@ function FixedInputTrace({ plan }: { plan: FunctionalVideoPlan }) {
                     </dd>
                   </div>
                 ) : null}
+                {segment?.sourceAssetFileRefs.length ? (
+                  <div>
+                    <dt>源文件</dt>
+                    <dd>
+                      {segment.sourceAssetFileRefs.map((assetFile) => (
+                        <code key={assetFile.assetFileId}>
+                          {assetFile.assetCode} {assetFile.fileRole} {assetFile.checksumSha256.slice(0, 12)}
+                        </code>
+                      ))}
+                    </dd>
+                  </div>
+                ) : null}
                 <div>
                   <dt>转场</dt>
                   <dd>{clip.transition ?? "cut"}</dd>

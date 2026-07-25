@@ -153,6 +153,13 @@ export interface FunctionalVideoPlan {
       relativePath: string;
       checksumSha256: string;
     }>;
+    sourceAssetFileRefs: Array<{
+      assetFileId: string;
+      assetCode: string;
+      fileRole: string;
+      objectKey: string;
+      checksumSha256: string;
+    }>;
   }>;
   releaseCode?: string;
   releaseSnapshotArtifactCode?: string;
@@ -591,6 +598,24 @@ function plan(value: unknown): FunctionalVideoPlan {
                       artifactKey: asString(artifact.artifact_key),
                       relativePath: asString(artifact.relative_path),
                       checksumSha256: asString(artifact.checksum_sha256),
+                    }]
+                  : [],
+              ),
+              sourceAssetFileRefs: asArray(
+                segment.source_asset_file_refs,
+              ).flatMap((assetFile) =>
+                isRecord(assetFile) &&
+                asString(assetFile.asset_file_id) &&
+                asString(assetFile.asset_code) &&
+                asString(assetFile.file_role) &&
+                asString(assetFile.object_key) &&
+                asString(assetFile.checksum_sha256)
+                  ? [{
+                      assetFileId: asString(assetFile.asset_file_id),
+                      assetCode: asString(assetFile.asset_code),
+                      fileRole: asString(assetFile.file_role),
+                      objectKey: asString(assetFile.object_key),
+                      checksumSha256: asString(assetFile.checksum_sha256),
                     }]
                   : [],
               ),

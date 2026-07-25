@@ -1265,6 +1265,9 @@ class FunctionalVideoService:
                 plan_code, timeline_revision, clip_code
             )
             source_range = dict(clip.get("source_range") or {})
+            source_asset_file = self._timeline_segment_asset_file_snapshot(
+                cursor, source_range
+            )
             transform = {
                 key: deepcopy(clip[key])
                 for key in (
@@ -1283,9 +1286,13 @@ class FunctionalVideoService:
             artifact_refs = (
                 [
                     {
+                        "relation_role": "source_video",
                         "asset_code": source_range.get("asset_code"),
+                        "checksum_sha256": source_range.get("asset_checksum_sha256"),
+                        "relative_path": source_range.get("asset_relative_path"),
                         "source_start_seconds": source_range.get("start_seconds"),
                         "source_end_seconds": source_range.get("end_seconds"),
+                        "asset_file": source_asset_file,
                     }
                 ]
                 if source_range.get("asset_code")
@@ -1315,7 +1322,8 @@ class FunctionalVideoService:
                        source_shot_id, source_shot_code, timeline_start_ms,
                        source_script_block_codes, timeline_end_ms, source_range, transform, transition,
                        artifact_refs, fingerprint_sha256, created_by
-                   ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                   ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                   RETURNING id""",
                 (
                     plan_id,
                     timeline_revision,
@@ -1334,6 +1342,27 @@ class FunctionalVideoService:
                     actor_id,
                 ),
             )
+            timeline_segment = cursor.fetchone()
+            if source_asset_file is not None:
+                cursor.execute(
+                    """INSERT INTO functional_video_timeline_segment_asset_files (
+                           timeline_segment_id, asset_file_id, relation_role,
+                           asset_code, file_role, bucket_name, object_key,
+                           source_relative_path, mime_type, file_size, checksum_sha256
+                       ) VALUES (%s, %s, 'source_video', %s, %s, %s, %s, %s, %s, %s, %s)""",
+                    (
+                        timeline_segment["id"],
+                        source_asset_file["asset_file_id"],
+                        source_asset_file["asset_code"],
+                        source_asset_file["file_role"],
+                        source_asset_file["bucket_name"],
+                        source_asset_file["object_key"],
+                        source_asset_file["source_relative_path"],
+                        source_asset_file["mime_type"],
+                        source_asset_file["file_size"],
+                        source_asset_file["checksum_sha256"],
+                    ),
+                )
             cursor.execute(
                 """INSERT INTO shot_projection_links (
                        shot_id, target_type, target_code, target_revision,
@@ -1357,6 +1386,38 @@ class FunctionalVideoService:
                     ),
                 ),
             )
+
+    @staticmethod
+    def _timeline_segment_asset_file_snapshot(
+        cursor: Any, source_range: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        asset_code = str(source_range.get("asset_code") or "").strip()
+        checksum = str(source_range.get("asset_checksum_sha256") or "").strip()
+        if not asset_code or not VideoProductionRepository._valid_checksum(checksum):
+            return None
+        cursor.execute(
+            """SELECT id, asset_code, file_role, bucket_name, object_key,
+                      source_relative_path, mime_type, file_size, checksum_sha256
+               FROM asset_files
+               WHERE asset_code = %s AND checksum_sha256 = %s
+               ORDER BY CASE file_role WHEN 'original' THEN 0 ELSE 1 END, created_at DESC
+               LIMIT 1""",
+            (asset_code, checksum),
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return None
+        return {
+            "asset_file_id": str(row["id"]),
+            "asset_code": str(row["asset_code"]),
+            "file_role": str(row["file_role"]),
+            "bucket_name": str(row["bucket_name"]),
+            "object_key": str(row["object_key"]),
+            "source_relative_path": row.get("source_relative_path"),
+            "mime_type": row.get("mime_type"),
+            "file_size": row.get("file_size"),
+            "checksum_sha256": str(row["checksum_sha256"]),
+        }
 
     def _timeline_segments(
         self, plan_id: Any, timeline_revision: int
@@ -1388,8 +1449,28 @@ class FunctionalVideoService:
             for link in cursor.fetchall():
                 values = dict(link)
                 links_by_segment.setdefault(values.pop("timeline_segment_id"), []).append(values)
+            cursor.execute(
+                """SELECT source.timeline_segment_id, source.asset_file_id,
+                          source.relation_role, source.asset_code, source.file_role,
+                          source.bucket_name, source.object_key, source.source_relative_path,
+                          source.mime_type, source.file_size, source.checksum_sha256,
+                          source.created_at
+                   FROM functional_video_timeline_segment_asset_files AS source
+                   WHERE source.timeline_segment_id = ANY(%s)
+                   ORDER BY source.created_at, source.relation_role""",
+                ([segment["id"] for segment in segments],),
+            )
+            asset_files_by_segment: dict[Any, list[dict[str, Any]]] = {}
+            for source in cursor.fetchall():
+                values = dict(source)
+                values["asset_file_id"] = str(values["asset_file_id"])
+                asset_files_by_segment.setdefault(
+                    values.pop("timeline_segment_id"), []
+                ).append(values)
             for segment in segments:
-                segment["execution_artifact_refs"] = links_by_segment.get(segment.pop("id"), [])
+                segment_id = segment.pop("id")
+                segment["execution_artifact_refs"] = links_by_segment.get(segment_id, [])
+                segment["source_asset_file_refs"] = asset_files_by_segment.get(segment_id, [])
             return segments
 
     def update_timeline(self, plan_code: str, payload: dict[str, Any], *, actor_id: str) -> dict[str, Any] | None:
@@ -2289,7 +2370,7 @@ class FunctionalVideoService:
         audio_clips = [{"clip_code": f"VOICE-{shot['shot_code']}", "linked_shot_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "gain_db": 0.0} for shot in compiled]
         if background_music is not None:
             audio_clips.append({"clip_code": "BGM-01", "timeline_range": {"start_ms": 0, "duration_ms": duration * 1000}, "asset_code": background_music["asset_code"], "gain_db": background_music["gain_db"]})
-        timeline = {"schema_version": "otio-compatible-production-timeline.v1", "global_start_ms": 0, "global_end_ms": duration * 1000, "poster_time_ms": poster_time_ms, "subtitle_style": subtitle_style, "tracks": [{"track_kind": "video", "clips": [{"clip_code": shot["shot_code"], "source_shot_code": shot["source_shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "source_range": {"asset_code": shot["asset_code"], "start_seconds": shot["source_start_seconds"], "end_seconds": shot["source_end_seconds"], "available_start_seconds": shot["source_start_seconds"], "available_end_seconds": shot["source_end_seconds"]}, "fit": shot["fit"], "crop_x": 0.5, "crop_y": 0.5, "playback_rate": shot["playback_rate"], "overlay_roles": shot["overlay_roles"], "overlay_z_order": shot["overlay_z_order"], "product_sticker_layout_suggestion": shot.get("product_sticker_layout_suggestion"), "audio_roles": shot.get("audio_roles", []), "transition": shot["transition"]} for shot in compiled]}, {"track_kind": "audio", "clips": audio_clips}, {"track_kind": "subtitle", "clips": [{"clip_code": f"SUBTITLE-{shot['shot_code']}", "linked_shot_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "subtitle_text": shot["narration"], "headline_text": shot["screen_text"], "caption_position": "bottom"} for shot in compiled]}]}
+        timeline = {"schema_version": "otio-compatible-production-timeline.v1", "global_start_ms": 0, "global_end_ms": duration * 1000, "poster_time_ms": poster_time_ms, "subtitle_style": subtitle_style, "tracks": [{"track_kind": "video", "clips": [{"clip_code": shot["shot_code"], "source_shot_code": shot["source_shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "source_range": {"asset_code": shot["asset_code"], "asset_checksum_sha256": shot.get("asset_expected_checksum"), "asset_relative_path": shot.get("asset_relative_path"), "start_seconds": shot["source_start_seconds"], "end_seconds": shot["source_end_seconds"], "available_start_seconds": shot["source_start_seconds"], "available_end_seconds": shot["source_end_seconds"]}, "fit": shot["fit"], "crop_x": 0.5, "crop_y": 0.5, "playback_rate": shot["playback_rate"], "overlay_roles": shot["overlay_roles"], "overlay_z_order": shot["overlay_z_order"], "product_sticker_layout_suggestion": shot.get("product_sticker_layout_suggestion"), "audio_roles": shot.get("audio_roles", []), "transition": shot["transition"]} for shot in compiled]}, {"track_kind": "audio", "clips": audio_clips}, {"track_kind": "subtitle", "clips": [{"clip_code": f"SUBTITLE-{shot['shot_code']}", "linked_shot_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "subtitle_text": shot["narration"], "headline_text": shot["screen_text"], "caption_position": "bottom"} for shot in compiled]}]}
         return story, script, shots, timeline
 
     @staticmethod

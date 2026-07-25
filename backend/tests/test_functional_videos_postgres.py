@@ -310,6 +310,20 @@ def test_functional_video_plan_freezes_selected_local_library_videos() -> None:
                 "checksum_sha256": "a" * 64,
             }
         )
+        asset_file = AssetRepository(connection).create_file_record(
+            asset["asset_code"],
+            {
+                "file_role": "original",
+                "bucket_name": "assetgraph-test",
+                "object_key": f"assets/{asset['asset_code']}/original/local-{suffix}.mp4",
+                "mime_type": "video/mp4",
+                "file_size": 128,
+                "checksum_sha256": "a" * 64,
+                "source_relative_path": f"video/local-{suffix}.mp4",
+                "storage_status": "stored",
+            },
+        )
+        assert asset_file is not None
 
         plan = FunctionalVideoService(connection).create_plan(
             {
@@ -328,6 +342,36 @@ def test_functional_video_plan_freezes_selected_local_library_videos() -> None:
         assert {clip["source_range"]["asset_code"] for clip in plan["production_timeline"]["tracks"][0]["clips"]} == {
             asset["asset_code"]
         }
+        assert all(len(segment["source_asset_file_refs"]) == 1 for segment in plan["timeline_segments"])
+        for segment in plan["timeline_segments"]:
+            reference = segment["source_asset_file_refs"][0]
+            assert {
+                key: reference[key]
+                for key in (
+                    "asset_file_id",
+                    "relation_role",
+                    "asset_code",
+                    "file_role",
+                    "bucket_name",
+                    "object_key",
+                    "source_relative_path",
+                    "mime_type",
+                    "file_size",
+                    "checksum_sha256",
+                )
+            } == {
+                "asset_file_id": asset_file["id"],
+                "relation_role": "source_video",
+                "asset_code": asset["asset_code"],
+                "file_role": "original",
+                "bucket_name": "assetgraph-test",
+                "object_key": f"assets/{asset['asset_code']}/original/local-{suffix}.mp4",
+                "source_relative_path": f"video/local-{suffix}.mp4",
+                "mime_type": "video/mp4",
+                "file_size": 128,
+                "checksum_sha256": "a" * 64,
+            }
+            assert reference["created_at"] is not None
         connection.rollback()
 
 
