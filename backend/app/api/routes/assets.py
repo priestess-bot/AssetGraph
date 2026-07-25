@@ -26,6 +26,7 @@ from app.schemas.assets import AssetCreate, AssetFileRead, AssetMaituMaterialBin
 from app.schemas.material_library import (
     AssetConstraintProfileRead,
     AssetConstraintProfileWrite,
+    AssetClassificationBatchUpdate,
     AssetClassificationUpdate,
     AssetGapCreate,
     AssetGapRead,
@@ -205,6 +206,22 @@ def update_asset_classification(
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found")
     return row
+
+
+@router.patch("/batch-classification", response_model=list[AssetRead])
+def update_asset_classifications(
+    payload: AssetClassificationBatchUpdate,
+    repository: Annotated[MaterialLibraryRepository, Depends(get_material_library_repository)],
+) -> list[dict]:
+    try:
+        return repository.update_asset_classifications(
+            list(payload.asset_codes),
+            media_kind=payload.media_kind,
+            material_roles=list(payload.material_roles),
+            execution_capability=payload.execution_capability,
+        )
+    except MaterialLibraryValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
 
 
 @router.post("/groups", response_model=AssetGroupRead, status_code=status.HTTP_201_CREATED)

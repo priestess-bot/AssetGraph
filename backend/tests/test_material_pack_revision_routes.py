@@ -12,6 +12,7 @@ from app.repositories.material_library import MaterialLibraryValidationError
 
 class FakeMaterialLibraryRepository:
     def __init__(self) -> None:
+        self.batch_updates: list[dict] = []
         self.pack = {
             "pack_code": "AG-PACK-001",
             "title": "背景素材包",
@@ -40,6 +41,36 @@ class FakeMaterialLibraryRepository:
                 "fingerprint_sha256": "a" * 64,
                 "created_at": "2026-07-25T00:00:00Z",
             }
+        ]
+
+    def update_asset_classifications(
+        self,
+        asset_codes: list[str],
+        *,
+        media_kind: str | None,
+        material_roles: list[str],
+        execution_capability: str,
+    ) -> list[dict]:
+        self.batch_updates.append(
+            {
+                "asset_codes": asset_codes,
+                "media_kind": media_kind,
+                "material_roles": material_roles,
+                "execution_capability": execution_capability,
+            }
+        )
+        return [
+            {
+                "id": f"id-{asset_code}",
+                "asset_code": asset_code,
+                "asset_type": "IMG",
+                "title": asset_code,
+                "original_filename": f"{asset_code}.png",
+                "media_kind": media_kind,
+                "material_roles": material_roles,
+                "execution_capability": execution_capability,
+            }
+            for asset_code in asset_codes
         ]
 
     def list_pack_revisions(self, pack_code: str) -> list[dict]:
@@ -120,6 +151,32 @@ def test_material_pack_revisions_are_listed_and_create_a_new_draft(client: TestC
 
     assert conflict.status_code == 409
     assert "MATERIAL_PACK_REVISION_CONFLICT" in conflict.json()["detail"]
+
+
+def test_batch_classification_deduplicates_targets_and_rejects_an_empty_set(client: TestClient) -> None:
+    updated = client.patch(
+        "/api/assets/batch-classification",
+        json={
+            "asset_codes": ["AG-IMG-001", "AG-IMG-001", "AG-IMG-002"],
+            "media_kind": "image",
+            "material_roles": ["background", "product_display"],
+            "execution_capability": "local_only",
+        },
+    )
+    empty = client.patch(
+        "/api/assets/batch-classification",
+        json={
+            "asset_codes": ["  "],
+            "media_kind": "image",
+            "material_roles": [],
+            "execution_capability": "local_only",
+        },
+    )
+
+    assert updated.status_code == 200
+    assert [row["asset_code"] for row in updated.json()] == ["AG-IMG-001", "AG-IMG-002"]
+    assert updated.json()[0]["material_roles"] == ["background", "product_display"]
+    assert empty.status_code == 422
 
 
 def test_material_pack_revision_history_returns_not_found_for_unknown_pack(client: TestClient) -> None:

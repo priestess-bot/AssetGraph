@@ -132,4 +132,32 @@ describe("AssetLibraryPage", () => {
     expect(screen.getByText(/新增：optional:asset:AG-IMG-002/)).toBeInTheDocument();
     expect(screen.getByText(/移除：required:group:AG-GRP-001/)).toBeInTheDocument();
   });
+
+  it("batch-corrects selected unclassified assets through the explicit three-axis contract", async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    const assets = [
+      { asset_code: "AG-IMG-001", title: "主图", original_filename: "main.png", asset_type: "IMG", material_roles: [], execution_capability: "unclassified" },
+      { asset_code: "AG-IMG-002", title: "商品图", original_filename: "product.png", asset_type: "IMG", material_roles: [], execution_capability: "unclassified" },
+    ];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); requests.push({ url, init });
+      if (url === "/api/assets" || url === "/api/assets/groups" || url === "/api/assets/material-packs" || url === "/api/assets/gaps") return response(url === "/api/assets" ? assets : []);
+      if (url === "/api/assets/AG-IMG-001/constraint-profile" && !init?.method) return response({ profile_code: "AG-CP-001", asset_code: "AG-IMG-001", revision_number: 1, constraints: [], fingerprint_sha256: "a".repeat(64), created_at: "2026-07-25T00:00:00Z" });
+      if (url === "/api/assets/batch-classification") return response(assets.map((asset) => ({ ...asset, media_kind: "image", material_roles: ["background"], execution_capability: "local_only", id: `id-${asset.asset_code}` })));
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    const user = userEvent.setup();
+    renderPage();
+
+    const targets = await screen.findByLabelText("待校正素材");
+    await user.selectOptions(targets, ["AG-IMG-001", "AG-IMG-002"]);
+    await user.selectOptions(screen.getAllByLabelText("媒体类型")[0]!, "image");
+    await user.selectOptions(screen.getAllByLabelText("执行能力")[0]!, "local_only");
+    await user.click(screen.getAllByRole("checkbox", { name: "background" })[0]!);
+    await user.click(screen.getByRole("button", { name: "校正 2 个素材" }));
+
+    const request = requests.find((item) => item.url === "/api/assets/batch-classification");
+    expect(request?.init?.method).toBe("PATCH");
+    expect(request?.init?.body).toBe(JSON.stringify({ asset_codes: ["AG-IMG-001", "AG-IMG-002"], media_kind: "image", material_roles: ["background"], execution_capability: "local_only" }));
+  });
 });

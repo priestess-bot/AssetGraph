@@ -163,6 +163,7 @@ export const assetLibraryApi = {
     if (!result) throw new Error("素材分类响应无效");
     return result;
   }),
+  updateClassifications: (payload: { asset_codes: string[]; media_kind: string; material_roles: string[]; execution_capability: ExecutionCapability }) => requestJson<unknown[]>(`${ROOT}/batch-classification`, { method: "PATCH", body: JSON.stringify(payload) }).then((rows) => rows.flatMap((row) => asset(row) ?? [])),
   listGroups: () => requestJson<unknown[]>(`${ROOT}/groups`).then((rows) => rows.flatMap((row) => group(row) ?? [])),
   createGroup: (payload: { title: string; description?: string; asset_codes: string[] }) => postJson<unknown>(`${ROOT}/groups`, payload).then((value) => {
     const result = group(value);

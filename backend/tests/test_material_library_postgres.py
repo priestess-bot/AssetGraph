@@ -173,3 +173,36 @@ def test_material_library_rejects_unknown_group_members_and_pack_targets() -> No
         with pytest.raises(Exception, match="Unknown active asset codes"):
             library.create_group({"title": f"Invalid {uuid4().hex}", "asset_codes": ["AG-IMG-UNKNOWN"]})
         connection.rollback()
+
+
+def test_batch_asset_classification_is_atomic_for_all_targets() -> None:
+    suffix = uuid4().hex
+    with psycopg.connect(DATABASE_URL) as connection:
+        assets = AssetRepository(connection)
+        library = MaterialLibraryRepository(connection)
+        first = _create_asset(assets, f"first-{suffix}", title="First")
+        second = _create_asset(assets, f"second-{suffix}", title="Second")
+
+        updated = library.update_asset_classifications(
+            [first["asset_code"], second["asset_code"]],
+            media_kind="image",
+            material_roles=["product_display"],
+            execution_capability="local_only",
+        )
+        assert [row["asset_code"] for row in updated] == [first["asset_code"], second["asset_code"]]
+        assert all(row["material_roles"] == ["product_display"] for row in updated)
+
+        with pytest.raises(Exception, match="Unknown active asset codes"):
+            library.update_asset_classifications(
+                [first["asset_code"], "AG-IMG-UNKNOWN"],
+                media_kind="video",
+                material_roles=["supporting_video"],
+                execution_capability="reference_only",
+            )
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT media_kind, material_roles, execution_capability FROM assets WHERE asset_code = %s",
+                (first["asset_code"],),
+            )
+            row = cursor.fetchone()
+        assert row == ("image", ["product_display"], "local_only")

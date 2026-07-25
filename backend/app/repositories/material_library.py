@@ -44,6 +44,51 @@ class MaterialLibraryRepository:
         self.connection.commit()
         return self._stringify(row) if row else None
 
+    def update_asset_classifications(
+        self,
+        asset_codes: list[str],
+        *,
+        media_kind: str | None,
+        material_roles: list[str],
+        execution_capability: str,
+    ) -> list[dict[str, Any]]:
+        """Apply one explicit three-axis classification to an all-or-nothing target set."""
+        codes = self._dedupe_codes(asset_codes)
+        if not codes:
+            raise MaterialLibraryValidationError("At least one asset code is required")
+        try:
+            with self.connection.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    """SELECT asset_code FROM assets
+                       WHERE asset_code = ANY(%s) AND deleted_at IS NULL FOR UPDATE""",
+                    (codes,),
+                )
+                found = {row["asset_code"] for row in cursor.fetchall()}
+                missing = sorted(set(codes) - found)
+                if missing:
+                    raise MaterialLibraryValidationError(
+                        f"Unknown active asset codes: {', '.join(missing)}"
+                    )
+                cursor.execute(
+                    """UPDATE assets
+                       SET media_kind = %s, material_roles = %s::jsonb,
+                           execution_capability = %s, updated_at = now()
+                       WHERE asset_code = ANY(%s) AND deleted_at IS NULL
+                       RETURNING *""",
+                    (
+                        media_kind,
+                        json.dumps(sorted(set(material_roles))),
+                        execution_capability,
+                        codes,
+                    ),
+                )
+                by_code = {row["asset_code"]: self._stringify(row) for row in cursor.fetchall()}
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+        return [by_code[code] for code in codes]
+
     def create_group(self, payload: dict[str, Any]) -> dict[str, Any]:
         codes = self._dedupe_codes(payload.get("asset_codes") or [])
         with self.connection.cursor(row_factory=dict_row) as cursor:

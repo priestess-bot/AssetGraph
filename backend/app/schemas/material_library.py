@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class MediaKind(StrEnum):
@@ -71,6 +71,18 @@ class AssetClassificationUpdate(BaseModel):
     media_kind: MediaKind | None = None
     material_roles: list[MaterialRole] = Field(default_factory=list)
     execution_capability: ExecutionCapability = ExecutionCapability.UNCLASSIFIED
+
+
+class AssetClassificationBatchUpdate(AssetClassificationUpdate):
+    asset_codes: list[str] = Field(min_length=1, max_length=100)
+
+    @field_validator("asset_codes")
+    @classmethod
+    def normalize_asset_codes(cls, values: list[str]) -> list[str]:
+        codes = list(dict.fromkeys(value.strip() for value in values if value.strip()))
+        if not codes:
+            raise ValueError("asset_codes must contain at least one nonblank code")
+        return codes
 
 
 class AssetGroupCreate(BaseModel):
