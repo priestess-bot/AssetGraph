@@ -570,6 +570,14 @@ def test_content_project_pins_published_template_revision() -> None:
                 "accepted_modules": ["opening"],
                 "rejected_modules": [],
                 "material_cues": ["background", "promotion_text"],
+                "content_strategy_policy": {
+                    "duration_policy": {"opening": {"ratio": 0.2}},
+                    "module_recipes": [],
+                    "product_rotation_policy": {},
+                    "interaction_policy": {"ask_every_minutes": 3},
+                    "conversion_policy": {"cta": "comment"},
+                    "host_style": {"tone": "clear"},
+                },
             }
         ]
 
@@ -594,8 +602,24 @@ def test_content_project_pins_published_template_revision() -> None:
                 "revision": 1,
                 "contribution": "primary_structure",
                 "selection_role": "primary",
+                "content_strategy_policy": {
+                    "duration_policy": {"opening": {"ratio": 0.2}},
+                    "module_recipes": [],
+                    "product_rotation_policy": {},
+                    "interaction_policy": {"ask_every_minutes": 3},
+                    "conversion_policy": {"cta": "comment"},
+                    "host_style": {"tone": "clear"},
+                },
             }
         ]
+        assert generated["script"]["blocks"][0]["interaction_intent"] == {
+            "type": "template_interaction",
+            "policy": {"ask_every_minutes": 3},
+        }
+        assert generated["program"]["segments"][0]["metadata"] == {
+            "template_duration_policy": {"opening": {"ratio": 0.2}},
+            "template_host_style": {"tone": "clear"},
+        }
         assert generated["shot_list"]["shots"][0]["material_role_requirements"] == [
             "digital_human", "background", "promotion_text"
         ]

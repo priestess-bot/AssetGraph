@@ -1143,6 +1143,9 @@ class FunctionalContentService:
                         for value in strategy.get("material_cues") or []
                         if str(value).strip()
                     ],
+                    "content_strategy_policy": self._content_strategy_policy_snapshot(
+                        strategy
+                    ),
                 }
             )
 
@@ -1170,6 +1173,30 @@ class FunctionalContentService:
         document["primary_template_code"] = primary_code
         document["secondary_template_codes"] = secondary_codes
         document["template_contribution_decisions"] = decisions
+
+    @staticmethod
+    def _content_strategy_policy_snapshot(strategy: dict[str, Any]) -> dict[str, Any]:
+        """Freeze only the structured strategy fields a content branch may consume."""
+        def object_value(key: str) -> dict[str, Any]:
+            value = strategy.get(key)
+            return dict(value) if isinstance(value, dict) else {}
+
+        recipes = []
+        for item in strategy.get("module_recipes") or []:
+            if not isinstance(item, dict):
+                continue
+            module_key = str(item.get("module_key") or "").strip()
+            guidance = str(item.get("guidance") or item.get("recipe") or "").strip()
+            if module_key and guidance:
+                recipes.append({"module_key": module_key, "guidance": guidance})
+        return {
+            "duration_policy": object_value("duration_policy"),
+            "module_recipes": recipes,
+            "product_rotation_policy": object_value("product_rotation_policy"),
+            "interaction_policy": object_value("interaction_policy"),
+            "conversion_policy": object_value("conversion_policy"),
+            "host_style": object_value("host_style"),
+        }
 
     @staticmethod
     def _validate_content_strategy_template(
@@ -1524,12 +1551,28 @@ class FunctionalContentService:
             for item in content.get("template_contribution_decisions") or []
             if isinstance(item, dict) and item.get("template_code")
         }
+        def with_policy(ref: dict[str, Any]) -> dict[str, Any]:
+            decision = decisions.get(str(ref["template_code"]), {})
+            policy = decision.get("content_strategy_policy")
+            if not isinstance(policy, dict):
+                return ref
+            guidance = [
+                str(item.get("guidance") or "").strip()
+                for item in policy.get("module_recipes") or []
+                if isinstance(item, dict) and item.get("module_key") == module_type
+                and str(item.get("guidance") or "").strip()
+            ]
+            return {
+                **ref,
+                "content_strategy_policy": policy,
+                **({"module_guidance": guidance} if guidance else {}),
+            }
         adopted = [
             ref for ref in refs
             if module_type in decisions.get(str(ref["template_code"]), {}).get("accepted_modules", [])
         ]
         if adopted:
-            return adopted
+            return [with_policy(ref) for ref in adopted]
         # A primary strategy controls the overall skeleton even when its
         # source module names differ from this deterministic demo's names.
         primary_sources = [ref for ref in refs if ref.get("selection_role") == "primary"]
@@ -1539,8 +1582,23 @@ class FunctionalContentService:
             decisions.get(str(ref["template_code"]), {}).get("accepted_modules", [])
             for ref in primary_sources
         ):
-            return primary_sources
+            return [with_policy(ref) for ref in primary_sources]
         return []
+
+    @staticmethod
+    def _policy_for_sources(
+        sources: list[dict[str, Any]], policy_key: str
+    ) -> dict[str, Any]:
+        """Merge selected template policy fields without replacing the primary source."""
+        result: dict[str, Any] = {}
+        for source in sources:
+            policy = source.get("content_strategy_policy")
+            value = policy.get(policy_key) if isinstance(policy, dict) else None
+            if not isinstance(value, dict):
+                continue
+            for key, item in value.items():
+                result.setdefault(key, item)
+        return result
 
     @staticmethod
     def _material_cues_for_sources(content: dict[str, Any], sources: list[dict[str, Any]]) -> list[str]:
@@ -1570,18 +1628,32 @@ class FunctionalContentService:
     ) -> list[dict[str, Any]]:
         theme = content.get("theme") or goal
         story = content.get("story") or "从真实使用场景出发，给出容易理解的选择建议。"
+        opening_sources = FunctionalContentService._template_sources_for_block(
+            content, "opening"
+        )
+        story_sources = FunctionalContentService._template_sources_for_block(
+            content, "story"
+        )
+        def interaction_intent(sources: list[dict[str, Any]]) -> dict[str, Any]:
+            policy = FunctionalContentService._policy_for_sources(
+                sources, "interaction_policy"
+            )
+            return {"type": "template_interaction", "policy": policy} if policy else {}
+
         blocks = [
             {
                 "module_type": "opening",
                 "content": f"今天我们围绕{theme}展开，目标是{goal}。",
                 "estimated_duration_ms": 45_000,
-                "template_sources": FunctionalContentService._template_sources_for_block(content, "opening"),
+                "template_sources": opening_sources,
+                "interaction_intent": interaction_intent(opening_sources),
             },
             {
                 "module_type": "story",
                 "content": story,
                 "estimated_duration_ms": 90_000,
-                "template_sources": FunctionalContentService._template_sources_for_block(content, "story"),
+                "template_sources": story_sources,
+                "interaction_intent": interaction_intent(story_sources),
             },
         ]
         for fact in approved_facts:
@@ -1593,12 +1665,15 @@ class FunctionalContentService:
                 claim = str(raw_fact).strip()
                 if not claim:
                     continue
+                fact_sources = FunctionalContentService._template_sources_for_block(
+                    content, "product_fact"
+                )
                 blocks.append(
                     {
                         "module_type": "product_fact",
                         "content": claim,
                         "estimated_duration_ms": 30_000,
-                        "template_sources": FunctionalContentService._template_sources_for_block(content, "product_fact"),
+                        "template_sources": fact_sources,
                         "fact_citations": [
                             ({
                                 "claim_code": fact["claim_code"],
@@ -1618,13 +1693,19 @@ class FunctionalContentService:
                         ],
                     }
                 )
+        conversion_sources = FunctionalContentService._template_sources_for_block(
+            content, "conversion"
+        )
+        conversion_policy = FunctionalContentService._policy_for_sources(
+            conversion_sources, "conversion_policy"
+        )
         blocks.append(
             {
                 "module_type": "conversion",
                 "content": "结合你的实际需求选择合适方案，欢迎在互动区留下你的使用场景。",
                 "estimated_duration_ms": 45_000,
-                "template_sources": FunctionalContentService._template_sources_for_block(content, "conversion"),
-                "cta_intent": {"type": "comment"},
+                "template_sources": conversion_sources,
+                "cta_intent": {"type": "comment", **({"policy": conversion_policy} if conversion_policy else {})},
             },
         )
         return blocks
@@ -1645,6 +1726,16 @@ class FunctionalContentService:
         segments: list[dict[str, Any]] = []
         for block in blocks:
             module_type = str(block.get("module_type"))
+            sources = block.get("template_sources") or []
+            product_rotation_policy = FunctionalContentService._policy_for_sources(
+                sources, "product_rotation_policy"
+            )
+            duration_policy = FunctionalContentService._policy_for_sources(
+                sources, "duration_policy"
+            )
+            host_style = FunctionalContentService._policy_for_sources(
+                sources, "host_style"
+            )
             product_refs: list[str] = []
             if module_type == "product_fact" and product_index < len(ordered_products):
                 product_refs = [ordered_products[product_index]]
@@ -1655,6 +1746,13 @@ class FunctionalContentService:
                     "program_phase": phase_by_module.get(module_type, "body"),
                     "estimated_duration_ms": block.get("estimated_duration_ms"),
                     "product_refs": product_refs,
+                    "interaction_actions": [block["interaction_intent"]] if block.get("interaction_intent") else [],
+                    "cta_actions": [block["cta_intent"]] if block.get("cta_intent") else [],
+                    "metadata": {
+                        **({"template_product_rotation_policy": product_rotation_policy} if product_rotation_policy else {}),
+                        **({"template_duration_policy": duration_policy} if duration_policy else {}),
+                        **({"template_host_style": host_style} if host_style else {}),
+                    },
                     "script_block_adoptions": [{"block_code": block["block_code"], "content_action": "deliver"}],
                 }
             )

@@ -75,6 +75,32 @@ describe("content projects api", () => {
     });
   });
 
+  it("reads the frozen content-strategy policy attached to a template contribution", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response({
+      project_code: "CONTENT-001", title: "选酒直播", revision_number: 4, status: "confirmed", generation_goal: "帮助观众选酒",
+      updated_at: "2026-07-25T00:00:00Z", generated: false,
+      content: {
+        template_contribution_decisions: [{
+          template_code: "TPL-WINE", revision: 2, selection_role: "primary", available_modules: ["opening"], accepted_modules: ["opening"], rejected_modules: [], material_cues: ["background"],
+          content_strategy_policy: { duration_policy: { target_duration_seconds: 1800 }, interaction_policy: { cadence: "module_end" } },
+        }],
+      },
+      script: { script_revision_code: "SCRIPT-001", revision_number: 1, title: "脚本", blocks: [{ block_code: "BLOCK-001", module_type: "opening", content: "从选择问题开始。", fact_citations: [], interaction_intent: { type: "template_interaction", policy: { cadence: "module_end" } }, template_sources: [{ template_code: "TPL-WINE", revision: 2, module_guidance: ["先建立选择问题"], content_strategy_policy: { interaction_policy: { cadence: "module_end" } } }] }] },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const detail = await contentProjectsApi.get("CONTENT-001");
+
+    expect(detail.templateContributionDecisions[0]).toMatchObject({
+      templateCode: "TPL-WINE",
+      contentStrategyPolicy: { duration_policy: { target_duration_seconds: 1800 }, interaction_policy: { cadence: "module_end" } },
+    });
+    expect(detail.script?.blocks[0]?.template_sources[0]).toMatchObject({
+      moduleGuidance: ["先建立选择问题"],
+      contentStrategyPolicy: { interaction_policy: { cadence: "module_end" } },
+    });
+  });
+
   it("revises parsed DesignBrief fields without changing the source content project", async () => {
     const fetchMock = vi.fn().mockResolvedValue(response({
       project_code: "CONTENT-001", title: "选酒直播", revision_number: 4, status: "confirmed", generation_goal: "帮助观众选酒",

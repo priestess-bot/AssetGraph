@@ -81,6 +81,27 @@ function actions(value: string): Array<Record<string, string | undefined>> {
 function recordText(value: Record<string, unknown>, key: string): string {
   return typeof value[key] === "string" ? value[key] : "";
 }
+function policySummary(value: Record<string, unknown>): string {
+  const duration = typeof value.duration_policy === "object" && value.duration_policy ? value.duration_policy as Record<string, unknown> : {};
+  const interaction = typeof value.interaction_policy === "object" && value.interaction_policy ? value.interaction_policy as Record<string, unknown> : {};
+  const conversion = typeof value.conversion_policy === "object" && value.conversion_policy ? value.conversion_policy as Record<string, unknown> : {};
+  const hostStyle = typeof value.host_style === "object" && value.host_style ? value.host_style as Record<string, unknown> : {};
+  const text = (item: unknown) => typeof item === "string" ? item : "";
+  const parts = [
+    typeof duration.target_duration_seconds === "number" ? `${duration.target_duration_seconds} 秒` : "",
+    text(duration.pacing),
+    text(interaction.cadence),
+    text(conversion.cta_style),
+    text(hostStyle.tone),
+  ].filter(Boolean);
+  return parts.join(" / ") || "未额外声明";
+}
+function actionPolicySummary(value?: Record<string, unknown>): string {
+  if (!value) return "";
+  const policy = typeof value.policy === "object" && value.policy ? value.policy as Record<string, unknown> : {};
+  const parts = Object.entries(policy).flatMap(([key, item]) => typeof item === "string" || typeof item === "number" ? [`${key}: ${item}`] : []);
+  return parts.join(" / ");
+}
 function toggleBranch(
   value: string[],
   branch: "live_room" | "rendered_video",
@@ -3190,6 +3211,10 @@ function Chain({
                   <span>素材提示</span>
                   <strong>{decision.materialCues.join(" / ") || "无"}</strong>
                 </div>
+                <div>
+                  <span>节目策略</span>
+                  <strong>{policySummary(decision.contentStrategyPolicy)}</strong>
+                </div>
               </article>
             ))}
           </div>
@@ -3237,6 +3262,15 @@ function Chain({
                         : ""}
                       {block.template_sources.length
                         ? ` · 模板：${block.template_sources.map((source) => `${source.template_code} r${source.revision}`).join("、")}`
+                        : ""}
+                      {block.template_sources.flatMap((source) => source.moduleGuidance).length
+                        ? ` · 配方：${block.template_sources.flatMap((source) => source.moduleGuidance).join("；")}`
+                        : ""}
+                      {actionPolicySummary(block.interaction_intent)
+                        ? ` · 互动：${actionPolicySummary(block.interaction_intent)}`
+                        : ""}
+                      {actionPolicySummary(block.cta_intent)
+                        ? ` · 转化：${actionPolicySummary(block.cta_intent)}`
                         : ""}
                     </small>
                   </div>
