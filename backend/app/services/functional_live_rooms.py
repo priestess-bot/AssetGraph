@@ -126,6 +126,7 @@ class FunctionalLiveRoomService:
                 for asset in selected_assets
             ],
             "material_pack_refs": material_pack_refs,
+            "layout_reference_handoff": dict(payload.get("layout_reference_handoff") or {}),
             "material_pack_resolution": {
                 "schema_version": material_pack_resolution["schema_version"],
                 "role_modes": material_pack_resolution["role_modes"],
@@ -152,6 +153,7 @@ class FunctionalLiveRoomService:
             branch_target={"live_room_id": payload["target_live_room_id"], "expected_title": payload["expected_title"]},
             configuration={
                 "templates": templates,
+                "layout_reference_handoff": dict(payload.get("layout_reference_handoff") or {}),
                 "selected_asset_codes": snapshot["asset_codes"],
                 "required_loose_asset_codes": required_loose_asset_codes,
                 "selected_material_pack_codes": payload.get("material_pack_codes") or [],
@@ -193,6 +195,7 @@ class FunctionalLiveRoomService:
             site_protection_policy={"requires_empty_draft": True, "go_live_disabled": True},
             configuration={
                 "templates": templates,
+                "layout_reference_handoff": dict(payload.get("layout_reference_handoff") or {}),
                 "selected_asset_codes": snapshot["asset_codes"],
                 "required_loose_asset_codes": required_loose_asset_codes,
                 "selected_group_codes": payload.get("group_codes") or [],
@@ -477,6 +480,9 @@ class FunctionalLiveRoomService:
                 "project_code": source["project_code"],
                 "target_live_room_id": target_live_room_id,
                 "expected_title": expected_title,
+                "layout_reference_handoff": dict(
+                    (source["build_plan"] or {}).get("inventory_snapshot", {}).get("layout_reference_handoff") or {}
+                ) or None,
                 "primary_template_code": source["primary_template_code"],
                 "secondary_template_codes": list(source["secondary_template_codes"] or []),
                 "asset_codes": list(source["selected_asset_codes"] or []),
@@ -504,6 +510,7 @@ class FunctionalLiveRoomService:
             "source_project_revision": int(source["project_revision"]),
             "copied_business_inputs": [
                 "content_project_revision",
+                "layout_reference_handoff",
                 "pinned_template_revisions",
                 "selected_asset_codes",
                 "required_loose_asset_codes",

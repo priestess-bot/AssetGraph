@@ -155,14 +155,14 @@ describe("LiveRoomPlannerPage", () => {
     );
     const user = userEvent.setup();
     renderPage(
-      `?reference_template_code=TPL-PRIMARY&reference_template_revision_number=3&reference_template_projection_fingerprint=${"a".repeat(64)}`,
+      `?layout_reference_template_code=LAYOUT-001&layout_reference_template_revision_number=3&layout_reference_template_projection_fingerprint=${"a".repeat(64)}`,
     );
 
     await screen.findByText("主参考模板");
     expect(screen.getByText("TPL-PRIMARY · r3")).toBeInTheDocument();
     expect(screen.getByText("TPL-SECONDARY · r2")).toBeInTheDocument();
     expect(
-      screen.getByText(/当前内容项目已固定 TPL-PRIMARY · r3/),
+      screen.getByText(/已固定 LAYOUT-001 · r3 的近似布局参考/),
     ).toBeInTheDocument();
     await user.type(screen.getByLabelText("直播间 ID"), "room-001");
     await user.type(screen.getByLabelText("直播间标题"), "缺口计划");
@@ -192,6 +192,11 @@ describe("LiveRoomPlannerPage", () => {
         item.init?.method === "POST",
     );
     expect(JSON.parse(String(request?.init?.body))).toMatchObject({
+      layout_reference_handoff: {
+        template_code: "LAYOUT-001",
+        revision: 3,
+        projection_fingerprint: "a".repeat(64),
+      },
       primary_template_code: "TPL-PRIMARY",
       secondary_template_codes: ["TPL-SECONDARY"],
       asset_gap_codes: ["AG-GAP-001"],

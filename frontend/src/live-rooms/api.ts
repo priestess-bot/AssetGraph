@@ -17,6 +17,11 @@ export interface FunctionalLiveRoomPlan {
   configurationCode: string;
   targetLiveRoomId: string;
   expectedTitle: string;
+  layoutReferenceHandoff?: {
+    templateCode: string;
+    revision: number;
+    projectionFingerprint: string;
+  };
   primaryTemplateCode?: string;
   secondaryTemplateCodes: string[];
   selectedAssetCodes: string[];
@@ -283,6 +288,24 @@ function plan(value: unknown): FunctionalLiveRoomPlan {
     configurationCode: asString(value.configuration_code),
     targetLiveRoomId: asString(value.target_live_room_id),
     expectedTitle: asString(value.expected_title),
+    layoutReferenceHandoff:
+      isRecord(inventorySnapshot.layout_reference_handoff) &&
+      asString(inventorySnapshot.layout_reference_handoff.template_code) &&
+      typeof inventorySnapshot.layout_reference_handoff.revision === "number" &&
+      asString(inventorySnapshot.layout_reference_handoff.projection_fingerprint)
+        ? {
+            templateCode: asString(
+              inventorySnapshot.layout_reference_handoff.template_code,
+            ),
+            revision: asNumber(
+              inventorySnapshot.layout_reference_handoff.revision,
+            ),
+            projectionFingerprint: asString(
+              inventorySnapshot.layout_reference_handoff
+                .projection_fingerprint,
+            ),
+          }
+        : undefined,
     primaryTemplateCode: asOptionalString(value.primary_template_code),
     secondaryTemplateCodes: strings(value.secondary_template_codes),
     selectedAssetCodes: strings(value.selected_asset_codes),
@@ -559,6 +582,11 @@ export const functionalLiveRoomsApi = {
     project_code: string;
     target_live_room_id: string;
     expected_title: string;
+    layout_reference_handoff?: {
+      template_code: string;
+      revision: number;
+      projection_fingerprint: string;
+    };
     primary_template_code?: string;
     secondary_template_codes: string[];
     asset_codes: string[];

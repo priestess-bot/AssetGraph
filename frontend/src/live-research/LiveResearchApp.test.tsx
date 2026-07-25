@@ -56,7 +56,7 @@ describe("live template research workbench", () => {
       blocked_operations: [],
       warnings: [],
       scenes: [],
-    })).toBe(`/production/live-rooms?reference_template_code=TPL-001&reference_template_revision_number=3&reference_template_projection_fingerprint=${"a".repeat(64)}`);
+    })).toBe(`/production/live-rooms?layout_reference_template_code=TPL-001&layout_reference_template_revision_number=3&layout_reference_template_projection_fingerprint=${"a".repeat(64)}`);
   });
 
   it("opens source evidence at its fixed recording interval", async () => {

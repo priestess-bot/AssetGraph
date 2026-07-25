@@ -13,9 +13,9 @@ function errorMessage(error: unknown): string {
 export function productionHandoffHref(templateCode: string, projection: TemplateProjection): string | undefined {
   if (!projection.revision || !projection.projection_fingerprint) return undefined;
   const params = new URLSearchParams({
-    reference_template_code: templateCode,
-    reference_template_revision_number: String(projection.revision),
-    reference_template_projection_fingerprint: projection.projection_fingerprint,
+    layout_reference_template_code: templateCode,
+    layout_reference_template_revision_number: String(projection.revision),
+    layout_reference_template_projection_fingerprint: projection.projection_fingerprint,
   });
   return `/production/live-rooms?${params.toString()}`;
 }

@@ -18,6 +18,38 @@ def test_live_room_plan_input_accepts_distinct_explicit_asset_gap_codes() -> Non
     assert payload.asset_gap_codes == ["AG-GAP-001", "AG-GAP-002"]
 
 
+def test_live_room_plan_input_accepts_a_fixed_layout_reference_handoff() -> None:
+    payload = FunctionalLiveRoomPlanCreate(
+        project_code="CONTENT-001",
+        target_live_room_id="room-001",
+        expected_title="布局参考计划",
+        asset_codes=["AG-IMG-001"],
+        layout_reference_handoff={
+            "template_code": "TPL-LAYOUT-001",
+            "revision": 2,
+            "projection_fingerprint": "a" * 64,
+        },
+    )
+
+    assert payload.layout_reference_handoff is not None
+    assert payload.layout_reference_handoff.template_code == "TPL-LAYOUT-001"
+
+
+def test_live_room_plan_input_rejects_a_non_sha256_layout_reference_fingerprint() -> None:
+    with pytest.raises(ValidationError, match="projection_fingerprint"):
+        FunctionalLiveRoomPlanCreate(
+            project_code="CONTENT-001",
+            target_live_room_id="room-001",
+            expected_title="无效布局参考计划",
+            asset_codes=["AG-IMG-001"],
+            layout_reference_handoff={
+                "template_code": "TPL-LAYOUT-001",
+                "revision": 2,
+                "projection_fingerprint": "not-a-fingerprint",
+            },
+        )
+
+
 def test_live_room_plan_input_accepts_a_scoped_asset_gap_waiver_reason() -> None:
     payload = FunctionalLiveRoomPlanCreate(
         project_code="CONTENT-001",

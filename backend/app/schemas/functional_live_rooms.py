@@ -29,10 +29,17 @@ class FunctionalLiveRoomConstraintOverride(BaseModel):
         return self
 
 
+class FunctionalLayoutReferenceHandoff(BaseModel):
+    template_code: str = Field(min_length=1, max_length=80)
+    revision: int = Field(ge=1)
+    projection_fingerprint: str = Field(pattern="^[0-9a-f]{64}$")
+
+
 class FunctionalLiveRoomPlanCreate(BaseModel):
     project_code: str = Field(min_length=1, max_length=64)
     target_live_room_id: str = Field(min_length=1, max_length=128)
     expected_title: str = Field(min_length=1, max_length=255)
+    layout_reference_handoff: FunctionalLayoutReferenceHandoff | None = None
     primary_template_code: str | None = Field(default=None, max_length=80)
     secondary_template_codes: list[str] = Field(default_factory=list)
     asset_codes: list[str] = Field(default_factory=list)
