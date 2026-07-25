@@ -706,8 +706,24 @@ function PlanDetail({ plan }: { plan: FunctionalLiveRoomPlan }) {
                 <b>{decision.selectedScore}</b>
                 <small>
                   {decision.selectionReasons.join(" / ")}
+                  {Object.keys(decision.selectedScoreParts).length
+                    ? ` · ${Object.entries(decision.selectedScoreParts)
+                        .map(([key, value]) => `${key}:${value}`)
+                        .join("，")}`
+                    : ""}
                   {decision.candidateScores.length
-                    ? ` · ${decision.candidateScores.map((candidate) => `${candidate.assetCode}:${candidate.score}`).join("，")}`
+                    ? ` · ${decision.candidateScores
+                        .map(
+                          (candidate) =>
+                            `${candidate.assetCode}:${candidate.score}${
+                              Object.keys(candidate.scoreParts).length
+                                ? `(${Object.entries(candidate.scoreParts)
+                                    .map(([key, value]) => `${key}:${value}`)
+                                    .join("/")})`
+                                : ""
+                            }`,
+                        )
+                        .join("，")}`
                     : ""}
                 </small>
               </article>

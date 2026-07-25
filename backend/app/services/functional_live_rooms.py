@@ -1482,11 +1482,12 @@ class FunctionalLiveRoomService:
         role: str,
         candidates: list[dict[str, Any]],
         overrides: dict[str, str],
+        prior_selection_counts: dict[str, int],
         shot_code: str,
         scene_code: str,
         scene_type: str | None,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
-        def candidate_score(asset: dict[str, Any]) -> tuple[int, list[str]]:
+        def candidate_score(asset: dict[str, Any]) -> tuple[int, list[str], dict[str, int]]:
             capability = str(asset.get("execution_capability") or "unclassified")
             profile_bound = isinstance(asset.get("constraint_profile_ref"), dict)
             applicable_rules = [
@@ -1504,13 +1505,23 @@ class FunctionalLiveRoomService:
                  for rule in applicable_rules),
                 default=0,
             )
-            score = 60 + (30 if capability == "maitu_bound" else 0) + (10 if profile_bound else 0) + strongest_mode * 100
+            prior_count = prior_selection_counts.get(str(asset["asset_code"]), 0)
+            score_parts = {
+                "role_match": 60,
+                "execution_capability": 30 if capability == "maitu_bound" else 0,
+                "constraint_profile": 10 if profile_bound else 0,
+                "material_pack_requirement": strongest_mode * 100,
+                "repeat_penalty": -20 * prior_count,
+            }
+            score = sum(score_parts.values())
             reasons = ["ROLE_MATCH", f"CAPABILITY_{capability.upper()}"]
             if profile_bound:
                 reasons.append("CONSTRAINT_PROFILE_BOUND")
             if strongest_mode:
                 reasons.append({1: "PACK_OPTIONAL", 2: "PACK_ALTERNATIVE", 3: "PACK_REQUIRED"}[strongest_mode])
-            return score, reasons
+            if prior_count:
+                reasons.append(f"REPEAT_PENALTY_{prior_count}")
+            return score, reasons, score_parts
 
         ordered = sorted(candidates, key=lambda asset: (-candidate_score(asset)[0], str(asset["asset_code"])))
         override_asset_code = overrides.get(role)
@@ -1521,7 +1532,7 @@ class FunctionalLiveRoomService:
                 "The requested material role override is not a candidate for this role",
                 details={"role": role, "asset_code": override_asset_code},
             )
-        score, reasons = candidate_score(selected)
+        score, reasons, score_parts = candidate_score(selected)
         return selected, {
             "schema_version": "functional-material-selection-decision.v1",
             "role": role,
@@ -1529,6 +1540,7 @@ class FunctionalLiveRoomService:
             "requested_override_asset_code": override_asset_code,
             "selected_asset_code": selected["asset_code"],
             "selected_score": score,
+            "selected_score_parts": score_parts,
             "selection_reasons": reasons,
             "applicable_material_pack_rules": [
                 rule for rule in selected.get("material_pack_rules") or []
@@ -1544,6 +1556,7 @@ class FunctionalLiveRoomService:
                 {
                     "asset_code": candidate["asset_code"],
                     "score": candidate_score(candidate)[0],
+                    "score_parts": candidate_score(candidate)[2],
                     "selection_reasons": candidate_score(candidate)[1],
                 }
                 for candidate in ordered
@@ -1751,6 +1764,7 @@ class FunctionalLiveRoomService:
         material_role_overrides = dict(payload.get("material_role_overrides") or {})
         material_role_modes = dict(payload.get("material_role_modes") or {})
         material_selection_decisions: list[dict[str, Any]] = []
+        prior_selection_counts: dict[str, int] = {}
         named_regions, table_surfaces, named_region_failures = FunctionalLiveRoomService._named_regions(assets)
         blocked.extend(named_region_failures)
         active_start_ms = 0
@@ -1779,8 +1793,12 @@ class FunctionalLiveRoomService:
                     continue
                 asset, selection_decision = FunctionalLiveRoomService._choose_material_for_role(
                     role=str(role), candidates=candidates, overrides=material_role_overrides,
+                    prior_selection_counts=prior_selection_counts,
                     shot_code=str(shot["shot_code"]), scene_code=scene_code,
                     scene_type=str(shot.get("scene_type") or "") or None,
+                )
+                prior_selection_counts[str(asset["asset_code"])] = (
+                    prior_selection_counts.get(str(asset["asset_code"]), 0) + 1
                 )
                 selection_decision = {
                     **selection_decision,

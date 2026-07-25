@@ -1,4 +1,12 @@
-import { asArray, asNumber, asOptionalString, asString, isRecord, postJson, requestJson } from "../workbench/api";
+import {
+  asArray,
+  asNumber,
+  asOptionalString,
+  asString,
+  isRecord,
+  postJson,
+  requestJson,
+} from "../workbench/api";
 
 const ROOT = "/api/functional-live-room-plans";
 
@@ -19,7 +27,20 @@ export interface FunctionalLiveRoomPlan {
   assetGapWaivers: Record<string, string>;
   materialRoleOverrides: Record<string, string>;
   materialRoleModes: Record<string, "inherit" | "append" | "replace">;
-  materialSelectionDecisions: Array<{ role: string; shotCode?: string; strategy: string; selectedAssetCode: string; selectedScore: number; selectionReasons: string[]; candidateScores: Array<{ assetCode: string; score: number }> }>;
+  materialSelectionDecisions: Array<{
+    role: string;
+    shotCode?: string;
+    strategy: string;
+    selectedAssetCode: string;
+    selectedScore: number;
+    selectedScoreParts: Record<string, number>;
+    selectionReasons: string[];
+    candidateScores: Array<{
+      assetCode: string;
+      score: number;
+      scoreParts: Record<string, number>;
+    }>;
+  }>;
   materialSnapshot: {
     assetCodes: string[];
     assets: Array<{
@@ -27,16 +48,66 @@ export interface FunctionalLiveRoomPlan {
       mediaKind?: string;
       materialRoles: string[];
       executionCapability: string;
-      constraintProfile?: { profileCode: string; revision: number; fingerprint: string };
+      constraintProfile?: {
+        profileCode: string;
+        revision: number;
+        fingerprint: string;
+      };
       selectionSources: Array<{ kind: string; code: string }>;
     }>;
-    materialPackRefs: Array<{ packCode: string; revisionNumber: number; fingerprint: string; role: string }>;
-    assetGapRefs: Array<{ gapCode: string; title: string; role: string; severity: string; status: string; sourceStatus: string; gapType: string; branchWaiverReason?: string; fingerprint: string }>;
+    materialPackRefs: Array<{
+      packCode: string;
+      revisionNumber: number;
+      fingerprint: string;
+      role: string;
+    }>;
+    assetGapRefs: Array<{
+      gapCode: string;
+      title: string;
+      role: string;
+      severity: string;
+      status: string;
+      sourceStatus: string;
+      gapType: string;
+      branchWaiverReason?: string;
+      fingerprint: string;
+    }>;
     roomConstraintOverrides: Record<string, RoomConstraintOverride>;
   };
-  blueprint: { schema_version: string; scenes: Array<{ scene_code: string; shot_code: string; title: string; layers: Array<{ role: string; asset_code: string; execution_capability: string; z_order: number }>; script: string }> };
-  buildPlan: { schema_version: string; build_plan_code?: string; target_live_room_id: string; go_live: boolean; operations: Array<{ kind: string; scene_code?: string; asset_code?: string; role?: string; script_block_code?: string }> };
-  gateResults: Array<{ gate: string; status: string; ruleCode: string; remediation?: string }>;
+  blueprint: {
+    schema_version: string;
+    scenes: Array<{
+      scene_code: string;
+      shot_code: string;
+      title: string;
+      layers: Array<{
+        role: string;
+        asset_code: string;
+        execution_capability: string;
+        z_order: number;
+      }>;
+      script: string;
+    }>;
+  };
+  buildPlan: {
+    schema_version: string;
+    build_plan_code?: string;
+    target_live_room_id: string;
+    go_live: boolean;
+    operations: Array<{
+      kind: string;
+      scene_code?: string;
+      asset_code?: string;
+      role?: string;
+      script_block_code?: string;
+    }>;
+  };
+  gateResults: Array<{
+    gate: string;
+    status: string;
+    ruleCode: string;
+    remediation?: string;
+  }>;
   qualityReport: Record<string, unknown>;
   status: string;
   blockedReasons: string[];
@@ -47,7 +118,13 @@ export interface FunctionalLiveRoomPlan {
   releaseCode?: string;
   releaseSnapshotArtifactCode?: string;
   releaseManifestFingerprint?: string;
-  release?: { releaseCode: string; status: string; manifestCode: string; manifestFingerprint: string; snapshotArtifactCode: string };
+  release?: {
+    releaseCode: string;
+    status: string;
+    manifestCode: string;
+    manifestFingerprint: string;
+    snapshotArtifactCode: string;
+  };
   updatedAt: string;
 }
 
@@ -78,20 +155,49 @@ export interface FunctionalLiveRoomTrace {
 }
 
 function strings(value: unknown): string[] {
-  return asArray(value).flatMap((item) => typeof item === "string" ? [item] : []);
+  return asArray(value).flatMap((item) =>
+    typeof item === "string" ? [item] : [],
+  );
 }
 
-function roomConstraintOverrides(value: unknown): Record<string, RoomConstraintOverride> {
+function roomConstraintOverrides(
+  value: unknown,
+): Record<string, RoomConstraintOverride> {
   if (!isRecord(value)) return {};
-  return Object.fromEntries(Object.entries(value).flatMap(([assetCode, override]) => {
-    if (!isRecord(override) || !asString(override.reason)) return [];
-    const rawGeometry = isRecord(override.geometry) ? override.geometry : undefined;
-    const geometry = rawGeometry
-      && ["x", "y", "width", "height"].every((key) => typeof rawGeometry[key] === "number")
-      ? { x: asNumber(rawGeometry.x), y: asNumber(rawGeometry.y), width: asNumber(rawGeometry.width), height: asNumber(rawGeometry.height) }
-      : undefined;
-    return [[assetCode, { reason: asString(override.reason), geometry, zOrder: typeof override.z_order === "number" ? override.z_order : undefined, actorId: asOptionalString(override.actor_id) }]];
-  }));
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([assetCode, override]) => {
+      if (!isRecord(override) || !asString(override.reason)) return [];
+      const rawGeometry = isRecord(override.geometry)
+        ? override.geometry
+        : undefined;
+      const geometry =
+        rawGeometry &&
+        ["x", "y", "width", "height"].every(
+          (key) => typeof rawGeometry[key] === "number",
+        )
+          ? {
+              x: asNumber(rawGeometry.x),
+              y: asNumber(rawGeometry.y),
+              width: asNumber(rawGeometry.width),
+              height: asNumber(rawGeometry.height),
+            }
+          : undefined;
+      return [
+        [
+          assetCode,
+          {
+            reason: asString(override.reason),
+            geometry,
+            zOrder:
+              typeof override.z_order === "number"
+                ? override.z_order
+                : undefined,
+            actorId: asOptionalString(override.actor_id),
+          },
+        ],
+      ];
+    }),
+  );
 }
 
 function plan(value: unknown): FunctionalLiveRoomPlan {
@@ -100,13 +206,76 @@ function plan(value: unknown): FunctionalLiveRoomPlan {
   if (!planCode) throw new Error("直播间计划缺少编码");
   const blueprint = isRecord(value.blueprint) ? value.blueprint : {};
   const buildPlan = isRecord(value.build_plan) ? value.build_plan : {};
-  const inventorySnapshot = isRecord(buildPlan.inventory_snapshot) ? buildPlan.inventory_snapshot : {};
-  const qualityReport = isRecord(value.quality_report) ? value.quality_report : {};
-  const materialRoleOverrides = isRecord(qualityReport.material_role_overrides) ? Object.fromEntries(Object.entries(qualityReport.material_role_overrides).flatMap(([role, assetCode]) => typeof assetCode === "string" && assetCode ? [[role, assetCode]] : [])) : {};
-  const materialRoleModes = isRecord(qualityReport.material_role_modes) ? Object.fromEntries(Object.entries(qualityReport.material_role_modes).flatMap(([role, mode]) => typeof mode === "string" && ["inherit", "append", "replace"].includes(mode) ? [[role, mode as "inherit" | "append" | "replace"]] : [])) : {};
-  const materialSelectionDecisions = asArray(qualityReport.material_selection_decisions).flatMap((decision) => isRecord(decision) && asString(decision.role) && asString(decision.selected_asset_code) ? [{
-    role: asString(decision.role), shotCode: asOptionalString(decision.shot_code), strategy: asString(decision.strategy), selectedAssetCode: asString(decision.selected_asset_code), selectedScore: asNumber(decision.selected_score), selectionReasons: strings(decision.selection_reasons), candidateScores: asArray(decision.candidate_scores).flatMap((candidate) => isRecord(candidate) && asString(candidate.asset_code) ? [{ assetCode: asString(candidate.asset_code), score: asNumber(candidate.score) }] : []),
-  }] : []);
+  const inventorySnapshot = isRecord(buildPlan.inventory_snapshot)
+    ? buildPlan.inventory_snapshot
+    : {};
+  const qualityReport = isRecord(value.quality_report)
+    ? value.quality_report
+    : {};
+  const materialRoleOverrides = isRecord(qualityReport.material_role_overrides)
+    ? Object.fromEntries(
+        Object.entries(qualityReport.material_role_overrides).flatMap(
+          ([role, assetCode]) =>
+            typeof assetCode === "string" && assetCode
+              ? [[role, assetCode]]
+              : [],
+        ),
+      )
+    : {};
+  const materialRoleModes = isRecord(qualityReport.material_role_modes)
+    ? Object.fromEntries(
+        Object.entries(qualityReport.material_role_modes).flatMap(
+          ([role, mode]) =>
+            typeof mode === "string" &&
+            ["inherit", "append", "replace"].includes(mode)
+              ? [[role, mode as "inherit" | "append" | "replace"]]
+              : [],
+        ),
+      )
+    : {};
+  const numericScoreParts = (value: unknown): Record<string, number> =>
+    isRecord(value)
+      ? Object.fromEntries(
+          Object.entries(value).flatMap(([key, score]) =>
+            typeof score === "number" && Number.isFinite(score)
+              ? [[key, score]]
+              : [],
+          ),
+        )
+      : {};
+  const materialSelectionDecisions = asArray(
+    qualityReport.material_selection_decisions,
+  ).flatMap((decision) =>
+    isRecord(decision) &&
+    asString(decision.role) &&
+    asString(decision.selected_asset_code)
+      ? [
+          {
+            role: asString(decision.role),
+            shotCode: asOptionalString(decision.shot_code),
+            strategy: asString(decision.strategy),
+            selectedAssetCode: asString(decision.selected_asset_code),
+            selectedScore: asNumber(decision.selected_score),
+            selectedScoreParts: numericScoreParts(
+              decision.selected_score_parts,
+            ),
+            selectionReasons: strings(decision.selection_reasons),
+            candidateScores: asArray(decision.candidate_scores).flatMap(
+              (candidate) =>
+                isRecord(candidate) && asString(candidate.asset_code)
+                  ? [
+                      {
+                        assetCode: asString(candidate.asset_code),
+                        score: asNumber(candidate.score),
+                        scoreParts: numericScoreParts(candidate.score_parts),
+                      },
+                    ]
+                  : [],
+            ),
+          },
+        ]
+      : [],
+  );
   return {
     planCode,
     projectCode: asString(value.project_code),
@@ -117,52 +286,209 @@ function plan(value: unknown): FunctionalLiveRoomPlan {
     primaryTemplateCode: asOptionalString(value.primary_template_code),
     secondaryTemplateCodes: strings(value.secondary_template_codes),
     selectedAssetCodes: strings(value.selected_asset_codes),
-    requiredLooseAssetCodes: strings(inventorySnapshot.required_loose_asset_codes),
+    requiredLooseAssetCodes: strings(
+      inventorySnapshot.required_loose_asset_codes,
+    ),
     selectedGroupCodes: strings(value.selected_group_codes),
     selectedMaterialPackCodes: strings(value.selected_material_pack_codes),
     selectedAssetGapCodes: strings(value.selected_asset_gap_codes),
-    assetGapWaivers: isRecord(inventorySnapshot.asset_gap_waivers) ? Object.fromEntries(Object.entries(inventorySnapshot.asset_gap_waivers).flatMap(([gapCode, reason]) => typeof reason === "string" && reason ? [[gapCode, reason]] : [])) : {},
+    assetGapWaivers: isRecord(inventorySnapshot.asset_gap_waivers)
+      ? Object.fromEntries(
+          Object.entries(inventorySnapshot.asset_gap_waivers).flatMap(
+            ([gapCode, reason]) =>
+              typeof reason === "string" && reason ? [[gapCode, reason]] : [],
+          ),
+        )
+      : {},
     materialRoleOverrides,
     materialRoleModes,
     materialSelectionDecisions,
     materialSnapshot: {
       assetCodes: strings(inventorySnapshot.asset_codes),
-      assets: asArray(inventorySnapshot.assets).flatMap((asset) => isRecord(asset) && asString(asset.asset_code) ? [{
-        assetCode: asString(asset.asset_code), mediaKind: asOptionalString(asset.media_kind), materialRoles: strings(asset.material_roles), executionCapability: asString(asset.execution_capability),
-        constraintProfile: isRecord(asset.constraint_profile_ref) && asString(asset.constraint_profile_ref.profile_code) ? { profileCode: asString(asset.constraint_profile_ref.profile_code), revision: asNumber(asset.constraint_profile_ref.revision), fingerprint: asString(asset.constraint_profile_ref.fingerprint) } : undefined,
-        selectionSources: asArray(asset.selection_sources).flatMap((source) => isRecord(source) && asString(source.kind) && asString(source.code) ? [{ kind: asString(source.kind), code: asString(source.code) }] : []),
-      }] : []),
-      materialPackRefs: asArray(inventorySnapshot.material_pack_refs).flatMap((pack) => isRecord(pack) && asString(pack.pack_code) ? [{ packCode: asString(pack.pack_code), revisionNumber: asNumber(pack.revision_number), fingerprint: asString(pack.fingerprint_sha256), role: asString(pack.role) }] : []),
-      assetGapRefs: asArray(inventorySnapshot.asset_gap_refs).flatMap((gap) => isRecord(gap) && asString(gap.gap_code) ? [{ gapCode: asString(gap.gap_code), title: asString(gap.title, asString(gap.gap_code)), role: asString(gap.role), severity: asString(gap.severity), status: asString(gap.status), sourceStatus: asString(gap.source_status, asString(gap.status)), gapType: asString(gap.gap_type), branchWaiverReason: isRecord(gap.branch_waiver) ? asOptionalString(gap.branch_waiver.reason) : undefined, fingerprint: asString(gap.fingerprint_sha256) }] : []),
-      roomConstraintOverrides: roomConstraintOverrides(inventorySnapshot.room_constraint_overrides),
+      assets: asArray(inventorySnapshot.assets).flatMap((asset) =>
+        isRecord(asset) && asString(asset.asset_code)
+          ? [
+              {
+                assetCode: asString(asset.asset_code),
+                mediaKind: asOptionalString(asset.media_kind),
+                materialRoles: strings(asset.material_roles),
+                executionCapability: asString(asset.execution_capability),
+                constraintProfile:
+                  isRecord(asset.constraint_profile_ref) &&
+                  asString(asset.constraint_profile_ref.profile_code)
+                    ? {
+                        profileCode: asString(
+                          asset.constraint_profile_ref.profile_code,
+                        ),
+                        revision: asNumber(
+                          asset.constraint_profile_ref.revision,
+                        ),
+                        fingerprint: asString(
+                          asset.constraint_profile_ref.fingerprint,
+                        ),
+                      }
+                    : undefined,
+                selectionSources: asArray(asset.selection_sources).flatMap(
+                  (source) =>
+                    isRecord(source) &&
+                    asString(source.kind) &&
+                    asString(source.code)
+                      ? [
+                          {
+                            kind: asString(source.kind),
+                            code: asString(source.code),
+                          },
+                        ]
+                      : [],
+                ),
+              },
+            ]
+          : [],
+      ),
+      materialPackRefs: asArray(inventorySnapshot.material_pack_refs).flatMap(
+        (pack) =>
+          isRecord(pack) && asString(pack.pack_code)
+            ? [
+                {
+                  packCode: asString(pack.pack_code),
+                  revisionNumber: asNumber(pack.revision_number),
+                  fingerprint: asString(pack.fingerprint_sha256),
+                  role: asString(pack.role),
+                },
+              ]
+            : [],
+      ),
+      assetGapRefs: asArray(inventorySnapshot.asset_gap_refs).flatMap((gap) =>
+        isRecord(gap) && asString(gap.gap_code)
+          ? [
+              {
+                gapCode: asString(gap.gap_code),
+                title: asString(gap.title, asString(gap.gap_code)),
+                role: asString(gap.role),
+                severity: asString(gap.severity),
+                status: asString(gap.status),
+                sourceStatus: asString(gap.source_status, asString(gap.status)),
+                gapType: asString(gap.gap_type),
+                branchWaiverReason: isRecord(gap.branch_waiver)
+                  ? asOptionalString(gap.branch_waiver.reason)
+                  : undefined,
+                fingerprint: asString(gap.fingerprint_sha256),
+              },
+            ]
+          : [],
+      ),
+      roomConstraintOverrides: roomConstraintOverrides(
+        inventorySnapshot.room_constraint_overrides,
+      ),
     },
     blueprint: {
       schema_version: asString(blueprint.schema_version),
-      scenes: asArray(blueprint.scenes).flatMap((scene) => isRecord(scene) ? [{
-        scene_code: asString(scene.scene_code), shot_code: asString(scene.shot_code), title: asString(scene.title), script: asString(scene.script),
-        layers: asArray(scene.layers).flatMap((layer) => isRecord(layer) ? [{ role: asString(layer.role, asString(layer.material_role)), asset_code: asString(layer.asset_code), execution_capability: asString(layer.execution_capability, isRecord(layer.asset_binding_ref) ? asString(layer.asset_binding_ref.execution_capability) : ""), z_order: typeof layer.z_order === "number" ? layer.z_order : 0 }] : []),
-      }] : []),
+      scenes: asArray(blueprint.scenes).flatMap((scene) =>
+        isRecord(scene)
+          ? [
+              {
+                scene_code: asString(scene.scene_code),
+                shot_code: asString(scene.shot_code),
+                title: asString(scene.title),
+                script: asString(scene.script),
+                layers: asArray(scene.layers).flatMap((layer) =>
+                  isRecord(layer)
+                    ? [
+                        {
+                          role: asString(
+                            layer.role,
+                            asString(layer.material_role),
+                          ),
+                          asset_code: asString(layer.asset_code),
+                          execution_capability: asString(
+                            layer.execution_capability,
+                            isRecord(layer.asset_binding_ref)
+                              ? asString(
+                                  layer.asset_binding_ref.execution_capability,
+                                )
+                              : "",
+                          ),
+                          z_order:
+                            typeof layer.z_order === "number"
+                              ? layer.z_order
+                              : 0,
+                        },
+                      ]
+                    : [],
+                ),
+              },
+            ]
+          : [],
+      ),
     },
     buildPlan: {
-      schema_version: asString(buildPlan.schema_version), build_plan_code: asOptionalString(buildPlan.build_plan_code), target_live_room_id: asString(buildPlan.target_live_room_id), go_live: buildPlan.go_live === true,
-      operations: asArray(buildPlan.operations).flatMap((operation) => isRecord(operation) ? [{ kind: asString(operation.operation_type, asString(operation.kind)), scene_code: asOptionalString(operation.scene_code) ?? asOptionalString(operation.scene_name), asset_code: asOptionalString(operation.asset_code), role: asOptionalString(operation.role) ?? asOptionalString(operation.layer_type), script_block_code: asOptionalString(operation.script_block_code) }] : []),
+      schema_version: asString(buildPlan.schema_version),
+      build_plan_code: asOptionalString(buildPlan.build_plan_code),
+      target_live_room_id: asString(buildPlan.target_live_room_id),
+      go_live: buildPlan.go_live === true,
+      operations: asArray(buildPlan.operations).flatMap((operation) =>
+        isRecord(operation)
+          ? [
+              {
+                kind: asString(
+                  operation.operation_type,
+                  asString(operation.kind),
+                ),
+                scene_code:
+                  asOptionalString(operation.scene_code) ??
+                  asOptionalString(operation.scene_name),
+                asset_code: asOptionalString(operation.asset_code),
+                role:
+                  asOptionalString(operation.role) ??
+                  asOptionalString(operation.layer_type),
+                script_block_code: asOptionalString(
+                  operation.script_block_code,
+                ),
+              },
+            ]
+          : [],
+      ),
     },
-    gateResults: asArray(value.gate_results).flatMap((gate) => isRecord(gate) && asString(gate.gate) ? [{ gate: asString(gate.gate), status: asString(gate.status), ruleCode: asString(gate.rule_code), remediation: asOptionalString(gate.remediation) }] : []),
+    gateResults: asArray(value.gate_results).flatMap((gate) =>
+      isRecord(gate) && asString(gate.gate)
+        ? [
+            {
+              gate: asString(gate.gate),
+              status: asString(gate.status),
+              ruleCode: asString(gate.rule_code),
+              remediation: asOptionalString(gate.remediation),
+            },
+          ]
+        : [],
+    ),
     qualityReport,
     status: asString(value.status),
     blockedReasons: strings(value.blocked_reasons),
     executionStatus: asString(value.execution_status),
-    executionEvidence: isRecord(value.execution_evidence) ? value.execution_evidence : {},
+    executionEvidence: isRecord(value.execution_evidence)
+      ? value.execution_evidence
+      : {},
     clonedFromPlanCode: asOptionalString(value.cloned_from_plan_code),
     cloneContext: isRecord(value.clone_context) ? value.clone_context : {},
     releaseCode: asOptionalString(value.release_code),
-    releaseSnapshotArtifactCode: asOptionalString(value.release_snapshot_artifact_code),
-    releaseManifestFingerprint: asOptionalString(value.release_manifest_fingerprint),
-    release: isRecord(value.release) && asString(value.release.release_code) ? {
-      releaseCode: asString(value.release.release_code), status: asString(value.release.status),
-      manifestCode: asString(value.release.manifest_code), manifestFingerprint: asString(value.release.manifest_fingerprint),
-      snapshotArtifactCode: asString(value.release.snapshot_artifact_code),
-    } : undefined,
+    releaseSnapshotArtifactCode: asOptionalString(
+      value.release_snapshot_artifact_code,
+    ),
+    releaseManifestFingerprint: asOptionalString(
+      value.release_manifest_fingerprint,
+    ),
+    release:
+      isRecord(value.release) && asString(value.release.release_code)
+        ? {
+            releaseCode: asString(value.release.release_code),
+            status: asString(value.release.status),
+            manifestCode: asString(value.release.manifest_code),
+            manifestFingerprint: asString(value.release.manifest_fingerprint),
+            snapshotArtifactCode: asString(
+              value.release.snapshot_artifact_code,
+            ),
+          }
+        : undefined,
     updatedAt: asString(value.updated_at),
   };
 }
@@ -172,34 +498,104 @@ function trace(value: unknown): FunctionalLiveRoomTrace {
   return {
     planCode: asString(value.plan_code),
     contentChain: isRecord(value.content_chain) ? value.content_chain : {},
-    operations: asArray(value.operations).flatMap((operation) => isRecord(operation) ? [{
-      operationId: asString(operation.operation_id), operationType: asString(operation.operation_type), operationName: asString(operation.operation_name),
-      sortOrder: typeof operation.sort_order === "number" ? operation.sort_order : 0,
-      targets: asArray(operation.targets).flatMap((target) => isRecord(target) ? [{
-        targetType: asString(target.target_type), targetCode: asString(target.target_code), relationType: asString(target.relation_type),
-        shot: isRecord(target.shot) ? { shotCode: asString(target.shot.shot_code), shotGoal: asString(target.shot.shot_goal) } : undefined,
-        programSegment: isRecord(target.program_segment) ? { segmentCode: asString(target.program_segment.segment_code), semanticGoal: asString(target.program_segment.semantic_goal) } : undefined,
-        scriptBlocks: asArray(target.script_blocks).flatMap((block) => isRecord(block) && asString(block.block_code) ? [{ blockCode: asString(block.block_code) }] : []),
-      }] : []),
-    }] : []),
+    operations: asArray(value.operations).flatMap((operation) =>
+      isRecord(operation)
+        ? [
+            {
+              operationId: asString(operation.operation_id),
+              operationType: asString(operation.operation_type),
+              operationName: asString(operation.operation_name),
+              sortOrder:
+                typeof operation.sort_order === "number"
+                  ? operation.sort_order
+                  : 0,
+              targets: asArray(operation.targets).flatMap((target) =>
+                isRecord(target)
+                  ? [
+                      {
+                        targetType: asString(target.target_type),
+                        targetCode: asString(target.target_code),
+                        relationType: asString(target.relation_type),
+                        shot: isRecord(target.shot)
+                          ? {
+                              shotCode: asString(target.shot.shot_code),
+                              shotGoal: asString(target.shot.shot_goal),
+                            }
+                          : undefined,
+                        programSegment: isRecord(target.program_segment)
+                          ? {
+                              segmentCode: asString(
+                                target.program_segment.segment_code,
+                              ),
+                              semanticGoal: asString(
+                                target.program_segment.semantic_goal,
+                              ),
+                            }
+                          : undefined,
+                        scriptBlocks: asArray(target.script_blocks).flatMap(
+                          (block) =>
+                            isRecord(block) && asString(block.block_code)
+                              ? [{ blockCode: asString(block.block_code) }]
+                              : [],
+                        ),
+                      },
+                    ]
+                  : [],
+              ),
+            },
+          ]
+        : [],
+    ),
   };
 }
 
 export const functionalLiveRoomsApi = {
   list: () => requestJson<unknown[]>(ROOT).then((rows) => rows.map(plan)),
-  get: (planCode: string) => requestJson<unknown>(`${ROOT}/${planCode}`).then(plan),
-  getTrace: (planCode: string) => requestJson<unknown>(`${ROOT}/${planCode}/trace`).then(trace),
-  create: (payload: { project_code: string; target_live_room_id: string; expected_title: string; primary_template_code?: string; secondary_template_codes: string[]; asset_codes: string[]; required_loose_asset_codes?: string[]; group_codes: string[]; material_pack_codes: string[]; asset_gap_codes: string[]; asset_gap_waivers?: Record<string, string>; material_role_overrides: Record<string, string>; material_role_modes?: Record<string, "inherit" | "append" | "replace">; room_constraint_overrides: Record<string, RoomConstraintOverride> }) => postJson<unknown>(ROOT, {
-    ...payload,
-    required_loose_asset_codes: payload.required_loose_asset_codes ?? [],
-    material_role_modes: payload.material_role_modes ?? {},
-    room_constraint_overrides: Object.fromEntries(Object.entries(payload.room_constraint_overrides).map(([assetCode, override]) => [assetCode, {
-      reason: override.reason,
-      geometry: override.geometry,
-      z_order: override.zOrder,
-    }])),
-  }).then(plan),
-  confirmExecution: (planCode: string) => postJson<unknown>(`${ROOT}/${planCode}/confirm-execution`, { confirmed: true }).then(plan),
-  createReleaseCandidate: (planCode: string) => postJson<unknown>(`${ROOT}/${planCode}/release-candidate`, {}).then(plan),
-  clone: (planCode: string, payload: { target_live_room_id: string; expected_title: string }) => postJson<unknown>(`${ROOT}/${planCode}/clone`, payload).then(plan),
+  get: (planCode: string) =>
+    requestJson<unknown>(`${ROOT}/${planCode}`).then(plan),
+  getTrace: (planCode: string) =>
+    requestJson<unknown>(`${ROOT}/${planCode}/trace`).then(trace),
+  create: (payload: {
+    project_code: string;
+    target_live_room_id: string;
+    expected_title: string;
+    primary_template_code?: string;
+    secondary_template_codes: string[];
+    asset_codes: string[];
+    required_loose_asset_codes?: string[];
+    group_codes: string[];
+    material_pack_codes: string[];
+    asset_gap_codes: string[];
+    asset_gap_waivers?: Record<string, string>;
+    material_role_overrides: Record<string, string>;
+    material_role_modes?: Record<string, "inherit" | "append" | "replace">;
+    room_constraint_overrides: Record<string, RoomConstraintOverride>;
+  }) =>
+    postJson<unknown>(ROOT, {
+      ...payload,
+      required_loose_asset_codes: payload.required_loose_asset_codes ?? [],
+      material_role_modes: payload.material_role_modes ?? {},
+      room_constraint_overrides: Object.fromEntries(
+        Object.entries(payload.room_constraint_overrides).map(
+          ([assetCode, override]) => [
+            assetCode,
+            {
+              reason: override.reason,
+              geometry: override.geometry,
+              z_order: override.zOrder,
+            },
+          ],
+        ),
+      ),
+    }).then(plan),
+  confirmExecution: (planCode: string) =>
+    postJson<unknown>(`${ROOT}/${planCode}/confirm-execution`, {
+      confirmed: true,
+    }).then(plan),
+  createReleaseCandidate: (planCode: string) =>
+    postJson<unknown>(`${ROOT}/${planCode}/release-candidate`, {}).then(plan),
+  clone: (
+    planCode: string,
+    payload: { target_live_room_id: string; expected_title: string },
+  ) => postJson<unknown>(`${ROOT}/${planCode}/clone`, payload).then(plan),
 };
