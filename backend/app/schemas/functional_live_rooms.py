@@ -120,6 +120,57 @@ class FunctionalLiveRoomPlanCreate(BaseModel):
         return normalized
 
 
+class FunctionalLiveRoomMaterialGapPreviewRequest(BaseModel):
+    """The material-selection inputs needed for a non-mutating gap diagnosis."""
+
+    project_code: str = Field(min_length=1, max_length=64)
+    asset_codes: list[str] = Field(default_factory=list)
+    group_codes: list[str] = Field(default_factory=list)
+    material_pack_codes: list[str] = Field(default_factory=list)
+    material_role_modes: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("asset_codes", "group_codes", "material_pack_codes")
+    @classmethod
+    def unique_selection_codes(cls, value: list[str]) -> list[str]:
+        normalized = list(dict.fromkeys(item.strip() for item in value if item.strip()))
+        if len(normalized) != len(value):
+            raise ValueError("selection codes must be unique and non-empty")
+        return normalized
+
+    @field_validator("material_role_modes")
+    @classmethod
+    def normalize_material_role_modes(cls, value: dict[str, str]) -> dict[str, str]:
+        normalized: dict[str, str] = {}
+        for raw_role, raw_mode in value.items():
+            role = str(raw_role).strip()
+            mode = str(raw_mode).strip()
+            if not role or mode not in {"inherit", "append", "replace"}:
+                raise ValueError("material role modes must map a non-empty role to inherit, append or replace")
+            normalized[role] = mode
+        return normalized
+
+
+class FunctionalLiveRoomMaterialGapPreviewItemRead(BaseModel):
+    diagnostic_key: str
+    role: str
+    title: str
+    severity: str
+    gap_type: str
+    required_shot_codes: list[str]
+    missing_occurrences: int
+    selection_mode: str
+    alternative_asset_codes: list[str]
+    create_payload: dict[str, Any]
+
+
+class FunctionalLiveRoomMaterialGapPreviewRead(BaseModel):
+    project_code: str
+    project_revision_number: int
+    shot_list_revision_number: int
+    checked_asset_codes: list[str]
+    gaps: list[FunctionalLiveRoomMaterialGapPreviewItemRead]
+
+
 class FunctionalLiveRoomExecutionConfirm(BaseModel):
     confirmed: bool
 

@@ -288,6 +288,149 @@ class FunctionalLiveRoomService:
         self.connection.commit()
         return self._with_release(self._serialize(row))
 
+    def preview_material_gaps(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Diagnose missing executable roles without mutating a project or plan.
+
+        This deliberately uses the same role-candidate filtering as the
+        compiler. It does not claim that an available library asset is a
+        substitute, nor does it solve geometry, rights, or pack occurrences.
+        """
+        detail = self.content.get_detail(payload["project_code"])
+        if detail is None:
+            raise KeyError(payload["project_code"])
+        shot_list = detail.get("shot_list")
+        if not detail.get("generated") or not isinstance(shot_list, dict):
+            raise DomainValidationError(
+                "LIVE_ROOM_SHOT_LIST_REQUIRED",
+                "Generate the ContentProject before diagnosing live-room material gaps",
+            )
+        try:
+            material_pack_resolution = self.materials.preview_published_pack_resolution(
+                payload.get("material_pack_codes") or [],
+                role_modes=payload.get("material_role_modes") or {},
+            )
+        except MaterialLibraryValidationError as exc:
+            raise DomainValidationError("LIVE_ROOM_MATERIAL_PACK_INVALID", str(exc)) from exc
+        if material_pack_resolution["conflicts"]:
+            raise DomainValidationError(
+                "LIVE_ROOM_MATERIAL_PACK_CONFLICT",
+                "Selected material packs contain conflicting hard rules",
+                details={"conflicts": material_pack_resolution["conflicts"]},
+            )
+
+        selected_assets = self._selected_assets(
+            [
+                *(payload.get("asset_codes") or []),
+                *list(material_pack_resolution["resolved_asset_codes"]),
+            ],
+            payload.get("group_codes") or [],
+        )
+        material_rules_by_asset: dict[str, list[dict[str, Any]]] = {}
+        for rule in material_pack_resolution["material_rules"]:
+            material_rules_by_asset.setdefault(str(rule["asset_code"]), []).append(rule)
+        selected_assets = [
+            {**asset, "material_pack_rules": material_rules_by_asset.get(str(asset["asset_code"]), [])}
+            for asset in selected_assets
+        ]
+        material_role_modes = dict(payload.get("material_role_modes") or {})
+        missing_by_role: dict[tuple[str, str], list[str]] = {}
+        for index, shot in enumerate(shot_list.get("shots") or []):
+            if not isinstance(shot, dict):
+                continue
+            shot_code = str(shot.get("shot_code") or "")
+            scene_type = str(shot.get("scene_type") or "") or None
+            for raw_role in shot.get("material_role_requirements") or []:
+                role = str(raw_role or "")
+                if not role:
+                    continue
+                candidates = self._role_candidates_for_shot(
+                    assets=selected_assets,
+                    role=role,
+                    material_role_modes=material_role_modes,
+                    shot_code=shot_code,
+                    # A generated scene code is not known until a variant is
+                    # created. Scope rules can nevertheless target this stable
+                    # Shot code, as the compiler already supports.
+                    scene_code=f"MATERIAL-GAP-PREVIEW-{index + 1:03d}",
+                    scene_type=scene_type,
+                )
+                if not candidates:
+                    missing_by_role.setdefault(
+                        (role, material_role_modes.get(role, "append")), []
+                    ).append(shot_code)
+
+        selected_asset_codes = [str(asset["asset_code"]) for asset in selected_assets]
+        gaps: list[dict[str, Any]] = []
+        for (role, selection_mode), shot_codes in sorted(missing_by_role.items()):
+            candidate_preview = self.materials.preview_selection(role=role, carrier_kind="live_room")
+            alternative_asset_codes = [
+                str(candidate["asset_code"])
+                for candidate in candidate_preview.get("candidates") or []
+                if str(candidate.get("asset_code") or "") not in selected_asset_codes
+            ][:10]
+            diagnostic_key = canonical_fingerprint(
+                {
+                    "schema_version": "functional-live-room-material-gap-preview.v1",
+                    "project_code": detail["project_code"],
+                    "project_revision_number": int(detail["revision_number"]),
+                    "shot_list_revision_number": int(shot_list["revision_number"]),
+                    "role": role,
+                    "selection_mode": selection_mode,
+                    "required_shot_codes": shot_codes,
+                    "checked_asset_codes": sorted(selected_asset_codes),
+                    "material_pack_resolution_fingerprint": material_pack_resolution["fingerprint_sha256"],
+                }
+            )
+            specification = {
+                "schema_version": "functional-live-room-material-gap-preview.v1",
+                "required_role": role,
+                "required_shot_codes": shot_codes,
+                "missing_occurrences": len(shot_codes),
+                "selection_mode": selection_mode,
+                "material_pack_resolution_fingerprint": material_pack_resolution["fingerprint_sha256"],
+            }
+            source_context = {
+                "schema_version": "functional-live-room-material-gap-preview.v1",
+                "diagnostic_key": diagnostic_key,
+                "project_code": detail["project_code"],
+                "project_revision_number": int(detail["revision_number"]),
+                "shot_list_revision_number": int(shot_list["revision_number"]),
+            }
+            title = f"缺少可执行 {role} 素材"
+            gaps.append(
+                {
+                    "diagnostic_key": diagnostic_key,
+                    "role": role,
+                    "title": title,
+                    "severity": "high",
+                    "gap_type": "role_coverage",
+                    "required_shot_codes": shot_codes,
+                    "missing_occurrences": len(shot_codes),
+                    "selection_mode": selection_mode,
+                    "alternative_asset_codes": alternative_asset_codes,
+                    "create_payload": {
+                        "title": title,
+                        "role": role,
+                        "severity": "high",
+                        "gap_type": "role_coverage",
+                        "specification": specification,
+                        "source_context": source_context,
+                        "impact_summary": (
+                            f"ContentProject {detail['project_code']} 的 {len(shot_codes)} 个镜头需要 "
+                            f"可写入麦兔的 {role} 素材，当前选材中没有符合条件的候选。"
+                        ),
+                        "alternative_asset_codes": alternative_asset_codes,
+                    },
+                }
+            )
+        return {
+            "project_code": detail["project_code"],
+            "project_revision_number": int(detail["revision_number"]),
+            "shot_list_revision_number": int(shot_list["revision_number"]),
+            "checked_asset_codes": selected_asset_codes,
+            "gaps": gaps,
+        }
+
     def list_plans(self) -> list[dict[str, Any]]:
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute("SELECT * FROM functional_live_room_plans ORDER BY updated_at DESC, plan_code")
@@ -1832,6 +1975,46 @@ class FunctionalLiveRoomService:
         return False
 
     @staticmethod
+    def _role_candidates_for_shot(
+        *,
+        assets: list[dict[str, Any]],
+        role: str,
+        material_role_modes: dict[str, str],
+        shot_code: str,
+        scene_code: str,
+        scene_type: str | None,
+    ) -> list[dict[str, Any]]:
+        """Apply the compiler's executable-role and replacement-domain rules."""
+        candidates = [
+            asset
+            for asset in assets
+            if role in (asset.get("material_roles") or [])
+            and str(asset.get("execution_capability") or "") == "maitu_bound"
+        ]
+        if material_role_modes.get(role) != "replace":
+            return candidates
+        return [
+            asset
+            for asset in candidates
+            if any(
+                str(rule.get("material_role") or "") == role
+                and FunctionalLiveRoomService._scope_applies(
+                    scope=rule.get("applicable_scopes") or {"kind": "whole_room"},
+                    shot_code=shot_code,
+                    scene_code=scene_code,
+                    scene_type=scene_type,
+                )
+                and any(
+                    str(source.get("pack_kind") or "") == "classification"
+                    for source in rule.get("sources") or []
+                    if isinstance(source, dict)
+                )
+                for rule in asset.get("material_pack_rules") or []
+                if isinstance(rule, dict)
+            )
+        ]
+
+    @staticmethod
     def _evaluate_material_pack_requirements(
         *,
         requirements: list[dict[str, Any]],
@@ -2016,21 +2199,14 @@ class FunctionalLiveRoomService:
             scene_code = f"MSB-{variant_code}-{index + 1:03d}"
             layers: list[dict[str, Any]] = []
             for role in shot["material_role_requirements"]:
-                candidates = layers_by_role.get(role, [])
-                if material_role_modes.get(str(role)) == "replace":
-                    candidates = [
-                        asset for asset in candidates
-                        if any(
-                            str(rule.get("material_role") or "") == str(role)
-                            and any(
-                                str(source.get("pack_kind") or "") == "classification"
-                                for source in rule.get("sources") or []
-                                if isinstance(source, dict)
-                            )
-                            for rule in asset.get("material_pack_rules") or []
-                            if isinstance(rule, dict)
-                        )
-                    ]
+                candidates = FunctionalLiveRoomService._role_candidates_for_shot(
+                    assets=layers_by_role.get(role, []),
+                    role=str(role),
+                    material_role_modes=material_role_modes,
+                    shot_code=str(shot["shot_code"]),
+                    scene_code=scene_code,
+                    scene_type=str(shot.get("scene_type") or "") or None,
+                )
                 if not candidates:
                     reason = "missing_replacement_role" if material_role_modes.get(str(role)) == "replace" else "missing_role"
                     blocked.append(f"{reason}:{role}:shot:{shot['shot_code']}")

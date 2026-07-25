@@ -10,6 +10,8 @@ from app.domain.errors import DomainValidationError
 from app.schemas.functional_live_rooms import (
     FunctionalLiveRoomExecutionConfirm,
     FunctionalLiveRoomExecutionHandoffRead,
+    FunctionalLiveRoomMaterialGapPreviewRead,
+    FunctionalLiveRoomMaterialGapPreviewRequest,
     FunctionalLiveRoomPlanCreate,
     FunctionalLiveRoomPlanClone,
     FunctionalLiveRoomPlanRead,
@@ -32,6 +34,19 @@ def create_live_room_plan(
 ) -> dict:
     try:
         return service.create_plan(payload.model_dump(mode="json"), actor_id="functional-operator")
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Content project not found") from exc
+    except DomainValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=exc.message) from exc
+
+
+@router.post("/material-gap-preview", response_model=FunctionalLiveRoomMaterialGapPreviewRead)
+def preview_live_room_material_gaps(
+    payload: FunctionalLiveRoomMaterialGapPreviewRequest,
+    service: Annotated[FunctionalLiveRoomService, Depends(get_service)],
+) -> dict:
+    try:
+        return service.preview_material_gaps(payload.model_dump(mode="json"))
     except KeyError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Content project not found") from exc
     except DomainValidationError as exc:

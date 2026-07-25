@@ -33,6 +33,38 @@ describe("functional live room api", () => {
     expect(fetch).toHaveBeenCalledWith("/api/functional-live-room-plans", expect.objectContaining({ method: "POST", body: expect.stringContaining('"room_constraint_overrides":{"AG-IMG-001":{"reason":"适配当前直播间","geometry":{"x":0.1,"y":0.1,"width":0.8,"height":0.8},"z_order":12}}') }));
   });
 
+  it("previews live-room material gaps without creating a plan", async () => {
+    const fetch = vi.fn().mockResolvedValue(response({
+      project_code: "CONTENT-001",
+      project_revision_number: 4,
+      shot_list_revision_number: 7,
+      checked_asset_codes: ["AG-IMG-001"],
+      gaps: [{
+        diagnostic_key: "a".repeat(64), role: "background", title: "缺少可执行 background 素材",
+        severity: "high", gap_type: "role_coverage", required_shot_codes: ["SHOT-001"],
+        missing_occurrences: 1, selection_mode: "append", alternative_asset_codes: ["AG-IMG-002"],
+        create_payload: {
+          title: "缺少可执行 background 素材", role: "background", severity: "high", gap_type: "role_coverage",
+          specification: { required_role: "background" },
+          source_context: { diagnostic_key: "a".repeat(64) },
+          impact_summary: "缺少背景", alternative_asset_codes: ["AG-IMG-002"],
+        },
+      }],
+    }));
+    vi.stubGlobal("fetch", fetch);
+
+    const preview = await functionalLiveRoomsApi.previewMaterialGaps({
+      project_code: "CONTENT-001", asset_codes: ["AG-IMG-001"], group_codes: [], material_pack_codes: [],
+      material_role_modes: { background: "append" },
+    });
+
+    expect(preview.gaps[0]).toMatchObject({ role: "background", alternativeAssetCodes: ["AG-IMG-002"] });
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/functional-live-room-plans/material-gap-preview",
+      expect.objectContaining({ method: "POST", body: expect.stringContaining('"project_code":"CONTENT-001"') }),
+    );
+  });
+
   it("requests a worker handoff and synchronizes its readback", async () => {
     const fetch = vi.fn()
       .mockResolvedValueOnce(response({

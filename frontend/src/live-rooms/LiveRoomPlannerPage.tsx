@@ -24,6 +24,7 @@ import {
 } from "../workbench/components";
 import {
   functionalLiveRoomsApi,
+  type FunctionalLiveRoomMaterialGapPreview,
   type FunctionalLiveRoomPlan,
   type RoomConstraintOverride,
 } from "./api";
@@ -1262,40 +1263,40 @@ export function LiveRoomPlannerPage({
   const hasIncompleteRoomOverride = Object.values(roomConstraintOverrides).some(
     (override) => !override.reason.trim(),
   );
+  const planInput = () => ({
+    project_code: projectCode,
+    target_live_room_id: roomId,
+    expected_title: title,
+    layout_reference_handoff: layoutReferenceHandoff
+      ? {
+          template_code: layoutReferenceHandoff.templateCode,
+          revision: layoutReferenceHandoff.revision,
+          projection_fingerprint: layoutReferenceHandoff.fingerprint,
+        }
+      : undefined,
+    primary_template_code: primaryTemplate?.templateCode,
+    secondary_template_codes: secondaryTemplates.map(
+      (template) => template.templateCode,
+    ),
+    asset_codes: assetCodes,
+    required_loose_asset_codes: requiredLooseAssetCodes.filter((assetCode) =>
+      assetCodes.includes(assetCode),
+    ),
+    group_codes: groupCodes,
+    material_pack_codes: materialPackCodes,
+    asset_gap_codes: assetGapCodes,
+    asset_gap_waivers: Object.fromEntries(
+      Object.entries(assetGapWaivers).filter(
+        ([gapCode, reason]) =>
+          assetGapCodes.includes(gapCode) && reason.trim(),
+      ),
+    ),
+    material_role_overrides: materialRoleOverrides,
+    material_role_modes: materialRoleModes,
+    room_constraint_overrides: roomConstraintOverrides,
+  });
   const create = useMutation({
-    mutationFn: () =>
-      functionalLiveRoomsApi.create({
-        project_code: projectCode,
-        target_live_room_id: roomId,
-        expected_title: title,
-        layout_reference_handoff: layoutReferenceHandoff
-          ? {
-              template_code: layoutReferenceHandoff.templateCode,
-              revision: layoutReferenceHandoff.revision,
-              projection_fingerprint: layoutReferenceHandoff.fingerprint,
-            }
-          : undefined,
-        primary_template_code: primaryTemplate?.templateCode,
-        secondary_template_codes: secondaryTemplates.map(
-          (template) => template.templateCode,
-        ),
-        asset_codes: assetCodes,
-        required_loose_asset_codes: requiredLooseAssetCodes.filter(
-          (assetCode) => assetCodes.includes(assetCode),
-        ),
-        group_codes: groupCodes,
-        material_pack_codes: materialPackCodes,
-        asset_gap_codes: assetGapCodes,
-        asset_gap_waivers: Object.fromEntries(
-          Object.entries(assetGapWaivers).filter(
-            ([gapCode, reason]) =>
-              assetGapCodes.includes(gapCode) && reason.trim(),
-          ),
-        ),
-        material_role_overrides: materialRoleOverrides,
-        material_role_modes: materialRoleModes,
-        room_constraint_overrides: roomConstraintOverrides,
-      }),
+    mutationFn: () => functionalLiveRoomsApi.create(planInput()),
     onSuccess: (plan) => {
       setSelectedPlan(plan.planCode);
       void queryClient.invalidateQueries({
@@ -1303,6 +1304,39 @@ export function LiveRoomPlannerPage({
       });
     },
   });
+  const materialGapPreview = useMutation({
+    mutationFn: () =>
+      functionalLiveRoomsApi.previewMaterialGaps({
+        project_code: projectCode,
+        asset_codes: assetCodes,
+        group_codes: groupCodes,
+        material_pack_codes: materialPackCodes,
+        material_role_modes: materialRoleModes,
+      }),
+  });
+  const registerMaterialGap = useMutation({
+    mutationFn: (
+      item: FunctionalLiveRoomMaterialGapPreview["gaps"][number],
+    ) => assetLibraryApi.createGap(item.createPayload),
+    onSuccess: async (gap) => {
+      setAssetGapCodes((current) =>
+        current.includes(gap.gapCode) ? current : [...current, gap.gapCode],
+      );
+      await queryClient.invalidateQueries({ queryKey: ["assets", "gaps"] });
+    },
+  });
+  const diagnosticGapByKey = useMemo(
+    () =>
+      new Map(
+        activeGaps.flatMap((gap) => {
+          const diagnosticKey = gap.sourceContext.diagnostic_key;
+          return typeof diagnosticKey === "string" && diagnosticKey
+            ? [[diagnosticKey, gap] as const]
+            : [];
+        }),
+      ),
+    [activeGaps],
+  );
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (
@@ -1601,6 +1635,66 @@ export function LiveRoomPlannerPage({
                 </span>
               </label>
             ))}
+          </div>
+          <div className="live-selection">
+            <span>素材缺口诊断</span>
+            <small>
+              依据当前 ContentProject 的 Shot、已选素材、分组和已发布素材包检查可写入麦兔的角色覆盖；不会替换素材或创建计划。
+            </small>
+            <button
+              type="button"
+              className="wb-button"
+              disabled={!projectCode || materialGapPreview.isPending}
+              onClick={() => materialGapPreview.mutate()}
+            >
+              <CircleAlert size={14} aria-hidden="true" />
+              {materialGapPreview.isPending ? "正在检测" : "检测素材缺口"}
+            </button>
+            {materialGapPreview.data ? (
+              materialGapPreview.data.gaps.length ? (
+                materialGapPreview.data.gaps.map((item) => {
+                  const existingGap = diagnosticGapByKey.get(item.diagnosticKey);
+                  return (
+                    <div key={item.diagnosticKey}>
+                      <strong>{item.title}</strong>
+                      <small>
+                        {item.role} · {item.missingOccurrences} 个镜头 · {item.selectionMode}
+                      </small>
+                      <small>
+                        Shot：{item.requiredShotCodes.join(" / ") || "未命名"}
+                      </small>
+                      {item.alternativeAssetCodes.length ? (
+                        <small>
+                          可复核候选：{item.alternativeAssetCodes.join(" / ")}
+                        </small>
+                      ) : null}
+                      {existingGap ? (
+                        <small>
+                          已登记为 {existingGap.gapCode} · {existingGap.status}
+                        </small>
+                      ) : (
+                        <button
+                          type="button"
+                          className="wb-button"
+                          disabled={registerMaterialGap.isPending}
+                          onClick={() => registerMaterialGap.mutate(item)}
+                        >
+                          登记为素材缺口
+                        </button>
+                      )}
+                    </div>
+                  );
+                })
+              ) : (
+                <small>当前选材已覆盖所有 Shot 的可执行角色需求。</small>
+              )
+            ) : null}
+            {materialGapPreview.error ? (
+              <small>{message(materialGapPreview.error)}</small>
+            ) : null}
+            {registerMaterialGap.error ? (
+              <small>{message(registerMaterialGap.error)}</small>
+            ) : null}
           </div>
           <div className="live-selection">
             <span>关联素材缺口</span>

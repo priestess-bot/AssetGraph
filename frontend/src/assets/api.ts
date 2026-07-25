@@ -135,6 +135,8 @@ export interface AssetGap {
   severity: string;
   status: string;
   gapType: string;
+  specification: Record<string, unknown>;
+  sourceContext: Record<string, unknown>;
   impactSummary?: string;
   alternativeAssetCodes: string[];
   resolutionAssetCode?: string;
@@ -391,6 +393,8 @@ function gap(value: unknown): AssetGap | undefined {
     severity: asString(value.severity),
     status: asString(value.status),
     gapType: asString(value.gap_type, "material_missing"),
+    specification: isRecord(value.specification) ? value.specification : {},
+    sourceContext: isRecord(value.source_context) ? value.source_context : {},
     impactSummary: asOptionalString(value.impact_summary),
     alternativeAssetCodes: strings(value.alternative_asset_codes),
     resolutionAssetCode: asOptionalString(value.resolution_asset_code),
@@ -752,6 +756,8 @@ export const assetLibraryApi = {
     role: string;
     severity: string;
     gap_type?: string;
+    specification?: Record<string, unknown>;
+    source_context?: Record<string, unknown>;
     impact_summary?: string;
     alternative_asset_codes?: string[];
   }) =>

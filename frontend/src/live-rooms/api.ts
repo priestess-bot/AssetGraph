@@ -150,6 +150,56 @@ export interface RoomConstraintOverride {
   actorId?: string;
 }
 
+export interface FunctionalLiveRoomPlanInput {
+  project_code: string;
+  target_live_room_id: string;
+  expected_title: string;
+  layout_reference_handoff?: {
+    template_code: string;
+    revision: number;
+    projection_fingerprint: string;
+  };
+  primary_template_code?: string;
+  secondary_template_codes: string[];
+  asset_codes: string[];
+  required_loose_asset_codes?: string[];
+  group_codes: string[];
+  material_pack_codes: string[];
+  asset_gap_codes: string[];
+  asset_gap_waivers?: Record<string, string>;
+  material_role_overrides: Record<string, string>;
+  material_role_modes?: Record<string, "inherit" | "append" | "replace">;
+  room_constraint_overrides: Record<string, RoomConstraintOverride>;
+}
+
+export interface FunctionalLiveRoomMaterialGapPreview {
+  projectCode: string;
+  projectRevisionNumber: number;
+  shotListRevisionNumber: number;
+  checkedAssetCodes: string[];
+  gaps: Array<{
+    diagnosticKey: string;
+    role: string;
+    title: string;
+    severity: string;
+    gapType: string;
+    requiredShotCodes: string[];
+    missingOccurrences: number;
+    selectionMode: string;
+    alternativeAssetCodes: string[];
+    createPayload: {
+      title: string;
+      role: string;
+      severity: string;
+      gap_type: string;
+      specification: Record<string, unknown>;
+      source_context: Record<string, unknown>;
+      impact_summary: string;
+      alternative_asset_codes: string[];
+    };
+  }>;
+}
+
 export interface FunctionalLiveRoomTrace {
   planCode: string;
   contentChain: Record<string, unknown>;
@@ -545,6 +595,50 @@ function executionHandoff(value: unknown): FunctionalLiveRoomExecutionHandoff {
   };
 }
 
+function materialGapPreview(value: unknown): FunctionalLiveRoomMaterialGapPreview {
+  if (!isRecord(value)) throw new Error("直播间素材缺口诊断响应无效");
+  return {
+    projectCode: asString(value.project_code),
+    projectRevisionNumber: asNumber(value.project_revision_number),
+    shotListRevisionNumber: asNumber(value.shot_list_revision_number),
+    checkedAssetCodes: strings(value.checked_asset_codes),
+    gaps: asArray(value.gaps).flatMap((item) => {
+      if (!isRecord(item)) return [];
+      const diagnosticKey = asString(item.diagnostic_key);
+      const role = asString(item.role);
+      const createPayload = item.create_payload;
+      if (!diagnosticKey || !role || !isRecord(createPayload)) return [];
+      return [
+        {
+          diagnosticKey,
+          role,
+          title: asString(item.title, `缺少可执行 ${role} 素材`),
+          severity: asString(item.severity, "high"),
+          gapType: asString(item.gap_type, "role_coverage"),
+          requiredShotCodes: strings(item.required_shot_codes),
+          missingOccurrences: asNumber(item.missing_occurrences),
+          selectionMode: asString(item.selection_mode, "append"),
+          alternativeAssetCodes: strings(item.alternative_asset_codes),
+          createPayload: {
+            title: asString(createPayload.title),
+            role: asString(createPayload.role),
+            severity: asString(createPayload.severity, "high"),
+            gap_type: asString(createPayload.gap_type, "role_coverage"),
+            specification: isRecord(createPayload.specification)
+              ? createPayload.specification
+              : {},
+            source_context: isRecord(createPayload.source_context)
+              ? createPayload.source_context
+              : {},
+            impact_summary: asString(createPayload.impact_summary),
+            alternative_asset_codes: strings(createPayload.alternative_asset_codes),
+          },
+        },
+      ];
+    }),
+  };
+}
+
 function trace(value: unknown): FunctionalLiveRoomTrace {
   if (!isRecord(value)) throw new Error("直播间追溯响应无效");
   return {
@@ -607,27 +701,7 @@ export const functionalLiveRoomsApi = {
     requestJson<unknown>(`${ROOT}/${planCode}`).then(plan),
   getTrace: (planCode: string) =>
     requestJson<unknown>(`${ROOT}/${planCode}/trace`).then(trace),
-  create: (payload: {
-    project_code: string;
-    target_live_room_id: string;
-    expected_title: string;
-    layout_reference_handoff?: {
-      template_code: string;
-      revision: number;
-      projection_fingerprint: string;
-    };
-    primary_template_code?: string;
-    secondary_template_codes: string[];
-    asset_codes: string[];
-    required_loose_asset_codes?: string[];
-    group_codes: string[];
-    material_pack_codes: string[];
-    asset_gap_codes: string[];
-    asset_gap_waivers?: Record<string, string>;
-    material_role_overrides: Record<string, string>;
-    material_role_modes?: Record<string, "inherit" | "append" | "replace">;
-    room_constraint_overrides: Record<string, RoomConstraintOverride>;
-  }) =>
+  create: (payload: FunctionalLiveRoomPlanInput) =>
     postJson<unknown>(ROOT, {
       ...payload,
       required_loose_asset_codes: payload.required_loose_asset_codes ?? [],
@@ -645,6 +719,14 @@ export const functionalLiveRoomsApi = {
         ),
       ),
     }).then(plan),
+  previewMaterialGaps: (payload: Pick<
+    FunctionalLiveRoomPlanInput,
+    "project_code" | "asset_codes" | "group_codes" | "material_pack_codes" | "material_role_modes"
+  >) =>
+    postJson<unknown>(`${ROOT}/material-gap-preview`, {
+      ...payload,
+      material_role_modes: payload.material_role_modes ?? {},
+    }).then(materialGapPreview),
   confirmExecution: (planCode: string) =>
     postJson<unknown>(`${ROOT}/${planCode}/confirm-execution`, {
       confirmed: true,

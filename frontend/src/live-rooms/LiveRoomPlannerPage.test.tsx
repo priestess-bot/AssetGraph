@@ -23,6 +23,53 @@ function renderPage(search?: string) {
 }
 
 describe("LiveRoomPlannerPage", () => {
+  it("diagnoses a missing executable role and registers its traceable asset gap", async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        requests.push({ url, init });
+        if (url === "/api/content-projects")
+          return response([{ project_code: "CONTENT-001", title: "缺口测试内容", revision_number: 4, status: "draft", generation_goal: "测试", updated_at: "2026-07-25T00:00:00Z" }]);
+        if (url === "/api/content-projects/CONTENT-001")
+          return response({ project_code: "CONTENT-001", title: "缺口测试内容", revision_number: 4, status: "draft", generation_goal: "测试", updated_at: "2026-07-25T00:00:00Z", content: {} });
+        if (url === "/api/assets") return response([]);
+        if (url === "/api/assets/groups" || url === "/api/assets/material-packs") return response([]);
+        if (url === "/api/assets/gaps" && init?.method === "POST")
+          return response({ gap_code: "AG-GAP-NEW", title: "缺少可执行 background 素材", role: "background", severity: "high", status: "open", gap_type: "role_coverage", specification: {}, source_context: { diagnostic_key: "a".repeat(64) }, alternative_asset_codes: ["AG-IMG-002"], resolution_snapshot: {}, resolution_evidence: {}, events: [] });
+        if (url === "/api/assets/gaps") return response([]);
+        if (url === "/api/functional-live-room-plans/material-gap-preview")
+          return response({ project_code: "CONTENT-001", project_revision_number: 4, shot_list_revision_number: 7, checked_asset_codes: [], gaps: [{ diagnostic_key: "a".repeat(64), role: "background", title: "缺少可执行 background 素材", severity: "high", gap_type: "role_coverage", required_shot_codes: ["SHOT-001"], missing_occurrences: 1, selection_mode: "append", alternative_asset_codes: ["AG-IMG-002"], create_payload: { title: "缺少可执行 background 素材", role: "background", severity: "high", gap_type: "role_coverage", specification: { required_role: "background" }, source_context: { diagnostic_key: "a".repeat(64) }, impact_summary: "缺少背景", alternative_asset_codes: ["AG-IMG-002"] } }] });
+        if (url === "/api/functional-live-room-plans") return response([]);
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText("素材缺口诊断");
+    await user.click(screen.getByRole("button", { name: "检测素材缺口" }));
+    expect(await screen.findByText("缺少可执行 background 素材")).toBeInTheDocument();
+    expect(screen.getByText(/可复核候选：AG-IMG-002/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "登记为素材缺口" }));
+
+    await waitFor(() =>
+      expect(
+        requests.some(
+          (request) => request.url === "/api/assets/gaps" && request.init?.method === "POST",
+        ),
+      ).toBe(true),
+    );
+    const createRequest = requests.find(
+      (request) => request.url === "/api/assets/gaps" && request.init?.method === "POST",
+    );
+    expect(JSON.parse(String(createRequest?.init?.body))).toMatchObject({
+      gap_type: "role_coverage",
+      source_context: { diagnostic_key: "a".repeat(64) },
+    });
+  });
+
   it("includes an explicitly linked open asset gap when creating a live-room plan", async () => {
     const requests: Array<{ url: string; init?: RequestInit }> = [];
     const plan = {
