@@ -183,6 +183,10 @@ describe("OperationsPage", () => {
       if (url === "/api/functional-operations/sessions" || url === "/api/functional-operations/exposures" || url === "/api/functional-operations/schedule-plans" || url === "/api/functional-live-room-plans") return response([]);
       if (url === "/api/functional-operations/attribution-reports") return response([{
         report_code: "ATTR-ALLOC-001", metric_key: "watchers", evidence_level: "descriptive", session_codes: ["OPS-001"],
+        input_snapshot: {
+          sessions: [{ session_code: "OPS-001", metric_value: 6, metric_snapshot: { snapshot_code: "METRIC-SNAP-001", fingerprint_sha256: "a".repeat(64), event_time_clock: "recording_elapsed_ms" }, time_mapping: { mapping_code: "TIME-MAP-001", revision_number: 2 } }],
+          active_exposures: [{ exposure_code: "EXP-001", plan_code: "PLAN-001", release_code: "REL-001", scene_code: "SCENE-001", source_kind: "recording_match", confidence: .9 }],
+        },
         results: {
           groups: {},
           scene_allocations: [{
@@ -212,6 +216,7 @@ describe("OperationsPage", () => {
     expect(screen.getAllByText("SCENE-001")).toHaveLength(2);
     expect(screen.getByText("6.00")).toBeInTheDocument();
     expect(screen.getByText(/来源时钟已对齐 2/)).toBeInTheDocument();
+    expect(screen.getByText("冻结输入证据 · 1 场次 · 1 展示")).toBeInTheDocument();
     expect(screen.getByText(/不代表场景真实归因或因果效果/)).toBeInTheDocument();
   });
 

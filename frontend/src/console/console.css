@@ -656,6 +656,16 @@
 .operations-scene-allocations li > strong { font-size: 10px; }
 .operations-measured-scene-allocations { border-color: var(--console-cyan); }
 .operations-measured-scene-footnote { color: var(--wb-muted); font-size: 8px; }
+.operations-report-evidence { margin-top: 8px; border-top: 1px solid var(--wb-line); }
+.operations-report-evidence summary { padding: 8px 0; color: var(--wb-accent-dark); font-size: 9px; font-weight: 800; cursor: pointer; }
+.operations-report-evidence > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; padding-bottom: 7px; }
+.operations-report-evidence section { min-width: 0; padding: 7px; border: 1px solid var(--wb-line); background: var(--wb-subtle); }
+.operations-report-evidence section > strong { display: block; margin-bottom: 5px; font-size: 8px; }
+.operations-report-evidence ul { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.operations-report-evidence li { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.operations-report-evidence code, .operations-report-evidence small { overflow-wrap: anywhere; font-size: 8px; }
+.operations-report-evidence code { color: var(--console-cyan); }
+.operations-report-evidence small { color: var(--wb-muted); }
 .operations-report-comparison { display: grid; grid-column: 1 / -1; gap: 9px; padding: 11px; border: 1px solid var(--console-cyan); background: var(--wb-subtle); }
 .operations-report-comparison > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .operations-report-comparison > header > div { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
@@ -830,6 +840,7 @@
   .operations-metric-snapshot-list article { grid-template-columns: 1fr; }
   .operations-metric-snapshot-list article > div:last-child { align-items: start; }
   .operations-report-comparison-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .operations-report-evidence > div { grid-template-columns: 1fr; }
   .operations-attribution-session-picker { grid-template-columns: 1fr; }
   .content-project-rail, .knowledge-rail, .live-plan-rail, .video-plan-rail, .governance-catalog { position: static; max-height: none; }
   .live-plan-summary, .video-plan-summary, .live-material-snapshot { grid-template-columns: repeat(2, minmax(0, 1fr)); }

@@ -527,6 +527,23 @@ function ReportComparisonPanel({ reports }: { reports: AttributionReport[] }) {
   </section>;
 }
 
+function ReportEvidencePanel({ report }: { report: AttributionReport }) {
+  const evidence = report.inputEvidence;
+  return <details className="operations-report-evidence">
+    <summary>冻结输入证据 · {evidence.sessions.length} 场次 · {evidence.exposures.length} 展示</summary>
+    <div>
+      <section>
+        <strong>会话与指标快照</strong>
+        {evidence.sessions.length ? <ul>{evidence.sessions.map((session) => <li key={session.sessionCode}><code>{session.sessionCode}</code><small>指标 {session.metricValue?.toFixed(4) ?? "--"}{session.snapshotCode ? ` · 快照 ${session.snapshotCode}` : " · 手工会话值"}{session.eventTimeClock ? ` · 时钟 ${session.eventTimeClock}` : ""}{session.timeMappingCode ? ` · 对齐 ${session.timeMappingCode} r${session.timeMappingRevision ?? "--"}` : ""}</small>{session.snapshotFingerprint ? <small>输入 {session.snapshotFingerprint.slice(0, 12)}</small> : null}</li>)}</ul> : <small>历史报告未封存结构化会话输入。</small>}
+      </section>
+      <section>
+        <strong>实际展示输入</strong>
+        {evidence.exposures.length ? <ul>{evidence.exposures.map((exposure) => <li key={exposure.exposureCode}><code>{exposure.exposureCode}</code><small>{exposure.planCode} · {exposure.sceneCode} · {exposure.sourceKind}{exposure.releaseCode ? ` · ${exposure.releaseCode}` : " · 无 release"}{exposure.confidence === undefined ? "" : ` · ${Math.round(exposure.confidence * 100)}%`}</small></li>)}</ul> : <small>该报告没有封存活跃展示输入。</small>}
+      </section>
+    </div>
+  </details>;
+}
+
 export function OperationsPage({ view }: { view: "sessions" | "attribution" }) {
   const queryClient = useQueryClient();
   const sessions = useQuery({
@@ -1803,6 +1820,7 @@ export function OperationsPage({ view }: { view: "sessions" | "attribution" }) {
                       ? ` · 基于 ${report.supersedesReportCode} 复算`
                       : ""}
                   </small>
+                  <ReportEvidencePanel report={report} />
                   {report.qualitySnapshot.reasons.length ? (
                     <InlineNotice tone="warning" title="证据尚不足以发布">
                       {report.qualitySnapshot.reasons.join("、")}

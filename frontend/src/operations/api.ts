@@ -204,6 +204,25 @@ export interface AttributionReport {
   supersedesReportCode?: string;
   publishedBy?: string;
   publishedAt?: string;
+  inputEvidence: {
+    sessions: Array<{
+      sessionCode: string;
+      metricValue?: number;
+      snapshotCode?: string;
+      snapshotFingerprint?: string;
+      eventTimeClock?: string;
+      timeMappingCode?: string;
+      timeMappingRevision?: number;
+    }>;
+    exposures: Array<{
+      exposureCode: string;
+      planCode: string;
+      releaseCode?: string;
+      sceneCode: string;
+      sourceKind: string;
+      confidence?: number;
+    }>;
+  };
   groups: AttributionGroup[];
   sceneAllocations: Array<{
     scopeType: string;
@@ -534,6 +553,43 @@ function counts(value: unknown): Record<string, number> {
     : {};
 }
 
+function attributionInputEvidence(value: unknown): AttributionReport["inputEvidence"] {
+  const raw = isRecord(value) ? value : {};
+  return {
+    sessions: asArray(raw.sessions).flatMap((item) => {
+      if (!isRecord(item)) return [];
+      const sessionCode = asString(item.session_code);
+      if (!sessionCode) return [];
+      const snapshot = isRecord(item.metric_snapshot) ? item.metric_snapshot : {};
+      const mapping = isRecord(item.time_mapping) ? item.time_mapping : {};
+      return [{
+        sessionCode,
+        metricValue: typeof item.metric_value === "number" ? item.metric_value : undefined,
+        snapshotCode: asOptionalString(snapshot.snapshot_code),
+        snapshotFingerprint: asOptionalString(snapshot.fingerprint_sha256),
+        eventTimeClock: asOptionalString(snapshot.event_time_clock),
+        timeMappingCode: asOptionalString(mapping.mapping_code),
+        timeMappingRevision: typeof mapping.revision_number === "number" ? mapping.revision_number : undefined,
+      }];
+    }),
+    exposures: asArray(raw.active_exposures).flatMap((item) => {
+      if (!isRecord(item)) return [];
+      const exposureCode = asString(item.exposure_code);
+      const planCode = asString(item.plan_code);
+      const sceneCode = asString(item.scene_code);
+      if (!exposureCode || !planCode || !sceneCode) return [];
+      return [{
+        exposureCode,
+        planCode,
+        releaseCode: asOptionalString(item.release_code),
+        sceneCode,
+        sourceKind: asString(item.source_kind),
+        confidence: typeof item.confidence === "number" ? item.confidence : undefined,
+      }];
+    }),
+  };
+}
+
 function report(value: unknown): AttributionReport {
   if (!isRecord(value)) throw new Error("归因响应无效");
   const raw = isRecord(value.results) ? value.results : {};
@@ -559,6 +615,7 @@ function report(value: unknown): AttributionReport {
     supersedesReportCode: asOptionalString(value.supersedes_report_code),
     publishedBy: asOptionalString(value.published_by),
     publishedAt: asOptionalString(value.published_at),
+    inputEvidence: attributionInputEvidence(value.input_snapshot),
     groups: Object.entries(groupsRaw).flatMap(([key, item]) => {
       if (!isRecord(item)) return [];
       const evidence = isRecord(item.source_evidence)
