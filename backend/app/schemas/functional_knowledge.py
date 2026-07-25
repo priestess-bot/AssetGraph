@@ -38,12 +38,32 @@ class SourceEvidenceApprove(BaseModel):
     approved_by: str = Field(min_length=1, max_length=128)
 
 
+class KnowledgeRevocation(BaseModel):
+    actor: str = Field(min_length=1, max_length=128)
+    reason: str = Field(min_length=1, max_length=4000)
+
+    @model_validator(mode="after")
+    def validate_non_blank_values(self) -> "KnowledgeRevocation":
+        if not self.actor.strip():
+            raise ValueError("actor must not be blank")
+        if not self.reason.strip():
+            raise ValueError("reason must not be blank")
+        return self
+
+
+class SourceEvidenceRevoke(KnowledgeRevocation):
+    pass
+
+
 class SourceEvidenceRead(SourceEvidenceCreate):
     evidence_code: str
     content_sha256: str
     status: str
     approved_by: str | None = None
     approved_at: datetime | None = None
+    revoked_by: str | None = None
+    revoked_at: datetime | None = None
+    revoked_reason: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -74,6 +94,10 @@ class FactClaimApprove(BaseModel):
     approved_by: str = Field(min_length=1, max_length=128)
 
 
+class FactClaimRevoke(KnowledgeRevocation):
+    pass
+
+
 class FactClaimRead(BaseModel):
     claim_code: str
     fact_code: str
@@ -90,6 +114,9 @@ class FactClaimRead(BaseModel):
     created_by: str | None = None
     approved_by: str | None = None
     approved_at: datetime | None = None
+    revoked_by: str | None = None
+    revoked_at: datetime | None = None
+    revoked_reason: str | None = None
     fingerprint_sha256: str
     created_at: datetime
     updated_at: datetime

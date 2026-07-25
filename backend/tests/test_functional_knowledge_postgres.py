@@ -68,3 +68,78 @@ def test_source_evidence_must_be_approved_before_a_claim_can_be_approved() -> No
         assert approved is not None
         assert approved["status"] == "approved"
         assert approved["source_evidence_code"] == source["evidence_code"]
+
+
+def test_knowledge_evidence_revocation_stops_future_claim_resolution() -> None:
+    with psycopg.connect(DATABASE_URL) as c:
+        service = FunctionalKnowledgeService(c)
+        source = service.create_source_evidence(
+            {
+                "source_type": "document",
+                "title": "Corrected product specification",
+                "source_url": "https://example.test/corrected-spec",
+                "excerpt": "The product has a verified 12-month warranty.",
+                "access_scope": "internal",
+                "created_by": "author",
+            }
+        )
+        service.approve_source_evidence(source["evidence_code"], "reviewer")
+        claim = service.create_fact_claim(
+            {
+                "fact_title": "Warranty",
+                "claim": "The product has a 12-month warranty.",
+                "source_evidence_code": source["evidence_code"],
+                "citation_excerpt": "The product has a verified 12-month warranty.",
+                "created_by": "author",
+            }
+        )
+        assert claim is not None
+        approved = service.approve_fact_claim(claim["claim_code"], "reviewer")
+        assert approved is not None
+        assert service.resolve_approved_fact_claim(claim["claim_code"]) is not None
+
+        revoked_source = service.revoke_source_evidence(
+            source["evidence_code"], "reviewer", "The source specification was superseded."
+        )
+        assert revoked_source is not None
+        assert revoked_source["status"] == "revoked"
+        assert revoked_source["revoked_by"] == "reviewer"
+        assert service.resolve_approved_fact_claim(claim["claim_code"]) is None
+        assert service.revoke_source_evidence(
+            source["evidence_code"], "other-reviewer", "A later callback."
+        )["revoked_reason"] == "The source specification was superseded."
+
+        replacement = service.create_source_evidence(
+            {
+                "source_type": "document",
+                "title": "Replacement product specification",
+                "excerpt": "The product has a verified 24-month warranty.",
+                "access_scope": "internal",
+                "created_by": "author",
+            }
+        )
+        service.approve_source_evidence(replacement["evidence_code"], "reviewer")
+        replacement_claim = service.create_fact_claim(
+            {
+                "fact_title": "Replacement warranty",
+                "claim": "The product has a 24-month warranty.",
+                "source_evidence_code": replacement["evidence_code"],
+                "citation_excerpt": "The product has a verified 24-month warranty.",
+                "created_by": "author",
+            }
+        )
+        assert replacement_claim is not None
+        service.approve_fact_claim(replacement_claim["claim_code"], "reviewer")
+        revoked_claim = service.revoke_fact_claim(
+            replacement_claim["claim_code"], "reviewer", "The warranty terms changed again."
+        )
+        assert revoked_claim is not None
+        assert revoked_claim["status"] == "revoked"
+        assert revoked_claim["revoked_reason"] == "The warranty terms changed again."
+        assert service.resolve_approved_fact_claim(replacement_claim["claim_code"]) is None
+        with c.cursor() as cur:
+            cur.execute(
+                "SELECT status FROM functional_knowledge_facts WHERE fact_code = %s",
+                (replacement_claim["fact_code"],),
+            )
+            assert cur.fetchone()[0] == "revoked"

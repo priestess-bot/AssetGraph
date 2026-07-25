@@ -42,4 +42,23 @@ describe("knowledge api", () => {
     expect(claim).toMatchObject({ claimCode: "CLAIM-001", sourceEvidenceCode: "EVIDENCE-001", citationExcerpt: "Verified warranty is 12 months." });
     expect(fetch).toHaveBeenLastCalledWith("/api/functional-knowledge/fact-claims", expect.objectContaining({ method: "POST" }));
   });
+
+  it("requires a named reason when revoking local evidence and claims", async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(response({
+        evidence_code: "EVIDENCE-001", source_type: "document", title: "Product sheet", excerpt: "Verified warranty is 12 months.", content_sha256: "a".repeat(64), access_scope: "internal", status: "revoked", revoked_by: "reviewer", revoked_at: "2026-07-25T00:00:00Z", revoked_reason: "Source corrected.",
+      }))
+      .mockResolvedValueOnce(response({
+        claim_code: "CLAIM-001", fact_code: "FACT-001", fact_title: "Warranty", source_evidence_code: "EVIDENCE-001", source_title: "Product sheet", source_status: "revoked", claim: "Warranty is 12 months.", citation_excerpt: "Verified warranty is 12 months.", status: "revoked", revoked_by: "reviewer", revoked_at: "2026-07-25T00:00:00Z", revoked_reason: "Terms changed.", fingerprint_sha256: "b".repeat(64), created_at: "2026-07-25T00:00:00Z", updated_at: "2026-07-25T00:00:00Z",
+      }));
+    vi.stubGlobal("fetch", fetch);
+
+    const source = await knowledgeApi.revokeSourceEvidence("EVIDENCE-001", "reviewer", "Source corrected.");
+    const claim = await knowledgeApi.revokeFactClaim("CLAIM-001", "reviewer", "Terms changed.");
+
+    expect(source).toMatchObject({ status: "revoked", revokedBy: "reviewer", revokedReason: "Source corrected." });
+    expect(claim).toMatchObject({ status: "revoked", sourceStatus: "revoked", revokedReason: "Terms changed." });
+    expect(fetch).toHaveBeenNthCalledWith(1, "/api/functional-knowledge/source-evidences/EVIDENCE-001/revoke", expect.objectContaining({ method: "POST", body: JSON.stringify({ actor: "reviewer", reason: "Source corrected." }) }));
+    expect(fetch).toHaveBeenNthCalledWith(2, "/api/functional-knowledge/fact-claims/CLAIM-001/revoke", expect.objectContaining({ method: "POST", body: JSON.stringify({ actor: "reviewer", reason: "Terms changed." }) }));
+  });
 });

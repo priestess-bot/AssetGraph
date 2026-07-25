@@ -249,3 +249,17 @@ def test_video_production_migration_stores_jobs_stages_and_artifacts() -> None:
     assert "lease_token UUID" in sql
     assert "brief_generation" in sql
     assert "quality_check" in sql
+
+
+def test_knowledge_evidence_revocation_migration_requires_attributed_details() -> None:
+    migration = MIGRATIONS_DIR / "079_knowledge_evidence_revocations.sql"
+
+    assert migration.exists()
+    sql = migration.read_text(encoding="utf-8")
+    assert "functional_knowledge_source_evidences" in sql
+    assert "functional_knowledge_fact_claims" in sql
+    assert "revoked_by VARCHAR(128)" in sql
+    assert "revoked_at TIMESTAMPTZ" in sql
+    assert "revoked_reason TEXT" in sql
+    assert "chk_functional_knowledge_evidence_revocation_details" in sql
+    assert "chk_functional_knowledge_claim_revocation_details" in sql

@@ -7,11 +7,13 @@ from app.schemas.functional_knowledge import (
     FactClaimApprove,
     FactClaimCreate,
     FactClaimRead,
+    FactClaimRevoke,
     FactCreate,
     FactRead,
     SourceEvidenceApprove,
     SourceEvidenceCreate,
     SourceEvidenceRead,
+    SourceEvidenceRevoke,
 )
 from app.services.functional_knowledge import FunctionalKnowledgeConflictError, FunctionalKnowledgeService
 
@@ -73,6 +75,23 @@ def approve_source_evidence(
     return result
 
 
+@router.post("/source-evidences/{evidence_code}/revoke", response_model=SourceEvidenceRead)
+def revoke_source_evidence(
+    evidence_code: str,
+    payload: SourceEvidenceRevoke,
+    service: Annotated[FunctionalKnowledgeService, Depends(svc)],
+) -> dict:
+    try:
+        result = service.revoke_source_evidence(
+            evidence_code, payload.actor, payload.reason
+        )
+    except FunctionalKnowledgeConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if result is None:
+        raise HTTPException(status_code=404, detail="Source evidence not found")
+    return result
+
+
 @router.post("/fact-claims", response_model=FactClaimRead, status_code=201)
 def create_fact_claim(
     payload: FactClaimCreate,
@@ -102,6 +121,21 @@ def approve_fact_claim(
 ) -> dict:
     try:
         result = service.approve_fact_claim(claim_code, payload.approved_by)
+    except FunctionalKnowledgeConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if result is None:
+        raise HTTPException(status_code=404, detail="Fact claim not found")
+    return result
+
+
+@router.post("/fact-claims/{claim_code}/revoke", response_model=FactClaimRead)
+def revoke_fact_claim(
+    claim_code: str,
+    payload: FactClaimRevoke,
+    service: Annotated[FunctionalKnowledgeService, Depends(svc)],
+) -> dict:
+    try:
+        result = service.revoke_fact_claim(claim_code, payload.actor, payload.reason)
     except FunctionalKnowledgeConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if result is None:

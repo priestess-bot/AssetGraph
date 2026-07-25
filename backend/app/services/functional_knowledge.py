@@ -131,6 +131,47 @@ class FunctionalKnowledgeService:
             raise
         return dict(row)
 
+    def revoke_source_evidence(
+        self, evidence_code: str, actor: str, reason: str
+    ) -> dict[str, Any] | None:
+        try:
+            with self.c.cursor(row_factory=dict_row) as cur:
+                cur.execute(
+                    "SELECT * FROM functional_knowledge_source_evidences WHERE evidence_code = %s FOR UPDATE",
+                    (evidence_code,),
+                )
+                source = cur.fetchone()
+                if source is None:
+                    self.c.rollback()
+                    return None
+                if source["status"] == "revoked":
+                    result = dict(source)
+                elif source["status"] == "approved":
+                    cur.execute(
+                        """UPDATE functional_knowledge_source_evidences
+                           SET status = 'revoked', revoked_by = %s, revoked_at = now(),
+                               revoked_reason = %s, updated_at = now()
+                           WHERE evidence_code = %s RETURNING *""",
+                        (actor.strip(), reason.strip(), evidence_code),
+                    )
+                    result = dict(cur.fetchone())
+                    cur.execute(
+                        """SELECT fact_code FROM functional_knowledge_fact_claims
+                           WHERE source_evidence_code = %s FOR UPDATE""",
+                        (evidence_code,),
+                    )
+                    for fact_code in {row["fact_code"] for row in cur.fetchall()}:
+                        self._refresh_fact_status(cur, fact_code)
+                else:
+                    raise FunctionalKnowledgeConflictError(
+                        "Only approved source evidence can be revoked"
+                    )
+            self.c.commit()
+        except Exception:
+            self.c.rollback()
+            raise
+        return result
+
     def create_fact_claim(self, payload: dict[str, Any]) -> dict[str, Any] | None:
         try:
             with self.c.cursor(row_factory=dict_row) as cur:
@@ -253,6 +294,37 @@ class FunctionalKnowledgeService:
             raise
         return result
 
+    def revoke_fact_claim(
+        self, claim_code: str, actor: str, reason: str
+    ) -> dict[str, Any] | None:
+        try:
+            with self.c.cursor(row_factory=dict_row) as cur:
+                row = self._claim(cur, claim_code, lock=True)
+                if row is None:
+                    self.c.rollback()
+                    return None
+                if row["status"] == "revoked":
+                    result = row
+                elif row["status"] == "approved":
+                    cur.execute(
+                        """UPDATE functional_knowledge_fact_claims
+                           SET status = 'revoked', revoked_by = %s, revoked_at = now(),
+                               revoked_reason = %s, updated_at = now()
+                           WHERE claim_code = %s""",
+                        (actor.strip(), reason.strip(), claim_code),
+                    )
+                    self._refresh_fact_status(cur, row["fact_code"])
+                    result = self._claim(cur, claim_code)
+                else:
+                    raise FunctionalKnowledgeConflictError(
+                        "Only approved fact claims can be revoked"
+                    )
+            self.c.commit()
+        except Exception:
+            self.c.rollback()
+            raise
+        return result
+
     @staticmethod
     def _claim_query(where: str = "") -> str:
         return f"""SELECT claim.*, fact.title AS fact_title, source.title AS source_title,
@@ -271,6 +343,24 @@ class FunctionalKnowledgeService:
         )
         row = cur.fetchone()
         return dict(row) if row else None
+
+    @staticmethod
+    def _refresh_fact_status(cur: Any, fact_code: str) -> None:
+        """Keep a local fact usable when another approved, active claim still supports it."""
+        cur.execute(
+            """UPDATE functional_knowledge_facts AS fact
+               SET status = CASE WHEN EXISTS (
+                    SELECT 1
+                    FROM functional_knowledge_fact_claims AS claim
+                    JOIN functional_knowledge_source_evidences AS source
+                      ON source.evidence_code = claim.source_evidence_code
+                    WHERE claim.fact_code = fact.fact_code
+                      AND claim.status = 'approved'
+                      AND source.status = 'approved'
+               ) THEN 'approved' ELSE 'revoked' END
+               WHERE fact.fact_code = %s""",
+            (fact_code,),
+        )
 
     @staticmethod
     def _next(cur: Any, object_type: str, prefix: str) -> str:

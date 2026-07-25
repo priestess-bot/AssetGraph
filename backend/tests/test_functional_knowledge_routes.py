@@ -61,6 +61,8 @@ class FakeFunctionalKnowledgeService:
     def __init__(self) -> None:
         self.source_payload: dict[str, Any] | None = None
         self.claim_payload: dict[str, Any] | None = None
+        self.source_revocation: tuple[str, str, str] | None = None
+        self.claim_revocation: tuple[str, str, str] | None = None
 
     def create_source_evidence(self, payload: dict[str, Any]) -> dict[str, Any]:
         self.source_payload = payload
@@ -74,6 +76,18 @@ class FakeFunctionalKnowledgeService:
     def approve_source_evidence(code: str, approved_by: str) -> dict[str, Any] | None:
         return _source(evidence_code=code, status="approved", approved_by=approved_by, approved_at=NOW)
 
+    def revoke_source_evidence(self, code: str, actor: str, reason: str) -> dict[str, Any] | None:
+        if code == "missing":
+            return None
+        self.source_revocation = (code, actor, reason)
+        return _source(
+            evidence_code=code,
+            status="revoked",
+            revoked_by=actor,
+            revoked_at=NOW,
+            revoked_reason=reason,
+        )
+
     def create_fact_claim(self, payload: dict[str, Any]) -> dict[str, Any] | None:
         self.claim_payload = payload
         return _claim(**payload)
@@ -85,6 +99,18 @@ class FakeFunctionalKnowledgeService:
     @staticmethod
     def approve_fact_claim(code: str, approved_by: str) -> dict[str, Any] | None:
         return _claim(claim_code=code, status="approved", approved_by=approved_by, approved_at=NOW)
+
+    def revoke_fact_claim(self, code: str, actor: str, reason: str) -> dict[str, Any] | None:
+        if code == "missing":
+            return None
+        self.claim_revocation = (code, actor, reason)
+        return _claim(
+            claim_code=code,
+            status="revoked",
+            revoked_by=actor,
+            revoked_at=NOW,
+            revoked_reason=reason,
+        )
 
 
 @pytest.fixture
@@ -156,3 +182,43 @@ def test_fact_claim_route_rejects_naive_datetimes(
         },
     )
     assert result.status_code == 422
+
+
+def test_evidence_and_claim_revocation_require_attributed_reasons(
+    client: tuple[TestClient, FakeFunctionalKnowledgeService],
+) -> None:
+    test_client, service = client
+
+    source = test_client.post(
+        "/api/functional-knowledge/source-evidences/EVIDENCE-001/revoke",
+        json={"actor": "reviewer", "reason": "Source specification was corrected."},
+    )
+    claim = test_client.post(
+        "/api/functional-knowledge/fact-claims/CLAIM-001/revoke",
+        json={"actor": "reviewer", "reason": "The warranty claim is no longer valid."},
+    )
+    blank_reason = test_client.post(
+        "/api/functional-knowledge/fact-claims/CLAIM-001/revoke",
+        json={"actor": "reviewer", "reason": "   "},
+    )
+    missing = test_client.post(
+        "/api/functional-knowledge/source-evidences/missing/revoke",
+        json={"actor": "reviewer", "reason": "Missing source."},
+    )
+
+    assert source.status_code == 200
+    assert source.json()["revoked_reason"] == "Source specification was corrected."
+    assert claim.status_code == 200
+    assert claim.json()["revoked_by"] == "reviewer"
+    assert service.source_revocation == (
+        "EVIDENCE-001",
+        "reviewer",
+        "Source specification was corrected.",
+    )
+    assert service.claim_revocation == (
+        "CLAIM-001",
+        "reviewer",
+        "The warranty claim is no longer valid.",
+    )
+    assert blank_reason.status_code == 422
+    assert missing.status_code == 404

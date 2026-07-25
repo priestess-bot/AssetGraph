@@ -281,6 +281,7 @@ def test_migration_discovery_is_contiguous() -> None:
                 "functional_decision_log_evidence.sql",
                 "broadcast_schedules.sql",
                 "knowledge_source_evidence.sql",
+                "knowledge_evidence_revocations.sql",
             ],
             start=1,
         )

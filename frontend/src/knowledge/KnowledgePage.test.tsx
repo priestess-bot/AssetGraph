@@ -76,4 +76,32 @@ describe("KnowledgePage", () => {
     const request = requests.find((item) => item.url === "/api/functional-knowledge/source-evidences" && item.init?.method === "POST");
     expect(JSON.parse(String(request?.init?.body))).toMatchObject({ source_type: "document", title: "Product sheet", excerpt: "Verified warranty is 12 months.", access_scope: "internal" });
   });
+
+  it("revokes approved local evidence with an explicit reason", async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    const approvedSource = {
+      evidence_code: "EVIDENCE-001", source_type: "document", title: "Product sheet", source_url: null, excerpt: "Verified warranty is 12 months.", content_sha256: "a".repeat(64), access_scope: "internal", status: "approved", created_at: "2026-07-25T00:00:00Z", updated_at: "2026-07-25T00:00:00Z",
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); requests.push({ url, init });
+      if (url === "/api/maitu/workbench/product-fact-cards") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/functional-knowledge/source-evidences" && init?.method !== "POST") return new Response(JSON.stringify([approvedSource]), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/functional-knowledge/fact-claims") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/functional-knowledge/source-evidences/EVIDENCE-001/revoke") return new Response(JSON.stringify({ ...approvedSource, status: "revoked", revoked_by: "console_reviewer", revoked_at: "2026-07-25T01:00:00Z", revoked_reason: "The source was corrected." }), { status: 200, headers: { "Content-Type": "application/json" } });
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    const user = userEvent.setup();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    render(<QueryClientProvider client={client}><KnowledgePage /></QueryClientProvider>);
+
+    await screen.findByText("尚无事实卡");
+    await user.click(screen.getByRole("button", { name: "来源证据" }));
+    await screen.findByRole("heading", { name: "来源证据" });
+    await user.type(screen.getByLabelText("EVIDENCE-001 撤销原因"), "The source was corrected.");
+    await user.click(screen.getByRole("button", { name: "撤销来源" }));
+
+    await waitFor(() => expect(requests.some((request) => request.url === "/api/functional-knowledge/source-evidences/EVIDENCE-001/revoke")).toBe(true));
+    const request = requests.find((item) => item.url === "/api/functional-knowledge/source-evidences/EVIDENCE-001/revoke");
+    expect(JSON.parse(String(request?.init?.body))).toEqual({ actor: "console_reviewer", reason: "The source was corrected." });
+  });
 });
