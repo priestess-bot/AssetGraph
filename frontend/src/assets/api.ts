@@ -60,6 +60,7 @@ export interface AssetGap {
   alternativeAssetCodes: string[];
   resolutionAssetCode?: string;
   resolutionSnapshot: Record<string, unknown>;
+  resolutionEvidence: Record<string, unknown>;
   waivedReason?: string;
   events: Array<{ eventCode: string; previousStatus?: string; status: string; actor?: string; createdAt?: string }>;
 }
@@ -133,7 +134,7 @@ function gap(value: unknown): AssetGap | undefined {
   const gapCode = asString(value.gap_code);
   if (!gapCode) return undefined;
   return {
-    gapCode, title: asString(value.title, gapCode), role: asString(value.role), severity: asString(value.severity), status: asString(value.status), gapType: asString(value.gap_type, "material_missing"), impactSummary: asOptionalString(value.impact_summary), alternativeAssetCodes: strings(value.alternative_asset_codes), resolutionAssetCode: asOptionalString(value.resolution_asset_code), resolutionSnapshot: isRecord(value.resolution_snapshot) ? value.resolution_snapshot : {}, waivedReason: asOptionalString(value.waived_reason),
+    gapCode, title: asString(value.title, gapCode), role: asString(value.role), severity: asString(value.severity), status: asString(value.status), gapType: asString(value.gap_type, "material_missing"), impactSummary: asOptionalString(value.impact_summary), alternativeAssetCodes: strings(value.alternative_asset_codes), resolutionAssetCode: asOptionalString(value.resolution_asset_code), resolutionSnapshot: isRecord(value.resolution_snapshot) ? value.resolution_snapshot : {}, resolutionEvidence: isRecord(value.resolution_evidence) ? value.resolution_evidence : {}, waivedReason: asOptionalString(value.waived_reason),
     events: asArray(value.events).flatMap((event) => isRecord(event) && asString(event.status) ? [{ eventCode: asString(event.event_code), previousStatus: asOptionalString(event.previous_status), status: asString(event.status), actor: asOptionalString(event.actor), createdAt: asOptionalString(event.created_at) }] : []),
   };
 }

@@ -160,4 +160,25 @@ describe("AssetLibraryPage", () => {
     expect(request?.init?.method).toBe("PATCH");
     expect(request?.init?.body).toBe(JSON.stringify({ asset_codes: ["AG-IMG-001", "AG-IMG-002"], media_kind: "image", material_roles: ["background"], execution_capability: "local_only" }));
   });
+
+  it("marks an obsolete gap with an explicit reason while preserving its event evidence", async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    const gap = { gap_code: "AG-GAP-001", title: "已不适用背景", role: "background", severity: "medium", status: "open", gap_type: "material_missing", specification: {}, source_context: {}, alternative_asset_codes: [], resolution_snapshot: {}, resolution_evidence: {}, events: [{ event_code: "AG-GAP-EVT-001", status: "open" }], created_at: "2026-07-25T00:00:00Z", updated_at: "2026-07-25T00:00:00Z" };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); requests.push({ url, init });
+      if (url === "/api/assets" || url === "/api/assets/groups" || url === "/api/assets/material-packs") return response([]);
+      if (url === "/api/assets/gaps" && !init?.method) return response([gap]);
+      if (url === "/api/assets/gaps/AG-GAP-001" && init?.method === "PATCH") return response({ ...gap, status: "obsolete", resolution_evidence: { obsolete_reason: "Campaign scope changed." }, events: [...gap.events, { event_code: "AG-GAP-EVT-002", previous_status: "open", status: "obsolete" }] });
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("tab", { name: "缺口" }));
+    await user.type(screen.getByLabelText("AG-GAP-001 过时原因"), "Campaign scope changed.");
+    await user.click(screen.getByRole("button", { name: "标记过时" }));
+
+    const request = requests.find((item) => item.url === "/api/assets/gaps/AG-GAP-001" && item.init?.method === "PATCH");
+    expect(JSON.parse(String(request?.init?.body))).toEqual({ status: "obsolete", resolution_evidence: { obsolete_reason: "Campaign scope changed." }, actor: "material_library" });
+  });
 });
