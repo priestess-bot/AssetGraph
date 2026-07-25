@@ -250,6 +250,9 @@ class AssetSelector:
                         if str(role) in {"brand_logo", "product_sticker"}
                     ],
                     "product_sticker_layout": shot.get("product_sticker_layout"),
+                    "product_sticker_layout_suggestion": shot.get(
+                        "product_sticker_layout_suggestion"
+                    ),
                     "selection_reason": "operator-selected material-library video" if str(shot.get("visual_role")) == "selected_library_video" else f"preset role: {shot['visual_role']}",
                 }
                 for shot in shot_list.get("shots") or []

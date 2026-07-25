@@ -439,6 +439,13 @@ type EditableTimelineClip = {
   productStickerX?: number;
   productStickerY?: number;
   productStickerWidthRatio?: number;
+  productStickerSuggestion?: {
+    x: number;
+    y: number;
+    widthRatio: number;
+    tableSurfaceName?: string;
+    approximate?: boolean;
+  };
   soundEffect?: boolean;
 };
 
@@ -466,6 +473,16 @@ function editableTimelineClips(
       productStickerX: clip.product_sticker_layout?.x,
       productStickerY: clip.product_sticker_layout?.y,
       productStickerWidthRatio: clip.product_sticker_layout?.width_ratio,
+      productStickerSuggestion: clip.product_sticker_layout_suggestion
+        ? {
+            x: clip.product_sticker_layout_suggestion.x,
+            y: clip.product_sticker_layout_suggestion.y,
+            widthRatio: clip.product_sticker_layout_suggestion.width_ratio,
+            tableSurfaceName:
+              clip.product_sticker_layout_suggestion.table_surface_name,
+            approximate: clip.product_sticker_layout_suggestion.approximate,
+          }
+        : undefined,
       soundEffect: clip.audio_roles?.includes("sound_effect"),
     })) ?? []
   );
@@ -853,7 +870,16 @@ function TimelineEditor({ plan }: { plan: FunctionalVideoPlan }) {
                     updateClip(
                       index,
                       event.target.checked
-                        ? { productSticker: true }
+                        ? {
+                            productSticker: true,
+                            productStickerX:
+                              clip.productStickerSuggestion?.x ?? 0.5,
+                            productStickerY:
+                              clip.productStickerSuggestion?.y ?? 0.8,
+                            productStickerWidthRatio:
+                              clip.productStickerSuggestion?.widthRatio ??
+                              640 / 1080,
+                          }
                         : {
                             productSticker: false,
                             productStickerX: undefined,
@@ -866,6 +892,16 @@ function TimelineEditor({ plan }: { plan: FunctionalVideoPlan }) {
               </label>
               {clip.productSticker ? (
                 <div className="video-product-sticker-layout">
+                  {clip.productStickerSuggestion ? (
+                    <small className="video-product-sticker-suggestion">
+                      桌面区域建议：
+                      {clip.productStickerSuggestion.tableSurfaceName ??
+                        "table_surface"}
+                      {clip.productStickerSuggestion.approximate
+                        ? "（近似）"
+                        : ""}
+                    </small>
+                  ) : null}
                   <label className="wb-field">
                     <span>
                       商品位置 X {Math.round((clip.productStickerX ?? 0.5) * 100)}%
@@ -881,16 +917,21 @@ function TimelineEditor({ plan }: { plan: FunctionalVideoPlan }) {
                       onChange={(event) =>
                         updateClip(index, {
                           productStickerX: Number(event.target.value) / 100,
-                          productStickerY: clip.productStickerY ?? 0.8,
+                          productStickerY:
+                            clip.productStickerY ??
+                            clip.productStickerSuggestion?.y ??
+                            0.8,
                           productStickerWidthRatio:
-                            clip.productStickerWidthRatio ?? 640 / 1080,
+                            clip.productStickerWidthRatio ??
+                            clip.productStickerSuggestion?.widthRatio ??
+                            640 / 1080,
                         })
                       }
                     />
                   </label>
                   <label className="wb-field">
                     <span>
-                      商品位置 Y {Math.round((clip.productStickerY ?? 0.8) * 100)}%
+                      商品位置 Y {Math.round((clip.productStickerY ?? clip.productStickerSuggestion?.y ?? 0.8) * 100)}%
                     </span>
                     <input
                       aria-label={`商品位置 Y ${clip.clipCode}`}
@@ -898,21 +939,26 @@ function TimelineEditor({ plan }: { plan: FunctionalVideoPlan }) {
                       min="0"
                       max="100"
                       step="1"
-                      value={Math.round((clip.productStickerY ?? 0.8) * 100)}
+                      value={Math.round((clip.productStickerY ?? clip.productStickerSuggestion?.y ?? 0.8) * 100)}
                       disabled={!editable}
                       onChange={(event) =>
                         updateClip(index, {
-                          productStickerX: clip.productStickerX ?? 0.5,
+                          productStickerX:
+                            clip.productStickerX ??
+                            clip.productStickerSuggestion?.x ??
+                            0.5,
                           productStickerY: Number(event.target.value) / 100,
                           productStickerWidthRatio:
-                            clip.productStickerWidthRatio ?? 640 / 1080,
+                            clip.productStickerWidthRatio ??
+                            clip.productStickerSuggestion?.widthRatio ??
+                            640 / 1080,
                         })
                       }
                     />
                   </label>
                   <label className="wb-field">
                     <span>
-                      商品宽度 {Math.round((clip.productStickerWidthRatio ?? 640 / 1080) * 100)}%
+                      商品宽度 {Math.round((clip.productStickerWidthRatio ?? clip.productStickerSuggestion?.widthRatio ?? 640 / 1080) * 100)}%
                     </span>
                     <input
                       aria-label={`商品宽度 ${clip.clipCode}`}
@@ -921,13 +967,22 @@ function TimelineEditor({ plan }: { plan: FunctionalVideoPlan }) {
                       max="100"
                       step="1"
                       value={Math.round(
-                        (clip.productStickerWidthRatio ?? 640 / 1080) * 100,
+                        (clip.productStickerWidthRatio ??
+                          clip.productStickerSuggestion?.widthRatio ??
+                          640 / 1080) *
+                          100,
                       )}
                       disabled={!editable}
                       onChange={(event) =>
                         updateClip(index, {
-                          productStickerX: clip.productStickerX ?? 0.5,
-                          productStickerY: clip.productStickerY ?? 0.8,
+                          productStickerX:
+                            clip.productStickerX ??
+                            clip.productStickerSuggestion?.x ??
+                            0.5,
+                          productStickerY:
+                            clip.productStickerY ??
+                            clip.productStickerSuggestion?.y ??
+                            0.8,
                           productStickerWidthRatio:
                             Number(event.target.value) / 100,
                         })

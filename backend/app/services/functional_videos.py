@@ -101,7 +101,10 @@ class FunctionalVideoService:
                 "background_music": background_music,
                 "sound_effect": sound_effect,
             },
-            constraint_snapshot_ref={"source": "functional-content-timeline.v1"},
+            constraint_snapshot_ref=self._video_constraint_snapshot(
+                visual_assets=visual_assets,
+                product_sticker=product_sticker,
+            ),
             actor_id=actor_id, producer_strategy_revision="functional-video.v1",
         )
         variant = self.production.confirm_production_variant_revision(variant["variant_code"], revision_number=int(variant["revision_number"]), actor_id=actor_id)
@@ -288,16 +291,24 @@ class FunctionalVideoService:
             raise DomainValidationError(duplicate_code, f"{label} must be unique")
         return selected_codes
 
-    def _resolve_local_video_assets(self, selected_codes: list[str]) -> list[dict[str, str]]:
+    def _resolve_local_video_assets(self, selected_codes: list[str]) -> list[dict[str, Any]]:
         if not selected_codes:
             return []
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
                 """
-                SELECT asset_code, asset_type, media_kind, execution_capability,
-                       local_relative_path, checksum_sha256
-                FROM assets
-                WHERE asset_code = ANY(%s) AND deleted_at IS NULL
+                SELECT asset.asset_code, asset.asset_type, asset.media_kind,
+                       asset.execution_capability, asset.local_relative_path,
+                       asset.checksum_sha256, profile.profile_code AS constraint_profile_code,
+                       revision.revision_number AS constraint_profile_revision,
+                       revision.constraints AS constraint_profile_constraints,
+                       revision.fingerprint_sha256 AS constraint_profile_fingerprint
+                FROM assets AS asset
+                LEFT JOIN asset_constraint_profiles AS profile ON profile.asset_id = asset.id
+                LEFT JOIN asset_constraint_profile_revisions AS revision
+                  ON revision.profile_id = profile.id
+                 AND revision.revision_number = profile.current_revision
+                WHERE asset.asset_code = ANY(%s) AND asset.deleted_at IS NULL
                 """,
                 (selected_codes,),
             )
@@ -310,7 +321,7 @@ class FunctionalVideoService:
                 "Every selected visual asset must exist in the material library",
                 details={"asset_codes": missing},
             )
-        resolved: list[dict[str, str]] = []
+        resolved: list[dict[str, Any]] = []
         for code in selected_codes:
             row = assets_by_code[code]
             local_relative_path = str(row.get("local_relative_path") or "").strip()
@@ -335,6 +346,7 @@ class FunctionalVideoService:
                     "asset_code": code,
                     "relative_path": local_relative_path,
                     "checksum_sha256": checksum,
+                    "constraint_profile": self._constraint_profile_from_row(row),
                 }
             )
         return resolved
@@ -480,10 +492,18 @@ class FunctionalVideoService:
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
                 """
-                SELECT asset_code, media_kind, material_roles, execution_capability,
-                       local_relative_path, checksum_sha256
-                FROM assets
-                WHERE asset_code = %s AND deleted_at IS NULL
+                SELECT asset.asset_code, asset.media_kind, asset.material_roles,
+                       asset.execution_capability, asset.local_relative_path,
+                       asset.checksum_sha256, profile.profile_code AS constraint_profile_code,
+                       revision.revision_number AS constraint_profile_revision,
+                       revision.constraints AS constraint_profile_constraints,
+                       revision.fingerprint_sha256 AS constraint_profile_fingerprint
+                FROM assets AS asset
+                LEFT JOIN asset_constraint_profiles AS profile ON profile.asset_id = asset.id
+                LEFT JOIN asset_constraint_profile_revisions AS revision
+                  ON revision.profile_id = profile.id
+                 AND revision.revision_number = profile.current_revision
+                WHERE asset.asset_code = %s AND asset.deleted_at IS NULL
                 """,
                 (code,),
             )
@@ -520,6 +540,7 @@ class FunctionalVideoService:
             "asset_code": code,
             "relative_path": relative_path,
             "checksum_sha256": checksum,
+            "constraint_profile": self._constraint_profile_from_row(row),
         }
 
     def _resolve_brand_logo_asset(self, asset_code: Any) -> dict[str, str] | None:
@@ -1742,6 +1763,11 @@ class FunctionalVideoService:
                     "y": sticker_y,
                     "width_ratio": sticker_width_ratio,
                 }
+            product_sticker_suggestion = clip.get("product_sticker_layout_suggestion")
+            if isinstance(product_sticker_suggestion, dict):
+                shot["product_sticker_layout_suggestion"] = deepcopy(
+                    product_sticker_suggestion
+                )
             if isinstance(clip.get("audio_roles"), list):
                 shot["audio_roles"] = [
                     str(role)
@@ -1816,11 +1842,11 @@ class FunctionalVideoService:
         detail: dict[str, Any],
         duration: int,
         *,
-        visual_assets: list[dict[str, str]] | None = None,
+        visual_assets: list[dict[str, Any]] | None = None,
         background_music: dict[str, Any] | None = None,
         sound_effect: dict[str, Any] | None = None,
-        product_sticker: dict[str, str] | None = None,
-        brand_logo: dict[str, str] | None = None,
+        product_sticker: dict[str, Any] | None = None,
+        brand_logo: dict[str, Any] | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
         source_blocks = detail["script"]["blocks"]
         text = [str(block["content"]) for block in source_blocks]
@@ -1838,7 +1864,14 @@ class FunctionalVideoService:
                 source_start = 0.0
                 source_end = 6.0
             end = round(cursor + item_duration, 3)
-            compiled.append({"shot_index": index, "shot_code": f"SHOT-{index + 1:02d}", "start_seconds": cursor, "end_seconds": end, "duration_seconds": item_duration, "goal": "content_project", "narration": chunk, "tts_text": chunk.replace("PRO", "P R O"), "screen_text": chunk[:28], "asset_code": asset_code, "asset_relative_path": selected_asset["relative_path"] if selected_asset else None, "asset_expected_checksum": selected_asset["checksum_sha256"] if selected_asset else None, "source_start_seconds": source_start, "source_end_seconds": source_end, "source_available_seconds": source_end - source_start, "fit": fit, "playback_rate": 1.0, "visual_role": "selected_library_video" if selected_asset else "baseline_visual", "transition": "fade_out" if index == 5 else "cut", "overlay_roles": ["brand_logo"] if index in {0, 5} else []})
+            shot = {"shot_index": index, "shot_code": f"SHOT-{index + 1:02d}", "start_seconds": cursor, "end_seconds": end, "duration_seconds": item_duration, "goal": "content_project", "narration": chunk, "tts_text": chunk.replace("PRO", "P R O"), "screen_text": chunk[:28], "asset_code": asset_code, "asset_relative_path": selected_asset["relative_path"] if selected_asset else None, "asset_expected_checksum": selected_asset["checksum_sha256"] if selected_asset else None, "source_start_seconds": source_start, "source_end_seconds": source_end, "source_available_seconds": source_end - source_start, "fit": fit, "playback_rate": 1.0, "visual_role": "selected_library_video" if selected_asset else "baseline_visual", "transition": "fade_out" if index == 5 else "cut", "overlay_roles": ["brand_logo"] if index in {0, 5} else []}
+            sticker_suggestion = FunctionalVideoService._product_sticker_layout_suggestion(
+                selected_asset,
+                product_sticker,
+            )
+            if sticker_suggestion is not None:
+                shot["product_sticker_layout_suggestion"] = sticker_suggestion
+            compiled.append(shot)
             cursor = end
         if sound_effect is not None and compiled:
             compiled[0]["audio_roles"] = ["sound_effect"]
@@ -1884,8 +1917,134 @@ class FunctionalVideoService:
         audio_clips = [{"clip_code": f"VOICE-{shot['shot_code']}", "linked_shot_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "gain_db": 0.0} for shot in compiled]
         if background_music is not None:
             audio_clips.append({"clip_code": "BGM-01", "timeline_range": {"start_ms": 0, "duration_ms": duration * 1000}, "asset_code": background_music["asset_code"], "gain_db": background_music["gain_db"]})
-        timeline = {"schema_version": "otio-compatible-production-timeline.v1", "global_start_ms": 0, "global_end_ms": duration * 1000, "poster_time_ms": poster_time_ms, "tracks": [{"track_kind": "video", "clips": [{"clip_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "source_range": {"asset_code": shot["asset_code"], "start_seconds": shot["source_start_seconds"], "end_seconds": shot["source_end_seconds"], "available_start_seconds": shot["source_start_seconds"], "available_end_seconds": shot["source_end_seconds"]}, "fit": shot["fit"], "crop_x": 0.5, "crop_y": 0.5, "playback_rate": shot["playback_rate"], "overlay_roles": shot["overlay_roles"], "audio_roles": shot.get("audio_roles", []), "transition": shot["transition"]} for shot in compiled]}, {"track_kind": "audio", "clips": audio_clips}, {"track_kind": "subtitle", "clips": [{"clip_code": f"SUBTITLE-{shot['shot_code']}", "linked_shot_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "subtitle_text": shot["narration"], "headline_text": shot["screen_text"], "caption_position": "bottom"} for shot in compiled]}]}
+        timeline = {"schema_version": "otio-compatible-production-timeline.v1", "global_start_ms": 0, "global_end_ms": duration * 1000, "poster_time_ms": poster_time_ms, "tracks": [{"track_kind": "video", "clips": [{"clip_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "source_range": {"asset_code": shot["asset_code"], "start_seconds": shot["source_start_seconds"], "end_seconds": shot["source_end_seconds"], "available_start_seconds": shot["source_start_seconds"], "available_end_seconds": shot["source_end_seconds"]}, "fit": shot["fit"], "crop_x": 0.5, "crop_y": 0.5, "playback_rate": shot["playback_rate"], "overlay_roles": shot["overlay_roles"], "product_sticker_layout_suggestion": shot.get("product_sticker_layout_suggestion"), "audio_roles": shot.get("audio_roles", []), "transition": shot["transition"]} for shot in compiled]}, {"track_kind": "audio", "clips": audio_clips}, {"track_kind": "subtitle", "clips": [{"clip_code": f"SUBTITLE-{shot['shot_code']}", "linked_shot_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "subtitle_text": shot["narration"], "headline_text": shot["screen_text"], "caption_position": "bottom"} for shot in compiled]}]}
         return story, script, shots, timeline
+
+    @staticmethod
+    def _constraint_profile_from_row(row: dict[str, Any]) -> dict[str, Any] | None:
+        profile_code = str(row.get("constraint_profile_code") or "").strip()
+        fingerprint = str(row.get("constraint_profile_fingerprint") or "").strip()
+        try:
+            revision_number = int(row.get("constraint_profile_revision"))
+        except (TypeError, ValueError):
+            revision_number = 0
+        if not profile_code or revision_number < 1 or len(fingerprint) != 64:
+            return None
+        return {
+            "profile_code": profile_code,
+            "revision_number": revision_number,
+            "fingerprint_sha256": fingerprint,
+            "constraints": [
+                deepcopy(rule)
+                for rule in row.get("constraint_profile_constraints") or []
+                if isinstance(rule, dict)
+            ],
+        }
+
+    @staticmethod
+    def _video_constraint_snapshot(
+        *,
+        visual_assets: list[dict[str, Any]],
+        product_sticker: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        profiles: list[dict[str, Any]] = []
+        for asset in [*visual_assets, *([product_sticker] if product_sticker else [])]:
+            profile = asset.get("constraint_profile")
+            if not isinstance(profile, dict):
+                continue
+            profiles.append(
+                {
+                    "asset_code": asset["asset_code"],
+                    "profile_code": profile["profile_code"],
+                    "revision_number": profile["revision_number"],
+                    "fingerprint_sha256": profile["fingerprint_sha256"],
+                    "constraints": deepcopy(profile["constraints"]),
+                }
+            )
+        return {
+            "schema_version": "functional-video-asset-constraints.v1",
+            "profiles": profiles,
+        }
+
+    @staticmethod
+    def _product_sticker_layout_suggestion(
+        visual_asset: dict[str, Any] | None,
+        product_sticker: dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        if visual_asset is None or product_sticker is None:
+            return None
+        visual_profile = visual_asset.get("constraint_profile")
+        if not isinstance(visual_profile, dict):
+            return None
+        product_profile = product_sticker.get("constraint_profile")
+        product_rules = (
+            product_profile.get("constraints")
+            if isinstance(product_profile, dict)
+            else []
+        )
+        for rule in visual_profile.get("constraints") or []:
+            if not isinstance(rule, dict) or str(rule.get("kind") or "") != "table_surface":
+                continue
+            parameters = rule.get("parameters") if isinstance(rule.get("parameters"), dict) else {}
+            if str(parameters.get("product_role") or "product_display") != "product_display":
+                continue
+            try:
+                region_x = float(parameters["x"])
+                region_y = float(parameters["y"])
+                region_width = float(parameters["width"])
+                region_height = float(parameters["height"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if (
+                region_x < 0
+                or region_y < 0
+                or region_width <= 0
+                or region_height <= 0
+                or region_x + region_width > 1
+                or region_y + region_height > 1
+            ):
+                continue
+            width_ratio = min(0.6, region_width)
+            for product_rule in product_rules:
+                if not isinstance(product_rule, dict) or str(product_rule.get("kind") or "") != "size_range":
+                    continue
+                size = product_rule.get("parameters") if isinstance(product_rule.get("parameters"), dict) else {}
+                try:
+                    minimum = float(size.get("min_width", 0.1))
+                    maximum = float(size.get("max_width", 1.0))
+                except (TypeError, ValueError):
+                    continue
+                if 0.1 <= minimum <= maximum <= 1:
+                    width_ratio = min(max(width_ratio, minimum), maximum)
+            width_ratio = min(max(width_ratio, 0.1), 1.0)
+            anchor = str(parameters.get("product_anchor") or "bottom_center")
+            if anchor == "bottom_left":
+                raw_x = region_x
+            elif anchor == "bottom_right":
+                raw_x = region_x + region_width - width_ratio
+            else:
+                raw_x = region_x + (region_width - width_ratio) / 2
+            raw_x = min(max(raw_x, 0.0), 1.0 - width_ratio)
+            if anchor == "center":
+                raw_y = region_y + (region_height - width_ratio) / 2
+            else:
+                raw_y = region_y + region_height - width_ratio
+            raw_y = min(max(raw_y, 0.0), 1.0 - width_ratio)
+            available = max(0.0001, 1.0 - width_ratio)
+            return {
+                "x": round(raw_x / available, 4),
+                "y": round(raw_y / available, 4),
+                "width_ratio": round(width_ratio, 4),
+                "source": "table_surface",
+                "table_surface_name": str(parameters.get("name") or "table_surface"),
+                "constraint_profile": {
+                    "profile_code": visual_profile["profile_code"],
+                    "revision_number": visual_profile["revision_number"],
+                    "fingerprint_sha256": visual_profile["fingerprint_sha256"],
+                },
+                "approximate": True,
+            }
+        return None
 
     @staticmethod
     def _selected_material_codes(shot_list: dict[str, Any]) -> list[str]:

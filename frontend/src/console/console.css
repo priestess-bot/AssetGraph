@@ -479,6 +479,7 @@
 .video-overlay-toggle { align-self: end; }
 .video-overlay-toggle input { accent-color: var(--console-cyan); }
 .video-product-sticker-layout { display: grid; grid-template-columns: repeat(3, minmax(125px, 1fr)); grid-column: span 2; gap: 7px; }
+.video-product-sticker-suggestion { grid-column: 1 / -1; color: var(--console-cyan); font-size: 8px; }
 .video-crop-position { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
 .video-source-range { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
 .video-source-range small { grid-column: 1 / -1; color: var(--wb-muted); font-size: 8px; }

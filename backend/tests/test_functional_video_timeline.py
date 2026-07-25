@@ -249,6 +249,122 @@ def test_compiled_video_shot_list_freezes_the_full_visual_source_pool() -> None:
     }
 
 
+def test_compiled_video_exposes_a_table_surface_product_layout_suggestion() -> None:
+    detail = {
+        "project_code": "CONTENT-001",
+        "title": "Table placement",
+        "generation_goal": "Show the product on the table",
+        "story_brief": {"content": "A compact product story."},
+        "script": {"blocks": [{"content": "Put the product on the table."}]},
+    }
+    visual_asset = {
+        "asset_code": "AG-VID-000001",
+        "relative_path": "video/table.mp4",
+        "checksum_sha256": "a" * 64,
+        "constraint_profile": {
+            "profile_code": "AG-CP-001",
+            "revision_number": 2,
+            "fingerprint_sha256": "b" * 64,
+            "constraints": [
+                {
+                    "kind": "table_surface",
+                    "hard": True,
+                    "parameters": {
+                        "name": "hero_table",
+                        "x": 0.1,
+                        "y": 0.58,
+                        "width": 0.8,
+                        "height": 0.28,
+                        "product_role": "product_display",
+                        "product_anchor": "bottom_center",
+                    },
+                }
+            ],
+        },
+    }
+    product_sticker = {
+        "asset_code": "AG-IMG-000001",
+        "relative_path": "image/product.png",
+        "checksum_sha256": "c" * 64,
+        "constraint_profile": {
+            "profile_code": "AG-CP-002",
+            "revision_number": 3,
+            "fingerprint_sha256": "d" * 64,
+            "constraints": [
+                {
+                    "kind": "size_range",
+                    "hard": True,
+                    "parameters": {"min_width": 0.2, "max_width": 0.5},
+                }
+            ],
+        },
+    }
+
+    _, _, _, timeline = FunctionalVideoService._compile_content(
+        detail,
+        60,
+        visual_assets=[visual_asset],
+        product_sticker=product_sticker,
+    )
+
+    suggestion = timeline["tracks"][0]["clips"][0][
+        "product_sticker_layout_suggestion"
+    ]
+    assert suggestion == {
+        "x": 0.5,
+        "y": 0.72,
+        "width_ratio": 0.5,
+        "source": "table_surface",
+        "table_surface_name": "hero_table",
+        "constraint_profile": {
+            "profile_code": "AG-CP-001",
+            "revision_number": 2,
+            "fingerprint_sha256": "b" * 64,
+        },
+        "approximate": True,
+    }
+    assert FunctionalVideoService._video_constraint_snapshot(
+        visual_assets=[visual_asset],
+        product_sticker=product_sticker,
+    )["profiles"] == [
+        {
+            "asset_code": "AG-VID-000001",
+            "profile_code": "AG-CP-001",
+            "revision_number": 2,
+            "fingerprint_sha256": "b" * 64,
+            "constraints": visual_asset["constraint_profile"]["constraints"],
+        },
+        {
+            "asset_code": "AG-IMG-000001",
+            "profile_code": "AG-CP-002",
+            "revision_number": 3,
+            "fingerprint_sha256": "d" * 64,
+            "constraints": product_sticker["constraint_profile"]["constraints"],
+        },
+    ]
+    left_anchor_asset = {
+        **visual_asset,
+        "constraint_profile": {
+            **visual_asset["constraint_profile"],
+            "constraints": [
+                {
+                    **visual_asset["constraint_profile"]["constraints"][0],
+                    "parameters": {
+                        **visual_asset["constraint_profile"]["constraints"][0][
+                            "parameters"
+                        ],
+                        "product_anchor": "bottom_left",
+                    },
+                }
+            ],
+        },
+    }
+    assert FunctionalVideoService._product_sticker_layout_suggestion(
+        left_anchor_asset,
+        product_sticker,
+    )["x"] == 0.2
+
+
 def test_timeline_poster_time_must_remain_inside_the_rendered_duration() -> None:
     from app.domain.errors import DomainValidationError
 

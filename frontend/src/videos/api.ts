@@ -43,6 +43,14 @@ export interface FunctionalVideoPlan {
           y: number;
           width_ratio: number;
         };
+        product_sticker_layout_suggestion?: {
+          x: number;
+          y: number;
+          width_ratio: number;
+          source?: string;
+          table_surface_name?: string;
+          approximate?: boolean;
+        };
         audio_roles?: string[];
         linked_shot_code?: string;
         subtitle_text?: string;
@@ -293,6 +301,33 @@ function productionTimeline(
                               y: clip.product_sticker_layout.y,
                               width_ratio:
                                 clip.product_sticker_layout.width_ratio,
+                            }
+                          : undefined,
+                        product_sticker_layout_suggestion: isRecord(
+                          clip.product_sticker_layout_suggestion,
+                        ) &&
+                          typeof clip.product_sticker_layout_suggestion.x ===
+                            "number" &&
+                          typeof clip.product_sticker_layout_suggestion.y ===
+                            "number" &&
+                          typeof clip.product_sticker_layout_suggestion
+                            .width_ratio === "number"
+                          ? {
+                              x: clip.product_sticker_layout_suggestion.x,
+                              y: clip.product_sticker_layout_suggestion.y,
+                              width_ratio:
+                                clip.product_sticker_layout_suggestion
+                                  .width_ratio,
+                              source: asOptionalString(
+                                clip.product_sticker_layout_suggestion.source,
+                              ),
+                              table_surface_name: asOptionalString(
+                                clip.product_sticker_layout_suggestion
+                                  .table_surface_name,
+                              ),
+                              approximate:
+                                clip.product_sticker_layout_suggestion
+                                  .approximate === true,
                             }
                           : undefined,
                         audio_roles: Array.isArray(clip.audio_roles)
