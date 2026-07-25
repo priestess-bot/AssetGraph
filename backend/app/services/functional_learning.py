@@ -152,7 +152,7 @@ class FunctionalLearningService:
                     )
                 if row["status"] == "approved":
                     result = dict(row)
-                else:
+                elif row["status"] == "candidate":
                     c.execute(
                         """UPDATE functional_effect_estimates
                            SET status = 'approved', approved_by = %s, approved_at = now()
@@ -160,6 +160,49 @@ class FunctionalLearningService:
                         (actor.strip(), row["id"]),
                     )
                     result = dict(c.fetchone())
+                else:
+                    raise DomainValidationError(
+                        "EFFECT_ESTIMATE_NOT_APPROVABLE",
+                        "Only a candidate effect estimate can be approved",
+                        details={"effect_code": effect_code, "status": row["status"]},
+                    )
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+        return result
+
+    def revoke_effect_estimate(
+        self, effect_code: str, actor: str, reason: str
+    ) -> dict[str, Any] | None:
+        """Stop future use of an effect without modifying projects already reproduced from it."""
+        try:
+            with self.connection.cursor(row_factory=dict_row) as c:
+                c.execute(
+                    "SELECT * FROM functional_effect_estimates WHERE effect_code = %s FOR UPDATE",
+                    (effect_code,),
+                )
+                row = c.fetchone()
+                if row is None:
+                    self.connection.rollback()
+                    return None
+                if row["status"] == "revoked":
+                    result = dict(row)
+                elif row["status"] in {"candidate", "approved"}:
+                    c.execute(
+                        """UPDATE functional_effect_estimates
+                           SET status = 'revoked', revoked_by = %s, revoked_at = now(),
+                               revoked_reason = %s
+                           WHERE id = %s RETURNING *""",
+                        (actor.strip(), reason.strip(), row["id"]),
+                    )
+                    result = dict(c.fetchone())
+                else:
+                    raise DomainValidationError(
+                        "EFFECT_ESTIMATE_NOT_REVOCABLE",
+                        "Only a candidate or approved effect estimate can be revoked",
+                        details={"effect_code": effect_code, "status": row["status"]},
+                    )
             self.connection.commit()
         except Exception:
             self.connection.rollback()

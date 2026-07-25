@@ -10,6 +10,7 @@ from app.schemas.functional_learning import (
     EffectEstimateApprove,
     EffectEstimateCreate,
     EffectEstimateRead,
+    EffectEstimateRevoke,
     EffectReproductionCreate,
     EffectReproductionRead,
     ExperimentCreate,
@@ -71,6 +72,21 @@ def approve_effect_estimate(
 ) -> dict:
     try:
         result = s.approve_effect_estimate(effect_code, p.actor)
+    except DomainValidationError as e:
+        raise HTTPException(status_code=422, detail=e.message) from e
+    if result is None:
+        raise HTTPException(status_code=404, detail="Effect estimate not found")
+    return result
+
+
+@router.post("/effects/{effect_code}/revoke", response_model=EffectEstimateRead)
+def revoke_effect_estimate(
+    effect_code: str,
+    p: EffectEstimateRevoke,
+    s: Annotated[FunctionalLearningService, Depends(service)],
+) -> dict:
+    try:
+        result = s.revoke_effect_estimate(effect_code, p.actor, p.reason)
     except DomainValidationError as e:
         raise HTTPException(status_code=422, detail=e.message) from e
     if result is None:

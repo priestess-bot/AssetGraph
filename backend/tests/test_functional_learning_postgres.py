@@ -78,6 +78,25 @@ def test_decisions_and_stable_experiment_outcomes() -> None:
             )
             reproduced_refs = cursor.fetchone()["source_revision_refs"]
         assert any(ref["relation_type"] == "approved_effect" for ref in reproduced_refs)
+        revoked = s.revoke_effect_estimate(
+            effect["effect_code"],
+            "operator",
+            "The supporting metric input was corrected.",
+        )
+        assert revoked is not None
+        assert revoked["status"] == "revoked"
+        assert revoked["revoked_by"] == "operator"
+        assert revoked["revoked_reason"] == "The supporting metric input was corrected."
+        with pytest.raises(DomainValidationError) as revoked_reproduction:
+            s.reproduce_effect(effect["effect_code"], {})
+        assert revoked_reproduction.value.code == "EFFECT_ESTIMATE_APPROVAL_REQUIRED"
+        repeated_revocation = s.revoke_effect_estimate(
+            effect["effect_code"],
+            "another-operator",
+            "This must not overwrite the original reason.",
+        )
+        assert repeated_revocation is not None
+        assert repeated_revocation["revoked_by"] == "operator"
         with pytest.raises(DomainValidationError) as missing_report:
             s.create_decision(
                 {

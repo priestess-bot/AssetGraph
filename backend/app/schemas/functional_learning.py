@@ -44,6 +44,11 @@ class EffectEstimateApprove(BaseModel):
     actor: str = Field(default="functional-operator", min_length=1, max_length=128)
 
 
+class EffectEstimateRevoke(BaseModel):
+    actor: str = Field(default="functional-operator", min_length=1, max_length=128)
+    reason: str = Field(min_length=1, max_length=4000)
+
+
 class EffectReproductionCreate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=255)
     generation_goal: str | None = Field(default=None, min_length=1, max_length=4000)
@@ -72,6 +77,8 @@ class EffectEstimateRead(BaseModel):
     note: str
     approved_by: str | None = None
     approved_at: datetime | None = None
+    revoked_by: str | None = None
     revoked_at: datetime | None = None
+    revoked_reason: str | None = None
     fingerprint_sha256: str
     created_at: datetime

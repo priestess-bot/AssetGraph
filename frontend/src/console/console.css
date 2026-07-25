@@ -595,6 +595,7 @@
 .operations-list strong { overflow-wrap: anywhere; font-size: 10px; }
 .operations-list code, .operations-list small { margin-top: 3px; color: var(--wb-muted); font-size: 8px; overflow-wrap: anywhere; }
 .operations-list-actions { display: inline-flex; align-items: center; gap: 6px; }
+.operations-list-actions .wb-input { width: 132px; min-height: 27px; }
 .operations-exposure-status { display: flex; align-items: center; gap: 6px; }
 .operations-exposure-status .wb-button { min-width: 52px; }
 .operations-timeline-button { min-height: 27px; font-size: 8px; }

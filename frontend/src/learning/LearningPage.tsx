@@ -1,6 +1,6 @@
 import { type FormEvent, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, CopyPlus, FlaskConical, Lightbulb } from "lucide-react";
+import { Check, CopyPlus, FlaskConical, Lightbulb, XCircle } from "lucide-react";
 import {
   EmptyBlock,
   InlineNotice,
@@ -49,6 +49,9 @@ type EffectEstimate = {
     qualification?: string;
     selected_session_count?: number;
   };
+  revoked_by?: string;
+  revoked_at?: string;
+  revoked_reason?: string;
 };
 
 type EffectReproduction = {
@@ -65,6 +68,7 @@ export function LearningPage() {
   const [effectReportCode, setEffectReportCode] = useState("");
   const [effectSubjectCode, setEffectSubjectCode] = useState("");
   const [effectNote, setEffectNote] = useState("");
+  const [revocationReasons, setRevocationReasons] = useState<Record<string, string>>({});
   const [reproduction, setReproduction] = useState<EffectReproduction | null>(null);
   const [title, setTitle] = useState("");
   const [metric, setMetric] = useState("watchers");
@@ -129,6 +133,14 @@ export function LearningPage() {
       }),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["learning", "effects"] }),
   });
+  const revokeEffect = useMutation({
+    mutationFn: ({ effectCode, reason }: { effectCode: string; reason: string }) =>
+      postJson<EffectEstimate>(`/api/functional-learning/effects/${effectCode}/revoke`, {
+        actor: "functional-operator",
+        reason,
+      }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["learning", "effects"] }),
+  });
   const reproduceEffect = useMutation({
     mutationFn: (effectCode: string) =>
       postJson<EffectReproduction>(`/api/functional-learning/effects/${effectCode}/reproduce`, {}),
@@ -161,7 +173,7 @@ export function LearningPage() {
     return <LoadingBlock />;
   }
   const error =
-    decision.error ?? createEffect.error ?? approveEffect.error ?? reproduceEffect.error ?? experiment.error ??
+    decision.error ?? createEffect.error ?? approveEffect.error ?? revokeEffect.error ?? reproduceEffect.error ?? experiment.error ??
     outcome.error ?? reports.error ?? projects.error;
 
   return (
@@ -270,6 +282,7 @@ export function LearningPage() {
                 <strong>{item.subject_code} · {item.metric_key}</strong>
                 <small>{item.note}</small>
                 <small>{item.attribution_report_code} · {item.eligibility_snapshot.qualification ?? item.evidence_level} · {item.eligibility_snapshot.selected_session_count ?? 0} 场</small>
+                {item.status === "revoked" ? <small>撤销原因：{item.revoked_reason ?? "未记录"}</small> : null}
                 <code>{item.effect_code}</code>
               </span>
               <div className="operations-list-actions">
@@ -278,13 +291,30 @@ export function LearningPage() {
                     <CopyPlus size={15} aria-hidden="true" />
                     建立草稿
                   </button>
-                ) : (
+                ) : item.status === "candidate" ? (
                   <button className="wb-button" onClick={() => approveEffect.mutate(item.effect_code)} disabled={approveEffect.isPending}>
                     <Check size={15} aria-hidden="true" />
                     确认效果
                   </button>
-                )}
-                <StatusBadge label={item.status === "approved" ? "已确认" : "候选"} tone={item.status === "approved" ? "success" : "warning"} />
+                ) : null}
+                {item.status !== "revoked" ? <>
+                  <input
+                    className="wb-input"
+                    aria-label={`撤销原因 ${item.effect_code}`}
+                    value={revocationReasons[item.effect_code] ?? ""}
+                    onChange={(event) => setRevocationReasons((current) => ({ ...current, [item.effect_code]: event.target.value }))}
+                    placeholder="撤销原因"
+                  />
+                  <button
+                    className="wb-button"
+                    onClick={() => revokeEffect.mutate({ effectCode: item.effect_code, reason: revocationReasons[item.effect_code] ?? "" })}
+                    disabled={revokeEffect.isPending || !(revocationReasons[item.effect_code] ?? "").trim()}
+                  >
+                    <XCircle size={15} aria-hidden="true" />
+                    撤销效果
+                  </button>
+                </> : null}
+                <StatusBadge label={item.status === "approved" ? "已确认" : item.status === "revoked" ? "已撤销" : "候选"} tone={item.status === "approved" ? "success" : item.status === "revoked" ? "danger" : "warning"} />
               </div>
             </div>
           </div>

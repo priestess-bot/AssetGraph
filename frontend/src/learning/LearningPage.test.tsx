@@ -71,4 +71,35 @@ describe("LearningPage", () => {
       note: "Keep the opening rhythm.",
     });
   });
+
+  it("records an explicit reason when an approved effect is revoked", async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); requests.push({ url, init });
+      if (url === "/api/functional-learning/decisions") return response([]);
+      if (url === "/api/functional-learning/experiments") return response([]);
+      if (url === "/api/functional-learning/effects") {
+        if (init?.method === "POST") return response({ effect_code: "EFFECT-001", status: "revoked", revoked_reason: "Metric input was corrected." });
+        return response([{
+          effect_code: "EFFECT-001", attribution_report_code: "ATTR-001", subject_code: "CONTENT-001",
+          metric_key: "watchers", evidence_level: "descriptive", status: "approved", note: "Keep the opening.",
+          eligibility_snapshot: { qualification: "descriptive_only", selected_session_count: 2 },
+        }]);
+      }
+      if (url === "/api/functional-operations/attribution-reports") return response([]);
+      if (url === "/api/content-projects") return response([]);
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    const user = userEvent.setup();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    render(<QueryClientProvider client={client}><LearningPage /></QueryClientProvider>);
+
+    await screen.findByRole("button", { name: "撤销效果" });
+    await user.type(screen.getByLabelText("撤销原因 EFFECT-001"), "Metric input was corrected.");
+    await user.click(screen.getByRole("button", { name: "撤销效果" }));
+
+    await waitFor(() => expect(requests.some((request) => request.url === "/api/functional-learning/effects/EFFECT-001/revoke" && request.init?.method === "POST")).toBe(true));
+    const request = requests.find((item) => item.url === "/api/functional-learning/effects/EFFECT-001/revoke" && item.init?.method === "POST");
+    expect(JSON.parse(String(request?.init?.body))).toEqual({ actor: "functional-operator", reason: "Metric input was corrected." });
+  });
 });
