@@ -10,6 +10,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
+from xml.sax.saxutils import escape as xml_escape
 
 from app.domain.contracts import canonical_fingerprint
 from app.repositories.assets import AssetRepository
@@ -406,6 +407,23 @@ class VideoProductionPipeline:
                 ],
             },
         )
+        delivery_metadata = store.write_text(
+            "delivery_metadata",
+            "render/delivery-metadata.xmp",
+            build_xmp_delivery_sidecar(
+                job=context["job"],
+                shot_list=context["shot_list"],
+                asset_plan=context["asset_plan"],
+                video_path=video_path,
+                video_checksum_sha256=sha256_file(video_path),
+                store=store,
+            ),
+            mime_type="application/rdf+xml",
+            metadata={
+                "schema_version": "rendered-video-delivery-metadata.v1",
+                "release_manifest_status": "candidate_pending",
+            },
+        )
         manifest = build_render_manifest(
             render_result=render_result,
             shot_list=context["shot_list"],
@@ -421,6 +439,7 @@ class VideoProductionPipeline:
             command_log=command_log,
             toolchain=self._tool_versions(),
             store=store,
+            delivery_metadata=delivery_metadata,
         )
         render_manifest = store.write_json(
             "render_manifest",
@@ -472,6 +491,7 @@ class VideoProductionPipeline:
             contact_sheet_artifact,
             command_log,
             render_manifest,
+            delivery_metadata,
         ]
         if retry_diff_artifact is not None:
             artifacts.append(retry_diff_artifact)
@@ -854,6 +874,7 @@ def build_render_manifest(
     command_log: Artifact,
     toolchain: dict[str, str],
     store: ArtifactStore,
+    delivery_metadata: Artifact | None = None,
 ) -> dict[str, Any]:
     """Freeze the local render inputs and outputs without machine-local path identities."""
     production_timeline = shot_list.get("production_timeline")
@@ -891,6 +912,30 @@ def build_render_manifest(
         for segment in voice_manifest.get("segments") or []
         if isinstance(segment, dict)
     ]
+    outputs = {
+        "video": {
+            "relative_path": store.relative_to_output_root(video_path),
+            "checksum_sha256": sha256_file(video_path),
+            **dict(render_result.get("video") or {}),
+        },
+        "poster": {
+            "relative_path": store.relative_to_output_root(poster_path),
+            "checksum_sha256": sha256_file(poster_path),
+            "at_seconds": poster_time_seconds,
+        },
+        "contact_sheet": {
+            "relative_path": store.relative_to_output_root(contact_sheet_path),
+            "checksum_sha256": sha256_file(contact_sheet_path),
+            **contact_sheet_metadata,
+        },
+    }
+    if delivery_metadata is not None:
+        outputs["delivery_metadata"] = {
+            "relative_path": delivery_metadata.relative_path,
+            "checksum_sha256": delivery_metadata.checksum_sha256,
+            "mime_type": delivery_metadata.mime_type,
+            **delivery_metadata.metadata,
+        }
     manifest = {
         "schema_version": "render-manifest.v1",
         "renderer": {"source": str(render_result.get("source") or "ffmpeg_render_v1")},
@@ -911,23 +956,7 @@ def build_render_manifest(
             "checksum_sha256": command_log.checksum_sha256,
         },
         "toolchain": dict(toolchain),
-        "outputs": {
-            "video": {
-                "relative_path": store.relative_to_output_root(video_path),
-                "checksum_sha256": sha256_file(video_path),
-                **dict(render_result.get("video") or {}),
-            },
-            "poster": {
-                "relative_path": store.relative_to_output_root(poster_path),
-                "checksum_sha256": sha256_file(poster_path),
-                "at_seconds": poster_time_seconds,
-            },
-            "contact_sheet": {
-                "relative_path": store.relative_to_output_root(contact_sheet_path),
-                "checksum_sha256": sha256_file(contact_sheet_path),
-                **contact_sheet_metadata,
-            },
-        },
+        "outputs": outputs,
         "video": dict(render_result.get("video") or {}),
         "encoding": dict(render_result.get("encoding") or {}),
     }
@@ -943,7 +972,7 @@ def build_render_manifest_difference(
 ) -> dict[str, Any]:
     """Describe a retry without guessing why a renderer changed its bytes."""
     input_sections = ("renderer", "timeline", "inputs", "commands", "toolchain", "encoding")
-    output_sections = ("video", "poster", "contact_sheet")
+    output_sections = ("video", "poster", "contact_sheet", "delivery_metadata")
     changed_input_sections = [
         section
         for section in input_sections
@@ -977,3 +1006,61 @@ def build_render_manifest_difference(
         "changed_output_sections": changed_output_sections,
         "classification": classification,
     }
+
+
+def build_xmp_delivery_sidecar(
+    *,
+    job: dict[str, Any],
+    shot_list: dict[str, Any],
+    asset_plan: dict[str, Any],
+    video_path: Path,
+    video_checksum_sha256: str,
+    store: ArtifactStore,
+) -> str:
+    """Build portable XMP/IPTC delivery metadata without asserting a release approval."""
+    title = str(job.get("topic") or "Rendered video").strip()
+    asset_codes = sorted(
+        {
+            str(asset.get("asset_code") or "").strip()
+            for asset in asset_plan.get("assets") or []
+            if isinstance(asset, dict) and str(asset.get("asset_code") or "").strip()
+        }
+    )
+    document_id = canonical_fingerprint(
+        {
+            "schema_version": "rendered-video-delivery-metadata.v1",
+            "video_checksum_sha256": video_checksum_sha256,
+            "timeline_fingerprint": canonical_fingerprint(
+                shot_list.get("production_timeline") or shot_list
+            ),
+            "asset_codes": asset_codes,
+        }
+    )
+    subject_items = "".join(
+        f"<rdf:li>{xml_escape(asset_code)}</rdf:li>" for asset_code in asset_codes
+    )
+    relative_video_path = store.relative_to_output_root(video_path)
+    return f'''<?xml version="1.0" encoding="UTF-8"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description rdf:about=""
+      xmlns:dc="http://purl.org/dc/elements/1.1/"
+      xmlns:xmp="http://ns.adobe.com/xap/1.0/"
+      xmlns:xmpMM="http://ns.adobe.com/xap/1.0/mm/"
+      xmlns:xmpRights="http://ns.adobe.com/xap/1.0/rights/"
+      xmlns:iptcExt="http://iptc.org/std/Iptc4xmpExt/2008-02-29/"
+      dc:format="video/mp4"
+      xmp:CreatorTool="AssetGraph functional-video renderer"
+      xmp:Label="AI-generated and edited media"
+      xmpMM:DocumentID="urn:assetgraph:render:{document_id}"
+      xmpRights:UsageTerms="Rights evidence pending; this sidecar is not delivery authorization."
+      iptcExt:DigitalSourceType="https://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia">
+      <dc:title><rdf:Alt><rdf:li xml:lang="x-default">{xml_escape(title)}</rdf:li></rdf:Alt></dc:title>
+      <dc:description><rdf:Alt><rdf:li xml:lang="x-default">Local rendered video. Release manifest, approval and delivery are separate states.</rdf:li></rdf:Alt></dc:description>
+      <dc:subject><rdf:Bag>{subject_items}</rdf:Bag></dc:subject>
+      <xmp:Identifier>sha256:{xml_escape(video_checksum_sha256)}</xmp:Identifier>
+      <xmp:Nickname>{xml_escape(relative_video_path)}</xmp:Nickname>
+    </rdf:Description>
+  </rdf:RDF>
+</x:xmpmeta>
+'''

@@ -13,6 +13,7 @@ from app.services.video_production_pipeline import (
     VideoProductionPipeline,
     build_render_manifest,
     build_render_manifest_difference,
+    build_xmp_delivery_sidecar,
 )
 from app.services.video_production_preset import (
     DEFAULT_TOPIC,
@@ -207,6 +208,13 @@ def test_render_manifest_fixes_input_and_output_checksums_without_local_paths(tm
     video.write_bytes(b"video")
     poster.write_bytes(b"poster")
     contact_sheet.write_bytes(b"contact-sheet")
+    delivery_metadata = store.write_text(
+        "delivery_metadata",
+        "render/delivery-metadata.xmp",
+        "<xmpmeta />\n",
+        mime_type="application/rdf+xml",
+        metadata={"release_manifest_status": "candidate_pending"},
+    )
     shot_list = {
         "duration_seconds": 55,
         "poster_time_seconds": 7.5,
@@ -235,6 +243,7 @@ def test_render_manifest_fixes_input_and_output_checksums_without_local_paths(tm
         command_log=commands,
         toolchain={"ffmpeg": "ffmpeg version fixture", "ffprobe": "ffprobe version fixture"},
         store=store,
+        delivery_metadata=delivery_metadata,
     )
 
     assert manifest["schema_version"] == "render-manifest.v1"
@@ -246,6 +255,12 @@ def test_render_manifest_fixes_input_and_output_checksums_without_local_paths(tm
     assert manifest["toolchain"]["ffmpeg"] == "ffmpeg version fixture"
     assert manifest["outputs"]["poster"]["at_seconds"] == 7.5
     assert manifest["outputs"]["contact_sheet"]["sample_count"] == 6
+    assert manifest["outputs"]["delivery_metadata"] == {
+        "relative_path": delivery_metadata.relative_path,
+        "checksum_sha256": delivery_metadata.checksum_sha256,
+        "mime_type": "application/rdf+xml",
+        "release_manifest_status": "candidate_pending",
+    }
     assert str(tmp_path) not in str(manifest)
     assert VideoProductionArtifactRegistration(
         artifact_key="render_manifest",
@@ -306,6 +321,28 @@ def test_render_manifest_freezes_functional_production_timeline(tmp_path: Path) 
         "shot_list_fingerprint_sha256": canonical_fingerprint(shot_list),
         "document": production_timeline,
     }
+
+
+def test_xmp_delivery_sidecar_keeps_render_metadata_without_claiming_release(tmp_path: Path) -> None:
+    store = ArtifactStore(tmp_path / "output", "VIDJOB-000001", 1)
+    video = store.path("final.mp4")
+    video.write_bytes(b"video")
+
+    sidecar = build_xmp_delivery_sidecar(
+        job={"topic": "A & B <demo>"},
+        shot_list={"production_timeline": {"schema_version": "timeline.v2"}},
+        asset_plan={"assets": [{"asset_code": "ASSET-01"}]},
+        video_path=video,
+        video_checksum_sha256="a" * 64,
+        store=store,
+    )
+
+    assert '<dc:title><rdf:Alt><rdf:li xml:lang="x-default">A &amp; B &lt;demo&gt;' in sidecar
+    assert "trainedAlgorithmicMedia" in sidecar
+    assert "Rights evidence pending" in sidecar
+    assert "delivery authorization" in sidecar
+    assert "ASSET-01" in sidecar
+    assert str(tmp_path) not in sidecar
 
 
 def test_render_manifest_retry_diff_separates_input_and_output_changes() -> None:
