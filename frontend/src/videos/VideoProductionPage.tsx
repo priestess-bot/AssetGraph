@@ -97,6 +97,31 @@ function timelineClips(timeline: FunctionalVideoPlan["productionTimeline"]) {
     timeline.tracks.find((track) => track.track_kind === "video")?.clips ?? []
   );
 }
+
+function clipRangeLabel(
+  clip: FunctionalVideoPlan["productionTimeline"]["tracks"][number]["clips"][number],
+): string {
+  const source = clip.source_range;
+  if (!source) return "基线视觉源";
+  const range =
+    typeof source.start_seconds === "number" &&
+    typeof source.end_seconds === "number"
+      ? ` ${source.start_seconds.toFixed(2)}-${source.end_seconds.toFixed(2)} 秒`
+      : "";
+  return `${source.asset_code}${range}`;
+}
+
+function linkedClips(
+  timeline: FunctionalVideoPlan["productionTimeline"],
+  trackKind: string,
+) {
+  return new Map(
+    (timeline.tracks.find((track) => track.track_kind === trackKind)?.clips ?? [])
+      .filter((clip) => clip.linked_shot_code)
+      .map((clip) => [clip.linked_shot_code!, clip]),
+  );
+}
+
 function timelineDiff(
   current: FunctionalVideoPlan["productionTimeline"],
   previous?: VideoTimelineRevision["productionTimeline"],
@@ -104,7 +129,7 @@ function timelineDiff(
   if (!previous) return ["首个时间轴修订"];
   const currentCodes = timelineClips(current).map((clip) => clip.clip_code);
   const previousCodes = timelineClips(previous).map((clip) => clip.clip_code);
-  const changes = [
+  const changes: string[] = [
     currentCodes.join(" / ") === previousCodes.join(" / ")
       ? "镜头顺序未变"
       : `镜头顺序 ${previousCodes.join(" / ")} -> ${currentCodes.join(" / ")}`,
@@ -114,6 +139,78 @@ function timelineDiff(
     changes.push(
       `总时长 ${durationDelta > 0 ? "+" : ""}${(durationDelta / 1000).toFixed(1)} 秒`,
     );
+  const previousByCode = new Map(
+    timelineClips(previous).map((clip) => [clip.clip_code, clip]),
+  );
+  for (const clip of timelineClips(current)) {
+    const before = previousByCode.get(clip.clip_code);
+    if (!before) {
+      changes.push(`${clip.clip_code} 已加入`);
+      continue;
+    }
+    if (clip.timeline_range.duration_ms !== before.timeline_range.duration_ms)
+      changes.push(
+        `${clip.clip_code} 时长 ${timelineSeconds(before.timeline_range.duration_ms)} -> ${timelineSeconds(clip.timeline_range.duration_ms)}`,
+      );
+    if ((clip.transition ?? "cut") !== (before.transition ?? "cut"))
+      changes.push(
+        `${clip.clip_code} 转场 ${before.transition ?? "cut"} -> ${clip.transition ?? "cut"}`,
+      );
+    if (clipRangeLabel(clip) !== clipRangeLabel(before))
+      changes.push(
+        `${clip.clip_code} 画面源 ${clipRangeLabel(before)} -> ${clipRangeLabel(clip)}`,
+      );
+    if ((clip.fit ?? "cover") !== (before.fit ?? "cover"))
+      changes.push(
+        `${clip.clip_code} 适配 ${before.fit ?? "cover"} -> ${clip.fit ?? "cover"}`,
+      );
+    if ((clip.playback_rate ?? 1) !== (before.playback_rate ?? 1))
+      changes.push(
+        `${clip.clip_code} 倍速 ${before.playback_rate ?? 1}x -> ${clip.playback_rate ?? 1}x`,
+      );
+    if (
+      (clip.crop_x ?? null) !== (before.crop_x ?? null) ||
+      (clip.crop_y ?? null) !== (before.crop_y ?? null)
+    )
+      changes.push(`${clip.clip_code} 裁切焦点已更新`);
+    if (
+      (clip.overlay_roles ?? []).join(",") !==
+      (before.overlay_roles ?? []).join(",")
+    )
+      changes.push(`${clip.clip_code} 叠层角色已更新`);
+  }
+  const previousSubtitles = linkedClips(previous, "subtitle");
+  const currentSubtitles = linkedClips(current, "subtitle");
+  for (const [shotCode, subtitle] of currentSubtitles) {
+    const before = previousSubtitles.get(shotCode);
+    if (before && subtitle.subtitle_text !== before.subtitle_text)
+      changes.push(`${shotCode} 字幕已更新`);
+    if (before && subtitle.headline_text !== before.headline_text)
+      changes.push(`${shotCode} 标题已更新`);
+  }
+  const previousVoices = linkedClips(previous, "audio");
+  const currentVoices = linkedClips(current, "audio");
+  for (const [shotCode, voice] of currentVoices) {
+    const before = previousVoices.get(shotCode);
+    if (before && (voice.gain_db ?? 0) !== (before.gain_db ?? 0))
+      changes.push(
+        `${shotCode} 配音 ${decimal(before.gain_db, " dB")} -> ${decimal(voice.gain_db, " dB")}`,
+      );
+  }
+  if (
+    current.poster_time_ms !== previous.poster_time_ms &&
+    typeof current.poster_time_ms === "number"
+  )
+    changes.push(`海报帧 ${timelineSeconds(current.poster_time_ms)}`);
+  if (
+    current.subtitle_style?.preset !== previous.subtitle_style?.preset ||
+    current.subtitle_style?.safe_bottom_px !== previous.subtitle_style?.safe_bottom_px
+  )
+    changes.push("字幕样式已更新");
+  if (changes.length === 1 && changes[0] === "镜头顺序未变" && !durationDelta)
+    return ["时间轴字段未变"];
+  if (changes.length > 8)
+    return [...changes.slice(0, 8), `另有 ${changes.length - 8} 项变更`];
   return changes;
 }
 
@@ -389,8 +486,10 @@ function TimelineRevisionHistory({ plan }: { plan: FunctionalVideoPlan }) {
         </small>
       </div>
       <ol>
-        {history.map((revision) => (
-          <li key={revision.revisionNumber}>
+        {history.map((revision, index) => {
+          const prior = history[index + 1];
+          return (
+            <li key={revision.revisionNumber}>
             <span>
               <strong>r{revision.revisionNumber}</strong>
               <small>
@@ -400,6 +499,12 @@ function TimelineRevisionHistory({ plan }: { plan: FunctionalVideoPlan }) {
                 ·{" "}
                 {(revision.productionTimeline.global_end_ms / 1000).toFixed(1)}{" "}
                 秒
+              </small>
+              <small>
+                {timelineDiff(
+                  revision.productionTimeline,
+                  prior?.productionTimeline,
+                ).join(" · ")}
               </small>
             </span>
             <span className="video-timeline-history-actions">
@@ -429,8 +534,9 @@ function TimelineRevisionHistory({ plan }: { plan: FunctionalVideoPlan }) {
                 </button>
               ) : null}
             </span>
-          </li>
-        ))}
+            </li>
+          );
+        })}
       </ol>
       {restore.error ? (
         <InlineNotice tone="danger" title="时间轴恢复失败">

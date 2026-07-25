@@ -147,6 +147,17 @@ describe("VideoProductionPage", () => {
 
   it("restores a historical timeline as a new revision", async () => {
     const current = { ...plan, timeline_revision: 2 };
+    const previousTimeline = structuredClone(plan.production_timeline);
+    previousTimeline.tracks[0].clips.reverse();
+    previousTimeline.tracks[0].clips[1] = {
+      ...previousTimeline.tracks[0].clips[1],
+      transition: "fade",
+      source_range: {
+        ...previousTimeline.tracks[0].clips[1].source_range,
+        start_seconds: 2,
+        end_seconds: 42,
+      },
+    };
     const requests: Array<{ url: string; init?: RequestInit }> = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input); requests.push({ url, init });
@@ -157,7 +168,7 @@ describe("VideoProductionPage", () => {
       if (url === "/api/assets") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
       if (url === "/api/functional-video-plans") return new Response(JSON.stringify([current]), { status: 200, headers: { "Content-Type": "application/json" } });
       if (url === "/api/functional-video-plans/VIDPLAN-001") return new Response(JSON.stringify(current), { status: 200, headers: { "Content-Type": "application/json" } });
-      if (url === "/api/functional-video-plans/VIDPLAN-001/timeline-revisions") return new Response(JSON.stringify([{ revision_number: 2, production_timeline: current.production_timeline, actor_id: "operator", created_at: "2026-07-25T01:00:00Z" }, { revision_number: 1, production_timeline: plan.production_timeline, actor_id: "operator", created_at: "2026-07-25T00:00:00Z" }]), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/functional-video-plans/VIDPLAN-001/timeline-revisions") return new Response(JSON.stringify([{ revision_number: 2, production_timeline: current.production_timeline, actor_id: "operator", created_at: "2026-07-25T01:00:00Z" }, { revision_number: 1, production_timeline: previousTimeline, actor_id: "operator", created_at: "2026-07-25T00:00:00Z" }]), { status: 200, headers: { "Content-Type": "application/json" } });
       if (url === "/api/functional-video-plans/VIDPLAN-001/timeline-revisions/1/restore" && init?.method === "POST") return new Response(JSON.stringify({ ...current, timeline_revision: 3 }), { status: 200, headers: { "Content-Type": "application/json" } });
       throw new Error(`Unexpected request: ${url}`);
     }));
@@ -165,6 +176,13 @@ describe("VideoProductionPage", () => {
     renderPage();
 
     await screen.findByRole("heading", { name: "镜头重排" });
+    const history = await screen.findByText("修订历史");
+    expect(history.parentElement?.parentElement).toHaveTextContent(
+      "SHOT-01 转场 fade -> cut",
+    );
+    expect(history.parentElement?.parentElement).toHaveTextContent(
+      "镜头顺序 SHOT-02 / SHOT-01 -> SHOT-01 / SHOT-02",
+    );
     await user.click(await screen.findByRole("button", { name: "恢复 r1" }));
 
     const request = requests.find((item) => item.url.endsWith("/timeline-revisions/1/restore") && item.init?.method === "POST");
