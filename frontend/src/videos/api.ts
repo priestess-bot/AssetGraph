@@ -38,6 +38,11 @@ export interface FunctionalVideoPlan {
         crop_y?: number;
         playback_rate?: number;
         overlay_roles?: string[];
+        product_sticker_layout?: {
+          x: number;
+          y: number;
+          width_ratio: number;
+        };
         audio_roles?: string[];
         linked_shot_code?: string;
         subtitle_text?: string;
@@ -275,6 +280,20 @@ function productionTimeline(
                           ? asArray(clip.overlay_roles).flatMap((role) =>
                               typeof role === "string" ? [role] : [],
                             )
+                          : undefined,
+                        product_sticker_layout: isRecord(
+                          clip.product_sticker_layout,
+                        ) &&
+                          typeof clip.product_sticker_layout.x === "number" &&
+                          typeof clip.product_sticker_layout.y === "number" &&
+                          typeof clip.product_sticker_layout.width_ratio ===
+                            "number"
+                          ? {
+                              x: clip.product_sticker_layout.x,
+                              y: clip.product_sticker_layout.y,
+                              width_ratio:
+                                clip.product_sticker_layout.width_ratio,
+                            }
                           : undefined,
                         audio_roles: Array.isArray(clip.audio_roles)
                           ? asArray(clip.audio_roles).flatMap((role) =>
@@ -516,6 +535,9 @@ export const functionalVideosApi = {
         crop_y?: number;
         playback_rate?: number;
         show_product_sticker?: boolean;
+        product_sticker_x?: number;
+        product_sticker_y?: number;
+        product_sticker_width_ratio?: number;
         play_sound_effect?: boolean;
       }>;
       subtitle_clips?: Array<{

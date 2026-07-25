@@ -436,6 +436,9 @@ type EditableTimelineClip = {
   cropY?: number;
   playbackRate?: number;
   productSticker?: boolean;
+  productStickerX?: number;
+  productStickerY?: number;
+  productStickerWidthRatio?: number;
   soundEffect?: boolean;
 };
 
@@ -460,6 +463,9 @@ function editableTimelineClips(
       cropY: clip.crop_y,
       playbackRate: clip.playback_rate,
       productSticker: clip.overlay_roles?.includes("product_sticker"),
+      productStickerX: clip.product_sticker_layout?.x,
+      productStickerY: clip.product_sticker_layout?.y,
+      productStickerWidthRatio: clip.product_sticker_layout?.width_ratio,
       soundEffect: clip.audio_roles?.includes("sound_effect"),
     })) ?? []
   );
@@ -581,6 +587,15 @@ function TimelineEditor({ plan }: { plan: FunctionalVideoPlan }) {
             : {}),
           ...(typeof clip.productSticker === "boolean"
             ? { show_product_sticker: clip.productSticker }
+            : {}),
+          ...(typeof clip.productStickerX === "number" &&
+          typeof clip.productStickerY === "number" &&
+          typeof clip.productStickerWidthRatio === "number"
+            ? {
+                product_sticker_x: clip.productStickerX,
+                product_sticker_y: clip.productStickerY,
+                product_sticker_width_ratio: clip.productStickerWidthRatio,
+              }
             : {}),
           ...(typeof clip.soundEffect === "boolean"
             ? { play_sound_effect: clip.soundEffect }
@@ -835,10 +850,92 @@ function TimelineEditor({ plan }: { plan: FunctionalVideoPlan }) {
                   checked={clip.productSticker ?? false}
                   disabled={!editable}
                   onChange={(event) =>
-                    updateClip(index, { productSticker: event.target.checked })
+                    updateClip(
+                      index,
+                      event.target.checked
+                        ? { productSticker: true }
+                        : {
+                            productSticker: false,
+                            productStickerX: undefined,
+                            productStickerY: undefined,
+                            productStickerWidthRatio: undefined,
+                          },
+                    )
                   }
                 />
               </label>
+              {clip.productSticker ? (
+                <div className="video-product-sticker-layout">
+                  <label className="wb-field">
+                    <span>
+                      商品位置 X {Math.round((clip.productStickerX ?? 0.5) * 100)}%
+                    </span>
+                    <input
+                      aria-label={`商品位置 X ${clip.clipCode}`}
+                      type="range"
+                      min="0"
+                      max="100"
+                      step="1"
+                      value={Math.round((clip.productStickerX ?? 0.5) * 100)}
+                      disabled={!editable}
+                      onChange={(event) =>
+                        updateClip(index, {
+                          productStickerX: Number(event.target.value) / 100,
+                          productStickerY: clip.productStickerY ?? 0.8,
+                          productStickerWidthRatio:
+                            clip.productStickerWidthRatio ?? 640 / 1080,
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="wb-field">
+                    <span>
+                      商品位置 Y {Math.round((clip.productStickerY ?? 0.8) * 100)}%
+                    </span>
+                    <input
+                      aria-label={`商品位置 Y ${clip.clipCode}`}
+                      type="range"
+                      min="0"
+                      max="100"
+                      step="1"
+                      value={Math.round((clip.productStickerY ?? 0.8) * 100)}
+                      disabled={!editable}
+                      onChange={(event) =>
+                        updateClip(index, {
+                          productStickerX: clip.productStickerX ?? 0.5,
+                          productStickerY: Number(event.target.value) / 100,
+                          productStickerWidthRatio:
+                            clip.productStickerWidthRatio ?? 640 / 1080,
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="wb-field">
+                    <span>
+                      商品宽度 {Math.round((clip.productStickerWidthRatio ?? 640 / 1080) * 100)}%
+                    </span>
+                    <input
+                      aria-label={`商品宽度 ${clip.clipCode}`}
+                      type="range"
+                      min="10"
+                      max="100"
+                      step="1"
+                      value={Math.round(
+                        (clip.productStickerWidthRatio ?? 640 / 1080) * 100,
+                      )}
+                      disabled={!editable}
+                      onChange={(event) =>
+                        updateClip(index, {
+                          productStickerX: clip.productStickerX ?? 0.5,
+                          productStickerY: clip.productStickerY ?? 0.8,
+                          productStickerWidthRatio:
+                            Number(event.target.value) / 100,
+                        })
+                      }
+                    />
+                  </label>
+                </div>
+              ) : null}
               <label className="wb-field video-overlay-toggle">
                 <span>音效</span>
                 <input

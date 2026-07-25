@@ -56,6 +56,9 @@ class FunctionalVideoTimelineClipUpdate(BaseModel):
     crop_y: float | None = Field(default=None, ge=0, le=1)
     playback_rate: float | None = Field(default=None, ge=0.5, le=2)
     show_product_sticker: bool | None = None
+    product_sticker_x: float | None = Field(default=None, ge=0, le=1)
+    product_sticker_y: float | None = Field(default=None, ge=0, le=1)
+    product_sticker_width_ratio: float | None = Field(default=None, ge=0.1, le=1)
     play_sound_effect: bool | None = None
 
     @model_validator(mode="after")
@@ -70,6 +73,15 @@ class FunctionalVideoTimelineClipUpdate(BaseModel):
             raise ValueError("source end must be after source start")
         if (self.crop_x is None) != (self.crop_y is None):
             raise ValueError("crop x and y must be supplied together")
+        sticker_layout = (
+            self.product_sticker_x,
+            self.product_sticker_y,
+            self.product_sticker_width_ratio,
+        )
+        if any(value is not None for value in sticker_layout) and not all(
+            value is not None for value in sticker_layout
+        ):
+            raise ValueError("product sticker x, y and width ratio must be supplied together")
         return self
 
 

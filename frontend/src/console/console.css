@@ -478,6 +478,7 @@
 .video-timeline-editor > div { display: grid; grid-template-columns: minmax(80px, .7fr) auto minmax(110px, .9fr) minmax(110px, .9fr) minmax(90px, .75fr) minmax(90px, .75fr) minmax(90px, .75fr) minmax(90px, .7fr) minmax(90px, .7fr) minmax(170px, 1fr) minmax(210px, 1.25fr); align-items: end; gap: 8px; padding: 9px 12px; background: #fff; }
 .video-overlay-toggle { align-self: end; }
 .video-overlay-toggle input { accent-color: var(--console-cyan); }
+.video-product-sticker-layout { display: grid; grid-template-columns: repeat(3, minmax(125px, 1fr)); grid-column: span 2; gap: 7px; }
 .video-crop-position { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
 .video-source-range { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
 .video-source-range small { grid-column: 1 / -1; color: var(--wb-muted); font-size: 8px; }
@@ -756,7 +757,7 @@
   .video-timeline-editor > div { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .video-timeline-editor > div > code { grid-column: 1 / span 2; }
   .video-timeline-editor > div > .video-clip-order { grid-column: 3; justify-self: end; }
-  .video-timeline-editor > div > .video-crop-position, .video-timeline-editor > div > .video-source-range { grid-column: 1 / -1; }
+  .video-timeline-editor > div > .video-product-sticker-layout, .video-timeline-editor > div > .video-crop-position, .video-timeline-editor > div > .video-source-range { grid-column: 1 / -1; }
 }
 
 @media (max-width: 860px) {
@@ -825,7 +826,7 @@
   .operations-metric-row > .wb-field:first-child { grid-column: 1 / -1; }
   .operations-time-mapping-form { grid-template-columns: 1fr; }
   .video-timeline-editor > div { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
-  .video-timeline-editor > div > .video-crop-position { grid-column: 1 / -1; }
+  .video-timeline-editor > div > .video-product-sticker-layout, .video-timeline-editor > div > .video-crop-position { grid-column: 1 / -1; }
   .video-timeline-editor > div > .video-source-range { grid-column: 1 / -1; }
   .video-input-trace dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .video-subtitle-editor > div { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }

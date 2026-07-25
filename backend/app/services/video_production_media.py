@@ -249,6 +249,7 @@ class AssetSelector:
                         for role in shot.get("overlay_roles") or []
                         if str(role) in {"brand_logo", "product_sticker"}
                     ],
+                    "product_sticker_layout": shot.get("product_sticker_layout"),
                     "selection_reason": "operator-selected material-library video" if str(shot.get("visual_role")) == "selected_library_video" else f"preset role: {shot['visual_role']}",
                 }
                 for shot in shot_list.get("shots") or []
@@ -984,11 +985,46 @@ class FFmpegRenderer:
             current_label = "with_logo"
         if has_sticker:
             assert sticker_input_index is not None
+            sticker_layout = shot.get("product_sticker_layout")
+            if sticker_layout is None:
+                sticker_width = 640
+                sticker_x_expression = "(W-w)/2"
+                sticker_y_expression = "1020"
+            elif isinstance(sticker_layout, dict):
+                try:
+                    sticker_x = float(sticker_layout["x"])
+                    sticker_y = float(sticker_layout["y"])
+                    sticker_width_ratio = float(sticker_layout["width_ratio"])
+                except (KeyError, TypeError, ValueError) as exc:
+                    raise VideoProductionError(
+                        "PRODUCT_STICKER_LAYOUT_INVALID",
+                        "Product sticker layout must provide normalized x, y and width ratio",
+                    ) from exc
+                if (
+                    not math.isfinite(sticker_x)
+                    or not math.isfinite(sticker_y)
+                    or not math.isfinite(sticker_width_ratio)
+                    or not 0 <= sticker_x <= 1
+                    or not 0 <= sticker_y <= 1
+                    or not 0.1 <= sticker_width_ratio <= 1
+                ):
+                    raise VideoProductionError(
+                        "PRODUCT_STICKER_LAYOUT_INVALID",
+                        "Product sticker layout must stay inside the canvas",
+                    )
+                sticker_width = max(1, round(1080 * sticker_width_ratio))
+                sticker_x_expression = f"(W-w)*{sticker_x:.3f}"
+                sticker_y_expression = f"(H-h)*{sticker_y:.3f}"
+            else:
+                raise VideoProductionError(
+                    "PRODUCT_STICKER_LAYOUT_INVALID",
+                    "Product sticker layout must be an object",
+                )
             filter_parts.extend(
                 [
-                    f"[{sticker_input_index}:v]scale=640:640:force_original_aspect_ratio=decrease,"
+                    f"[{sticker_input_index}:v]scale={sticker_width}:{sticker_width}:force_original_aspect_ratio=decrease,"
                     "format=rgba[sticker]",
-                    f"[{current_label}][sticker]overlay=x=(W-w)/2:y=1020:shortest=1[with_sticker]",
+                    f"[{current_label}][sticker]overlay=x={sticker_x_expression}:y={sticker_y_expression}:shortest=1[with_sticker]",
                 ]
             )
             current_label = "with_sticker"

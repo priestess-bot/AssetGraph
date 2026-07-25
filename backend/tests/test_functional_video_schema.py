@@ -3,7 +3,10 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from app.schemas.functional_videos import FunctionalVideoPlanCreate
+from app.schemas.functional_videos import (
+    FunctionalVideoPlanCreate,
+    FunctionalVideoTimelineClipUpdate,
+)
 
 
 def test_video_plan_create_requires_exactly_one_content_source() -> None:
@@ -61,4 +64,31 @@ def test_video_plan_create_bounds_local_audio_gains() -> None:
             project_code="CONTENT-001",
             sound_effect_asset_code="AG-AUD-002",
             sound_effect_gain_db=7,
+        )
+
+
+def test_timeline_product_sticker_layout_requires_all_bounded_values() -> None:
+    clip = FunctionalVideoTimelineClipUpdate(
+        clip_code="SHOT-01",
+        duration_ms=30_000,
+        show_product_sticker=True,
+        product_sticker_x=0.25,
+        product_sticker_y=0.8,
+        product_sticker_width_ratio=0.5,
+    )
+
+    assert clip.product_sticker_width_ratio == 0.5
+    with pytest.raises(ValidationError, match="must be supplied together"):
+        FunctionalVideoTimelineClipUpdate(
+            clip_code="SHOT-01",
+            duration_ms=30_000,
+            product_sticker_x=0.25,
+        )
+    with pytest.raises(ValidationError):
+        FunctionalVideoTimelineClipUpdate(
+            clip_code="SHOT-01",
+            duration_ms=30_000,
+            product_sticker_x=0.25,
+            product_sticker_y=0.8,
+            product_sticker_width_ratio=1.1,
         )

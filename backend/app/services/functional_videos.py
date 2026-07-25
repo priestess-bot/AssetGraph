@@ -1217,6 +1217,21 @@ class FunctionalVideoService:
                         else {}
                     ),
                     **(
+                        {
+                            "product_sticker_x": float(clip["product_sticker_layout"]["x"]),
+                            "product_sticker_y": float(clip["product_sticker_layout"]["y"]),
+                            "product_sticker_width_ratio": float(
+                                clip["product_sticker_layout"]["width_ratio"]
+                            ),
+                        }
+                        if isinstance(clip.get("product_sticker_layout"), dict)
+                        and all(
+                            key in clip["product_sticker_layout"]
+                            for key in ("x", "y", "width_ratio")
+                        )
+                        else {}
+                    ),
+                    **(
                         {"play_sound_effect": "sound_effect" in (clip.get("audio_roles") or [])}
                         if clip.get("audio_roles") is not None
                         else {}
@@ -1353,6 +1368,40 @@ class FunctionalVideoService:
                 if show_product_sticker:
                     roles.append("product_sticker")
                 clip["overlay_roles"] = roles
+            sticker_layout_values = (
+                update.get("product_sticker_x"),
+                update.get("product_sticker_y"),
+                update.get("product_sticker_width_ratio"),
+            )
+            if any(value is not None for value in sticker_layout_values):
+                if not all(value is not None for value in sticker_layout_values):
+                    raise DomainValidationError(
+                        "VIDEO_TIMELINE_PRODUCT_STICKER_LAYOUT_INCOMPLETE",
+                        "Product sticker x, y and width ratio must be supplied together",
+                        details={"clip_code": clip["clip_code"]},
+                    )
+                if "product_sticker" not in (clip.get("overlay_roles") or []):
+                    raise DomainValidationError(
+                        "VIDEO_TIMELINE_PRODUCT_STICKER_LAYOUT_UNAVAILABLE",
+                        "Enable the product sticker before changing its layout",
+                        details={"clip_code": clip["clip_code"]},
+                    )
+                sticker_x, sticker_y, sticker_width_ratio = (
+                    float(value) for value in sticker_layout_values
+                )
+                if not 0 <= sticker_x <= 1 or not 0 <= sticker_y <= 1 or not 0.1 <= sticker_width_ratio <= 1:
+                    raise DomainValidationError(
+                        "VIDEO_TIMELINE_PRODUCT_STICKER_LAYOUT_INVALID",
+                        "Product sticker layout must remain within the canvas",
+                        details={"clip_code": clip["clip_code"]},
+                    )
+                clip["product_sticker_layout"] = {
+                    "x": sticker_x,
+                    "y": sticker_y,
+                    "width_ratio": sticker_width_ratio,
+                }
+            elif "product_sticker" not in (clip.get("overlay_roles") or []):
+                clip.pop("product_sticker_layout", None)
             play_sound_effect = update.get("play_sound_effect")
             if play_sound_effect is not None:
                 if type(play_sound_effect) is not bool:
@@ -1665,6 +1714,34 @@ class FunctionalVideoService:
                     for role in clip["overlay_roles"]
                     if str(role) in {"brand_logo", "product_sticker"}
                 ]
+            product_sticker_layout = clip.get("product_sticker_layout")
+            if isinstance(product_sticker_layout, dict):
+                try:
+                    sticker_x = float(product_sticker_layout["x"])
+                    sticker_y = float(product_sticker_layout["y"])
+                    sticker_width_ratio = float(product_sticker_layout["width_ratio"])
+                except (KeyError, TypeError, ValueError) as exc:
+                    raise DomainValidationError(
+                        "VIDEO_TIMELINE_PRODUCT_STICKER_LAYOUT_INVALID",
+                        "Product sticker layout is invalid",
+                        details={"clip_code": clip_code},
+                    ) from exc
+                if (
+                    "product_sticker" not in shot.get("overlay_roles", [])
+                    or not 0 <= sticker_x <= 1
+                    or not 0 <= sticker_y <= 1
+                    or not 0.1 <= sticker_width_ratio <= 1
+                ):
+                    raise DomainValidationError(
+                        "VIDEO_TIMELINE_PRODUCT_STICKER_LAYOUT_INVALID",
+                        "Product sticker layout must belong to an enabled sticker",
+                        details={"clip_code": clip_code},
+                    )
+                shot["product_sticker_layout"] = {
+                    "x": sticker_x,
+                    "y": sticker_y,
+                    "width_ratio": sticker_width_ratio,
+                }
             if isinstance(clip.get("audio_roles"), list):
                 shot["audio_roles"] = [
                     str(role)

@@ -40,7 +40,7 @@ def test_timeline_update_preserves_requested_clip_order_across_tracks_and_shots(
     updated = FunctionalVideoService._apply_timeline_update(
         _timeline(),
         [
-            {"clip_code": "SHOT-02", "duration_ms": 35_000, "transition": "fade", "source_start_seconds": 12, "source_end_seconds": 45, "fit": "cover", "crop_x": 0.2, "crop_y": 0.8, "playback_rate": 1.5, "show_product_sticker": True},
+            {"clip_code": "SHOT-02", "duration_ms": 35_000, "transition": "fade", "source_start_seconds": 12, "source_end_seconds": 45, "fit": "cover", "crop_x": 0.2, "crop_y": 0.8, "playback_rate": 1.5, "show_product_sticker": True, "product_sticker_x": 0.2, "product_sticker_y": 0.7, "product_sticker_width_ratio": 0.4},
             {"clip_code": "SHOT-01", "duration_ms": 25_000, "transition": "fade_out"},
         ],
         poster_time_ms=12_000,
@@ -63,6 +63,11 @@ def test_timeline_update_preserves_requested_clip_order_across_tracks_and_shots(
     assert video_track["clips"][0]["crop_y"] == 0.8
     assert video_track["clips"][0]["playback_rate"] == 1.5
     assert video_track["clips"][0]["overlay_roles"] == ["product_sticker"]
+    assert video_track["clips"][0]["product_sticker_layout"] == {
+        "x": 0.2,
+        "y": 0.7,
+        "width_ratio": 0.4,
+    }
     assert [clip["clip_code"] for clip in subtitle_track["clips"]] == ["SUBTITLE-SHOT-02", "SUBTITLE-SHOT-01"]
     assert [clip["timeline_range"] for clip in subtitle_track["clips"]] == [
         {"start_ms": 0, "duration_ms": 35_000},
@@ -84,11 +89,59 @@ def test_timeline_update_preserves_requested_clip_order_across_tracks_and_shots(
     assert rendered_input["shots"][0]["crop_y"] == 0.8
     assert rendered_input["shots"][0]["playback_rate"] == 1.5
     assert rendered_input["shots"][0]["overlay_roles"] == ["product_sticker"]
+    assert rendered_input["shots"][0]["product_sticker_layout"] == {
+        "x": 0.2,
+        "y": 0.7,
+        "width_ratio": 0.4,
+    }
     assert rendered_input["shots"][0]["subtitle_text"] == "第二段字幕"
     assert rendered_input["shots"][0]["screen_text"] == "第二段标题"
     assert rendered_input["shots"][0]["voice_gain_db"] == 0.0
     assert updated["poster_time_ms"] == 12_000
     assert rendered_input["poster_time_seconds"] == 12.0
+
+
+def test_timeline_rejects_product_sticker_layout_when_the_sticker_is_disabled() -> None:
+    from app.domain.errors import DomainValidationError
+
+    with pytest.raises(DomainValidationError) as error:
+        FunctionalVideoService._apply_timeline_update(
+            _timeline(),
+            [
+                {
+                    "clip_code": "SHOT-01",
+                    "duration_ms": 30_000,
+                    "product_sticker_x": 0.5,
+                    "product_sticker_y": 0.8,
+                    "product_sticker_width_ratio": 0.5,
+                },
+                {"clip_code": "SHOT-02", "duration_ms": 30_000},
+            ],
+        )
+    assert error.value.code == "VIDEO_TIMELINE_PRODUCT_STICKER_LAYOUT_UNAVAILABLE"
+
+
+def test_timeline_removes_product_sticker_layout_when_the_sticker_is_disabled() -> None:
+    timeline = _timeline()
+    video_clip = timeline["tracks"][0]["clips"][0]
+    video_clip["overlay_roles"] = ["product_sticker"]
+    video_clip["product_sticker_layout"] = {"x": 0.2, "y": 0.7, "width_ratio": 0.4}
+
+    updated = FunctionalVideoService._apply_timeline_update(
+        timeline,
+        [
+            {
+                "clip_code": "SHOT-01",
+                "duration_ms": 30_000,
+                "show_product_sticker": False,
+            },
+            {"clip_code": "SHOT-02", "duration_ms": 30_000},
+        ],
+    )
+
+    clip = updated["tracks"][0]["clips"][0]
+    assert clip["overlay_roles"] == []
+    assert "product_sticker_layout" not in clip
 
 
 def test_timeline_rebinds_a_shot_only_to_its_frozen_visual_source_pool() -> None:
