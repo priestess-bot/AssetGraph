@@ -233,6 +233,18 @@ def test_functional_video_plan_freezes_local_video_group_and_published_pack_expa
                 "checksum_sha256": "e" * 64,
             }
         )
+        logo_asset = assets.create(
+            {
+                "asset_type": "IMG",
+                "title": f"Brand logo {suffix}",
+                "original_filename": f"brand-{suffix}.png",
+                "media_kind": "image",
+                "material_roles": ["brand_title"],
+                "execution_capability": "local_only",
+                "local_relative_path": f"image/brand-{suffix}.png",
+                "checksum_sha256": "f" * 64,
+            }
+        )
         group = library.create_group(
             {
                 "title": f"Video group {suffix}",
@@ -263,6 +275,7 @@ def test_functional_video_plan_freezes_local_video_group_and_published_pack_expa
                 "visual_asset_codes": [direct_asset["asset_code"]],
                 "visual_group_codes": [group["group_code"]],
                 "visual_material_pack_codes": [pack["pack_code"]],
+                "brand_logo_asset_code": logo_asset["asset_code"],
                 "product_sticker_asset_code": sticker_asset["asset_code"],
                 "background_music_asset_code": music_asset["asset_code"],
                 "background_music_gain_db": -20,
@@ -303,9 +316,19 @@ def test_functional_video_plan_freezes_local_video_group_and_published_pack_expa
             "relative_path": f"image/product-{suffix}.png",
             "checksum_sha256": "e" * 64,
         }
-        assert plan["material_snapshot_ref"]["asset_codes"][-2:] == [
+        assert plan["render_profile"]["brand_logo"] == {
+            "asset_code": logo_asset["asset_code"],
+            "checksum_sha256": "f" * 64,
+        }
+        assert plan["material_snapshot_ref"]["brand_logo"] == {
+            "asset_code": logo_asset["asset_code"],
+            "relative_path": f"image/brand-{suffix}.png",
+            "checksum_sha256": "f" * 64,
+        }
+        assert plan["material_snapshot_ref"]["asset_codes"][-3:] == [
             music_asset["asset_code"],
             sticker_asset["asset_code"],
+            logo_asset["asset_code"],
         ]
         audio_track = next(
             track for track in plan["production_timeline"]["tracks"] if track["track_kind"] == "audio"

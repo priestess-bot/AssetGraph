@@ -151,6 +151,7 @@ def test_create_video_plan_accepts_a_fixed_live_room_source(client: tuple[TestCl
             "visual_asset_codes": [],
             "visual_group_codes": [],
             "visual_material_pack_codes": [],
+            "brand_logo_asset_code": None,
             "product_sticker_asset_code": None,
             "background_music_asset_code": None,
             "background_music_gain_db": -18.0,
@@ -183,6 +184,7 @@ def test_create_video_plan_accepts_up_to_six_explicit_visual_assets(
             "visual_asset_codes": ["AG-VID-000001", "AG-VID-000002"],
             "visual_group_codes": [],
             "visual_material_pack_codes": [],
+            "brand_logo_asset_code": None,
             "product_sticker_asset_code": None,
             "background_music_asset_code": None,
             "background_music_gain_db": -18.0,
@@ -216,6 +218,7 @@ def test_create_video_plan_accepts_group_and_published_pack_sources(
             "visual_asset_codes": [],
             "visual_group_codes": ["AG-GRP-001"],
             "visual_material_pack_codes": ["AG-PACK-001"],
+            "brand_logo_asset_code": None,
             "product_sticker_asset_code": None,
             "background_music_asset_code": None,
             "background_music_gain_db": -18.0,
@@ -248,7 +251,41 @@ def test_create_video_plan_accepts_a_local_product_sticker(
             "visual_asset_codes": [],
             "visual_group_codes": [],
             "visual_material_pack_codes": [],
+            "brand_logo_asset_code": None,
             "product_sticker_asset_code": "AG-IMG-000001",
+            "background_music_asset_code": None,
+            "background_music_gain_db": -18.0,
+            "actor_id": "functional-operator",
+        }
+    ]
+
+
+def test_create_video_plan_accepts_a_local_brand_logo(
+    client: tuple[TestClient, FakeFunctionalVideoService],
+) -> None:
+    test_client, service = client
+
+    response = test_client.post(
+        "/api/functional-video-plans",
+        json={
+            "project_code": "CONTENT-001",
+            "target_duration_seconds": 55,
+            "brand_logo_asset_code": "AG-IMG-000002",
+        },
+    )
+
+    assert response.status_code == 201
+    assert service.create_calls == [
+        {
+            "project_code": "CONTENT-001",
+            "live_room_plan_code": None,
+            "title": None,
+            "target_duration_seconds": 55,
+            "visual_asset_codes": [],
+            "visual_group_codes": [],
+            "visual_material_pack_codes": [],
+            "brand_logo_asset_code": "AG-IMG-000002",
+            "product_sticker_asset_code": None,
             "background_music_asset_code": None,
             "background_music_gain_db": -18.0,
             "actor_id": "functional-operator",

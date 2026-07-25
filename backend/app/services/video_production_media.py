@@ -106,6 +106,7 @@ class AssetSelector:
         self.runner = runner
 
     def select(self, shot_list: dict[str, Any]) -> dict[str, Any]:
+        brand_logo = self._brand_logo(shot_list)
         product_sticker = self._product_sticker(shot_list)
         shot_sources: dict[str, dict[str, str]] = {}
         for shot in shot_list.get("shots") or []:
@@ -122,7 +123,8 @@ class AssetSelector:
                     f"asset {asset_code} resolves to conflicting material sources",
                 )
         selected_codes = {str(shot["asset_code"]) for shot in shot_list.get("shots") or []}
-        selected_codes.add("MT-DEC-0003")
+        if brand_logo is None:
+            selected_codes.add("MT-DEC-0003")
         if product_sticker is None:
             selected_codes.add("MT-DEC-0024")
         assets: list[dict[str, Any]] = []
@@ -152,6 +154,16 @@ class AssetSelector:
             assets.append(item)
 
         background_music = self._background_music(shot_list)
+        if brand_logo is not None:
+            assets.append(
+                {
+                    "asset_code": brand_logo["asset_code"],
+                    "relative_path": brand_logo["relative_path"],
+                    "file_size": brand_logo["file_size"],
+                    "checksum_sha256": brand_logo["checksum_sha256"],
+                    "media_type": "image",
+                }
+            )
         if product_sticker is not None:
             assets.append(
                 {
@@ -203,7 +215,7 @@ class AssetSelector:
                 else "asset_library_local_audio_asset_plan_v1"
                 if background_music is not None
                 else "asset_library_local_overlay_asset_plan_v1"
-                if product_sticker is not None
+                if brand_logo is not None or product_sticker is not None
                 else "fixed_maitu_asset_plan_v1"
             ),
             "assets_root_label": "maitu_materials",
@@ -230,15 +242,51 @@ class AssetSelector:
                 for shot in shot_list.get("shots") or []
             ],
             "overlays": {
-                "brand_logo": ASSET_PATHS["MT-DEC-0003"],
+                "brand_logo": (
+                    brand_logo["relative_path"]
+                    if brand_logo is not None
+                    else ASSET_PATHS["MT-DEC-0003"]
+                ),
                 "product_sticker": (
                     product_sticker["relative_path"]
                     if product_sticker is not None
                     else ASSET_PATHS["MT-DEC-0024"]
                 ),
             },
+            "brand_logo": brand_logo,
             "product_sticker": product_sticker,
             "background_music": background_music,
+        }
+
+    def _brand_logo(self, shot_list: dict[str, Any]) -> dict[str, Any] | None:
+        candidate = shot_list.get("brand_logo")
+        if candidate is None:
+            return None
+        if not isinstance(candidate, dict):
+            raise VideoProductionError(
+                "BRAND_LOGO_INVALID",
+                "brand logo selection must be an object",
+            )
+        asset_code = str(candidate.get("asset_code") or "").strip()
+        relative_path = str(candidate.get("asset_relative_path") or "").strip()
+        expected_checksum = str(candidate.get("asset_expected_checksum") or "").strip()
+        if not asset_code or not relative_path:
+            raise VideoProductionError(
+                "BRAND_LOGO_INVALID",
+                "brand logo must include an asset code and local path",
+            )
+        path = self.resolve(relative_path)
+        checksum = sha256_file(path)
+        if not expected_checksum or checksum != expected_checksum:
+            raise VideoProductionError(
+                "BRAND_LOGO_CHECKSUM_MISMATCH",
+                f"selected brand logo checksum changed: {asset_code}",
+            )
+        return {
+            "asset_code": asset_code,
+            "relative_path": relative_path,
+            "file_size": path.stat().st_size,
+            "checksum_sha256": checksum,
         }
 
     def _product_sticker(self, shot_list: dict[str, Any]) -> dict[str, Any] | None:

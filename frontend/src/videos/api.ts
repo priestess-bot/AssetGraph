@@ -60,6 +60,7 @@ export interface FunctionalVideoPlan {
         assetCodes: string[];
       }>;
     };
+    brandLogo?: { assetCode: string; checksumSha256: string };
     productSticker?: { assetCode: string; checksumSha256: string };
     backgroundMusic?: {
       assetCode: string;
@@ -349,6 +350,15 @@ function plan(value: unknown): FunctionalVideoPlan {
               : [],
         ),
       },
+      brandLogo:
+        isRecord(profile.brand_logo) &&
+        asString(profile.brand_logo.asset_code) &&
+        asString(profile.brand_logo.checksum_sha256)
+          ? {
+              assetCode: asString(profile.brand_logo.asset_code),
+              checksumSha256: asString(profile.brand_logo.checksum_sha256),
+            }
+          : undefined,
       productSticker:
         isRecord(profile.product_sticker) &&
         asString(profile.product_sticker.asset_code) &&
@@ -461,6 +471,7 @@ export const functionalVideosApi = {
     visual_asset_codes?: string[];
     visual_group_codes?: string[];
     visual_material_pack_codes?: string[];
+    brand_logo_asset_code?: string;
     product_sticker_asset_code?: string;
     background_music_asset_code?: string;
     background_music_gain_db?: number;

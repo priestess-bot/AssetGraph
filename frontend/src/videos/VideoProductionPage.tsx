@@ -140,9 +140,11 @@ function FixedInputTrace({ plan }: { plan: FunctionalVideoPlan }) {
       .map((clip) => [clip.linked_shot_code!, clip]),
   );
   const backgroundMusic = plan.renderProfile.backgroundMusic;
+  const brandLogo = plan.renderProfile.brandLogo;
   const productSticker = plan.renderProfile.productSticker;
 
-  if (!videoClips.length && !backgroundMusic && !productSticker) return null;
+  if (!videoClips.length && !backgroundMusic && !brandLogo && !productSticker)
+    return null;
 
   return (
     <section className="wb-section">
@@ -230,6 +232,22 @@ function FixedInputTrace({ plan }: { plan: FunctionalVideoPlan }) {
                 <dt>图片源</dt>
                 <dd>
                   <code>{productSticker.assetCode}</code> · {productSticker.checksumSha256.slice(0, 12)}
+                </dd>
+              </div>
+            </dl>
+          </article>
+        ) : null}
+        {brandLogo ? (
+          <article className="video-input-trace-product">
+            <header>
+              <code>BRAND-LOGO</code>
+              <small>品牌标识</small>
+            </header>
+            <dl>
+              <div className="video-input-trace-wide">
+                <dt>图片源</dt>
+                <dd>
+                  <code>{brandLogo.assetCode}</code> · {brandLogo.checksumSha256.slice(0, 12)}
                 </dd>
               </div>
             </dl>
@@ -1219,7 +1237,8 @@ function Detail({
     (artifact) => artifact.artifact_key === "poster",
   )?.download_url;
   const hasFrozenMaterialEvidence = Boolean(
-    plan.renderProfile.visualAssets?.length ||
+      plan.renderProfile.visualAssets?.length ||
+      plan.renderProfile.brandLogo ||
       plan.renderProfile.productSticker ||
       plan.renderProfile.backgroundMusic,
   );
@@ -1291,6 +1310,11 @@ function Detail({
             {plan.renderProfile.productSticker ? (
               <code>
                 商品贴片 {plan.renderProfile.productSticker.assetCode} · {plan.renderProfile.productSticker.checksumSha256.slice(0, 12)}
+              </code>
+            ) : null}
+            {plan.renderProfile.brandLogo ? (
+              <code>
+                品牌标识 {plan.renderProfile.brandLogo.assetCode} · {plan.renderProfile.brandLogo.checksumSha256.slice(0, 12)}
               </code>
             ) : null}
           </div>
@@ -1431,6 +1455,7 @@ export function VideoProductionPage() {
   >([]);
   const [backgroundMusicAssetCode, setBackgroundMusicAssetCode] = useState("");
   const [backgroundMusicGainDb, setBackgroundMusicGainDb] = useState(-18);
+  const [brandLogoAssetCode, setBrandLogoAssetCode] = useState("");
   const [productStickerAssetCode, setProductStickerAssetCode] = useState("");
   const [selected, setSelected] = useState("");
   const projects = useQuery({
@@ -1522,6 +1547,12 @@ export function VideoProductionPage() {
       asset.executionCapability === "local_only" &&
       asset.materialRoles.includes("product_display"),
   );
+  const localBrandLogoAssets = (assets.data ?? []).filter(
+    (asset) =>
+      asset.mediaKind === "image" &&
+      asset.executionCapability === "local_only" &&
+      asset.materialRoles.includes("brand_title"),
+  );
   const visualSelectionCodes = (
     assetCodes = visualAssetCodes,
     groupCodes = visualGroupCodes,
@@ -1575,6 +1606,9 @@ export function VideoProductionPage() {
               ...(visualMaterialPackCodes.length
                 ? { visual_material_pack_codes: visualMaterialPackCodes }
                 : {}),
+              ...(brandLogoAssetCode
+                ? { brand_logo_asset_code: brandLogoAssetCode }
+                : {}),
               ...(productStickerAssetCode
                 ? { product_sticker_asset_code: productStickerAssetCode }
                 : {}),
@@ -1596,6 +1630,9 @@ export function VideoProductionPage() {
                 : {}),
               ...(visualMaterialPackCodes.length
                 ? { visual_material_pack_codes: visualMaterialPackCodes }
+                : {}),
+              ...(brandLogoAssetCode
+                ? { brand_logo_asset_code: brandLogoAssetCode }
                 : {}),
               ...(productStickerAssetCode
                 ? { product_sticker_asset_code: productStickerAssetCode }
@@ -1741,6 +1778,24 @@ export function VideoProductionPage() {
                 </label>
               ))}
             </fieldset>
+          ) : null}
+          {localBrandLogoAssets.length ? (
+            <label className="wb-field">
+              <span>品牌标识</span>
+              <select
+                aria-label="品牌标识"
+                className="wb-input"
+                value={brandLogoAssetCode}
+                onChange={(event) => setBrandLogoAssetCode(event.target.value)}
+              >
+                <option value="">使用基线标识</option>
+                {localBrandLogoAssets.map((asset) => (
+                  <option key={asset.assetCode} value={asset.assetCode}>
+                    {asset.title} · {asset.assetCode}
+                  </option>
+                ))}
+              </select>
+            </label>
           ) : null}
           {localProductStickerAssets.length ? (
             <label className="wb-field">

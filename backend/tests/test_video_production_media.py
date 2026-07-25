@@ -262,6 +262,45 @@ def test_asset_selector_uses_a_checksummed_local_product_sticker(
     assert error.value.error_code == "PRODUCT_STICKER_CHECKSUM_MISMATCH"
 
 
+def test_asset_selector_uses_a_checksummed_local_brand_logo(tmp_path: Path) -> None:
+    logo = tmp_path / "image" / "brand.png"
+    logo.parent.mkdir()
+    logo.write_bytes(b"selected brand logo")
+    for relative_path in (
+        "装饰/MT-DEC-0003_装饰_品牌Logo_logo.png",
+        "装饰/MT-DEC-0024_装饰_商品贴片_品酒大师PRO.png",
+    ):
+        overlay = tmp_path / relative_path
+        overlay.parent.mkdir(exist_ok=True)
+        overlay.write_bytes(b"overlay")
+    checksum = sha256(logo.read_bytes()).hexdigest()
+    shot_list = {
+        "shots": [],
+        "brand_logo": {
+            "asset_code": "AG-IMG-000002",
+            "asset_relative_path": "image/brand.png",
+            "asset_expected_checksum": checksum,
+        },
+    }
+
+    plan = AssetSelector(tmp_path, SimpleNamespace()).select(shot_list)
+
+    assert plan["source"] == "asset_library_local_overlay_asset_plan_v1"
+    assert plan["overlays"]["brand_logo"] == "image/brand.png"
+    assert plan["brand_logo"] == {
+        "asset_code": "AG-IMG-000002",
+        "relative_path": "image/brand.png",
+        "file_size": len(b"selected brand logo"),
+        "checksum_sha256": checksum,
+    }
+    assert plan["assets"][-1]["asset_code"] == "AG-IMG-000002"
+
+    shot_list["brand_logo"]["asset_expected_checksum"] = "0" * 64
+    with pytest.raises(VideoProductionError) as error:
+        AssetSelector(tmp_path, SimpleNamespace()).select(shot_list)
+    assert error.value.error_code == "BRAND_LOGO_CHECKSUM_MISMATCH"
+
+
 def test_shot_render_command_honors_source_end_instead_of_looping_the_full_file(tmp_path: Path) -> None:
     class RecordingRunner:
         def __init__(self) -> None:

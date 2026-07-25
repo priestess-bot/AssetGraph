@@ -60,12 +60,16 @@ class FunctionalVideoService:
         product_sticker = self._resolve_product_sticker_asset(
             payload.get("product_sticker_asset_code"),
         )
+        brand_logo = self._resolve_brand_logo_asset(
+            payload.get("brand_logo_asset_code"),
+        )
         story, script, shots, timeline = self._compile_content(
             detail,
             duration,
             visual_assets=visual_assets,
             background_music=background_music,
             product_sticker=product_sticker,
+            brand_logo=brand_logo,
         )
         variant = self.production.create_production_variant(
             project_code=detail["project_code"], project_revision=int(detail["revision_number"]),
@@ -87,6 +91,7 @@ class FunctionalVideoService:
                 "asset_codes": self._selected_material_codes(shots),
                 "assets": visual_assets,
                 "visual_selection": visual_selection,
+                "brand_logo": brand_logo,
                 "product_sticker": product_sticker,
                 "background_music": background_music,
             },
@@ -112,6 +117,14 @@ class FunctionalVideoService:
                 for asset in visual_assets
             ],
             "visual_selection": visual_selection,
+            "brand_logo": (
+                {
+                    "asset_code": brand_logo["asset_code"],
+                    "checksum_sha256": brand_logo["checksum_sha256"],
+                }
+                if brand_logo
+                else None
+            ),
             "product_sticker": (
                 {
                     "asset_code": product_sticker["asset_code"],
@@ -419,6 +432,55 @@ class FunctionalVideoService:
             raise DomainValidationError(
                 "VIDEO_PRODUCT_STICKER_NOT_RENDERABLE",
                 "Product sticker must be a checksummed local image classified for product display",
+                details={"asset_code": code},
+            )
+        return {
+            "asset_code": code,
+            "relative_path": relative_path,
+            "checksum_sha256": checksum,
+        }
+
+    def _resolve_brand_logo_asset(self, asset_code: Any) -> dict[str, str] | None:
+        code = str(asset_code or "").strip()
+        if not code:
+            return None
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT asset_code, media_kind, material_roles, execution_capability,
+                       local_relative_path, checksum_sha256
+                FROM assets
+                WHERE asset_code = %s AND deleted_at IS NULL
+                """,
+                (code,),
+            )
+            row = cursor.fetchone()
+        if row is None:
+            raise DomainValidationError(
+                "VIDEO_BRAND_LOGO_NOT_FOUND",
+                "The selected brand logo does not exist in the material library",
+                details={"asset_code": code},
+            )
+        relative_path = str(row.get("local_relative_path") or "").strip()
+        checksum = str(row.get("checksum_sha256") or "").strip()
+        checksum_is_valid = len(checksum) == 64 and all(
+            character in "0123456789abcdef" for character in checksum
+        )
+        path_is_safe = (
+            bool(relative_path)
+            and not Path(relative_path).is_absolute()
+            and ".." not in Path(relative_path).parts
+        )
+        if (
+            str(row.get("media_kind") or "") != "image"
+            or "brand_title" not in list(row.get("material_roles") or [])
+            or str(row.get("execution_capability") or "") != "local_only"
+            or not checksum_is_valid
+            or not path_is_safe
+        ):
+            raise DomainValidationError(
+                "VIDEO_BRAND_LOGO_NOT_RENDERABLE",
+                "Brand logo must be a checksummed local image classified for brand title",
                 details={"asset_code": code},
             )
         return {
@@ -1564,6 +1626,7 @@ class FunctionalVideoService:
         visual_assets: list[dict[str, str]] | None = None,
         background_music: dict[str, Any] | None = None,
         product_sticker: dict[str, str] | None = None,
+        brand_logo: dict[str, str] | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
         source_blocks = detail["script"]["blocks"]
         text = [str(block["content"]) for block in source_blocks]
@@ -1609,6 +1672,12 @@ class FunctionalVideoService:
                 "asset_relative_path": product_sticker["relative_path"],
                 "asset_expected_checksum": product_sticker["checksum_sha256"],
             }
+        if brand_logo is not None:
+            shots["brand_logo"] = {
+                "asset_code": brand_logo["asset_code"],
+                "asset_relative_path": brand_logo["relative_path"],
+                "asset_expected_checksum": brand_logo["checksum_sha256"],
+            }
         audio_clips = [{"clip_code": f"VOICE-{shot['shot_code']}", "linked_shot_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "gain_db": 0.0} for shot in compiled]
         if background_music is not None:
             audio_clips.append({"clip_code": "BGM-01", "timeline_range": {"start_ms": 0, "duration_ms": duration * 1000}, "asset_code": background_music["asset_code"], "gain_db": background_music["gain_db"]})
@@ -1628,6 +1697,9 @@ class FunctionalVideoService:
         product_sticker = shot_list.get("product_sticker")
         if isinstance(product_sticker, dict):
             codes.append(str(product_sticker.get("asset_code") or "").strip())
+        brand_logo = shot_list.get("brand_logo")
+        if isinstance(brand_logo, dict):
+            codes.append(str(brand_logo.get("asset_code") or "").strip())
         return list(dict.fromkeys(code for code in codes if code))
 
     @staticmethod
