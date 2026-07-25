@@ -18,6 +18,30 @@ def test_live_room_plan_input_accepts_distinct_explicit_asset_gap_codes() -> Non
     assert payload.asset_gap_codes == ["AG-GAP-001", "AG-GAP-002"]
 
 
+def test_live_room_plan_input_accepts_a_scoped_asset_gap_waiver_reason() -> None:
+    payload = FunctionalLiveRoomPlanCreate(
+        project_code="CONTENT-001",
+        target_live_room_id="room-001",
+        expected_title="缺口豁免计划",
+        asset_codes=["AG-IMG-001"],
+        asset_gap_codes=["AG-GAP-001"],
+        asset_gap_waivers={"AG-GAP-001": "本次活动使用已审核的临时背景。"},
+    )
+
+    assert payload.asset_gap_waivers == {"AG-GAP-001": "本次活动使用已审核的临时背景。"}
+
+
+def test_live_room_plan_input_rejects_blank_asset_gap_waiver_reason() -> None:
+    with pytest.raises(ValidationError, match="asset gap waivers"):
+        FunctionalLiveRoomPlanCreate(
+            project_code="CONTENT-001",
+            target_live_room_id="room-001",
+            expected_title="无效缺口豁免",
+            asset_codes=["AG-IMG-001"],
+            asset_gap_waivers={"AG-GAP-001": "  "},
+        )
+
+
 def test_live_room_plan_input_rejects_duplicate_asset_gap_codes() -> None:
     with pytest.raises(ValidationError, match="selection codes must be unique"):
         FunctionalLiveRoomPlanCreate(

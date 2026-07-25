@@ -40,6 +40,7 @@ class FunctionalLiveRoomPlanCreate(BaseModel):
     material_pack_codes: list[str] = Field(default_factory=list)
     material_role_modes: dict[str, str] = Field(default_factory=dict)
     asset_gap_codes: list[str] = Field(default_factory=list)
+    asset_gap_waivers: dict[str, str] = Field(default_factory=dict)
     material_role_overrides: dict[str, str] = Field(default_factory=dict)
     room_constraint_overrides: dict[str, FunctionalLiveRoomConstraintOverride] = Field(default_factory=dict)
 
@@ -83,6 +84,18 @@ class FunctionalLiveRoomPlanCreate(BaseModel):
             if not role or mode not in {"inherit", "append", "replace"}:
                 raise ValueError("material role modes must map a non-empty role to inherit, append or replace")
             normalized[role] = mode
+        return normalized
+
+    @field_validator("asset_gap_waivers")
+    @classmethod
+    def normalize_asset_gap_waivers(cls, value: dict[str, str]) -> dict[str, str]:
+        normalized: dict[str, str] = {}
+        for raw_gap_code, raw_reason in value.items():
+            gap_code = str(raw_gap_code).strip()
+            reason = str(raw_reason).strip()
+            if not gap_code or not reason or len(gap_code) > 64 or len(reason) > 2_000:
+                raise ValueError("asset gap waivers require a gap code and a non-empty reason")
+            normalized[gap_code] = reason
         return normalized
 
     @field_validator("room_constraint_overrides")

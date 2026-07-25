@@ -679,27 +679,54 @@ class MaterialLibraryRepository:
             row = cursor.fetchone()
         return self._gap_read(row) if row else None
 
-    def resolve_gap_refs(self, gap_codes: list[str]) -> list[dict[str, Any]]:
+    def resolve_gap_refs(
+        self, gap_codes: list[str], *, branch_waivers: dict[str, str] | None = None
+    ) -> list[dict[str, Any]]:
         """Freeze the current gap state for an explicit production-input reference."""
+        normalized_waivers = {
+            str(code).strip(): str(reason).strip()
+            for code, reason in (branch_waivers or {}).items()
+            if str(code).strip() and str(reason).strip()
+        }
         refs: list[dict[str, Any]] = []
         for gap_code in self._dedupe_codes(gap_codes):
             gap = self.get_gap(gap_code)
             if gap is None:
                 raise MaterialLibraryValidationError(f"Unknown asset gap code: {gap_code}")
-            snapshot = {
-                "gap_code": gap["gap_code"],
-                "title": gap["title"],
-                "role": gap["role"],
-                "severity": gap["severity"],
-                "status": gap["status"],
-                "gap_type": gap["gap_type"],
-                "impact_summary": gap.get("impact_summary"),
-                "alternative_asset_codes": gap["alternative_asset_codes"],
-                "resolution_asset_code": gap.get("resolution_asset_code"),
-                "resolution_snapshot": gap["resolution_snapshot"],
-            }
+            snapshot = self._gap_branch_snapshot(gap, normalized_waivers.get(gap_code))
             refs.append({**snapshot, "fingerprint_sha256": self._fingerprint(self._canonical(snapshot))})
         return refs
+
+    @staticmethod
+    def _gap_branch_snapshot(gap: dict[str, Any], waiver_reason: str | None) -> dict[str, Any]:
+        source_status = str(gap["status"])
+        branch_waiver = None
+        effective_status = source_status
+        if waiver_reason:
+            if source_status not in {"open", "candidate_found"}:
+                raise MaterialLibraryValidationError(
+                    f"Asset gap {gap['gap_code']} cannot receive a branch waiver from status {source_status}"
+                )
+            effective_status = "waived"
+            branch_waiver = {
+                "schema_version": "asset-gap-branch-waiver.v1",
+                "reason": waiver_reason,
+                "scope": "current_live_room_configuration_revision",
+            }
+        return {
+            "gap_code": gap["gap_code"],
+            "title": gap["title"],
+            "role": gap["role"],
+            "severity": gap["severity"],
+            "status": effective_status,
+            "source_status": source_status,
+            "gap_type": gap["gap_type"],
+            "impact_summary": gap.get("impact_summary"),
+            "alternative_asset_codes": gap["alternative_asset_codes"],
+            "resolution_asset_code": gap.get("resolution_asset_code"),
+            "resolution_snapshot": gap["resolution_snapshot"],
+            "branch_waiver": branch_waiver,
+        }
 
     def preview_selection(self, *, role: str, carrier_kind: str) -> dict[str, Any]:
         """Return a deterministic, explainable candidate preview before planning.

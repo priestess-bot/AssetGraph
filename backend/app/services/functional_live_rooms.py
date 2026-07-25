@@ -59,8 +59,20 @@ class FunctionalLiveRoomService:
             )
         material_pack_refs = list(material_pack_resolution["pack_refs"])
         material_pack_asset_codes = list(material_pack_resolution["resolved_asset_codes"])
+        asset_gap_codes = payload.get("asset_gap_codes") or []
+        asset_gap_waivers = payload.get("asset_gap_waivers") or {}
+        unselected_waivers = sorted(set(asset_gap_waivers) - set(asset_gap_codes))
+        if unselected_waivers:
+            raise DomainValidationError(
+                "LIVE_ROOM_ASSET_GAP_WAIVER_NOT_SELECTED",
+                "A branch waiver may only refer to an asset gap selected by this live-room plan",
+                details={"gap_codes": unselected_waivers},
+            )
         try:
-            asset_gap_refs = self.materials.resolve_gap_refs(payload.get("asset_gap_codes") or [])
+            asset_gap_refs = self.materials.resolve_gap_refs(
+                asset_gap_codes,
+                branch_waivers=asset_gap_waivers,
+            )
         except MaterialLibraryValidationError as exc:
             raise DomainValidationError("LIVE_ROOM_ASSET_GAP_INVALID", str(exc)) from exc
         selected_assets = self._selected_assets(
@@ -117,6 +129,7 @@ class FunctionalLiveRoomService:
                 "fingerprint_sha256": material_pack_resolution["fingerprint_sha256"],
             },
             "asset_gap_refs": asset_gap_refs,
+            "asset_gap_waivers": dict(payload.get("asset_gap_waivers") or {}),
             "material_role_overrides": material_role_overrides,
             "material_role_modes": dict(payload.get("material_role_modes") or {}),
             "room_constraint_overrides": room_constraint_overrides,
@@ -136,6 +149,7 @@ class FunctionalLiveRoomService:
                 "selected_asset_codes": snapshot["asset_codes"],
                 "selected_material_pack_codes": payload.get("material_pack_codes") or [],
                 "selected_asset_gap_codes": payload.get("asset_gap_codes") or [],
+                "asset_gap_waivers": dict(payload.get("asset_gap_waivers") or {}),
                 "material_role_overrides": material_role_overrides,
                 "material_role_modes": dict(payload.get("material_role_modes") or {}),
                 "room_constraint_overrides": room_constraint_overrides,
@@ -176,6 +190,7 @@ class FunctionalLiveRoomService:
                 "selected_group_codes": payload.get("group_codes") or [],
                 "selected_material_pack_codes": payload.get("material_pack_codes") or [],
                 "selected_asset_gap_codes": payload.get("asset_gap_codes") or [],
+                "asset_gap_waivers": dict(payload.get("asset_gap_waivers") or {}),
                 "material_role_overrides": material_role_overrides,
                 "material_role_modes": dict(payload.get("material_role_modes") or {}),
                 "room_constraint_overrides": room_constraint_overrides,

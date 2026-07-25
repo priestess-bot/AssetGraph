@@ -15,6 +15,7 @@ export interface FunctionalLiveRoomPlan {
   selectedGroupCodes: string[];
   selectedMaterialPackCodes: string[];
   selectedAssetGapCodes: string[];
+  assetGapWaivers: Record<string, string>;
   materialRoleOverrides: Record<string, string>;
   materialRoleModes: Record<string, "inherit" | "append" | "replace">;
   materialSelectionDecisions: Array<{ role: string; shotCode?: string; strategy: string; selectedAssetCode: string; selectedScore: number; selectionReasons: string[]; candidateScores: Array<{ assetCode: string; score: number }> }>;
@@ -29,7 +30,7 @@ export interface FunctionalLiveRoomPlan {
       selectionSources: Array<{ kind: string; code: string }>;
     }>;
     materialPackRefs: Array<{ packCode: string; revisionNumber: number; fingerprint: string; role: string }>;
-    assetGapRefs: Array<{ gapCode: string; title: string; role: string; severity: string; status: string; gapType: string; fingerprint: string }>;
+    assetGapRefs: Array<{ gapCode: string; title: string; role: string; severity: string; status: string; sourceStatus: string; gapType: string; branchWaiverReason?: string; fingerprint: string }>;
     roomConstraintOverrides: Record<string, RoomConstraintOverride>;
   };
   blueprint: { schema_version: string; scenes: Array<{ scene_code: string; shot_code: string; title: string; layers: Array<{ role: string; asset_code: string; execution_capability: string; z_order: number }>; script: string }> };
@@ -118,6 +119,7 @@ function plan(value: unknown): FunctionalLiveRoomPlan {
     selectedGroupCodes: strings(value.selected_group_codes),
     selectedMaterialPackCodes: strings(value.selected_material_pack_codes),
     selectedAssetGapCodes: strings(value.selected_asset_gap_codes),
+    assetGapWaivers: isRecord(inventorySnapshot.asset_gap_waivers) ? Object.fromEntries(Object.entries(inventorySnapshot.asset_gap_waivers).flatMap(([gapCode, reason]) => typeof reason === "string" && reason ? [[gapCode, reason]] : [])) : {},
     materialRoleOverrides,
     materialRoleModes,
     materialSelectionDecisions,
@@ -129,7 +131,7 @@ function plan(value: unknown): FunctionalLiveRoomPlan {
         selectionSources: asArray(asset.selection_sources).flatMap((source) => isRecord(source) && asString(source.kind) && asString(source.code) ? [{ kind: asString(source.kind), code: asString(source.code) }] : []),
       }] : []),
       materialPackRefs: asArray(inventorySnapshot.material_pack_refs).flatMap((pack) => isRecord(pack) && asString(pack.pack_code) ? [{ packCode: asString(pack.pack_code), revisionNumber: asNumber(pack.revision_number), fingerprint: asString(pack.fingerprint_sha256), role: asString(pack.role) }] : []),
-      assetGapRefs: asArray(inventorySnapshot.asset_gap_refs).flatMap((gap) => isRecord(gap) && asString(gap.gap_code) ? [{ gapCode: asString(gap.gap_code), title: asString(gap.title, asString(gap.gap_code)), role: asString(gap.role), severity: asString(gap.severity), status: asString(gap.status), gapType: asString(gap.gap_type), fingerprint: asString(gap.fingerprint_sha256) }] : []),
+      assetGapRefs: asArray(inventorySnapshot.asset_gap_refs).flatMap((gap) => isRecord(gap) && asString(gap.gap_code) ? [{ gapCode: asString(gap.gap_code), title: asString(gap.title, asString(gap.gap_code)), role: asString(gap.role), severity: asString(gap.severity), status: asString(gap.status), sourceStatus: asString(gap.source_status, asString(gap.status)), gapType: asString(gap.gap_type), branchWaiverReason: isRecord(gap.branch_waiver) ? asOptionalString(gap.branch_waiver.reason) : undefined, fingerprint: asString(gap.fingerprint_sha256) }] : []),
       roomConstraintOverrides: roomConstraintOverrides(inventorySnapshot.room_constraint_overrides),
     },
     blueprint: {
@@ -185,7 +187,7 @@ export const functionalLiveRoomsApi = {
   list: () => requestJson<unknown[]>(ROOT).then((rows) => rows.map(plan)),
   get: (planCode: string) => requestJson<unknown>(`${ROOT}/${planCode}`).then(plan),
   getTrace: (planCode: string) => requestJson<unknown>(`${ROOT}/${planCode}/trace`).then(trace),
-  create: (payload: { project_code: string; target_live_room_id: string; expected_title: string; primary_template_code?: string; secondary_template_codes: string[]; asset_codes: string[]; group_codes: string[]; material_pack_codes: string[]; asset_gap_codes: string[]; material_role_overrides: Record<string, string>; material_role_modes?: Record<string, "inherit" | "append" | "replace">; room_constraint_overrides: Record<string, RoomConstraintOverride> }) => postJson<unknown>(ROOT, {
+  create: (payload: { project_code: string; target_live_room_id: string; expected_title: string; primary_template_code?: string; secondary_template_codes: string[]; asset_codes: string[]; group_codes: string[]; material_pack_codes: string[]; asset_gap_codes: string[]; asset_gap_waivers?: Record<string, string>; material_role_overrides: Record<string, string>; material_role_modes?: Record<string, "inherit" | "append" | "replace">; room_constraint_overrides: Record<string, RoomConstraintOverride> }) => postJson<unknown>(ROOT, {
     ...payload,
     material_role_modes: payload.material_role_modes ?? {},
     room_constraint_overrides: Object.fromEntries(Object.entries(payload.room_constraint_overrides).map(([assetCode, override]) => [assetCode, {
