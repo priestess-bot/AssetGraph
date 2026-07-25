@@ -67,6 +67,39 @@ def test_materialize_preserves_recorded_and_descriptive_relationships() -> None:
                 "fingerprint_sha256": "e" * 64,
             }
         ],
+        "live_room_plans": [
+            {
+                "plan_code": "ROOM-PLAN-001", "project_code": "CONTENT-001", "variant_code": "VARIANT-001",
+                "variant_revision": 1, "target_live_room_id": "room-001", "status": "ready",
+                "execution_status": "not_requested", "release_code": "RELEASE-001", "release_revision": 1,
+                "created_at": None, "updated_at": None,
+            }
+        ],
+        "video_plans": [],
+        "releases": [
+            {
+                "release_code": "RELEASE-001", "subject_type": "live_room_plan", "subject_code": "ROOM-PLAN-001",
+                "subject_revision": 1, "carrier_kind": "live_room_draft", "status": "candidate",
+                "current_manifest_revision": 1, "release_fingerprint": "g" * 64, "created_at": None, "updated_at": None,
+            }
+        ],
+        "operation_sessions": [
+            {
+                "session_code": "SESSION-001", "title": "Observed room", "platform": "douyin",
+                "content_project_code": "CONTENT-001", "source_kind": "manual_import", "import_version": 1,
+                "live_room_plan_code": "ROOM-PLAN-001", "variant_code": "VARIANT-001", "release_code": "RELEASE-001",
+                "started_at": None, "ended_at": None, "metrics": {}, "created_at": None, "updated_at": None,
+            }
+        ],
+        "content_exposures": [
+            {
+                "exposure_code": "EXPOSURE-001", "session_code": "SESSION-001", "session_import_version": 1,
+                "plan_code": "ROOM-PLAN-001", "variant_code": "VARIANT-001", "release_code": "RELEASE-001",
+                "scene_code": "SCENE-001", "source_kind": "manual_observation", "confidence": 0.8,
+                "status": "active", "started_at": None, "ended_at": None, "created_at": None,
+                "plan_node_type": "live_room_plan", "plan_node_code": "ROOM-PLAN-001",
+            }
+        ],
         "effect_estimates": [
             {
                 "effect_code": "EFFECT-001",
@@ -91,12 +124,19 @@ def test_materialize_preserves_recorded_and_descriptive_relationships() -> None:
         ("content_rule", "RULE-001", 0),
         ("content_project", "CONTENT-001", 2),
         ("production_variant", "VARIANT-001", 1),
+        ("live_room_plan", "ROOM-PLAN-001", 0),
+        ("release", "RELEASE-001", 1),
+        ("operation_session", "SESSION-001", 1),
+        ("content_exposure", "EXPOSURE-001", 0),
         ("effect_estimate", "EFFECT-001", 1),
     }
     edge_types = {(edge.relationship_type, edge.assertion_kind, edge.source, edge.target) for edge in edges}
     assert ("SUPPORTS", "recorded_fact", ("source_evidence", "EVIDENCE-001", 0), ("fact_claim", "CLAIM-001", 0)) in edge_types
     assert ("CITES", "recorded_fact", ("content_project", "CONTENT-001", 2), ("content_rule", "RULE-001", 0)) in edge_types
     assert ("DERIVED_FROM", "recorded_fact", ("content_project", "CONTENT-001", 2), ("production_variant", "VARIANT-001", 1)) in edge_types
+    assert ("PROJECTED_AS", "recorded_fact", ("production_variant", "VARIANT-001", 1), ("live_room_plan", "ROOM-PLAN-001", 0)) in edge_types
+    assert ("RELEASED_AS", "recorded_fact", ("live_room_plan", "ROOM-PLAN-001", 0), ("release", "RELEASE-001", 1)) in edge_types
+    assert ("EXPOSED_DURING", "recorded_fact", ("live_room_plan", "ROOM-PLAN-001", 0), ("operation_session", "SESSION-001", 1)) in edge_types
     assert ("ESTIMATED_EFFECT_ON", "descriptive_association", ("effect_estimate", "EFFECT-001", 1), ("content_project", "CONTENT-001", 2)) in edge_types
 
 
@@ -111,6 +151,11 @@ def test_materialize_drops_edges_without_an_authoritative_target() -> None:
             "content": {"fact_claim_refs": [{"claim_code": "CLAIM-MISSING"}]},
         }],
         "variants": [],
+        "live_room_plans": [],
+        "video_plans": [],
+        "releases": [],
+        "operation_sessions": [],
+        "content_exposures": [],
         "effect_estimates": [],
     }
 

@@ -206,13 +206,13 @@ class FunctionalKnowledgeGraphProjectionService:
         def add_node(node_type: str, code: str, revision: int, status: str | None, properties: dict[str, object], fingerprint: str) -> None:
             nodes.append(GraphNodeInput(node_type, code, revision, status, properties, fingerprint))
 
-        for row in rows["source_evidences"]:
+        for row in rows.get("source_evidences", []):
             add_node(
                 "source_evidence", row["evidence_code"], 0, row["status"],
                 {"title": row["title"], "source_type": row["source_type"], "access_scope": row["access_scope"], "content_sha256": row["content_sha256"]},
                 canonical_fingerprint(row),
             )
-        for row in rows["fact_claims"]:
+        for row in rows.get("fact_claims", []):
             add_node(
                 "fact_claim", row["claim_code"], 0, row["status"],
                 {"fact_code": row["fact_code"], "source_evidence_code": row["source_evidence_code"], "field_path": row.get("field_path")},
@@ -223,7 +223,7 @@ class FunctionalKnowledgeGraphProjectionService:
                 "SUPPORTS", "recorded_fact", 1.0, row.get("valid_from"), row.get("valid_until"),
                 {"source_table": "functional_knowledge_fact_claims", "source_code": row["claim_code"]},
             ))
-        for row in rows["content_rules"]:
+        for row in rows.get("content_rules", []):
             add_node(
                 "content_rule", row["rule_code"], 0, row["status"],
                 {"title": row["title"], "rule_kind": row["rule_kind"], "directive": row["directive"], "source_evidence_code": row.get("source_evidence_code")},
@@ -235,7 +235,7 @@ class FunctionalKnowledgeGraphProjectionService:
                     "SUPPORTS", "recorded_fact", 1.0, row.get("valid_from"), row.get("valid_until"),
                     {"source_table": "functional_knowledge_content_rules", "source_code": row["rule_code"]},
                 ))
-        for row in rows["content_projects"]:
+        for row in rows.get("content_projects", []):
             project_key = ("content_project", row["project_code"], int(row["revision_number"]))
             add_node(
                 *project_key, row["status"],
@@ -256,7 +256,7 @@ class FunctionalKnowledgeGraphProjectionService:
                         project_key, ("content_rule", str(rule_code), 0), "CITES", "recorded_fact", 1.0,
                         None, None, {"source_table": "content_project_revisions", "source_code": row["project_code"], "source_revision": row["revision_number"], "pinned_fingerprint": ref.get("fingerprint_sha256")},
                     ))
-        for row in rows["variants"]:
+        for row in rows.get("variants", []):
             variant_key = ("production_variant", row["variant_code"], int(row["revision_number"]))
             add_node(
                 *variant_key, row["status"],
@@ -268,7 +268,88 @@ class FunctionalKnowledgeGraphProjectionService:
                     "DERIVED_FROM", "recorded_fact", 1.0, None, None,
                     {"source_table": "production_variant_revisions", "source_code": row["variant_code"], "source_revision": row["revision_number"]},
                 ))
-        for row in rows["effect_estimates"]:
+        for row in rows.get("live_room_plans", []):
+            plan_key = ("live_room_plan", row["plan_code"], 0)
+            add_node(
+                *plan_key, row["status"],
+                {
+                    "project_code": row["project_code"],
+                    "variant_code": row["variant_code"],
+                    "target_live_room_id": row["target_live_room_id"],
+                    "execution_status": row["execution_status"],
+                    "release_code": row.get("release_code"),
+                },
+                canonical_fingerprint(row),
+            )
+            if row.get("variant_revision") is not None:
+                edges.append(GraphEdgeInput(
+                    ("production_variant", row["variant_code"], int(row["variant_revision"])), plan_key,
+                    "PROJECTED_AS", "recorded_fact", 1.0, None, None,
+                    {"source_table": "functional_live_room_plans", "source_code": row["plan_code"]},
+                ))
+            if row.get("release_code"):
+                edges.append(GraphEdgeInput(
+                    plan_key, ("release", row["release_code"], int(row["release_revision"])), "RELEASED_AS",
+                    "recorded_fact", 1.0, None, None,
+                    {"source_table": "functional_live_room_plans", "source_code": row["plan_code"]},
+                ))
+        for row in rows.get("video_plans", []):
+            plan_key = ("rendered_video_plan", row["plan_code"], 0)
+            add_node(
+                *plan_key, None,
+                {
+                    "project_code": row["project_code"],
+                    "variant_code": row["variant_code"],
+                    "video_job_code": row["video_job_code"],
+                    "release_code": row.get("release_code"),
+                },
+                canonical_fingerprint(row),
+            )
+            if row.get("variant_revision") is not None:
+                edges.append(GraphEdgeInput(
+                    ("production_variant", row["variant_code"], int(row["variant_revision"])), plan_key,
+                    "PROJECTED_AS", "recorded_fact", 1.0, None, None,
+                    {"source_table": "functional_video_plans", "source_code": row["plan_code"]},
+                ))
+            if row.get("release_code"):
+                edges.append(GraphEdgeInput(
+                    plan_key, ("release", row["release_code"], int(row["release_revision"])), "RELEASED_AS",
+                    "recorded_fact", 1.0, None, None,
+                    {"source_table": "functional_video_plans", "source_code": row["plan_code"]},
+                ))
+        for row in rows.get("releases", []):
+            add_node(
+                "release", row["release_code"], int(row["current_manifest_revision"]), row["status"],
+                {"subject_type": row["subject_type"], "subject_code": row["subject_code"], "carrier_kind": row["carrier_kind"], "release_fingerprint": row.get("release_fingerprint")},
+                canonical_fingerprint(row),
+            )
+        for row in rows.get("operation_sessions", []):
+            add_node(
+                "operation_session", row["session_code"], int(row["import_version"]), None,
+                {"title": row["title"], "platform": row["platform"], "source_kind": row["source_kind"], "content_project_code": row.get("content_project_code"), "release_code": row.get("release_code")},
+                canonical_fingerprint(row),
+            )
+        for row in rows.get("content_exposures", []):
+            exposure_key = ("content_exposure", row["exposure_code"], 0)
+            session_key = ("operation_session", row["session_code"], int(row["session_import_version"]))
+            add_node(
+                *exposure_key, row["status"],
+                {"plan_code": row["plan_code"], "variant_code": row["variant_code"], "release_code": row.get("release_code"), "scene_code": row["scene_code"], "source_kind": row["source_kind"]},
+                canonical_fingerprint(row),
+            )
+            edges.append(GraphEdgeInput(
+                exposure_key, session_key, "OBSERVED_DURING", "recorded_fact", float(row["confidence"]),
+                row["started_at"], row["ended_at"],
+                {"source_table": "functional_content_exposures", "source_code": row["exposure_code"], "status": row["status"]},
+            ))
+            if row.get("plan_node_type") and row.get("plan_node_code"):
+                plan_key = (str(row["plan_node_type"]), str(row["plan_node_code"]), 0)
+                edges.append(GraphEdgeInput(
+                    plan_key, session_key, "EXPOSED_DURING", "recorded_fact", float(row["confidence"]),
+                    row["started_at"], row["ended_at"],
+                    {"source_table": "functional_content_exposures", "source_code": row["exposure_code"], "scene_code": row["scene_code"], "source_kind": row["source_kind"]},
+                ))
+        for row in rows.get("effect_estimates", []):
             effect_key = ("effect_estimate", row["effect_code"], int(row["revision_number"]))
             add_node(
                 *effect_key, row["status"],
@@ -306,6 +387,37 @@ class FunctionalKnowledgeGraphProjectionService:
                                 LEFT JOIN content_project_revisions AS project ON project.id = variant.source_project_revision_id
                                 ORDER BY variant.variant_code, variant.revision_number""",
             "effect_estimates": "SELECT effect_code, revision_number, attribution_report_code, subject_type, subject_code, metric_key, evidence_level, status, effect_payload, fingerprint_sha256 FROM functional_effect_estimates ORDER BY effect_code, revision_number",
+            "live_room_plans": """SELECT plan.plan_code, plan.project_code, plan.variant_code, plan.target_live_room_id, plan.status, plan.execution_status,
+                                         plan.release_code, COALESCE(release.current_manifest_revision, 0) AS release_revision,
+                                         variant.revision_number AS variant_revision, plan.created_at, plan.updated_at
+                                      FROM functional_live_room_plans AS plan
+                                      LEFT JOIN production_variant_revisions AS variant
+                                        ON variant.variant_code = plan.variant_code AND variant.status = 'confirmed'
+                                      LEFT JOIN releases AS release ON release.release_code = plan.release_code
+                                      ORDER BY plan.plan_code""",
+            "video_plans": """SELECT plan.plan_code, plan.project_code, plan.variant_code, plan.video_job_code, plan.release_code,
+                                     COALESCE(release.current_manifest_revision, 0) AS release_revision,
+                                     variant.revision_number AS variant_revision, plan.created_at, plan.updated_at
+                                  FROM functional_video_plans AS plan
+                                  LEFT JOIN production_variant_revisions AS variant
+                                    ON variant.variant_code = plan.variant_code AND variant.status = 'confirmed'
+                                  LEFT JOIN releases AS release ON release.release_code = plan.release_code
+                                  ORDER BY plan.plan_code""",
+            "releases": "SELECT release_code, subject_type, subject_code, subject_revision, carrier_kind, status, current_manifest_revision, release_fingerprint, created_at, updated_at FROM releases ORDER BY release_code",
+            "operation_sessions": "SELECT session_code, title, platform, content_project_code, started_at, ended_at, source_kind, import_version, live_room_plan_code, variant_code, release_code, metrics, created_at, updated_at FROM functional_operation_sessions ORDER BY session_code",
+            "content_exposures": """SELECT exposure.exposure_code, exposure.session_code, session.import_version AS session_import_version,
+                                            exposure.plan_code, exposure.variant_code, exposure.release_code, exposure.scene_code,
+                                            exposure.started_at, exposure.ended_at, exposure.source_kind, exposure.confidence,
+                                            exposure.status, exposure.created_at,
+                                            CASE WHEN live.plan_code IS NOT NULL THEN 'live_room_plan'
+                                                 WHEN video.plan_code IS NOT NULL THEN 'rendered_video_plan' END AS plan_node_type,
+                                            COALESCE(live.plan_code, video.plan_code) AS plan_node_code
+                                     FROM functional_content_exposures AS exposure
+                                     JOIN functional_operation_sessions AS session ON session.id = exposure.session_id
+                                     LEFT JOIN functional_live_room_plans AS live ON live.plan_code = exposure.plan_code
+                                     LEFT JOIN functional_video_plans AS video ON video.plan_code = exposure.plan_code
+                                     WHERE exposure.status = 'active'
+                                     ORDER BY exposure.exposure_code""",
         }
         rows: dict[str, list[dict[str, Any]]] = {}
         for key, query in queries.items():
