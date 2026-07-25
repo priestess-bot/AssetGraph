@@ -203,6 +203,7 @@ export const assetLibraryApi = {
   getConstraintProfile: (assetCode: string) => requestJson<unknown>(`${ROOT}/${assetCode}/constraint-profile`).then(constraintProfileRevision),
   listConstraintProfileRevisions: (assetCode: string) => requestJson<unknown[]>(`${ROOT}/${assetCode}/constraint-profile/revisions`).then((rows) => rows.map(constraintProfileRevision)),
   writeConstraintProfile: (assetCode: string, constraints: ConstraintRule[]) => postJson<unknown>(`${ROOT}/${assetCode}/constraint-profile`, { constraints }).then(constraintProfileRevision),
+  promoteRoomConstraintOverride: (assetCode: string, payload: { plan_code: string; expected_revision: number; actor: string; reason: string }) => postJson<unknown>(`${ROOT}/${assetCode}/constraint-profile/promote-room-override`, payload).then(constraintProfileRevision),
   previewSelection: (payload: { role: string; carrier_kind: "live_room" | "rendered_video" }) => postJson<unknown>(`${ROOT}/selection-preview`, payload).then(selectionPreview),
   listPacks: () => requestJson<unknown[]>(`${ROOT}/material-packs`).then((rows) => rows.flatMap((row) => pack(row) ?? [])),
   createPack: (payload: { title: string; role: string; description?: string; entries: MaterialPack["entries"] }) => postJson<unknown>(`${ROOT}/material-packs`, payload).then((value) => {

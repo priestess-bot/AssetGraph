@@ -60,6 +60,7 @@ class FakeMaterialLibraryRepository:
                 "created_at": "2026-07-24T00:00:00Z",
             },
         ]
+        self.room_override_promotion: dict | None = None
 
     def update_asset_classifications(
         self,
@@ -96,6 +97,38 @@ class FakeMaterialLibraryRepository:
 
     def list_constraint_profile_revisions(self, asset_code: str) -> list[dict]:
         return deepcopy(self.constraint_revisions) if asset_code == "AG-IMG-001" else []
+
+    def promote_room_constraint_override(
+        self,
+        asset_code: str,
+        *,
+        plan_code: str,
+        expected_revision: int,
+        actor: str,
+        reason: str,
+    ) -> dict | None:
+        if asset_code == "AG-IMG-MISSING":
+            return None
+        self.room_override_promotion = {
+            "asset_code": asset_code,
+            "plan_code": plan_code,
+            "expected_revision": expected_revision,
+            "actor": actor,
+            "reason": reason,
+        }
+        return {
+            "profile_code": "AG-CP-001",
+            "asset_code": asset_code,
+            "revision_number": expected_revision + 1,
+            "constraints": [{"kind": "allowed_region", "hard": True, "parameters": {"x": 0.1, "y": 0.2, "width": 0.5, "height": 0.4}}],
+            "fingerprint_sha256": "d" * 64,
+            "created_by": actor,
+            "change_reason": reason,
+            "source_plan_code": plan_code,
+            "source_profile_revision": expected_revision,
+            "source_room_override": {"geometry": {"x": 0.1, "y": 0.2, "width": 0.5, "height": 0.4}},
+            "created_at": "2026-07-25T02:00:00Z",
+        }
 
     def create_pack_revision(self, pack_code: str, *, expected_revision: int, entries: list[dict]) -> dict | None:
         if pack_code != self.pack["pack_code"]:
@@ -214,3 +247,24 @@ def test_constraint_profile_revisions_are_immutable_and_listed_newest_first(clie
     assert [row["revision_number"] for row in listed.json()] == [2, 1]
     assert listed.json()[0]["constraints"][0]["kind"] == "table_surface"
     assert missing.status_code == 404
+
+
+def test_room_override_promotion_requires_a_frozen_plan_and_revision(client: TestClient) -> None:
+    promoted = client.post(
+        "/api/assets/AG-IMG-001/constraint-profile/promote-room-override",
+        json={
+            "plan_code": "LIVE-PLAN-001",
+            "expected_revision": 2,
+            "actor": "operator-1",
+            "reason": "The product placement is reusable across rooms.",
+        },
+    )
+    blank_reason = client.post(
+        "/api/assets/AG-IMG-001/constraint-profile/promote-room-override",
+        json={"plan_code": "LIVE-PLAN-001", "expected_revision": 2, "actor": "operator-1", "reason": "  "},
+    )
+
+    assert promoted.status_code == 200
+    assert promoted.json()["source_plan_code"] == "LIVE-PLAN-001"
+    assert promoted.json()["source_profile_revision"] == 2
+    assert blank_reason.status_code == 422

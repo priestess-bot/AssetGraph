@@ -123,6 +123,25 @@ class AssetConstraintProfileRead(BaseModel):
 class AssetConstraintProfileRevisionRead(AssetConstraintProfileRead):
     """An immutable constraint-profile revision projection."""
 
+    created_by: str | None = None
+    change_reason: str | None = None
+    source_plan_code: str | None = None
+    source_profile_revision: int | None = None
+    source_room_override: dict[str, Any] | None = None
+
+
+class AssetConstraintProfilePromoteRoomOverride(BaseModel):
+    plan_code: str = Field(min_length=1, max_length=64)
+    expected_revision: int = Field(ge=0)
+    actor: str = Field(min_length=1, max_length=128)
+    reason: str = Field(min_length=1, max_length=2000)
+
+    @model_validator(mode="after")
+    def validate_nonblank_values(self) -> "AssetConstraintProfilePromoteRoomOverride":
+        if not self.plan_code.strip() or not self.actor.strip() or not self.reason.strip():
+            raise ValueError("plan_code, actor and reason must not be blank")
+        return self
+
 
 class MaterialPackEntryMode(StrEnum):
     REQUIRED = "required"

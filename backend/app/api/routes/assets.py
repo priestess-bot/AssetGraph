@@ -19,12 +19,15 @@ from app.repositories.assets import (
     AssetRepository,
 )
 from app.repositories.material_library import (
+    MaterialLibraryConflictError,
+    MaterialLibraryNotFoundError,
     MaterialLibraryRepository,
     MaterialLibraryValidationError,
 )
 from app.schemas.assets import AssetCreate, AssetFileRead, AssetMaituMaterialBindingUpdate, AssetRead
 from app.schemas.material_library import (
     AssetConstraintProfileRead,
+    AssetConstraintProfilePromoteRoomOverride,
     AssetConstraintProfileRevisionRead,
     AssetConstraintProfileWrite,
     AssetClassificationBatchUpdate,
@@ -296,6 +299,34 @@ def list_asset_constraint_profile_revisions(
             detail="Asset constraint profile not found",
         )
     return rows
+
+
+@router.post(
+    "/{asset_code}/constraint-profile/promote-room-override",
+    response_model=AssetConstraintProfileRevisionRead,
+)
+def promote_room_constraint_override(
+    asset_code: str,
+    payload: AssetConstraintProfilePromoteRoomOverride,
+    repository: Annotated[MaterialLibraryRepository, Depends(get_material_library_repository)],
+) -> dict:
+    try:
+        row = repository.promote_room_constraint_override(
+            asset_code,
+            plan_code=payload.plan_code.strip(),
+            expected_revision=payload.expected_revision,
+            actor=payload.actor.strip(),
+            reason=payload.reason.strip(),
+        )
+    except MaterialLibraryNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except MaterialLibraryConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except MaterialLibraryValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found")
+    return row
 
 
 @router.post("/material-packs", response_model=MaterialPackRead, status_code=status.HTTP_201_CREATED)

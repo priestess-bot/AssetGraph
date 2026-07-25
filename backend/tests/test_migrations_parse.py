@@ -280,3 +280,14 @@ def test_knowledge_evidence_rejection_migration_requires_attributed_details() ->
     assert "'revoked'" in sql
     assert "chk_functional_knowledge_evidence_rejection_details" in sql
     assert "chk_functional_knowledge_claim_rejection_details" in sql
+
+
+def test_constraint_profile_promotion_migration_keeps_room_override_provenance() -> None:
+    migration = MIGRATIONS_DIR / "081_constraint_profile_promotion_provenance.sql"
+
+    assert migration.exists()
+    sql = migration.read_text(encoding="utf-8")
+    assert "source_plan_code VARCHAR(64)" in sql
+    assert "source_profile_revision INTEGER" in sql
+    assert "source_room_override JSONB" in sql
+    assert "idx_asset_constraint_profile_promotion_source" in sql

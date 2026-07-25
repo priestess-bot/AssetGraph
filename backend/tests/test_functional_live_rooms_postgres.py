@@ -284,6 +284,68 @@ def test_live_room_plan_pins_explicit_material_role_selection() -> None:
         assert invalid.value.code == "LIVE_ROOM_MATERIAL_OVERRIDE_ROLE_MISMATCH"
 
 
+def test_room_override_can_be_promoted_to_an_attributable_global_profile_revision() -> None:
+    suffix = uuid4().hex
+    with psycopg.connect(DATABASE_URL) as connection:
+        assets = AssetRepository(connection)
+        library = MaterialLibraryRepository(connection)
+        project = _generated_project(connection, suffix)
+        selected = [
+            _asset(assets, suffix, "digital_human"),
+            _asset(assets, suffix, "background"),
+            _asset(assets, suffix, "promotion_text"),
+        ]
+        background = next(asset for asset in selected if asset["material_roles"] == ["background"])
+        plan = FunctionalLiveRoomService(connection).create_plan(
+            {
+                "project_code": project["project_code"],
+                "target_live_room_id": f"promote-draft-{suffix}",
+                "expected_title": "Promote room constraint",
+                "asset_codes": [asset["asset_code"] for asset in selected],
+                "group_codes": [],
+                "room_constraint_overrides": {
+                    background["asset_code"]: {
+                        "reason": "The background framing is reusable.",
+                        "geometry": {"x": 0.05, "y": 0.1, "width": 0.9, "height": 0.75},
+                    }
+                },
+            },
+            actor_id="test-operator",
+        )
+
+        promoted = library.promote_room_constraint_override(
+            background["asset_code"],
+            plan_code=plan["plan_code"],
+            expected_revision=0,
+            actor="test-operator",
+            reason="The framing applies to the reusable background asset.",
+        )
+
+        assert promoted is not None
+        assert promoted["revision_number"] == 1
+        assert promoted["source_plan_code"] == plan["plan_code"]
+        assert promoted["source_profile_revision"] == 0
+        assert promoted["created_by"] == "test-operator"
+        assert promoted["constraints"][-1]["parameters"] == {
+            "x": 0.05,
+            "y": 0.1,
+            "width": 0.9,
+            "height": 0.75,
+            "promoted_from_plan": plan["plan_code"],
+            "promotion_kind": "room_geometry",
+        }
+        repeated = library.promote_room_constraint_override(
+            background["asset_code"],
+            plan_code=plan["plan_code"],
+            expected_revision=0,
+            actor="other-operator",
+            reason="A delayed retry must not make another revision.",
+        )
+        assert repeated is not None
+        assert repeated["revision_number"] == 1
+        assert repeated["change_reason"] == "The framing applies to the reusable background asset."
+
+
 def test_functional_live_room_plan_blocks_unbound_required_material() -> None:
     suffix = uuid4().hex
     with psycopg.connect(DATABASE_URL) as connection:

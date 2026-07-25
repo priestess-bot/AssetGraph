@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import UTC, datetime
+from math import isfinite
 from typing import Any
 
 from psycopg import Connection
@@ -14,6 +15,10 @@ class MaterialLibraryNotFoundError(RuntimeError):
 
 
 class MaterialLibraryValidationError(RuntimeError):
+    pass
+
+
+class MaterialLibraryConflictError(RuntimeError):
     pass
 
 
@@ -187,7 +192,8 @@ class MaterialLibraryRepository:
             cursor.execute(
                 """
                 SELECT p.profile_code, p.asset_code, r.revision_number, r.constraints,
-                       r.fingerprint_sha256, r.created_at
+                       r.fingerprint_sha256, r.created_at, r.created_by, r.change_reason,
+                       r.source_plan_code, r.source_profile_revision, r.source_room_override
                 FROM asset_constraint_profiles p
                 JOIN asset_constraint_profile_revisions r
                   ON r.profile_id = p.id AND r.revision_number = p.current_revision
@@ -204,7 +210,8 @@ class MaterialLibraryRepository:
             cursor.execute(
                 """
                 SELECT p.profile_code, p.asset_code, r.revision_number, r.constraints,
-                       r.fingerprint_sha256, r.created_at
+                       r.fingerprint_sha256, r.created_at, r.created_by, r.change_reason,
+                       r.source_plan_code, r.source_profile_revision, r.source_room_override
                 FROM asset_constraint_profiles p
                 JOIN asset_constraint_profile_revisions r ON r.profile_id = p.id
                 WHERE p.asset_code = %s
@@ -214,6 +221,117 @@ class MaterialLibraryRepository:
             )
             rows = cursor.fetchall()
         return [self._stringify(row) for row in rows]
+
+    def promote_room_constraint_override(
+        self,
+        asset_code: str,
+        *,
+        plan_code: str,
+        expected_revision: int,
+        actor: str,
+        reason: str,
+    ) -> dict[str, Any] | None:
+        """Promote persisted room geometry to one auditable global Profile revision."""
+        try:
+            with self.connection.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    "SELECT build_plan FROM functional_live_room_plans WHERE plan_code = %s FOR UPDATE",
+                    (plan_code,),
+                )
+                plan = cursor.fetchone()
+                if plan is None:
+                    raise MaterialLibraryNotFoundError("Live-room plan not found")
+                inventory = dict((plan["build_plan"] or {}).get("inventory_snapshot") or {})
+                override = dict((inventory.get("room_constraint_overrides") or {}).get(asset_code) or {})
+                geometry = self._normalized_override_geometry(override)
+
+                cursor.execute(
+                    "SELECT id FROM assets WHERE asset_code = %s AND deleted_at IS NULL FOR UPDATE",
+                    (asset_code,),
+                )
+                asset = cursor.fetchone()
+                if asset is None:
+                    self.connection.rollback()
+                    return None
+                cursor.execute(
+                    "SELECT * FROM asset_constraint_profiles WHERE asset_id = %s FOR UPDATE",
+                    (asset["id"],),
+                )
+                profile = cursor.fetchone()
+                if profile is None:
+                    if expected_revision != 0:
+                        raise MaterialLibraryConflictError(
+                            "CONSTRAINT_PROFILE_REVISION_CONFLICT: profile does not exist"
+                        )
+                    profile_code = self._next_code(cursor, "AG-CP", "asset_constraint_profile")
+                    cursor.execute(
+                        """INSERT INTO asset_constraint_profiles
+                           (profile_code, asset_id, asset_code, current_revision)
+                           VALUES (%s, %s, %s, 0) RETURNING *""",
+                        (profile_code, asset["id"], asset_code),
+                    )
+                    profile = cursor.fetchone()
+                cursor.execute(
+                    """SELECT r.revision_number, r.constraints, r.fingerprint_sha256, r.created_at,
+                              r.created_by, r.change_reason, r.source_plan_code,
+                              r.source_profile_revision, r.source_room_override,
+                              p.profile_code, p.asset_code
+                       FROM asset_constraint_profile_revisions r
+                       JOIN asset_constraint_profiles p ON p.id = r.profile_id
+                       WHERE r.profile_id = %s AND r.source_plan_code = %s""",
+                    (profile["id"], plan_code),
+                )
+                existing = cursor.fetchone()
+                if existing is not None:
+                    self.connection.commit()
+                    return self._stringify(existing)
+                current_revision = int(profile["current_revision"])
+                if current_revision != expected_revision:
+                    raise MaterialLibraryConflictError(
+                        "CONSTRAINT_PROFILE_REVISION_CONFLICT: current revision changed"
+                    )
+                constraints: list[dict[str, Any]] = []
+                if current_revision:
+                    cursor.execute(
+                        "SELECT constraints FROM asset_constraint_profile_revisions "
+                        "WHERE profile_id = %s AND revision_number = %s",
+                        (profile["id"], current_revision),
+                    )
+                    current = cursor.fetchone()
+                    constraints = list(current["constraints"] or []) if current else []
+                next_revision = current_revision + 1
+                constraints.append(
+                    {
+                        "kind": "allowed_region",
+                        "hard": True,
+                        "parameters": {
+                            **geometry,
+                            "promoted_from_plan": plan_code,
+                            "promotion_kind": "room_geometry",
+                        },
+                    }
+                )
+                canonical = self._canonical(constraints)
+                cursor.execute(
+                    """INSERT INTO asset_constraint_profile_revisions
+                       (profile_id, revision_number, constraints, fingerprint_sha256, created_by,
+                        change_reason, source_plan_code, source_profile_revision, source_room_override)
+                       VALUES (%s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s::jsonb)""",
+                    (
+                        profile["id"], next_revision, canonical, self._fingerprint(canonical),
+                        actor.strip(), reason.strip(), plan_code, current_revision,
+                        json.dumps(override),
+                    ),
+                )
+                cursor.execute(
+                    "UPDATE asset_constraint_profiles SET current_revision = %s, updated_at = now() WHERE id = %s",
+                    (next_revision, profile["id"]),
+                )
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+        return self.get_constraint_profile(asset_code)
 
     def create_pack(self, payload: dict[str, Any]) -> dict[str, Any]:
         entries = payload.get("entries") or []
@@ -654,6 +772,29 @@ class MaterialLibraryRepository:
     @staticmethod
     def _canonical(value: Any) -> str:
         return json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+
+    @staticmethod
+    def _normalized_override_geometry(override: dict[str, Any]) -> dict[str, float]:
+        geometry = override.get("geometry")
+        if not isinstance(geometry, dict):
+            raise MaterialLibraryValidationError(
+                "Only a room constraint override with geometry can be promoted"
+            )
+        expected = {"x", "y", "width", "height"}
+        if set(geometry) != expected:
+            raise MaterialLibraryValidationError("Room override geometry is invalid")
+        normalized = {key: float(geometry[key]) for key in expected}
+        if (
+            not all(isfinite(value) for value in normalized.values())
+            or normalized["x"] < 0
+            or normalized["y"] < 0
+            or normalized["width"] <= 0
+            or normalized["height"] <= 0
+            or normalized["x"] + normalized["width"] > 1
+            or normalized["y"] + normalized["height"] > 1
+        ):
+            raise MaterialLibraryValidationError("Room override geometry is outside the normalized canvas")
+        return normalized
 
     @classmethod
     def _fingerprint(cls, value: str) -> str:
