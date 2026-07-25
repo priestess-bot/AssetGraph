@@ -355,7 +355,10 @@ def resolve_material_packs(
     repository: Annotated[MaterialLibraryRepository, Depends(get_material_library_repository)],
 ) -> dict:
     try:
-        return repository.preview_published_pack_resolution(payload.pack_codes)
+        return repository.preview_published_pack_resolution(
+            payload.pack_codes,
+            role_modes={role.value: mode for role, mode in payload.role_modes.items()},
+        )
     except MaterialLibraryValidationError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
 

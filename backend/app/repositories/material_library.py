@@ -563,22 +563,27 @@ class MaterialLibraryRepository:
             rows = cursor.fetchall()
         return [self._stringify(row) for row in rows]
 
-    def resolve_published_packs(self, pack_codes: list[str]) -> tuple[list[dict[str, Any]], list[str]]:
+    def resolve_published_packs(
+        self, pack_codes: list[str], *, role_modes: dict[str, str] | None = None
+    ) -> tuple[list[dict[str, Any]], list[str]]:
         """Resolve selected published revisions and reject hard pack conflicts."""
-        resolution = self.preview_published_pack_resolution(pack_codes)
+        resolution = self.preview_published_pack_resolution(pack_codes, role_modes=role_modes)
         conflicts = list(resolution["conflicts"])
         if conflicts:
             codes = ", ".join(str(conflict["code"]) for conflict in conflicts)
             raise MaterialLibraryValidationError(f"MATERIAL_PACK_CONFLICT: {codes}")
         return list(resolution["pack_refs"]), list(resolution["resolved_asset_codes"])
 
-    def preview_published_pack_resolution(self, pack_codes: list[str]) -> dict[str, Any]:
+    def preview_published_pack_resolution(
+        self, pack_codes: list[str], *, role_modes: dict[str, str] | None = None
+    ) -> dict[str, Any]:
         """Return the exact revision whitelist, merged rules and explainable conflicts.
 
         This is used by the workbench before confirmation.  It deliberately
         returns conflicts rather than silently choosing a winner for mutually
         exclusive role domains.
         """
+        normalized_role_modes = self._normalize_role_modes(role_modes or {})
         refs: list[dict[str, Any]] = []
         for pack_code in self._dedupe_codes(pack_codes):
             published = self._get_published_pack(pack_code)
@@ -603,6 +608,7 @@ class MaterialLibraryRepository:
                     "resolved_asset_codes": list(published["resolved_asset_codes"]),
                 }
             )
+        refs = self._apply_role_modes_to_pack_refs(refs, normalized_role_modes)
         material_rules, rule_conflicts = self._merge_material_rules(refs)
         entry_requirements = [
             {
@@ -617,6 +623,7 @@ class MaterialLibraryRepository:
         conflicts = [*self._exclusive_role_conflicts(refs), *rule_conflicts]
         fingerprint_payload = {
             "schema_version": "material-pack-resolution.v1",
+            "role_modes": normalized_role_modes,
             "pack_refs": refs,
             "entry_requirements": entry_requirements,
             "material_rules": material_rules,
@@ -624,6 +631,7 @@ class MaterialLibraryRepository:
         }
         return {
             "schema_version": "material-pack-resolution.v1",
+            "role_modes": normalized_role_modes,
             "pack_refs": refs,
             "resolved_asset_codes": self._dedupe_codes(
                 [asset_code for ref in refs for asset_code in ref["resolved_asset_codes"]]
@@ -1258,6 +1266,59 @@ class MaterialLibraryRepository:
     def _mode_strength(mode: str) -> int:
         return {"optional": 1, "alternative": 2, "required": 3}.get(mode, 0)
 
+    @staticmethod
+    def _normalize_role_modes(role_modes: dict[str, str]) -> dict[str, str]:
+        normalized: dict[str, str] = {}
+        for raw_role, raw_mode in role_modes.items():
+            role = str(raw_role).strip()
+            mode = str(raw_mode).strip()
+            if not role or mode not in {"inherit", "append", "replace"}:
+                raise MaterialLibraryValidationError(
+                    "Material pack role modes must map a role to inherit, append or replace"
+                )
+            normalized[role] = mode
+        return normalized
+
+    @staticmethod
+    def _apply_role_modes_to_pack_refs(
+        refs: list[dict[str, Any]], role_modes: dict[str, str]
+    ) -> list[dict[str, Any]]:
+        """Apply role-domain composition without changing the pinned revisions.
+
+        `inherit` discards the selected classification-package entries for the
+        role. `replace` discards the total-package entries and its exclusivity
+        declaration for that role. Every other role in the same pack remains
+        intact, which makes composition local and explainable.
+        """
+        transformed: list[dict[str, Any]] = []
+        for ref in refs:
+            pack_kind = str(ref.get("pack_kind") or "total")
+            entries: list[dict[str, Any]] = []
+            for entry in ref.get("resolved_entries") or []:
+                role = str(entry.get("material_role") or "")
+                mode = role_modes.get(role, "append")
+                if (mode == "inherit" and pack_kind == "classification") or (
+                    mode == "replace" and pack_kind == "total"
+                ):
+                    continue
+                entries.append(dict(entry))
+            available_roles = {str(entry.get("material_role") or "") for entry in entries}
+            exclusive_roles = [
+                role for role in ref.get("exclusive_roles") or []
+                if str(role) in available_roles
+            ]
+            transformed.append(
+                {
+                    **ref,
+                    "resolved_entries": entries,
+                    "exclusive_roles": exclusive_roles,
+                    "resolved_asset_codes": MaterialLibraryRepository._dedupe_codes(
+                        [asset_code for entry in entries for asset_code in entry.get("resolved_asset_codes") or []]
+                    ),
+                }
+            )
+        return transformed
+
     def _merge_material_rules(
         self, refs: list[dict[str, Any]]
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -1272,6 +1333,7 @@ class MaterialLibraryRepository:
                     key = (str(asset_code), role)
                     source = {
                         "pack_code": ref["pack_code"],
+                        "pack_kind": ref["pack_kind"],
                         "revision_number": ref["revision_number"],
                         "entry_key": entry["entry_key"],
                         "mode": entry["mode"],

@@ -38,6 +38,7 @@ class FunctionalLiveRoomPlanCreate(BaseModel):
     asset_codes: list[str] = Field(default_factory=list)
     group_codes: list[str] = Field(default_factory=list)
     material_pack_codes: list[str] = Field(default_factory=list)
+    material_role_modes: dict[str, str] = Field(default_factory=dict)
     asset_gap_codes: list[str] = Field(default_factory=list)
     material_role_overrides: dict[str, str] = Field(default_factory=dict)
     room_constraint_overrides: dict[str, FunctionalLiveRoomConstraintOverride] = Field(default_factory=dict)
@@ -70,6 +71,18 @@ class FunctionalLiveRoomPlanCreate(BaseModel):
             if len(normalized_role) > 64 or len(normalized_asset_code) > 64:
                 raise ValueError("material role override keys and asset codes must be at most 64 characters")
             normalized[normalized_role] = normalized_asset_code
+        return normalized
+
+    @field_validator("material_role_modes")
+    @classmethod
+    def normalize_material_role_modes(cls, value: dict[str, str]) -> dict[str, str]:
+        normalized: dict[str, str] = {}
+        for raw_role, raw_mode in value.items():
+            role = str(raw_role).strip()
+            mode = str(raw_mode).strip()
+            if not role or mode not in {"inherit", "append", "replace"}:
+                raise ValueError("material role modes must map a non-empty role to inherit, append or replace")
+            normalized[role] = mode
         return normalized
 
     @field_validator("room_constraint_overrides")

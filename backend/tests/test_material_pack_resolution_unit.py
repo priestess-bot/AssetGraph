@@ -13,6 +13,7 @@ def test_material_pack_rules_preserve_all_sources_and_strongest_usage() -> None:
         [
             {
                 "pack_code": "AG-PACK-BASE",
+                "pack_kind": "total",
                 "revision_number": 2,
                 "pack_constraints": [{"kind": "pin_layer_bottom", "hard": True}],
                 "resolved_entries": [
@@ -30,6 +31,7 @@ def test_material_pack_rules_preserve_all_sources_and_strongest_usage() -> None:
             },
             {
                 "pack_code": "AG-PACK-REQUIRED",
+                "pack_kind": "classification",
                 "revision_number": 3,
                 "pack_constraints": [],
                 "resolved_entries": [
@@ -63,13 +65,13 @@ def test_material_pack_rules_preserve_all_sources_and_strongest_usage() -> None:
             ],
             "sources": [
                 {
-                    "pack_code": "AG-PACK-BASE", "revision_number": 2, "entry_key": "entry-1",
+                    "pack_code": "AG-PACK-BASE", "pack_kind": "total", "revision_number": 2, "entry_key": "entry-1",
                     "mode": "optional", "min_occurrences": 0, "max_occurrences": 4,
                     "applicable_scope": {"kind": "whole_room"}, "alternative_set_key": None,
                     "source_group_code": None, "source_category_pack_code": None,
                 },
                 {
-                    "pack_code": "AG-PACK-REQUIRED", "revision_number": 3, "entry_key": "entry-2",
+                    "pack_code": "AG-PACK-REQUIRED", "pack_kind": "classification", "revision_number": 3, "entry_key": "entry-2",
                     "mode": "required", "min_occurrences": 2, "max_occurrences": 3,
                     "applicable_scope": {"kind": "whole_room"}, "alternative_set_key": None,
                     "source_group_code": None, "source_category_pack_code": None,
@@ -113,6 +115,58 @@ def test_classification_pack_cannot_recursively_include_another_category_pack() 
                 }
             ],
         )
+
+
+def test_role_mode_filters_total_and_classification_entries_by_role() -> None:
+    refs = [
+        {
+            "pack_code": "AG-PACK-TOTAL", "pack_kind": "total", "exclusive_roles": ["background"],
+            "resolved_entries": [{"material_role": "background", "resolved_asset_codes": ["AG-IMG-TOTAL"]}],
+        },
+        {
+            "pack_code": "AG-PACK-CLASS", "pack_kind": "classification", "exclusive_roles": ["background"],
+            "resolved_entries": [{"material_role": "background", "resolved_asset_codes": ["AG-IMG-CLASS"]}],
+        },
+    ]
+
+    inherited = MaterialLibraryRepository._apply_role_modes_to_pack_refs(refs, {"background": "inherit"})
+    replaced = MaterialLibraryRepository._apply_role_modes_to_pack_refs(refs, {"background": "replace"})
+
+    assert inherited[0]["resolved_asset_codes"] == ["AG-IMG-TOTAL"]
+    assert inherited[1]["resolved_asset_codes"] == []
+    assert inherited[1]["exclusive_roles"] == []
+    assert replaced[0]["resolved_asset_codes"] == []
+    assert replaced[0]["exclusive_roles"] == []
+    assert replaced[1]["resolved_asset_codes"] == ["AG-IMG-CLASS"]
+
+
+def test_replace_mode_only_compiles_classification_pack_candidates() -> None:
+    detail = {
+        "script": {"blocks": [{"block_code": "BLOCK-1", "content": "测试"}]},
+        "shot_list": {"shots": [{"shot_code": "SHOT-1", "shot_goal": "开场", "material_role_requirements": ["background"], "estimated_duration_ms": 1_000}]},
+    }
+    assets = [
+        {
+            "asset_code": "AG-IMG-TOTAL", "material_roles": ["background"],
+            "execution_capability": "maitu_bound", "constraint_profile_ref": None,
+            "material_pack_rules": [{"material_role": "background", "sources": [{"pack_kind": "total"}]}],
+        },
+        {
+            "asset_code": "AG-IMG-CLASS", "material_roles": ["background"],
+            "execution_capability": "maitu_bound", "constraint_profile_ref": None,
+            "material_pack_rules": [{"material_role": "background", "sources": [{"pack_kind": "classification"}]}],
+        },
+    ]
+
+    blueprint, _, blocked = FunctionalLiveRoomService._compile(
+        detail,
+        assets,
+        {"target_live_room_id": "room-1", "expected_title": "替换背景", "material_role_modes": {"background": "replace"}},
+        variant_code="VARIANT-001",
+    )
+
+    assert blocked == []
+    assert blueprint["scenes"][0]["layers"][0]["asset_code"] == "AG-IMG-CLASS"
 
 
 def test_live_room_pack_requirements_count_required_and_alternative_occurrences() -> None:

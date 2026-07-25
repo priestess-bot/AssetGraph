@@ -75,4 +75,27 @@ describe("LiveRoomPlannerPage", () => {
     const request = requests.find((item) => item.url === "/api/assets/AG-IMG-001/constraint-profile/promote-room-override");
     expect(JSON.parse(String(request?.init?.body))).toEqual({ plan_code: "LIVEPLAN-001", expected_revision: 2, actor: "functional-operator", reason: "当前构图适用于所有同类背景素材。" });
   });
+
+  it("resolves an explicit replace mode before creating a live-room plan", async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    const totalPack = { pack_code: "AG-PACK-TOTAL", title: "总体背景", pack_kind: "total", revision_number: 1, published_revision_number: 1, status: "published", revision_status: "published", fingerprint_sha256: "a".repeat(64), entries: [], resolved_asset_codes: ["AG-IMG-TOTAL"], created_at: "2026-07-25T00:00:00Z", updated_at: "2026-07-25T00:00:00Z" };
+    const categoryPack = { pack_code: "AG-PACK-CLASS", title: "分类背景", pack_kind: "classification", role: "background", revision_number: 1, published_revision_number: 1, status: "published", revision_status: "published", fingerprint_sha256: "b".repeat(64), entries: [], resolved_asset_codes: ["AG-IMG-CLASS"], created_at: "2026-07-25T00:00:00Z", updated_at: "2026-07-25T00:00:00Z" };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); requests.push({ url, init });
+      if (url === "/api/content-projects" || url === "/api/assets" || url === "/api/assets/groups" || url === "/api/assets/gaps" || url === "/api/functional-live-room-plans") return response([]);
+      if (url === "/api/assets/material-packs" && !init?.method) return response([totalPack, categoryPack]);
+      if (url === "/api/assets/material-packs/resolve" && init?.method === "POST") return response({ schema_version: "material-pack-resolution.v1", role_modes: JSON.parse(String(init.body)).role_modes, pack_refs: [], resolved_asset_codes: ["AG-IMG-CLASS"], entry_requirements: [{ pack_code: "AG-PACK-CLASS", entry_key: "entry-1", mode: "required", material_role: "background", resolved_asset_codes: ["AG-IMG-CLASS"], min_occurrences: 1 }], material_rules: [], conflicts: [], fingerprint_sha256: "c".repeat(64) });
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("checkbox", { name: /总体背景/ }));
+    await user.click(screen.getByRole("checkbox", { name: /分类背景/ }));
+    await screen.findByRole("group", { name: "background 素材包合并方式" });
+    await user.click(screen.getByRole("button", { name: "替换" }));
+
+    await waitFor(() => expect(requests.some((request) => request.url === "/api/assets/material-packs/resolve" && JSON.parse(String(request.init?.body)).role_modes.background === "replace")).toBe(true));
+    expect(screen.getByRole("button", { name: "替换" })).toHaveClass("active");
+  });
 });

@@ -95,6 +95,20 @@ class FakeMaterialLibraryRepository:
     def list_pack_revisions(self, pack_code: str) -> list[dict]:
         return deepcopy(self.revisions) if pack_code == self.pack["pack_code"] else []
 
+    def preview_published_pack_resolution(
+        self, pack_codes: list[str], *, role_modes: dict[str, str] | None = None
+    ) -> dict:
+        return {
+            "schema_version": "material-pack-resolution.v1",
+            "pack_refs": [{"pack_code": code, "pack_kind": "total", "revision_number": 1, "fingerprint_sha256": "a" * 64} for code in pack_codes],
+            "resolved_asset_codes": ["AG-IMG-001"],
+            "entry_requirements": [],
+            "material_rules": [],
+            "conflicts": [],
+            "fingerprint_sha256": "b" * 64,
+            "role_modes": role_modes or {},
+        }
+
     def list_constraint_profile_revisions(self, asset_code: str) -> list[dict]:
         return deepcopy(self.constraint_revisions) if asset_code == "AG-IMG-001" else []
 
@@ -237,6 +251,23 @@ def test_material_pack_revision_history_returns_not_found_for_unknown_pack(clien
     response = client.get("/api/assets/material-packs/AG-PACK-MISSING/revisions")
 
     assert response.status_code == 404
+
+
+def test_material_pack_resolve_accepts_explicit_role_composition_modes(client: TestClient) -> None:
+    response = client.post(
+        "/api/assets/material-packs/resolve",
+        json={"pack_codes": ["AG-PACK-001"], "role_modes": {"background": "replace"}},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["pack_refs"][0]["pack_kind"] == "total"
+    assert response.json()["role_modes"] == {"background": "replace"}
+
+    invalid = client.post(
+        "/api/assets/material-packs/resolve",
+        json={"pack_codes": ["AG-PACK-001"], "role_modes": {"background": "ignore"}},
+    )
+    assert invalid.status_code == 422
 
 
 def test_constraint_profile_revisions_are_immutable_and_listed_newest_first(client: TestClient) -> None:

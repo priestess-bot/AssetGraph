@@ -270,6 +270,7 @@ class MaterialPackRevisionRead(BaseModel):
 
 class MaterialPackResolveRequest(BaseModel):
     pack_codes: list[str] = Field(min_length=1, max_length=20)
+    role_modes: dict[MaterialRole, str] = Field(default_factory=dict)
 
     @field_validator("pack_codes")
     @classmethod
@@ -279,9 +280,18 @@ class MaterialPackResolveRequest(BaseModel):
             raise ValueError("pack_codes must be unique and non-empty")
         return normalized
 
+    @field_validator("role_modes")
+    @classmethod
+    def validate_role_modes(cls, value: dict[MaterialRole, str]) -> dict[MaterialRole, str]:
+        invalid = {role: mode for role, mode in value.items() if mode not in {"inherit", "append", "replace"}}
+        if invalid:
+            raise ValueError("role_modes values must be inherit, append or replace")
+        return value
+
 
 class MaterialPackResolutionRead(BaseModel):
     schema_version: str
+    role_modes: dict[str, str] = Field(default_factory=dict)
     pack_refs: list[dict[str, Any]]
     resolved_asset_codes: list[str]
     entry_requirements: list[dict[str, Any]]

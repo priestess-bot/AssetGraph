@@ -253,7 +253,7 @@ export const assetLibraryApi = {
   writeConstraintProfile: (assetCode: string, constraints: ConstraintRule[]) => postJson<unknown>(`${ROOT}/${assetCode}/constraint-profile`, { constraints }).then(constraintProfileRevision),
   promoteRoomConstraintOverride: (assetCode: string, payload: { plan_code: string; expected_revision: number; actor: string; reason: string }) => postJson<unknown>(`${ROOT}/${assetCode}/constraint-profile/promote-room-override`, payload).then(constraintProfileRevision),
   previewSelection: (payload: { role: string; carrier_kind: "live_room" | "rendered_video" }) => postJson<unknown>(`${ROOT}/selection-preview`, payload).then(selectionPreview),
-  resolvePacks: (packCodes: string[]) => postJson<unknown>(`${ROOT}/material-packs/resolve`, { pack_codes: packCodes }).then(packResolution),
+  resolvePacks: (packCodes: string[], roleModes: Record<string, "inherit" | "append" | "replace"> = {}) => postJson<unknown>(`${ROOT}/material-packs/resolve`, { pack_codes: packCodes, role_modes: roleModes }).then(packResolution),
   listPacks: () => requestJson<unknown[]>(`${ROOT}/material-packs`).then((rows) => rows.flatMap((row) => pack(row) ?? [])),
   createPack: (payload: { title: string; pack_kind: "total" | "classification"; role?: string; description?: string; entries: MaterialPack["entries"]; exclusive_roles?: string[]; pack_constraints?: Array<Record<string, unknown>> }) => postJson<unknown>(`${ROOT}/material-packs`, payload).then((value) => {
     const result = pack(value);

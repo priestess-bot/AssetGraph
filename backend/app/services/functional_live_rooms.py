@@ -46,7 +46,8 @@ class FunctionalLiveRoomService:
             raise DomainValidationError("LIVE_ROOM_SHOT_LIST_REQUIRED", "Generate the ContentProject before planning a live room")
         try:
             material_pack_resolution = self.materials.preview_published_pack_resolution(
-                payload.get("material_pack_codes") or []
+                payload.get("material_pack_codes") or [],
+                role_modes=payload.get("material_role_modes") or {},
             )
         except MaterialLibraryValidationError as exc:
             raise DomainValidationError("LIVE_ROOM_MATERIAL_PACK_INVALID", str(exc)) from exc
@@ -110,12 +111,14 @@ class FunctionalLiveRoomService:
             "material_pack_refs": material_pack_refs,
             "material_pack_resolution": {
                 "schema_version": material_pack_resolution["schema_version"],
+                "role_modes": material_pack_resolution["role_modes"],
                 "entry_requirements": material_pack_resolution["entry_requirements"],
                 "material_rules": material_pack_resolution["material_rules"],
                 "fingerprint_sha256": material_pack_resolution["fingerprint_sha256"],
             },
             "asset_gap_refs": asset_gap_refs,
             "material_role_overrides": material_role_overrides,
+            "material_role_modes": dict(payload.get("material_role_modes") or {}),
             "room_constraint_overrides": room_constraint_overrides,
         }
         templates = self._project_template_selection(detail, payload)
@@ -134,6 +137,7 @@ class FunctionalLiveRoomService:
                 "selected_material_pack_codes": payload.get("material_pack_codes") or [],
                 "selected_asset_gap_codes": payload.get("asset_gap_codes") or [],
                 "material_role_overrides": material_role_overrides,
+                "material_role_modes": dict(payload.get("material_role_modes") or {}),
                 "room_constraint_overrides": room_constraint_overrides,
             },
             material_snapshot_ref=snapshot,
@@ -173,6 +177,7 @@ class FunctionalLiveRoomService:
                 "selected_material_pack_codes": payload.get("material_pack_codes") or [],
                 "selected_asset_gap_codes": payload.get("asset_gap_codes") or [],
                 "material_role_overrides": material_role_overrides,
+                "material_role_modes": dict(payload.get("material_role_modes") or {}),
                 "room_constraint_overrides": room_constraint_overrides,
             },
             actor_id=actor_id,
@@ -459,6 +464,7 @@ class FunctionalLiveRoomService:
                     if isinstance(gap, dict) and gap.get("gap_code")
                 ],
                 "material_role_overrides": dict((source["quality_report"] or {}).get("material_role_overrides") or {}),
+                "material_role_modes": dict((source["quality_report"] or {}).get("material_role_modes") or {}),
                 "room_constraint_overrides": dict(
                     (source["build_plan"] or {}).get("inventory_snapshot", {}).get("room_constraint_overrides") or {}
                 ),
@@ -477,6 +483,7 @@ class FunctionalLiveRoomService:
                 "selected_material_pack_codes",
                 "selected_asset_gap_codes",
                 "material_role_overrides",
+                "material_role_modes",
                 "room_constraint_overrides",
             ],
             "cleared_target_state": [
@@ -1288,6 +1295,7 @@ class FunctionalLiveRoomService:
             "missing_material_roles": missing_roles,
             "compiler_blocked_reasons": compiler_blocked_reasons,
             "material_role_overrides": dict(blueprint.get("material_role_overrides") or {}),
+            "material_role_modes": dict(blueprint.get("material_role_modes") or {}),
             "material_selection_decisions": list(blueprint.get("material_selection_decisions") or []),
             "material_pack_requirement_evidence": list(blueprint.get("material_pack_requirement_evidence") or []),
         }
@@ -1665,6 +1673,7 @@ class FunctionalLiveRoomService:
         operations: list[dict[str, Any]] = [{"kind": "rename_room", "expected_title": payload["expected_title"]}]
         blocked: list[str] = []
         material_role_overrides = dict(payload.get("material_role_overrides") or {})
+        material_role_modes = dict(payload.get("material_role_modes") or {})
         material_selection_decisions: list[dict[str, Any]] = []
         named_regions, table_surfaces, named_region_failures = FunctionalLiveRoomService._named_regions(assets)
         blocked.extend(named_region_failures)
@@ -1674,8 +1683,23 @@ class FunctionalLiveRoomService:
             layers: list[dict[str, Any]] = []
             for role in shot["material_role_requirements"]:
                 candidates = layers_by_role.get(role, [])
+                if material_role_modes.get(str(role)) == "replace":
+                    candidates = [
+                        asset for asset in candidates
+                        if any(
+                            str(rule.get("material_role") or "") == str(role)
+                            and any(
+                                str(source.get("pack_kind") or "") == "classification"
+                                for source in rule.get("sources") or []
+                                if isinstance(source, dict)
+                            )
+                            for rule in asset.get("material_pack_rules") or []
+                            if isinstance(rule, dict)
+                        )
+                    ]
                 if not candidates:
-                    blocked.append(f"missing_role:{role}:shot:{shot['shot_code']}")
+                    reason = "missing_replacement_role" if material_role_modes.get(str(role)) == "replace" else "missing_role"
+                    blocked.append(f"{reason}:{role}:shot:{shot['shot_code']}")
                     continue
                 asset, selection_decision = FunctionalLiveRoomService._choose_material_for_role(
                     role=str(role), candidates=candidates, overrides=material_role_overrides,
@@ -1739,6 +1763,7 @@ class FunctionalLiveRoomService:
                 "schema_version": "maitu-scene-blueprint.functional.v2",
                 "scenes": scenes,
                 "material_role_overrides": material_role_overrides,
+                "material_role_modes": material_role_modes,
                 "room_constraint_overrides": room_constraint_overrides,
                 "material_selection_decisions": material_selection_decisions,
                 "material_pack_requirement_evidence": pack_requirement_evidence,
