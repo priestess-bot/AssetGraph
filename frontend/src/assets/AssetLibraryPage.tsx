@@ -94,6 +94,23 @@ function SelectionPreviewPanel() {
   return <section className="asset-detail-panel"><SectionHeader kicker="SELECTION PREVIEW" title="选材解释" /><div className="wb-form-grid"><label className="wb-field"><span>所需角色</span><select className="wb-input" value={role} onChange={(event) => setRole(event.target.value)}>{ROLES.map((item) => <option key={item}>{item}</option>)}</select></label><label className="wb-field"><span>目标载体</span><select className="wb-input" value={carrier} onChange={(event) => setCarrier(event.target.value as "live_room" | "rendered_video")}><option value="live_room">直播间草稿</option><option value="rendered_video">成片渲染</option></select></label></div><div className="wb-form-actions"><button type="button" className="wb-button wb-button-primary" disabled={preview.isPending} onClick={() => preview.mutate()}><Search size={14} aria-hidden="true" />预览候选</button></div>{preview.data ? <div className="asset-selection-preview"><div><strong>候选 {preview.data.candidates.length}</strong>{preview.data.candidates.map((candidate) => <article key={candidate.assetCode}><code>{candidate.assetCode}</code><span>{candidate.title}</span><b>{candidate.score}</b><small>{candidate.reasons.join(" / ")}{candidate.constraintProfile ? ` · ${candidate.constraintProfile.profileCode} r${candidate.constraintProfile.revisionNumber}` : ""}</small></article>)}</div><div><strong>排除 {preview.data.excluded.length}</strong>{preview.data.excluded.map((candidate) => <article key={candidate.assetCode}><code>{candidate.assetCode}</code><span>{candidate.title}</span><small>{candidate.exclusionCodes.join(" / ")}</small></article>)}</div><InlineNotice tone="warning" title="尚未验证门禁">{preview.data.unverifiedGates.join(" / ")}</InlineNotice></div> : null}{preview.error ? <InlineNotice tone="danger" title="选材预览失败">{message(preview.error)}</InlineNotice> : null}</section>;
 }
 
+function AssetRelationsPanel({
+  asset,
+  groups,
+  packs,
+  gaps,
+}: {
+  asset: LibraryAsset;
+  groups: Awaited<ReturnType<typeof assetLibraryApi.listGroups>>;
+  packs: MaterialPack[];
+  gaps: AssetGap[];
+}) {
+  const groupRelations = groups.filter((group) => group.assetCodes.includes(asset.assetCode));
+  const packRelations = packs.filter((pack) => pack.resolvedAssetCodes.includes(asset.assetCode));
+  const gapRelations = gaps.filter((gap) => gap.resolutionAssetCode === asset.assetCode || gap.alternativeAssetCodes.includes(asset.assetCode));
+  return <section className="asset-detail-panel"><SectionHeader kicker="EFFECTS AND RELATIONS" title="效果与关系" /><div className="asset-summary-list"><div><span><strong>自动推荐资格</strong><small>当前素材没有直接归因效果样本，不能自动推荐。</small></span><StatusBadge label="样本不足" tone="warning" /></div>{groupRelations.map((group) => <div key={`group:${group.groupCode}`}><span><strong>{group.title}</strong><small>素材分组 · {group.groupCode}</small></span><StatusBadge label="分组成员" tone="info" /></div>)}{packRelations.map((pack) => <div key={`pack:${pack.packCode}`}><span><strong>{pack.title}</strong><small>素材包 · {pack.packCode} · r{pack.publishedRevisionNumber ?? pack.revisionNumber}</small></span><StatusBadge label={pack.revisionStatus === "published" ? "已发布" : "草稿"} tone={pack.revisionStatus === "published" ? "success" : "warning"} /></div>)}{gapRelations.map((gap) => <div key={`gap:${gap.gapCode}`}><span><strong>{gap.title}</strong><small>素材缺口 · {gap.gapCode} · {gap.resolutionAssetCode === asset.assetCode ? "固定解决素材" : "备选素材"}</small></span><StatusBadge label={gap.status} tone={gap.status === "resolved" ? "success" : "warning"} /></div>)}{!groupRelations.length && !packRelations.length && !gapRelations.length ? <small>该素材尚未与分组、素材包或缺口建立关系。</small> : null}</div></section>;
+}
+
 function BatchClassificationEditor({ assets, onSaved }: { assets: LibraryAsset[]; onSaved: () => void }) {
   const [assetCodes, setAssetCodes] = useState<string[]>([]);
   const [mediaKind, setMediaKind] = useState("");
@@ -108,7 +125,7 @@ function BatchClassificationEditor({ assets, onSaved }: { assets: LibraryAsset[]
   </section>;
 }
 
-function MaterialTab({ assets }: { assets: LibraryAsset[] }) {
+function MaterialTab({ assets, groups, packs, gaps }: { assets: LibraryAsset[]; groups: Awaited<ReturnType<typeof assetLibraryApi.listGroups>>; packs: MaterialPack[]; gaps: AssetGap[] }) {
   const queryClient = useQueryClient();
   const [selectedCode, setSelectedCode] = useState("");
   const [query, setQuery] = useState("");
@@ -124,7 +141,7 @@ function MaterialTab({ assets }: { assets: LibraryAsset[] }) {
     <label className="asset-search"><Search size={15} aria-hidden="true" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="筛选素材编码、名称或角色" /></label><label className="wb-field"><input type="checkbox" checked={onlyUnclassified} onChange={(event) => setOnlyUnclassified(event.target.checked)} />仅看待确认分类</label>
     <div className="asset-list">{filtered.map((item) => <button key={item.assetCode} type="button" className={selected?.assetCode === item.assetCode ? "active" : undefined} onClick={() => setSelectedCode(item.assetCode)}><span><strong>{item.title}</strong><code>{item.assetCode}</code><small>{item.mediaKind ?? "媒体类型待确认"} · {item.materialRoles.join(" / ") || "业务角色待确认"}</small></span><StatusBadge label={item.executionCapability} tone={item.executionCapability === "maitu_bound" ? "success" : item.executionCapability === "unclassified" ? "warning" : "neutral"} /></button>)}</div>
     {!filtered.length ? <EmptyBlock icon={Boxes} title="尚无匹配素材" /> : null}</section>
-    <div><BatchClassificationEditor assets={filtered} onSaved={() => void queryClient.invalidateQueries({ queryKey: ["assets", "library"] })} />{selected ? <><ClassificationEditor key={selected.assetCode} asset={selected} onSaved={() => void queryClient.invalidateQueries({ queryKey: ["assets", "library"] })} /><ConstraintEditor key={`constraints:${selected.assetCode}`} assetCode={selected.assetCode} /><SelectionPreviewPanel /></> : <><EmptyBlock icon={Boxes} title="选择一个素材" detail="创建或同步素材后可设置分类与约束。" /><SelectionPreviewPanel /></>}</div></div>;
+    <div><BatchClassificationEditor assets={filtered} onSaved={() => void queryClient.invalidateQueries({ queryKey: ["assets", "library"] })} />{selected ? <><ClassificationEditor key={selected.assetCode} asset={selected} onSaved={() => void queryClient.invalidateQueries({ queryKey: ["assets", "library"] })} /><ConstraintEditor key={`constraints:${selected.assetCode}`} assetCode={selected.assetCode} /><AssetRelationsPanel asset={selected} groups={groups} packs={packs} gaps={gaps} /><SelectionPreviewPanel /></> : <><EmptyBlock icon={Boxes} title="选择一个素材" detail="创建或同步素材后可设置分类与约束。" /><SelectionPreviewPanel /></>}</div></div>;
 }
 
 function GroupsTab({ groups, assets }: { groups: Awaited<ReturnType<typeof assetLibraryApi.listGroups>>; assets: LibraryAsset[] }) {
@@ -207,6 +224,6 @@ export function AssetLibraryPage() {
   const loading = assets.isLoading || groups.isLoading || packs.isLoading || gaps.isLoading;
   const problem = assets.error ?? groups.error ?? packs.error ?? gaps.error;
   return <div><div className="wb-tabs" role="tablist" aria-label="素材库视图">{[["materials", "素材", Boxes], ["groups", "分组", FolderPlus], ["packs", "素材包", PackagePlus], ["gaps", "缺口", TriangleAlert]].map(([key, label, Icon]) => { const Component = Icon as typeof Boxes; return <button key={key as string} type="button" role="tab" aria-selected={tab === key} className={tab === key ? "active" : undefined} onClick={() => setTab(key as Tab)}><Component size={15} aria-hidden="true" />{label as string}</button>; })}</div>
-    {loading ? <LoadingBlock /> : problem ? <InlineNotice tone="danger" title="素材库无法加载">{message(problem)}</InlineNotice> : tab === "materials" ? <MaterialTab assets={assets.data ?? []} /> : tab === "groups" ? <GroupsTab groups={groups.data ?? []} assets={assets.data ?? []} /> : tab === "packs" ? <PacksTab groups={groups.data ?? []} packs={packs.data ?? []} /> : <GapsTab gaps={gaps.data ?? []} assets={assets.data ?? []} />}
+    {loading ? <LoadingBlock /> : problem ? <InlineNotice tone="danger" title="素材库无法加载">{message(problem)}</InlineNotice> : tab === "materials" ? <MaterialTab assets={assets.data ?? []} groups={groups.data ?? []} packs={packs.data ?? []} gaps={gaps.data ?? []} /> : tab === "groups" ? <GroupsTab groups={groups.data ?? []} assets={assets.data ?? []} /> : tab === "packs" ? <PacksTab groups={groups.data ?? []} packs={packs.data ?? []} /> : <GapsTab gaps={gaps.data ?? []} assets={assets.data ?? []} />}
   </div>;
 }

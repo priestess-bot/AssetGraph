@@ -205,4 +205,24 @@ describe("AssetLibraryPage", () => {
     expect(screen.getByText(/与 r1 差异：新增 桌面摆放区域/)).toBeInTheDocument();
     expect(screen.getByText(/移除 保持等比例/)).toBeInTheDocument();
   });
+
+  it("shows local material relationships and withholds automatic recommendation without effect samples", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/assets") return response([{ asset_code: "AG-IMG-001", title: "主背景", original_filename: "main.png", asset_type: "IMG", material_roles: ["background"], execution_capability: "maitu_bound" }]);
+      if (url === "/api/assets/groups") return response([{ group_code: "AG-GRP-001", title: "主场景组", asset_codes: ["AG-IMG-001"], asset_count: 1, created_at: "2026-07-25T00:00:00Z", updated_at: "2026-07-25T00:00:00Z" }]);
+      if (url === "/api/assets/material-packs") return response([{ pack_code: "AG-PACK-001", title: "主背景包", pack_kind: "classification", role: "background", revision_number: 2, published_revision_number: 1, status: "draft", revision_status: "draft", fingerprint_sha256: "a".repeat(64), entries: [], resolved_asset_codes: ["AG-IMG-001"], created_at: "2026-07-25T00:00:00Z", updated_at: "2026-07-25T00:00:00Z" }]);
+      if (url === "/api/assets/gaps") return response([{ gap_code: "AG-GAP-001", title: "背景缺口", role: "background", severity: "medium", status: "candidate_found", gap_type: "material_missing", alternative_asset_codes: ["AG-IMG-001"], resolution_snapshot: {}, resolution_evidence: {}, events: [] }]);
+      if (url === "/api/assets/AG-IMG-001/constraint-profile") return response({ profile_code: "AG-CP-001", asset_code: "AG-IMG-001", revision_number: 1, constraints: [], fingerprint_sha256: "a".repeat(64), created_at: "2026-07-25T00:00:00Z" });
+      if (url === "/api/assets/AG-IMG-001/constraint-profile/revisions") return response([{ profile_code: "AG-CP-001", asset_code: "AG-IMG-001", revision_number: 1, constraints: [], fingerprint_sha256: "a".repeat(64), created_at: "2026-07-25T00:00:00Z" }]);
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    renderPage();
+
+    expect(await screen.findByText("效果与关系")).toBeInTheDocument();
+    expect(screen.getByText("样本不足")).toBeInTheDocument();
+    expect(screen.getByText("主场景组")).toBeInTheDocument();
+    expect(screen.getByText("主背景包")).toBeInTheDocument();
+    expect(screen.getByText("背景缺口")).toBeInTheDocument();
+  });
 });
