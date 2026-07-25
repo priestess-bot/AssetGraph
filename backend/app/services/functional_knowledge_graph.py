@@ -206,6 +206,18 @@ class FunctionalKnowledgeGraphProjectionService:
         def add_node(node_type: str, code: str, revision: int, status: str | None, properties: dict[str, object], fingerprint: str) -> None:
             nodes.append(GraphNodeInput(node_type, code, revision, status, properties, fingerprint))
 
+        for row in rows.get("assets", []):
+            add_node(
+                "asset", row["asset_code"], 0, row["status"],
+                {"title": row.get("title"), "media_kind": row.get("media_kind"), "material_roles": row.get("material_roles") or [], "execution_capability": row.get("execution_capability")},
+                row.get("checksum_sha256") or canonical_fingerprint(row),
+            )
+        for row in rows.get("templates", []):
+            add_node(
+                "content_strategy_template", row["template_code"], int(row["revision_number"]), row["status"],
+                {"name": row["name"], "content_readiness": row["content_readiness"], "layout_fidelity": row["layout_fidelity"], "buildability": row["buildability"], "contract_version": row["contract_version"]},
+                row["content_fingerprint"],
+            )
         for row in rows.get("source_evidences", []):
             add_node(
                 "source_evidence", row["evidence_code"], 0, row["status"],
@@ -256,6 +268,15 @@ class FunctionalKnowledgeGraphProjectionService:
                         project_key, ("content_rule", str(rule_code), 0), "CITES", "recorded_fact", 1.0,
                         None, None, {"source_table": "content_project_revisions", "source_code": row["project_code"], "source_revision": row["revision_number"], "pinned_fingerprint": ref.get("fingerprint_sha256")},
                     ))
+            for ref in [content.get("primary_template_ref"), *(content.get("secondary_template_refs") or [])]:
+                template_code = ref.get("template_code") if isinstance(ref, dict) else None
+                revision_number = ref.get("revision") if isinstance(ref, dict) else None
+                if template_code and isinstance(revision_number, int):
+                    edges.append(GraphEdgeInput(
+                        project_key, ("content_strategy_template", str(template_code), revision_number), "CITES",
+                        "recorded_fact", 1.0, None, None,
+                        {"source_table": "content_project_revisions", "source_code": row["project_code"], "source_revision": row["revision_number"], "selection_role": ref.get("selection_role"), "contribution": ref.get("contribution")},
+                    ))
         for row in rows.get("variants", []):
             variant_key = ("production_variant", row["variant_code"], int(row["revision_number"]))
             add_node(
@@ -293,6 +314,11 @@ class FunctionalKnowledgeGraphProjectionService:
                     "recorded_fact", 1.0, None, None,
                     {"source_table": "functional_live_room_plans", "source_code": row["plan_code"]},
                 ))
+            for asset_code in row.get("selected_asset_codes") or []:
+                edges.append(GraphEdgeInput(
+                    plan_key, ("asset", str(asset_code), 0), "USES_ASSET", "recorded_fact", 1.0,
+                    None, None, {"source_table": "functional_live_room_plans", "source_code": row["plan_code"]},
+                ))
         for row in rows.get("video_plans", []):
             plan_key = ("rendered_video_plan", row["plan_code"], 0)
             add_node(
@@ -316,6 +342,12 @@ class FunctionalKnowledgeGraphProjectionService:
                     plan_key, ("release", row["release_code"], int(row["release_revision"])), "RELEASED_AS",
                     "recorded_fact", 1.0, None, None,
                     {"source_table": "functional_video_plans", "source_code": row["plan_code"]},
+                ))
+            material_snapshot = row.get("material_snapshot_ref") or {}
+            for asset_code in material_snapshot.get("asset_codes") or []:
+                edges.append(GraphEdgeInput(
+                    plan_key, ("asset", str(asset_code), 0), "USES_ASSET", "recorded_fact", 1.0,
+                    None, None, {"source_table": "production_variant_revisions", "source_code": row["variant_code"], "source_revision": row.get("variant_revision")},
                 ))
         for row in rows.get("releases", []):
             add_node(
@@ -418,6 +450,14 @@ class FunctionalKnowledgeGraphProjectionService:
     @classmethod
     def _snapshot(cls, cur: Any) -> tuple[list[GraphNodeInput], list[GraphEdgeInput]]:
         queries = {
+            "assets": "SELECT asset_code, title, media_kind, material_roles, execution_capability, checksum_sha256, status, updated_at FROM assets WHERE deleted_at IS NULL ORDER BY asset_code",
+            "templates": """SELECT template.template_code, template.name, revision.revision_number, revision.status,
+                                     revision.content_readiness, revision.layout_fidelity, revision.buildability,
+                                     revision.contract_version, revision.content_fingerprint
+                              FROM live_room_templates AS template
+                              JOIN live_room_template_revisions AS revision ON revision.template_id = template.id
+                              WHERE template.template_kind = 'content_strategy'
+                              ORDER BY template.template_code, revision.revision_number""",
             "source_evidences": "SELECT evidence_code, source_type, title, access_scope, content_sha256, status, captured_at FROM functional_knowledge_source_evidences ORDER BY evidence_code",
             "fact_claims": "SELECT claim_code, fact_code, source_evidence_code, field_path, status, fingerprint_sha256, valid_from, valid_until FROM functional_knowledge_fact_claims ORDER BY claim_code",
             "content_rules": "SELECT rule_code, rule_kind, directive, title, source_evidence_code, status, fingerprint_sha256, valid_from, valid_until FROM functional_knowledge_content_rules ORDER BY rule_code",
@@ -434,6 +474,7 @@ class FunctionalKnowledgeGraphProjectionService:
                                 ORDER BY variant.variant_code, variant.revision_number""",
             "effect_estimates": "SELECT effect_code, revision_number, attribution_report_code, subject_type, subject_code, metric_key, evidence_level, status, effect_payload, fingerprint_sha256 FROM functional_effect_estimates ORDER BY effect_code, revision_number",
             "live_room_plans": """SELECT plan.plan_code, plan.project_code, plan.variant_code, plan.target_live_room_id, plan.status, plan.execution_status,
+                                         plan.selected_asset_codes,
                                          plan.release_code, COALESCE(release.current_manifest_revision, 0) AS release_revision,
                                          variant.revision_number AS variant_revision, plan.created_at, plan.updated_at
                                       FROM functional_live_room_plans AS plan
@@ -443,7 +484,7 @@ class FunctionalKnowledgeGraphProjectionService:
                                       ORDER BY plan.plan_code""",
             "video_plans": """SELECT plan.plan_code, plan.project_code, plan.variant_code, plan.video_job_code, plan.release_code,
                                      COALESCE(release.current_manifest_revision, 0) AS release_revision,
-                                     variant.revision_number AS variant_revision, plan.created_at, plan.updated_at
+                                     variant.revision_number AS variant_revision, variant.material_snapshot_ref, plan.created_at, plan.updated_at
                                   FROM functional_video_plans AS plan
                                   LEFT JOIN production_variant_revisions AS variant
                                     ON variant.variant_code = plan.variant_code AND variant.status = 'confirmed'

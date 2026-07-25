@@ -5,6 +5,16 @@ from app.services.functional_knowledge_graph import FunctionalKnowledgeGraphProj
 
 def test_materialize_preserves_recorded_and_descriptive_relationships() -> None:
     rows = {
+        "assets": [{
+            "asset_code": "ASSET-001", "title": "Product image", "media_kind": "image",
+            "material_roles": ["product"], "execution_capability": "maitu_bound",
+            "checksum_sha256": "k" * 64, "status": "ready", "updated_at": None,
+        }],
+        "templates": [{
+            "template_code": "TEMPLATE-001", "name": "Selling strategy", "revision_number": 1,
+            "status": "published", "content_readiness": "ready", "layout_fidelity": "approximate",
+            "buildability": "reference_only", "contract_version": "content-strategy.v2", "content_fingerprint": "l" * 64,
+        }],
         "source_evidences": [
             {
                 "evidence_code": "EVIDENCE-001",
@@ -52,6 +62,7 @@ def test_materialize_preserves_recorded_and_descriptive_relationships() -> None:
                 "content": {
                     "fact_claim_refs": [{"claim_code": "CLAIM-001", "fingerprint_sha256": "b" * 64}],
                     "content_rule_refs": [{"rule_code": "RULE-001", "fingerprint_sha256": "c" * 64}],
+                    "primary_template_ref": {"template_code": "TEMPLATE-001", "revision": 1, "selection_role": "primary", "contribution": "primary_structure"},
                 },
             }
         ],
@@ -72,6 +83,7 @@ def test_materialize_preserves_recorded_and_descriptive_relationships() -> None:
                 "plan_code": "ROOM-PLAN-001", "project_code": "CONTENT-001", "variant_code": "VARIANT-001",
                 "variant_revision": 1, "target_live_room_id": "room-001", "status": "ready",
                 "execution_status": "not_requested", "release_code": "RELEASE-001", "release_revision": 1,
+                "selected_asset_codes": ["ASSET-001"],
                 "created_at": None, "updated_at": None,
             }
         ],
@@ -141,6 +153,8 @@ def test_materialize_preserves_recorded_and_descriptive_relationships() -> None:
 
     assert {(node.node_type, node.node_code, node.revision_number) for node in nodes} == {
         ("source_evidence", "EVIDENCE-001", 0),
+        ("asset", "ASSET-001", 0),
+        ("content_strategy_template", "TEMPLATE-001", 1),
         ("fact_claim", "CLAIM-001", 0),
         ("content_rule", "RULE-001", 0),
         ("content_project", "CONTENT-001", 2),
@@ -157,9 +171,11 @@ def test_materialize_preserves_recorded_and_descriptive_relationships() -> None:
     edge_types = {(edge.relationship_type, edge.assertion_kind, edge.source, edge.target) for edge in edges}
     assert ("SUPPORTS", "recorded_fact", ("source_evidence", "EVIDENCE-001", 0), ("fact_claim", "CLAIM-001", 0)) in edge_types
     assert ("CITES", "recorded_fact", ("content_project", "CONTENT-001", 2), ("content_rule", "RULE-001", 0)) in edge_types
+    assert ("CITES", "recorded_fact", ("content_project", "CONTENT-001", 2), ("content_strategy_template", "TEMPLATE-001", 1)) in edge_types
     assert ("DERIVED_FROM", "recorded_fact", ("content_project", "CONTENT-001", 2), ("production_variant", "VARIANT-001", 1)) in edge_types
     assert ("PROJECTED_AS", "recorded_fact", ("production_variant", "VARIANT-001", 1), ("live_room_plan", "ROOM-PLAN-001", 0)) in edge_types
     assert ("RELEASED_AS", "recorded_fact", ("live_room_plan", "ROOM-PLAN-001", 0), ("release", "RELEASE-001", 1)) in edge_types
+    assert ("USES_ASSET", "recorded_fact", ("live_room_plan", "ROOM-PLAN-001", 0), ("asset", "ASSET-001", 0)) in edge_types
     assert ("EXPOSED_DURING", "recorded_fact", ("live_room_plan", "ROOM-PLAN-001", 0), ("operation_session", "SESSION-001", 1)) in edge_types
     assert ("MEASURED_BY", "recorded_fact", ("operation_session", "SESSION-001", 1), ("session_metric_snapshot", "METRIC-SNAP-001", 0)) in edge_types
     assert ("USES_METRIC_DEFINITION", "recorded_fact", ("session_metric_snapshot", "METRIC-SNAP-001", 0), ("metric_definition", "METRIC-CONVERSION", 1)) in edge_types
@@ -169,6 +185,8 @@ def test_materialize_preserves_recorded_and_descriptive_relationships() -> None:
 
 def test_materialize_drops_edges_without_an_authoritative_target() -> None:
     rows = {
+        "assets": [],
+        "templates": [],
         "source_evidences": [],
         "fact_claims": [],
         "content_rules": [],
