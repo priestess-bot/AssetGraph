@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { KnowledgePage } from "./KnowledgePage";
 
@@ -46,5 +47,33 @@ describe("KnowledgePage", () => {
 
     expect(await screen.findByText(/CONTENT-001 · r2/)).toBeInTheDocument();
     expect(screen.getByText("uses_fact_card")).toBeInTheDocument();
+  });
+
+  it("registers local source evidence before creating a fact claim", async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); requests.push({ url, init });
+      if (url === "/api/maitu/workbench/product-fact-cards") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/functional-knowledge/source-evidences" && init?.method !== "POST") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/functional-knowledge/fact-claims") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/functional-knowledge/source-evidences" && init?.method === "POST") return new Response(JSON.stringify({
+        evidence_code: "EVIDENCE-001", source_type: "document", title: "Product sheet", source_url: null, excerpt: "Verified warranty is 12 months.", content_sha256: "a".repeat(64), access_scope: "internal", status: "draft", created_by: "console_operator", created_at: "2026-07-25T00:00:00Z", updated_at: "2026-07-25T00:00:00Z",
+      }), { status: 201, headers: { "Content-Type": "application/json" } });
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    const user = userEvent.setup();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    render(<QueryClientProvider client={client}><KnowledgePage /></QueryClientProvider>);
+
+    await screen.findByText("尚无事实卡");
+    await user.click(screen.getByRole("button", { name: "来源证据" }));
+    await screen.findByRole("heading", { name: "来源证据" });
+    await user.type(screen.getByLabelText("来源标题"), "Product sheet");
+    await user.type(screen.getByLabelText("可引用摘录"), "Verified warranty is 12 months.");
+    await user.click(screen.getByRole("button", { name: "登记来源草稿" }));
+
+    await waitFor(() => expect(requests.some((request) => request.url === "/api/functional-knowledge/source-evidences" && request.init?.method === "POST")).toBe(true));
+    const request = requests.find((item) => item.url === "/api/functional-knowledge/source-evidences" && item.init?.method === "POST");
+    expect(JSON.parse(String(request?.init?.body))).toMatchObject({ source_type: "document", title: "Product sheet", excerpt: "Verified warranty is 12 months.", access_scope: "internal" });
   });
 });

@@ -134,8 +134,76 @@ function VersionList({ card, activeVersion, onSelect }: { card: ProductFactCard;
   return <div className="knowledge-version-list">{card.versions.map((version) => <button type="button" key={version.versionCode} className={version.versionNumber === activeVersion ? "active" : undefined} onClick={() => onSelect(version.versionNumber)}><span><strong>v{version.versionNumber}</strong><small>{version.changeReason ?? "未填写变更说明"}</small><code>{version.createdBy ?? "未标注登记人"} · {formatDate(version.createdAt)}</code></span><StatusBadge label={version.status} tone={versionTone(version.status)} /></button>)}</div>;
 }
 
+function EvidenceWorkspace({ onShowFactCards }: { onShowFactCards: () => void }) {
+  const client = useQueryClient();
+  const [sourceType, setSourceType] = useState<"human" | "document" | "webpage" | "export">("document");
+  const [sourceTitle, setSourceTitle] = useState("");
+  const [sourceUrl, setSourceUrl] = useState("");
+  const [sourceExcerpt, setSourceExcerpt] = useState("");
+  const [sourceScope, setSourceScope] = useState("internal");
+  const [author, setAuthor] = useState("console_operator");
+  const [factTitle, setFactTitle] = useState("");
+  const [claimText, setClaimText] = useState("");
+  const [sourceCode, setSourceCode] = useState("");
+  const [citation, setCitation] = useState("");
+  const [fieldPath, setFieldPath] = useState("");
+  const [reviewer, setReviewer] = useState("console_reviewer");
+  const sources = useQuery({ queryKey: ["knowledge-source-evidences"], queryFn: knowledgeApi.listSourceEvidences });
+  const claims = useQuery({ queryKey: ["knowledge-fact-claims"], queryFn: knowledgeApi.listFactClaims });
+  const refresh = async () => {
+    await Promise.all([
+      client.invalidateQueries({ queryKey: ["knowledge-source-evidences"] }),
+      client.invalidateQueries({ queryKey: ["knowledge-fact-claims"] }),
+    ]);
+  };
+  const createSource = useMutation({
+    mutationFn: () => knowledgeApi.createSourceEvidence({ source_type: sourceType, title: sourceTitle.trim(), source_url: sourceUrl.trim() || undefined, excerpt: sourceExcerpt.trim(), access_scope: sourceScope.trim(), created_by: author.trim() || undefined }),
+    onSuccess: async () => { setSourceTitle(""); setSourceUrl(""); setSourceExcerpt(""); await refresh(); },
+  });
+  const approveSource = useMutation({ mutationFn: (code: string) => knowledgeApi.approveSourceEvidence(code, reviewer.trim()), onSuccess: refresh });
+  const createClaim = useMutation({
+    mutationFn: () => knowledgeApi.createFactClaim({ fact_title: factTitle.trim(), claim: claimText.trim(), source_evidence_code: sourceCode, citation_excerpt: citation.trim(), field_path: fieldPath.trim() || undefined, created_by: author.trim() || undefined }),
+    onSuccess: async () => { setFactTitle(""); setClaimText(""); setCitation(""); setFieldPath(""); await refresh(); },
+  });
+  const approveClaim = useMutation({ mutationFn: (code: string) => knowledgeApi.approveFactClaim(code, reviewer.trim()), onSuccess: refresh });
+  const approvedSources = (sources.data ?? []).filter((source) => source.status === "approved");
+  const problem = sources.error ?? claims.error ?? createSource.error ?? approveSource.error ?? createClaim.error ?? approveClaim.error;
+
+  return <div className="knowledge-layout">
+    <aside className="wb-section knowledge-rail">
+      <SectionHeader kicker="SOURCE EVIDENCE" title="来源证据" actions={<button type="button" className="wb-button" onClick={onShowFactCards}><BookOpen size={14} aria-hidden="true" />商品事实卡</button>} />
+      <form className="knowledge-create knowledge-editor" onSubmit={(event: FormEvent) => { event.preventDefault(); createSource.mutate(); }}>
+        <label className="wb-field"><span>来源类型</span><select className="wb-input" value={sourceType} onChange={(event) => setSourceType(event.target.value as typeof sourceType)}><option value="document">文档</option><option value="webpage">网页</option><option value="human">人工确认</option><option value="export">受控导出</option></select></label>
+        <label className="wb-field"><span>来源标题</span><input className="wb-input" value={sourceTitle} onChange={(event) => setSourceTitle(event.target.value)} required /></label>
+        <label className="wb-field"><span>来源 URL</span><input className="wb-input" value={sourceUrl} onChange={(event) => setSourceUrl(event.target.value)} /></label>
+        <label className="wb-field"><span>访问范围</span><input className="wb-input" value={sourceScope} onChange={(event) => setSourceScope(event.target.value)} required /></label>
+        <label className="wb-field"><span>登记人</span><input className="wb-input" value={author} onChange={(event) => setAuthor(event.target.value)} required /></label>
+        <label className="wb-field"><span>可引用摘录</span><textarea className="wb-textarea" value={sourceExcerpt} onChange={(event) => setSourceExcerpt(event.target.value)} required /></label>
+        <button className="wb-button wb-button-primary" disabled={createSource.isPending}><FilePlus2 size={15} aria-hidden="true" />登记来源草稿</button>
+      </form>
+      {sources.isLoading ? <LoadingBlock /> : sources.data?.length ? <div className="knowledge-card-list">{sources.data.map((source) => <article key={source.evidenceCode}><span><strong>{source.title}</strong><small>{source.sourceType} · {source.accessScope}</small><code>{source.evidenceCode} · {source.contentChecksum.slice(0, 12)}</code></span><div className="knowledge-source-actions"><StatusBadge label={source.status} tone={versionTone(source.status)} />{source.status === "draft" ? <button type="button" className="wb-button" disabled={approveSource.isPending || !reviewer.trim()} onClick={() => approveSource.mutate(source.evidenceCode)}>批准来源</button> : null}</div></article>)}</div> : <EmptyBlock icon={BookOpen} title="尚无来源证据" />}
+    </aside>
+    <main className="knowledge-main">
+      <section className="wb-section"><SectionHeader kicker="FACT CLAIM" title="事实声明" />
+        <form className="knowledge-create knowledge-editor" onSubmit={(event: FormEvent) => { event.preventDefault(); createClaim.mutate(); }}><div className="wb-form-grid">
+          <label className="wb-field"><span>事实标题</span><input className="wb-input" value={factTitle} onChange={(event) => setFactTitle(event.target.value)} required /></label>
+          <label className="wb-field"><span>批准来源</span><select className="wb-input" value={sourceCode} onChange={(event) => { const selected = approvedSources.find((source) => source.evidenceCode === event.target.value); setSourceCode(event.target.value); if (selected) setCitation(selected.excerpt); }} required><option value="">选择批准来源</option>{approvedSources.map((source) => <option key={source.evidenceCode} value={source.evidenceCode}>{source.title} · {source.evidenceCode}</option>)}</select></label>
+          <label className="wb-field"><span>字段路径</span><input className="wb-input" value={fieldPath} onChange={(event) => setFieldPath(event.target.value)} placeholder="product.warranty" /></label>
+          <label className="wb-field wide"><span>事实声明</span><textarea className="wb-textarea" value={claimText} onChange={(event) => setClaimText(event.target.value)} required /></label>
+          <label className="wb-field wide"><span>引用摘录</span><textarea className="wb-textarea" value={citation} onChange={(event) => setCitation(event.target.value)} required /></label>
+        </div><button className="wb-button wb-button-primary" disabled={createClaim.isPending || !approvedSources.length}><FilePlus2 size={15} aria-hidden="true" />创建事实声明</button></form>
+      </section>
+      <section className="wb-section"><SectionHeader kicker="CLAIM REVIEW" title="声明与引用" actions={<label className="wb-field"><span>审批人</span><input className="wb-input" value={reviewer} onChange={(event) => setReviewer(event.target.value)} required /></label>} />
+        {problem ? <InlineNotice tone="danger" title="知识操作未完成">{errorMessage(problem)}</InlineNotice> : null}
+        {claims.isLoading ? <LoadingBlock /> : claims.data?.length ? <div className="knowledge-usage-list">{claims.data.map((claim) => <article key={claim.claimCode}><span><strong>{claim.factTitle}</strong><small>{claim.claim}</small><small>引用：{claim.citationExcerpt}</small><code>{claim.claimCode} · {claim.sourceEvidenceCode} · {claim.fingerprint.slice(0, 12)}</code></span><div className="knowledge-source-actions"><StatusBadge label={claim.status} tone={versionTone(claim.status)} />{claim.status === "draft" ? <button type="button" className="wb-button" disabled={approveClaim.isPending || !reviewer.trim()} onClick={() => approveClaim.mutate(claim.claimCode)}><CheckCircle2 size={14} aria-hidden="true" />批准声明</button> : null}</div></article>)}</div> : <EmptyBlock icon={BookOpen} title="尚无事实声明" />}
+      </section>
+    </main>
+  </div>;
+}
+
 export function KnowledgePage() {
   const queryClient = useQueryClient();
+  const [workspace, setWorkspace] = useState<"fact_cards" | "evidence">("fact_cards");
   const [query, setQuery] = useState("");
   const [selectedCode, setSelectedCode] = useState("");
   const [showCreate, setShowCreate] = useState(false);
@@ -145,7 +213,7 @@ export function KnowledgePage() {
   const [selectedVersion, setSelectedVersion] = useState<number>();
   const [reviewer, setReviewer] = useState("console_reviewer");
   const [rejectionReason, setRejectionReason] = useState("");
-  const cards = useQuery({ queryKey: ["product-fact-cards"], queryFn: knowledgeApi.listProductFactCards });
+  const cards = useQuery({ queryKey: ["product-fact-cards"], queryFn: knowledgeApi.listProductFactCards, enabled: workspace === "fact_cards" });
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
     if (!needle) return cards.data ?? [];
@@ -184,10 +252,11 @@ export function KnowledgePage() {
   const approve = useMutation({ mutationFn: () => knowledgeApi.approveProductFactCardVersion(selectedCode, activeVersion?.versionNumber ?? 0, reviewer.trim()), onSuccess: async () => { await refresh(selectedCode); } });
   const reject = useMutation({ mutationFn: () => knowledgeApi.rejectProductFactCardVersion(selectedCode, activeVersion?.versionNumber ?? 0, reviewer.trim(), rejectionReason.trim()), onSuccess: async () => { setRejectionReason(""); await refresh(selectedCode); } });
 
+  if (workspace === "evidence") return <EvidenceWorkspace onShowFactCards={() => setWorkspace("fact_cards")} />;
   if (cards.isLoading) return <LoadingBlock />;
   return <div className="knowledge-layout">
     <aside className="wb-section knowledge-rail">
-      <SectionHeader kicker="FACT CARDS" title="事实卡" actions={<button type="button" className="wb-button wb-button-primary" onClick={() => setShowCreate((current) => !current)}><FilePlus2 size={14} aria-hidden="true" />新建</button>} />
+      <SectionHeader kicker="FACT CARDS" title="事实卡" actions={<><button type="button" className="wb-button" onClick={() => setWorkspace("evidence")}>来源证据</button><button type="button" className="wb-button wb-button-primary" onClick={() => setShowCreate((current) => !current)}><FilePlus2 size={14} aria-hidden="true" />新建</button></>} />
       {showCreate ? <div className="knowledge-create"><FactEditor values={createValues} setValues={setCreateValues} includeTitle submitLabel="创建草稿" pending={create.isPending} onSubmit={() => create.mutate()} />{create.error ? <InlineNotice tone="danger" title="事实卡创建失败">{errorMessage(create.error)}</InlineNotice> : null}</div> : null}
       <label className="asset-search"><Search size={15} aria-hidden="true" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索事实卡" /></label>
       {cards.error ? <InlineNotice tone="danger" title="事实卡读取失败">{errorMessage(cards.error)}</InlineNotice> : filtered.length ? <div className="knowledge-card-list">{filtered.map((card) => <button type="button" key={card.factCardCode} className={card.factCardCode === selectedCode ? "active" : undefined} onClick={() => { setSelectedCode(card.factCardCode); setShowRevision(false); }}><span><strong>{card.title}</strong><small>{stringValue(versionContent(card), "product_name") || "未填写商品名称"}</small><code>{card.factCardCode}{card.currentApprovedVersion ? ` · 已批准 v${card.currentApprovedVersion}` : " · 尚无已批准版本"}</code></span><StatusBadge label={card.status} tone="info" /></button>)}</div> : <EmptyBlock icon={BookOpen} title="尚无事实卡" />}
