@@ -414,11 +414,6 @@ def test_live_room_plan_snapshots_explicit_asset_gap_and_blocks_only_while_unres
         assert blocked["build_plan"]["inventory_snapshot"]["asset_gap_refs"][0]["status"] == "open"
         assert blocked["selected_asset_gap_codes"] == [gap["gap_code"]]
 
-        waived = library.update_gap(
-            gap["gap_code"],
-            {"status": "waived", "waiver_reason": "授权审查另行跟踪", "actor": "test-operator"},
-        )
-        assert waived is not None and waived["status"] == "waived"
         ready = service.create_plan(
             {
                 "project_code": project["project_code"],
@@ -427,11 +422,14 @@ def test_live_room_plan_snapshots_explicit_asset_gap_and_blocks_only_while_unres
                 "asset_codes": [item["asset_code"] for item in selected],
                 "group_codes": [],
                 "asset_gap_codes": [gap["gap_code"]],
+                "asset_gap_waivers": {gap["gap_code"]: "授权审查另行跟踪"},
             },
             actor_id="test-operator",
         )
         assert ready["status"] == "ready"
         assert ready["build_plan"]["inventory_snapshot"]["asset_gap_refs"][0]["status"] == "waived"
+        assert ready["build_plan"]["inventory_snapshot"]["asset_gap_refs"][0]["source_status"] == "open"
+        assert library.get_gap(gap["gap_code"])["status"] == "open"
         assert blocked["build_plan"]["inventory_snapshot"]["asset_gap_refs"][0]["status"] == "open"
 
 

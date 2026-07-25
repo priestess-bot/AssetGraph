@@ -312,18 +312,15 @@ class AssetGapCreate(BaseModel):
 
 
 class AssetGapUpdate(BaseModel):
-    status: str = Field(pattern="^(open|candidate_found|resolved|waived|obsolete)$")
+    status: str = Field(pattern="^(open|candidate_found|resolved|obsolete)$")
     resolution_asset_code: str | None = Field(default=None, max_length=64)
     actor: str = Field(default="library_user", min_length=1, max_length=128)
-    waiver_reason: str | None = Field(default=None, max_length=2000)
     resolution_evidence: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_resolution_details(self) -> "AssetGapUpdate":
         if self.status in {"candidate_found", "resolved"} and not self.resolution_asset_code:
             raise ValueError("resolution_asset_code is required for candidate_found and resolved")
-        if self.status == "waived" and not self.waiver_reason:
-            raise ValueError("waiver_reason is required for waived")
         return self
 
 

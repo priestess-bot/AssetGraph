@@ -811,10 +811,7 @@ class MaterialLibraryRepository:
                     if next_status == "resolved" and gap.get("resolution_asset_code") != asset_code:
                         raise MaterialLibraryValidationError("ASSET_GAP_RESOLUTION_MUST_MATCH_CANDIDATE")
                     snapshot = self._gap_candidate_snapshot(cursor, str(asset_code), str(gap["role"]))
-                waiver_reason = payload.get("waiver_reason") if next_status == "waived" else None
-                if next_status == "waived" and not waiver_reason:
-                    raise MaterialLibraryValidationError("ASSET_GAP_WAIVER_REASON_REQUIRED")
-                resolved_at = "now()" if next_status in {"resolved", "waived"} else None
+                resolved_at = "now()" if next_status == "resolved" else None
                 cursor.execute(
                     """UPDATE asset_gaps
                        SET status = %s, resolution_asset_code = %s, resolution_snapshot = %s::jsonb,
@@ -829,7 +826,7 @@ class MaterialLibraryRepository:
                         json.dumps(payload.get("resolution_evidence") or {}),
                         payload.get("actor"),
                         resolved_at is not None,
-                        waiver_reason,
+                        gap.get("waived_reason"),
                         gap["id"],
                     ),
                 )
@@ -843,7 +840,7 @@ class MaterialLibraryRepository:
                         "resolution_asset_code": asset_code if next_status in {"candidate_found", "resolved"} else None,
                         "resolution_snapshot": snapshot if next_status in {"candidate_found", "resolved"} else {},
                         "resolution_evidence": payload.get("resolution_evidence") or {},
-                        "waiver_reason": waiver_reason,
+                        "waiver_reason": gap.get("waived_reason"),
                     },
                 )
             self.connection.commit()
@@ -855,8 +852,8 @@ class MaterialLibraryRepository:
     @staticmethod
     def _validate_gap_transition(previous_status: str, next_status: str) -> None:
         transitions = {
-            "open": {"candidate_found", "waived", "obsolete"},
-            "candidate_found": {"open", "resolved", "waived", "obsolete"},
+            "open": {"candidate_found", "obsolete"},
+            "candidate_found": {"open", "resolved", "obsolete"},
             "resolved": {"obsolete"},
             "waived": {"obsolete"},
             "obsolete": set(),

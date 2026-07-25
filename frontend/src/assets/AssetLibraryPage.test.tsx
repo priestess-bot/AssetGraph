@@ -184,6 +184,7 @@ describe("AssetLibraryPage", () => {
 
     const request = requests.find((item) => item.url === "/api/assets/gaps/AG-GAP-001" && item.init?.method === "PATCH");
     expect(JSON.parse(String(request?.init?.body))).toEqual({ status: "obsolete", resolution_evidence: { obsolete_reason: "Campaign scope changed." }, actor: "material_library" });
+    expect(screen.queryByRole("button", { name: "豁免" })).not.toBeInTheDocument();
   });
 
   it("shows constraint revision differences without replacing the current Profile", async () => {
