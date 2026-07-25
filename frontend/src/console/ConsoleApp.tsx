@@ -37,6 +37,7 @@ import { SchedulesPage } from "../schedules/SchedulesPage";
 import { LearningPage } from "../learning/LearningPage";
 import { KnowledgePage } from "../knowledge/KnowledgePage";
 import { DataGovernancePage } from "../governance/DataGovernancePage";
+import { GovernanceRunsPage } from "../governance/GovernanceRunsPage";
 import { SessionsPage } from "../live-research/SessionsPage";
 import { ContentStrategiesPage } from "../live-research/ContentStrategiesPage";
 import { TemplatesPage } from "../live-research/TemplatesPage";
@@ -271,7 +272,7 @@ export function Workspace({ pathname, search, tasks, notifications, loading, dem
   if (pathname.startsWith("/production/live-rooms")) {
     return <LiveRoomPlannerPage search={search} />;
   }
-  if (pathname.startsWith("/governance/runs")) return <div className="console-band console-governance"><header><div><span>CONTROL PLANE</span><h2>任务与运行</h2></div></header><TaskRows tasks={tasks} /><NotificationRows notifications={notifications} /></div>;
+  if (pathname.startsWith("/governance/runs")) return <GovernanceRunsPage search={search} tasks={tasks} notifications={notifications} loading={loading} />;
   if (pathname.startsWith("/governance/data")) return <DataGovernancePage />;
   if (pathname.startsWith("/knowledge")) return <KnowledgePage />;
   if (pathname.startsWith("/content/projects")) return <ContentProjectsPage />;
