@@ -49,6 +49,17 @@ export interface FunctionalVideoPlan {
   renderProfile: {
     visual_asset_mode?: string;
     visualAssets?: Array<{ assetCode: string; checksumSha256: string }>;
+    visualSelection?: {
+      directAssetCodes: string[];
+      groups: Array<{ groupCode: string; title: string; assetCodes: string[] }>;
+      materialPacks: Array<{
+        packCode: string;
+        role: string;
+        revisionNumber: number;
+        fingerprintSha256: string;
+        assetCodes: string[];
+      }>;
+    };
     target_duration_seconds?: number;
     canvas?: { width: number; height: number; fps: number };
   };
@@ -282,6 +293,9 @@ function plan(value: unknown): FunctionalVideoPlan {
   const code = asString(value.plan_code);
   if (!code) throw new Error("成片计划缺少编码");
   const profile = isRecord(value.render_profile) ? value.render_profile : {};
+  const visualSelection = isRecord(profile.visual_selection)
+    ? profile.visual_selection
+    : {};
   const quality = isRecord(value.quality_report) ? value.quality_report : {};
   const release = isRecord(value.release) ? value.release : undefined;
   return {
@@ -299,6 +313,36 @@ function plan(value: unknown): FunctionalVideoPlan {
           ? [{ assetCode: asString(asset.asset_code), checksumSha256: asString(asset.checksum_sha256) }]
           : [],
       ),
+      visualSelection: {
+        directAssetCodes: asArray(visualSelection.direct_asset_codes).flatMap(
+          (code) => (typeof code === "string" ? [code] : []),
+        ),
+        groups: asArray(visualSelection.group_refs).flatMap((group) =>
+          isRecord(group) && asString(group.group_code)
+            ? [{
+                groupCode: asString(group.group_code),
+                title: asString(group.title, asString(group.group_code)),
+                assetCodes: asArray(group.asset_codes).flatMap((code) =>
+                  typeof code === "string" ? [code] : [],
+                ),
+              }]
+            : [],
+        ),
+        materialPacks: asArray(visualSelection.material_pack_refs).flatMap(
+          (pack) =>
+            isRecord(pack) && asString(pack.pack_code)
+              ? [{
+                  packCode: asString(pack.pack_code),
+                  role: asString(pack.role),
+                  revisionNumber: asNumber(pack.revision_number),
+                  fingerprintSha256: asString(pack.fingerprint_sha256),
+                  assetCodes: asArray(pack.resolved_asset_codes).flatMap(
+                    (code) => (typeof code === "string" ? [code] : []),
+                  ),
+                }]
+              : [],
+        ),
+      },
       target_duration_seconds:
         typeof profile.target_duration_seconds === "number"
           ? profile.target_duration_seconds
@@ -390,6 +434,8 @@ export const functionalVideosApi = {
     title?: string;
     target_duration_seconds: number;
     visual_asset_codes?: string[];
+    visual_group_codes?: string[];
+    visual_material_pack_codes?: string[];
   }) => postJson<unknown>(ROOT, payload).then(plan),
   updateTimeline: (
     code: string,

@@ -1109,6 +1109,16 @@ function Detail({
                 {asset.assetCode} · {asset.checksumSha256.slice(0, 12)}
               </code>
             ))}
+            {plan.renderProfile.visualSelection?.groups.map((group) => (
+              <code key={group.groupCode}>
+                分组 {group.title} · {group.groupCode} · {group.assetCodes.length} 项
+              </code>
+            ))}
+            {plan.renderProfile.visualSelection?.materialPacks.map((pack) => (
+              <code key={pack.packCode}>
+                素材包 {pack.packCode} · r{pack.revisionNumber} · {pack.fingerprintSha256.slice(0, 12)}
+              </code>
+            ))}
           </div>
         ) : null}
         {plan.errorMessage ? (
@@ -1238,6 +1248,10 @@ export function VideoProductionPage() {
   const [liveRoomPlanCode, setLiveRoomPlanCode] = useState("");
   const [duration, setDuration] = useState(55);
   const [visualAssetCodes, setVisualAssetCodes] = useState<string[]>([]);
+  const [visualGroupCodes, setVisualGroupCodes] = useState<string[]>([]);
+  const [visualMaterialPackCodes, setVisualMaterialPackCodes] = useState<
+    string[]
+  >([]);
   const [selected, setSelected] = useState("");
   const projects = useQuery({
     queryKey: ["content-projects"],
@@ -1254,6 +1268,14 @@ export function VideoProductionPage() {
   const assets = useQuery({
     queryKey: ["assets"],
     queryFn: assetLibraryApi.listAssets,
+  });
+  const groups = useQuery({
+    queryKey: ["assets", "groups"],
+    queryFn: assetLibraryApi.listGroups,
+  });
+  const packs = useQuery({
+    queryKey: ["assets", "packs"],
+    queryFn: assetLibraryApi.listPacks,
   });
   useEffect(() => {
     if (!projectCode && projects.data?.[0])
@@ -1286,6 +1308,45 @@ export function VideoProductionPage() {
       asset.mediaKind === "video" &&
       asset.executionCapability === "local_only",
   );
+  const localVideoAssetCodes = new Set(
+    localVideoAssets.map((asset) => asset.assetCode),
+  );
+  const groupsByCode = new Map(
+    (groups.data ?? []).map((group) => [group.groupCode, group]),
+  );
+  const packsByCode = new Map(
+    (packs.data ?? []).map((pack) => [pack.packCode, pack]),
+  );
+  const selectableGroups = (groups.data ?? []).filter(
+    (group) =>
+      group.assetCodes.length > 0 &&
+      group.assetCodes.every((assetCode) => localVideoAssetCodes.has(assetCode)),
+  );
+  const selectablePacks = (packs.data ?? []).filter(
+    (pack) =>
+      pack.status === "published" &&
+      pack.resolvedAssetCodes.length > 0 &&
+      pack.resolvedAssetCodes.every((assetCode) =>
+        localVideoAssetCodes.has(assetCode),
+      ),
+  );
+  const visualSelectionCodes = (
+    assetCodes = visualAssetCodes,
+    groupCodes = visualGroupCodes,
+    packCodes = visualMaterialPackCodes,
+  ) =>
+    Array.from(
+      new Set([
+        ...assetCodes,
+        ...groupCodes.flatMap(
+          (groupCode) => groupsByCode.get(groupCode)?.assetCodes ?? [],
+        ),
+        ...packCodes.flatMap(
+          (packCode) => packsByCode.get(packCode)?.resolvedAssetCodes ?? [],
+        ),
+      ]),
+    );
+  const selectedVisualSourceCodes = visualSelectionCodes();
   const toggleVisualAsset = (assetCode: string) =>
     setVisualAssetCodes((current) =>
       current.includes(assetCode)
@@ -1293,6 +1354,18 @@ export function VideoProductionPage() {
         : current.length < 6
           ? [...current, assetCode]
           : current,
+    );
+  const toggleVisualGroup = (groupCode: string) =>
+    setVisualGroupCodes((current) =>
+      current.includes(groupCode)
+        ? current.filter((code) => code !== groupCode)
+        : [...current, groupCode],
+    );
+  const toggleVisualMaterialPack = (packCode: string) =>
+    setVisualMaterialPackCodes((current) =>
+      current.includes(packCode)
+        ? current.filter((code) => code !== packCode)
+        : [...current, packCode],
     );
   const create = useMutation({
     mutationFn: () =>
@@ -1304,12 +1377,24 @@ export function VideoProductionPage() {
               ...(visualAssetCodes.length
                 ? { visual_asset_codes: visualAssetCodes }
                 : {}),
+              ...(visualGroupCodes.length
+                ? { visual_group_codes: visualGroupCodes }
+                : {}),
+              ...(visualMaterialPackCodes.length
+                ? { visual_material_pack_codes: visualMaterialPackCodes }
+                : {}),
             }
           : {
               live_room_plan_code: liveRoomPlanCode,
               target_duration_seconds: duration,
               ...(visualAssetCodes.length
                 ? { visual_asset_codes: visualAssetCodes }
+                : {}),
+              ...(visualGroupCodes.length
+                ? { visual_group_codes: visualGroupCodes }
+                : {}),
+              ...(visualMaterialPackCodes.length
+                ? { visual_material_pack_codes: visualMaterialPackCodes }
                 : {}),
             },
       ),
@@ -1384,9 +1469,9 @@ export function VideoProductionPage() {
               onChange={(event) => setDuration(Number(event.target.value))}
             />
           </label>
-          {localVideoAssets.length ? (
+          {localVideoAssets.length || selectableGroups.length || selectablePacks.length ? (
             <fieldset className="video-visual-assets">
-              <legend>视觉素材（可选，最多 6 个）</legend>
+              <legend>视觉素材（{selectedVisualSourceCodes.length}/6）</legend>
               {localVideoAssets.map((asset) => (
                 <label key={asset.assetCode}>
                   <input
@@ -1395,12 +1480,54 @@ export function VideoProductionPage() {
                     checked={visualAssetCodes.includes(asset.assetCode)}
                     disabled={
                       !visualAssetCodes.includes(asset.assetCode) &&
-                      visualAssetCodes.length >= 6
+                      visualSelectionCodes([
+                        ...visualAssetCodes,
+                        asset.assetCode,
+                      ]).length > 6
                     }
                     onChange={() => toggleVisualAsset(asset.assetCode)}
                   />
                   <span>{asset.title}</span>
                   <code>{asset.assetCode}</code>
+                </label>
+              ))}
+              {selectableGroups.map((group) => (
+                <label key={group.groupCode}>
+                  <input
+                    type="checkbox"
+                    aria-label={`选择分组 ${group.title}`}
+                    checked={visualGroupCodes.includes(group.groupCode)}
+                    disabled={
+                      !visualGroupCodes.includes(group.groupCode) &&
+                      visualSelectionCodes(
+                        visualAssetCodes,
+                        [...visualGroupCodes, group.groupCode],
+                      ).length > 6
+                    }
+                    onChange={() => toggleVisualGroup(group.groupCode)}
+                  />
+                  <span>分组 · {group.title}</span>
+                  <code>{group.groupCode} · {group.assetCodes.length} 项</code>
+                </label>
+              ))}
+              {selectablePacks.map((pack) => (
+                <label key={pack.packCode}>
+                  <input
+                    type="checkbox"
+                    aria-label={`选择素材包 ${pack.title}`}
+                    checked={visualMaterialPackCodes.includes(pack.packCode)}
+                    disabled={
+                      !visualMaterialPackCodes.includes(pack.packCode) &&
+                      visualSelectionCodes(
+                        visualAssetCodes,
+                        visualGroupCodes,
+                        [...visualMaterialPackCodes, pack.packCode],
+                      ).length > 6
+                    }
+                    onChange={() => toggleVisualMaterialPack(pack.packCode)}
+                  />
+                  <span>素材包 · {pack.title}</span>
+                  <code>{pack.packCode} · r{pack.revisionNumber} · {pack.resolvedAssetCodes.length} 项</code>
                 </label>
               ))}
             </fieldset>

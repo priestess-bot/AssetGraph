@@ -13,6 +13,10 @@ from app.core.config import settings
 from app.domain.contracts import canonical_fingerprint, canonical_json_bytes
 from app.domain.errors import DomainValidationError
 from app.repositories.content_production import ContentProductionRepository
+from app.repositories.material_library import (
+    MaterialLibraryRepository,
+    MaterialLibraryValidationError,
+)
 from app.repositories.releases import ReleaseRepository
 from app.repositories.video_productions import VideoProductionRepository
 from app.services.functional_content import FunctionalContentService
@@ -33,6 +37,7 @@ class FunctionalVideoService:
         self.content = FunctionalContentService(connection)
         self.production = ContentProductionRepository(connection)
         self.videos = VideoProductionRepository(connection)
+        self.materials = MaterialLibraryRepository(connection)
         self._release_signing_key = release_signing_key
         self._release_signing_key_id = release_signing_key_id
 
@@ -43,7 +48,11 @@ class FunctionalVideoService:
         if not detail["generated"] or not detail["story_brief"] or not detail["script"] or not detail["shot_list"]:
             raise DomainValidationError("VIDEO_CONTENT_CHAIN_REQUIRED", "Generate the ContentProject before creating a video plan")
         duration = int(payload["target_duration_seconds"])
-        visual_assets = self._resolve_visual_assets(payload.get("visual_asset_codes") or [])
+        visual_assets, visual_selection = self._resolve_visual_assets(
+            payload.get("visual_asset_codes") or [],
+            group_codes=payload.get("visual_group_codes") or [],
+            material_pack_codes=payload.get("visual_material_pack_codes") or [],
+        )
         story, script, shots, timeline = self._compile_content(detail, duration, visual_assets=visual_assets)
         variant = self.production.create_production_variant(
             project_code=detail["project_code"], project_revision=int(detail["revision_number"]),
@@ -64,6 +73,7 @@ class FunctionalVideoService:
                 "source": "asset_library_local_video_assets.v1" if visual_assets else "baseline_verified_video_assets.v1",
                 "asset_codes": [shot["asset_code"] for shot in shots["shots"]],
                 "assets": visual_assets,
+                "visual_selection": visual_selection,
             },
             constraint_snapshot_ref={"source": "functional-content-timeline.v1"},
             actor_id=actor_id, producer_strategy_revision="functional-video.v1",
@@ -86,6 +96,7 @@ class FunctionalVideoService:
                 }
                 for asset in visual_assets
             ],
+            "visual_selection": visual_selection,
             "target_duration_seconds": duration,
             "source_live_room_plan_code": detail.get("source_live_room_plan_code"),
         }
@@ -112,15 +123,114 @@ class FunctionalVideoService:
             return self._live_room_source_detail(str(live_room_plan_code))
         return self.content.get_detail(str(payload["project_code"]))
 
-    def _resolve_visual_assets(self, codes: list[Any]) -> list[dict[str, str]]:
-        selected_codes = [str(code).strip() for code in codes if str(code).strip()]
+    def _resolve_visual_assets(
+        self,
+        asset_codes: list[Any],
+        *,
+        group_codes: list[Any],
+        material_pack_codes: list[Any],
+    ) -> tuple[list[dict[str, str]], dict[str, Any]]:
+        """Resolve material-library selection once and retain only immutable snapshots.
+
+        Asset groups are intentionally mutable authoring aids. Their active member list
+        is therefore expanded here and retained on the plan; published packs additionally
+        retain their immutable revision fingerprint.
+        """
+        direct_codes = self._unique_selection_codes(
+            asset_codes,
+            duplicate_code="VIDEO_VISUAL_ASSET_DUPLICATE",
+            label="Visual asset codes",
+        )
+        selected_group_codes = self._unique_selection_codes(
+            group_codes,
+            duplicate_code="VIDEO_VISUAL_GROUP_DUPLICATE",
+            label="Visual group codes",
+        )
+        selected_pack_codes = self._unique_selection_codes(
+            material_pack_codes,
+            duplicate_code="VIDEO_VISUAL_MATERIAL_PACK_DUPLICATE",
+            label="Visual material pack codes",
+        )
+        group_refs: list[dict[str, Any]] = []
+        group_asset_codes: list[str] = []
+        for group_code in selected_group_codes:
+            group = self.materials.get_group(group_code)
+            if group is None:
+                raise DomainValidationError(
+                    "VIDEO_VISUAL_GROUP_NOT_FOUND",
+                    "Every selected visual material group must exist",
+                    details={"group_code": group_code},
+                )
+            expanded_codes = list(group.get("asset_codes") or [])
+            if not expanded_codes:
+                raise DomainValidationError(
+                    "VIDEO_VISUAL_GROUP_EMPTY",
+                    "A selected visual material group must contain at least one active asset",
+                    details={"group_code": group_code},
+                )
+            group_refs.append(
+                {
+                    "group_code": group_code,
+                    "title": group["title"],
+                    "asset_codes": expanded_codes,
+                }
+            )
+            group_asset_codes.extend(expanded_codes)
+        try:
+            material_pack_refs, pack_asset_codes = self.materials.resolve_published_packs(selected_pack_codes)
+        except MaterialLibraryValidationError as exc:
+            raise DomainValidationError(
+                "VIDEO_VISUAL_MATERIAL_PACK_INVALID",
+                str(exc),
+            ) from exc
+
+        selected_codes = list(dict.fromkeys([*direct_codes, *group_asset_codes, *pack_asset_codes]))
+        if len(selected_codes) > 6:
+            raise DomainValidationError(
+                "VIDEO_VISUAL_ASSET_LIMIT_EXCEEDED",
+                "Expanded visual material selection may contain at most six unique local videos",
+                details={"asset_count": len(selected_codes), "limit": 6},
+            )
+        assets = self._resolve_local_video_assets(selected_codes)
+        selection_sources: dict[str, list[dict[str, str]]] = {}
+
+        def add_source(asset_code: str, kind: str, code: str) -> None:
+            source = {"kind": kind, "code": code}
+            sources = selection_sources.setdefault(asset_code, [])
+            if source not in sources:
+                sources.append(source)
+
+        for asset_code in direct_codes:
+            add_source(asset_code, "loose_asset", asset_code)
+        for group in group_refs:
+            for asset_code in group["asset_codes"]:
+                add_source(asset_code, "asset_group", str(group["group_code"]))
+        for pack in material_pack_refs:
+            for asset_code in pack["resolved_asset_codes"]:
+                add_source(asset_code, "material_pack", str(pack["pack_code"]))
+        return assets, {
+            "direct_asset_codes": direct_codes,
+            "group_refs": group_refs,
+            "material_pack_refs": material_pack_refs,
+            "asset_codes": selected_codes,
+            "selection_sources": selection_sources,
+        }
+
+    @staticmethod
+    def _unique_selection_codes(
+        values: list[Any],
+        *,
+        duplicate_code: str,
+        label: str,
+    ) -> list[str]:
+        selected_codes = [str(value).strip() for value in values if str(value).strip()]
+        if len(selected_codes) != len(set(selected_codes)):
+            raise DomainValidationError(duplicate_code, f"{label} must be unique")
+        return selected_codes
+
+    def _resolve_local_video_assets(self, selected_codes: list[str]) -> list[dict[str, str]]:
         if not selected_codes:
             return []
-        if len(selected_codes) != len(set(selected_codes)):
-            raise DomainValidationError(
-                "VIDEO_VISUAL_ASSET_DUPLICATE",
-                "Visual asset codes must be unique",
-            )
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
                 """

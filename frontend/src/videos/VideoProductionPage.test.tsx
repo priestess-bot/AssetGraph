@@ -20,7 +20,7 @@ const plan = {
       { clip_code: "SUBTITLE-SHOT-02", linked_shot_code: "SHOT-02", timeline_range: { start_ms: 30_000, duration_ms: 30_000 }, subtitle_text: "第二段字幕", headline_text: "第二段标题" },
     ] },
   ] },
-  render_profile: { canvas: { width: 1080, height: 1920, fps: 30 }, visual_assets: [{ asset_code: "AG-VID-000001", checksum_sha256: "a".repeat(64) }] }, job_status: "queued", current_stage: "asset_selection", progress_percent: 37, error_message: null,
+  render_profile: { canvas: { width: 1080, height: 1920, fps: 30 }, visual_assets: [{ asset_code: "AG-VID-000001", checksum_sha256: "a".repeat(64) }], visual_selection: { group_refs: [{ group_code: "AG-GRP-001", title: "商品讲解组", asset_codes: ["AG-VID-000001"] }], material_pack_refs: [{ pack_code: "AG-PACK-001", role: "supporting_video", revision_number: 1, fingerprint_sha256: "b".repeat(64), resolved_asset_codes: ["AG-VID-000001"] }] } }, job_status: "queued", current_stage: "asset_selection", progress_percent: 37, error_message: null,
   workflow_stages: [{ stage_name: "asset_selection", stage_order: 4, status: "succeeded", attempt: 1 }, { stage_name: "quality_check", stage_order: 8, status: "pending", attempt: 1 }], quality_report: { passed: true, checks: { video_stream: true, subtitle_text_complete: true }, media: { duration_seconds: 55, width: 1080, height: 1920, video_codec: "h264", audio_codec: "aac", audio_sample_rate: 48000 }, loudness: { integrated_lufs: -16.2, true_peak_db: -1.4, lra: 4.1 }, black_segments: [{ start_seconds: 2, end_seconds: 2.4, duration_seconds: .4 }], silence_segments: [], freeze_segments: [] }, artifacts: [{ artifact_key: "poster", download_url: "/files/poster.jpg", mime_type: "image/jpeg" }], created_at: "2026-07-25T00:00:00Z", updated_at: "2026-07-25T00:00:00Z",
 };
 
@@ -36,6 +36,8 @@ describe("VideoProductionPage", () => {
       const url = String(input); requests.push({ url, init });
       if (url === "/api/content-projects") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
       if (url === "/api/functional-live-room-plans") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/assets/groups") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/assets/material-packs") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
       if (url === "/api/assets") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
       if (url === "/api/functional-video-plans") return new Response(JSON.stringify([plan]), { status: 200, headers: { "Content-Type": "application/json" } });
       if (url === "/api/functional-video-plans/VIDPLAN-001") return new Response(JSON.stringify(plan), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -55,6 +57,8 @@ describe("VideoProductionPage", () => {
     expect(screen.getByText("黑帧")).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "成片海报" })).toHaveAttribute("src", "/files/poster.jpg");
     expect(screen.getByText("AG-VID-000001 · aaaaaaaaaaaa")).toBeInTheDocument();
+    expect(screen.getByText("分组 商品讲解组 · AG-GRP-001 · 1 项")).toBeInTheDocument();
+    expect(screen.getByText("素材包 AG-PACK-001 · r1 · bbbbbbbbbbbb")).toBeInTheDocument();
     expect(await screen.findByText("修订历史")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "上移 SHOT-02" }));
     await user.clear(screen.getByRole("spinbutton", { name: "素材入点 SHOT-02" }));
@@ -92,6 +96,8 @@ describe("VideoProductionPage", () => {
       const url = String(input); requests.push({ url, init });
       if (url === "/api/content-projects") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
       if (url === "/api/functional-live-room-plans") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/assets/groups") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/assets/material-packs") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
       if (url === "/api/assets") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
       if (url === "/api/functional-video-plans") return new Response(JSON.stringify([current]), { status: 200, headers: { "Content-Type": "application/json" } });
       if (url === "/api/functional-video-plans/VIDPLAN-001") return new Response(JSON.stringify(current), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -116,6 +122,8 @@ describe("VideoProductionPage", () => {
       const url = String(input); requests.push({ url, init });
       if (url === "/api/content-projects") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
       if (url === "/api/functional-live-room-plans") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/assets/groups") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/assets/material-packs") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
       if (url === "/api/assets") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
       if (url === "/api/functional-video-plans") return new Response(JSON.stringify([running]), { status: 200, headers: { "Content-Type": "application/json" } });
       if (url === "/api/functional-video-plans/VIDPLAN-001") return new Response(JSON.stringify(running), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -142,6 +150,8 @@ describe("VideoProductionPage", () => {
       const url = String(input); requests.push({ url, init });
       if (url === "/api/content-projects") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
       if (url === "/api/functional-live-room-plans") return new Response(JSON.stringify([{ plan_code: "LIVEPLAN-001", expected_title: "夏日直播间" }]), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/assets/groups") return new Response(JSON.stringify([{ group_code: "AG-GRP-001", title: "商品讲解组", asset_codes: ["AG-VID-000001"], asset_count: 1 }]), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/assets/material-packs") return new Response(JSON.stringify([{ pack_code: "AG-PACK-001", title: "讲解素材包", role: "supporting_video", revision_number: 1, status: "published", fingerprint_sha256: "b".repeat(64), entries: [], resolved_asset_codes: ["AG-VID-000001"] }]), { status: 200, headers: { "Content-Type": "application/json" } });
       if (url === "/api/assets") return new Response(JSON.stringify([{ asset_code: "AG-VID-000001", title: "本地商品讲解", asset_type: "VID", media_kind: "video", execution_capability: "local_only" }]), { status: 200, headers: { "Content-Type": "application/json" } });
       if (url === "/api/functional-video-plans") {
         if (init?.method === "POST") return new Response(JSON.stringify(plan), { status: 201, headers: { "Content-Type": "application/json" } });
@@ -157,10 +167,12 @@ describe("VideoProductionPage", () => {
     await user.selectOptions(await screen.findByRole("combobox", { name: "内容来源" }), "live_room");
     await user.selectOptions(screen.getByRole("combobox", { name: "直播间计划" }), "LIVEPLAN-001");
     await user.click(screen.getByRole("checkbox", { name: "选择 本地商品讲解" }));
+    await user.click(screen.getByRole("checkbox", { name: "选择分组 商品讲解组" }));
+    await user.click(screen.getByRole("checkbox", { name: "选择素材包 讲解素材包" }));
     await user.click(screen.getByRole("button", { name: "创建渲染任务" }));
 
     const request = requests.find((item) => item.url === "/api/functional-video-plans" && item.init?.method === "POST");
-    expect(request?.init?.body).toBe(JSON.stringify({ live_room_plan_code: "LIVEPLAN-001", target_duration_seconds: 55, visual_asset_codes: ["AG-VID-000001"] }));
+    expect(request?.init?.body).toBe(JSON.stringify({ live_room_plan_code: "LIVEPLAN-001", target_duration_seconds: 55, visual_asset_codes: ["AG-VID-000001"], visual_group_codes: ["AG-GRP-001"], visual_material_pack_codes: ["AG-PACK-001"] }));
   });
 
   it("creates a release candidate only from a QC-passed completed video", async () => {
@@ -177,6 +189,8 @@ describe("VideoProductionPage", () => {
       const url = String(input); requests.push({ url, init });
       if (url === "/api/content-projects") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
       if (url === "/api/functional-live-room-plans") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/assets/groups") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/assets/material-packs") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
       if (url === "/api/assets") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
       if (url === "/api/functional-video-plans") return new Response(JSON.stringify([completed]), { status: 200, headers: { "Content-Type": "application/json" } });
       if (url === "/api/functional-video-plans/VIDPLAN-001") return new Response(JSON.stringify(completed), { status: 200, headers: { "Content-Type": "application/json" } });

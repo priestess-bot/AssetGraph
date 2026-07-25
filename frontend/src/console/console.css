@@ -443,7 +443,7 @@
 .video-progress > i { display: block; height: 100%; background: var(--wb-accent); transition: width 160ms ease; }
 .video-frozen-assets { display: flex; flex-wrap: wrap; gap: 5px 8px; padding: 10px 13px 0; }
 .video-frozen-assets span { color: var(--wb-muted); font-size: 8px; }
-.video-frozen-assets code { color: var(--console-cyan); font-size: 8px; }
+.video-frozen-assets code { color: var(--console-cyan); font-size: 8px; overflow-wrap: anywhere; }
 .video-plan-detail .wb-notice { margin: 11px 13px 0; }
 .video-timeline { display: flex; min-height: 110px; gap: 3px; padding: 13px; overflow-x: auto; }
 .video-poster-control { display: grid; max-width: 180px; gap: 4px; padding: 0 13px 13px; }

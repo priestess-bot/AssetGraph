@@ -14,3 +14,20 @@ def test_video_plan_create_requires_exactly_one_content_source() -> None:
         FunctionalVideoPlanCreate()
     with pytest.raises(ValidationError, match="exactly one"):
         FunctionalVideoPlanCreate(project_code="CONTENT-001", live_room_plan_code="LIVEPLAN-001")
+
+
+def test_video_plan_create_validates_each_visual_selection_list() -> None:
+    plan = FunctionalVideoPlanCreate(
+        project_code="CONTENT-001",
+        visual_asset_codes=["AG-VID-001"],
+        visual_group_codes=["AG-GRP-001"],
+        visual_material_pack_codes=["AG-PACK-001"],
+    )
+
+    assert plan.visual_group_codes == ["AG-GRP-001"]
+    assert plan.visual_material_pack_codes == ["AG-PACK-001"]
+    with pytest.raises(ValidationError, match="unique"):
+        FunctionalVideoPlanCreate(
+            project_code="CONTENT-001",
+            visual_material_pack_codes=["AG-PACK-001", "AG-PACK-001"],
+        )

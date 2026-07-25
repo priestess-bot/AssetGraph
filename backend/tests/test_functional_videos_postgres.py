@@ -9,6 +9,7 @@ from psycopg.types.json import Jsonb
 
 from app.domain.errors import DomainValidationError
 from app.repositories.assets import AssetRepository
+from app.repositories.material_library import MaterialLibraryRepository
 from app.services.functional_content import FunctionalContentService
 from app.services.functional_live_rooms import FunctionalLiveRoomService
 from app.services.functional_videos import FunctionalVideoService
@@ -175,6 +176,97 @@ def test_functional_video_plan_freezes_selected_local_library_videos() -> None:
         assert {clip["source_range"]["asset_code"] for clip in plan["production_timeline"]["tracks"][0]["clips"]} == {
             asset["asset_code"]
         }
+        connection.rollback()
+
+
+def test_functional_video_plan_freezes_local_video_group_and_published_pack_expansion() -> None:
+    suffix = uuid4().hex
+    with psycopg.connect(DATABASE_URL) as connection:
+        generated = _generated_project(connection, suffix)
+        assets = AssetRepository(connection)
+        library = MaterialLibraryRepository(connection)
+        grouped_asset = assets.create(
+            {
+                "asset_type": "VID",
+                "title": f"Grouped clip {suffix}",
+                "original_filename": f"grouped-{suffix}.mp4",
+                "media_kind": "video",
+                "material_roles": ["supporting_video"],
+                "execution_capability": "local_only",
+                "local_relative_path": f"video/grouped-{suffix}.mp4",
+                "checksum_sha256": "b" * 64,
+            }
+        )
+        direct_asset = assets.create(
+            {
+                "asset_type": "VID",
+                "title": f"Direct clip {suffix}",
+                "original_filename": f"direct-{suffix}.mp4",
+                "media_kind": "video",
+                "material_roles": ["supporting_video"],
+                "execution_capability": "local_only",
+                "local_relative_path": f"video/direct-{suffix}.mp4",
+                "checksum_sha256": "c" * 64,
+            }
+        )
+        group = library.create_group(
+            {
+                "title": f"Video group {suffix}",
+                "asset_codes": [grouped_asset["asset_code"]],
+            }
+        )
+        pack = library.create_pack(
+            {
+                "title": f"Video pack {suffix}",
+                "role": "supporting_video",
+                "entries": [
+                    {
+                        "selection_kind": "group",
+                        "selection_code": group["group_code"],
+                        "mode": "required",
+                        "min_occurrences": 1,
+                    }
+                ],
+            }
+        )
+        published = library.publish_pack(pack["pack_code"])
+        assert published is not None
+
+        plan = FunctionalVideoService(connection).create_plan(
+            {
+                "project_code": generated["project_code"],
+                "target_duration_seconds": 55,
+                "visual_asset_codes": [direct_asset["asset_code"]],
+                "visual_group_codes": [group["group_code"]],
+                "visual_material_pack_codes": [pack["pack_code"]],
+            },
+            actor_id="test-operator",
+        )
+
+        selection = plan["render_profile"]["visual_selection"]
+        assert plan["render_profile"]["visual_asset_codes"] == [
+            direct_asset["asset_code"],
+            grouped_asset["asset_code"],
+        ]
+        assert selection["direct_asset_codes"] == [direct_asset["asset_code"]]
+        assert selection["group_refs"] == [
+            {
+                "group_code": group["group_code"],
+                "title": group["title"],
+                "asset_codes": [grouped_asset["asset_code"]],
+            }
+        ]
+        assert selection["material_pack_refs"][0]["pack_code"] == pack["pack_code"]
+        assert selection["material_pack_refs"][0]["revision_number"] == 1
+        assert selection["selection_sources"][grouped_asset["asset_code"]] == [
+            {"kind": "asset_group", "code": group["group_code"]},
+            {"kind": "material_pack", "code": pack["pack_code"]},
+        ]
+
+        library.replace_group_members(group["group_code"], [direct_asset["asset_code"]])
+        frozen = FunctionalVideoService(connection).get_plan(plan["plan_code"])
+        assert frozen is not None
+        assert frozen["render_profile"]["visual_selection"] == selection
         connection.rollback()
 
 
