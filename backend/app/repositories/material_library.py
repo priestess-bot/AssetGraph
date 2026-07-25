@@ -334,32 +334,66 @@ class MaterialLibraryRepository:
         return self.get_constraint_profile(asset_code)
 
     def create_pack(self, payload: dict[str, Any]) -> dict[str, Any]:
-        entries = payload.get("entries") or []
-        self._validate_pack_entries(entries)
-        canonical = self._canonical(entries)
-        with self.connection.cursor(row_factory=dict_row) as cursor:
-            self._require_entry_targets(cursor, entries)
-            pack_code = self._next_code(cursor, "AG-PACK", "material_pack")
-            cursor.execute(
-                """INSERT INTO material_packs (pack_code, title, role, description, current_revision)
-                   VALUES (%s, %s, %s, %s, 1) RETURNING *""",
-                (pack_code, payload["title"], payload["role"], payload.get("description")),
-            )
-            pack = cursor.fetchone()
-            cursor.execute(
-                """INSERT INTO material_pack_revisions (pack_id, revision_number, entries, fingerprint_sha256)
-                   VALUES (%s, 1, %s::jsonb, %s)""",
-                (pack["id"], canonical, self._fingerprint(canonical)),
-            )
-        self.connection.commit()
+        # Repository callers that predate the API contract supplied only the
+        # legacy role field.  Preserve those packages as total packs while the
+        # validated API explicitly defaults new requests to classification.
+        legacy_payload = "pack_kind" not in payload
+        pack_kind = str(payload.get("pack_kind") or ("total" if legacy_payload else "classification"))
+        role = str(payload.get("role") or "").strip() or None
+        raw_entries = [
+            ({**entry, "material_role": role} if legacy_payload and not entry.get("material_role") else entry)
+            for entry in (payload.get("entries") or [])
+        ]
+        exclusive_roles = self._dedupe_codes(payload.get("exclusive_roles") or [])
+        pack_constraints = list(payload.get("pack_constraints") or [])
+        self._validate_pack_shape(pack_kind=pack_kind, role=role, entries=raw_entries)
+        try:
+            with self.connection.cursor(row_factory=dict_row) as cursor:
+                entries = self._prepare_pack_entries(
+                    cursor,
+                    raw_entries,
+                    pack_kind=pack_kind,
+                    role=role,
+                )
+                revision_payload = self._revision_payload(
+                    entries=entries,
+                    exclusive_roles=exclusive_roles,
+                    pack_constraints=pack_constraints,
+                )
+                canonical = self._canonical(revision_payload)
+                pack_code = self._next_code(cursor, "AG-PACK", "material_pack")
+                cursor.execute(
+                    """INSERT INTO material_packs
+                       (pack_code, title, pack_kind, role, description, current_revision, status)
+                       VALUES (%s, %s, %s, %s, %s, 1, 'draft') RETURNING *""",
+                    (pack_code, payload["title"], pack_kind, role, payload.get("description")),
+                )
+                pack = cursor.fetchone()
+                cursor.execute(
+                    """INSERT INTO material_pack_revisions
+                       (pack_id, revision_number, status, entries, exclusive_roles, pack_constraints, fingerprint_sha256)
+                       VALUES (%s, 1, 'draft', %s::jsonb, %s::jsonb, %s::jsonb, %s)""",
+                    (
+                        pack["id"],
+                        json.dumps(entries),
+                        json.dumps(exclusive_roles),
+                        json.dumps(pack_constraints),
+                        self._fingerprint(canonical),
+                    ),
+                )
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
         return self.get_pack(pack_code)  # type: ignore[return-value]
 
     def list_packs(self) -> list[dict[str, Any]]:
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
                 """
-                SELECT p.pack_code, p.title, p.role, p.description, p.current_revision,
-                       p.status, p.created_at, p.updated_at, r.entries, r.fingerprint_sha256
+                SELECT p.pack_code, p.title, p.pack_kind, p.role, p.description, p.current_revision,
+                       p.published_revision, p.status, p.created_at, p.updated_at, r.status AS revision_status,
+                       r.entries, r.exclusive_roles, r.pack_constraints, r.fingerprint_sha256
                 FROM material_packs p
                 JOIN material_pack_revisions r ON r.pack_id = p.id AND r.revision_number = p.current_revision
                 WHERE p.status <> 'archived' ORDER BY p.updated_at DESC, p.pack_code
@@ -372,8 +406,9 @@ class MaterialLibraryRepository:
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
                 """
-                SELECT p.pack_code, p.title, p.role, p.description, p.current_revision,
-                       p.status, p.created_at, p.updated_at, r.entries, r.fingerprint_sha256
+                SELECT p.pack_code, p.title, p.pack_kind, p.role, p.description, p.current_revision,
+                       p.published_revision, p.status, p.created_at, p.updated_at, r.status AS revision_status,
+                       r.entries, r.exclusive_roles, r.pack_constraints, r.fingerprint_sha256
                 FROM material_packs p
                 JOIN material_pack_revisions r ON r.pack_id = p.id AND r.revision_number = p.current_revision
                 WHERE p.pack_code = %s
@@ -384,22 +419,53 @@ class MaterialLibraryRepository:
         return self._pack_read(row) if row else None
 
     def publish_pack(self, pack_code: str) -> dict[str, Any] | None:
-        """Make the current immutable pack revision eligible for branch selection."""
-        with self.connection.cursor(row_factory=dict_row) as cursor:
-            cursor.execute("SELECT id, status FROM material_packs WHERE pack_code = %s FOR UPDATE", (pack_code,))
-            pack = cursor.fetchone()
-            if pack is None:
-                self.connection.rollback()
-                return None
-            if pack["status"] == "archived":
-                self.connection.rollback()
-                raise MaterialLibraryValidationError("Archived material packs cannot be published")
-            if pack["status"] != "published":
+        """Publish the current immutable revision without invalidating an older snapshot."""
+        try:
+            with self.connection.cursor(row_factory=dict_row) as cursor:
                 cursor.execute(
-                    "UPDATE material_packs SET status = 'published', updated_at = now() WHERE id = %s",
+                    """SELECT id, current_revision, published_revision, status
+                       FROM material_packs WHERE pack_code = %s FOR UPDATE""",
+                    (pack_code,),
+                )
+                pack = cursor.fetchone()
+                if pack is None:
+                    self.connection.rollback()
+                    return None
+                if pack["status"] == "archived":
+                    raise MaterialLibraryValidationError("Archived material packs cannot be published")
+                cursor.execute(
+                    """SELECT entries, exclusive_roles, pack_constraints
+                       FROM material_pack_revisions
+                       WHERE pack_id = %s AND revision_number = %s FOR UPDATE""",
+                    (pack["id"], pack["current_revision"]),
+                )
+                revision = cursor.fetchone()
+                if revision is None:
+                    raise MaterialLibraryValidationError("Material pack current revision is missing")
+                if not self._resolve_entries(list(revision["entries"] or [])):
+                    raise MaterialLibraryValidationError("Material pack must resolve to at least one active asset before publication")
+                previous_published = pack.get("published_revision")
+                if previous_published and int(previous_published) != int(pack["current_revision"]):
+                    cursor.execute(
+                        """UPDATE material_pack_revisions SET status = 'superseded'
+                           WHERE pack_id = %s AND revision_number = %s AND status = 'published'""",
+                        (pack["id"], previous_published),
+                    )
+                cursor.execute(
+                    """UPDATE material_pack_revisions SET status = 'published'
+                       WHERE pack_id = %s AND revision_number = %s""",
+                    (pack["id"], pack["current_revision"]),
+                )
+                cursor.execute(
+                    """UPDATE material_packs
+                       SET published_revision = current_revision, status = 'published', updated_at = now()
+                       WHERE id = %s""",
                     (pack["id"],),
                 )
-        self.connection.commit()
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
         return self.get_pack(pack_code)
 
     def create_pack_revision(
@@ -408,14 +474,14 @@ class MaterialLibraryRepository:
         *,
         expected_revision: int,
         entries: list[dict[str, Any]],
+        exclusive_roles: list[str] | None = None,
+        pack_constraints: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any] | None:
-        self._validate_pack_entries(entries)
-        canonical = self._canonical(entries)
-        fingerprint = self._fingerprint(canonical)
         try:
             with self.connection.cursor(row_factory=dict_row) as cursor:
                 cursor.execute(
-                    "SELECT id, current_revision, status FROM material_packs WHERE pack_code = %s FOR UPDATE",
+                    """SELECT id, current_revision, published_revision, status, pack_kind, role
+                       FROM material_packs WHERE pack_code = %s FOR UPDATE""",
                     (pack_code,),
                 )
                 pack = cursor.fetchone()
@@ -429,13 +495,46 @@ class MaterialLibraryRepository:
                     raise MaterialLibraryValidationError(
                         "MATERIAL_PACK_REVISION_CONFLICT: current revision changed"
                     )
-                self._require_entry_targets(cursor, entries)
+                self._validate_pack_shape(
+                    pack_kind=str(pack["pack_kind"]), role=pack.get("role"), entries=entries
+                )
+                prepared_entries = self._prepare_pack_entries(
+                    cursor,
+                    entries,
+                    pack_kind=str(pack["pack_kind"]),
+                    role=pack.get("role"),
+                )
+                if exclusive_roles is None or pack_constraints is None:
+                    cursor.execute(
+                        """SELECT exclusive_roles, pack_constraints FROM material_pack_revisions
+                           WHERE pack_id = %s AND revision_number = %s""",
+                        (pack["id"], current_revision),
+                    )
+                    current = cursor.fetchone()
+                    if current is None:
+                        raise MaterialLibraryValidationError("Material pack current revision is missing")
+                    if exclusive_roles is None:
+                        exclusive_roles = list(current["exclusive_roles"] or [])
+                    if pack_constraints is None:
+                        pack_constraints = list(current["pack_constraints"] or [])
+                normalized_exclusive_roles = self._dedupe_codes(exclusive_roles or [])
+                normalized_pack_constraints = list(pack_constraints or [])
+                revision_payload = self._revision_payload(
+                    entries=prepared_entries,
+                    exclusive_roles=normalized_exclusive_roles,
+                    pack_constraints=normalized_pack_constraints,
+                )
+                canonical = self._canonical(revision_payload)
+                fingerprint = self._fingerprint(canonical)
                 next_revision = current_revision + 1
                 cursor.execute(
                     """INSERT INTO material_pack_revisions
-                       (pack_id, revision_number, entries, fingerprint_sha256)
-                       VALUES (%s, %s, %s::jsonb, %s)""",
-                    (pack["id"], next_revision, canonical, fingerprint),
+                       (pack_id, revision_number, status, entries, exclusive_roles, pack_constraints, fingerprint_sha256)
+                       VALUES (%s, %s, 'draft', %s::jsonb, %s::jsonb, %s::jsonb, %s)""",
+                    (
+                        pack["id"], next_revision, json.dumps(prepared_entries),
+                        json.dumps(normalized_exclusive_roles), json.dumps(normalized_pack_constraints), fingerprint,
+                    ),
                 )
                 cursor.execute(
                     """UPDATE material_packs
@@ -453,7 +552,8 @@ class MaterialLibraryRepository:
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
                 """
-                SELECT revision_number, entries, fingerprint_sha256, created_at
+                SELECT revision_number, status, entries, exclusive_roles, pack_constraints,
+                       fingerprint_sha256, created_at
                 FROM material_pack_revisions
                 WHERE pack_id = (SELECT id FROM material_packs WHERE pack_code = %s)
                 ORDER BY revision_number DESC
@@ -464,30 +564,75 @@ class MaterialLibraryRepository:
         return [self._stringify(row) for row in rows]
 
     def resolve_published_packs(self, pack_codes: list[str]) -> tuple[list[dict[str, Any]], list[str]]:
-        """Expand pack/group membership once so a downstream snapshot has no dynamic references."""
+        """Resolve selected published revisions and reject hard pack conflicts."""
+        resolution = self.preview_published_pack_resolution(pack_codes)
+        conflicts = list(resolution["conflicts"])
+        if conflicts:
+            codes = ", ".join(str(conflict["code"]) for conflict in conflicts)
+            raise MaterialLibraryValidationError(f"MATERIAL_PACK_CONFLICT: {codes}")
+        return list(resolution["pack_refs"]), list(resolution["resolved_asset_codes"])
+
+    def preview_published_pack_resolution(self, pack_codes: list[str]) -> dict[str, Any]:
+        """Return the exact revision whitelist, merged rules and explainable conflicts.
+
+        This is used by the workbench before confirmation.  It deliberately
+        returns conflicts rather than silently choosing a winner for mutually
+        exclusive role domains.
+        """
         refs: list[dict[str, Any]] = []
-        resolved_codes: list[str] = []
         for pack_code in self._dedupe_codes(pack_codes):
-            pack = self.get_pack(pack_code)
-            if pack is None:
+            published = self._get_published_pack(pack_code)
+            if published is None:
                 raise MaterialLibraryValidationError(f"Unknown material pack code: {pack_code}")
-            if pack["status"] != "published":
+            if published.get("published_revision_number") is None:
                 raise MaterialLibraryValidationError(f"Material pack must be published before selection: {pack_code}")
-            asset_codes = list(pack["resolved_asset_codes"])
-            if not asset_codes:
+            if not published["resolved_asset_codes"]:
                 raise MaterialLibraryValidationError(f"Published material pack resolves to no active assets: {pack_code}")
             refs.append(
                 {
-                    "pack_code": pack["pack_code"],
-                    "revision_number": int(pack["revision_number"]),
-                    "fingerprint_sha256": pack["fingerprint_sha256"],
-                    "role": pack["role"],
-                    "entries": pack["entries"],
-                    "resolved_asset_codes": asset_codes,
+                    "pack_code": published["pack_code"],
+                    "pack_kind": published["pack_kind"],
+                    "revision_number": int(published["revision_number"]),
+                    "fingerprint_sha256": published["fingerprint_sha256"],
+                    "role": published.get("role"),
+                    "revision_status": published["revision_status"],
+                    "exclusive_roles": list(published.get("exclusive_roles") or []),
+                    "pack_constraints": list(published.get("pack_constraints") or []),
+                    "entries": list(published["entries"]),
+                    "resolved_entries": list(published["resolved_entries"]),
+                    "resolved_asset_codes": list(published["resolved_asset_codes"]),
                 }
             )
-            resolved_codes.extend(asset_codes)
-        return refs, self._dedupe_codes(resolved_codes)
+        material_rules, rule_conflicts = self._merge_material_rules(refs)
+        entry_requirements = [
+            {
+                "pack_code": ref["pack_code"],
+                "revision_number": ref["revision_number"],
+                "pack_kind": ref["pack_kind"],
+                **entry,
+            }
+            for ref in refs
+            for entry in ref["resolved_entries"]
+        ]
+        conflicts = [*self._exclusive_role_conflicts(refs), *rule_conflicts]
+        fingerprint_payload = {
+            "schema_version": "material-pack-resolution.v1",
+            "pack_refs": refs,
+            "entry_requirements": entry_requirements,
+            "material_rules": material_rules,
+            "conflicts": conflicts,
+        }
+        return {
+            "schema_version": "material-pack-resolution.v1",
+            "pack_refs": refs,
+            "resolved_asset_codes": self._dedupe_codes(
+                [asset_code for ref in refs for asset_code in ref["resolved_asset_codes"]]
+            ),
+            "entry_requirements": entry_requirements,
+            "material_rules": material_rules,
+            "conflicts": conflicts,
+            "fingerprint_sha256": self._fingerprint(self._canonical(fingerprint_payload)),
+        }
 
     def create_gap(self, payload: dict[str, Any]) -> dict[str, Any]:
         with self.connection.cursor(row_factory=dict_row) as cursor:
@@ -824,37 +969,236 @@ class MaterialLibraryRepository:
             [(group_id, by_code[code]) for code in codes],
         )
 
-    def _require_entry_targets(self, cursor: Any, entries: list[dict[str, Any]]) -> None:
-        asset_codes = [entry["selection_code"] for entry in entries if entry["selection_kind"] == "asset"]
-        group_codes = [entry["selection_code"] for entry in entries if entry["selection_kind"] == "group"]
-        self._require_assets(cursor, self._dedupe_codes(asset_codes))
-        if group_codes:
-            cursor.execute("SELECT group_code FROM asset_groups WHERE group_code = ANY(%s)", (self._dedupe_codes(group_codes),))
-            found = {row["group_code"] for row in cursor.fetchall()}
-            missing = sorted(set(group_codes) - found)
-            if missing:
-                raise MaterialLibraryValidationError(f"Unknown asset group codes: {', '.join(missing)}")
-
     @staticmethod
-    def _validate_pack_entries(entries: list[dict[str, Any]]) -> None:
+    def _revision_payload(
+        *,
+        entries: list[dict[str, Any]],
+        exclusive_roles: list[str],
+        pack_constraints: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        return {
+            "entries": entries,
+            "exclusive_roles": exclusive_roles,
+            "pack_constraints": pack_constraints,
+        }
+
+    def _validate_pack_shape(
+        self,
+        *,
+        pack_kind: str,
+        role: str | None,
+        entries: list[dict[str, Any]],
+    ) -> None:
+        if pack_kind not in {"total", "classification"}:
+            raise MaterialLibraryValidationError("Material pack kind must be total or classification")
         if not entries:
             raise MaterialLibraryValidationError("Material pack must contain at least one entry")
+        if pack_kind == "classification" and not role:
+            raise MaterialLibraryValidationError("Classification material packs require a material role")
+        for entry in entries:
+            if not isinstance(entry, dict):
+                raise MaterialLibraryValidationError("Material pack entries must be objects")
+            kind = str(entry.get("selection_kind") or "")
+            if kind not in {"asset", "group", "category_pack"}:
+                raise MaterialLibraryValidationError("Material pack entry selection_kind is invalid")
+            if pack_kind == "classification" and kind == "category_pack":
+                raise MaterialLibraryValidationError("Classification material packs cannot include category packs")
+            if not str(entry.get("selection_code") or "").strip():
+                raise MaterialLibraryValidationError("Material pack entry selection_code is required")
+            entry_role = str(entry.get("material_role") or "").strip() or None
+            if pack_kind == "classification" and entry_role not in {None, role}:
+                raise MaterialLibraryValidationError("Classification pack entries must use the pack material role")
+            if pack_kind == "total" and not entry_role:
+                raise MaterialLibraryValidationError("Total pack entries require material_role")
+            mode = str(entry.get("mode") or "optional")
+            if mode not in {"required", "optional", "alternative"}:
+                raise MaterialLibraryValidationError("Material pack entry mode is invalid")
+            try:
+                minimum = int(entry.get("min_occurrences") or 0)
+                maximum = entry.get("max_occurrences")
+                maximum = int(maximum) if maximum is not None else None
+            except (TypeError, ValueError) as exc:
+                raise MaterialLibraryValidationError("Material pack occurrence bounds must be integers") from exc
+            if minimum < 0 or (maximum is not None and (maximum < 1 or maximum < minimum)):
+                raise MaterialLibraryValidationError("Material pack occurrence bounds are invalid")
+            if mode in {"required", "alternative"} and minimum < 1:
+                raise MaterialLibraryValidationError("Required and alternative material pack entries need min_occurrences")
+            alternative_set_key = str(entry.get("alternative_set_key") or "").strip()
+            if mode == "alternative" and not alternative_set_key:
+                raise MaterialLibraryValidationError("Alternative material pack entries require alternative_set_key")
+            if mode != "alternative" and alternative_set_key:
+                raise MaterialLibraryValidationError("alternative_set_key is only valid for alternative entries")
+            scope = entry.get("applicable_scope") or {"kind": "whole_room"}
+            if not isinstance(scope, dict) or str(scope.get("kind") or "whole_room") not in {
+                "whole_room", "scene_types", "scene_codes"
+            }:
+                raise MaterialLibraryValidationError("Material pack entry applicable_scope is invalid")
+
+    def _prepare_pack_entries(
+        self,
+        cursor: Any,
+        entries: list[dict[str, Any]],
+        *,
+        pack_kind: str,
+        role: str | None,
+    ) -> list[dict[str, Any]]:
+        """Freeze group/category members into explicit assets before a revision is stored."""
+        self._validate_pack_shape(pack_kind=pack_kind, role=role, entries=entries)
+        prepared: list[dict[str, Any]] = []
+        for index, raw_entry in enumerate(entries):
+            entry = dict(raw_entry)
+            entry_role = str(entry.get("material_role") or role or "").strip()
+            normalized = {
+                "material_role": entry_role,
+                "mode": str(entry.get("mode") or "optional"),
+                "min_occurrences": int(entry.get("min_occurrences") or 0),
+                "max_occurrences": (
+                    int(entry["max_occurrences"]) if entry.get("max_occurrences") is not None else None
+                ),
+                "applicable_scope": self._normalize_scope(entry.get("applicable_scope")),
+                "pack_constraints": list(entry.get("pack_constraints") or []),
+                "alternative_set_key": (
+                    str(entry["alternative_set_key"]).strip()
+                    if entry.get("alternative_set_key") is not None
+                    else None
+                ),
+                "source_entry_index": index,
+            }
+            selection_kind = str(entry["selection_kind"])
+            selection_code = str(entry["selection_code"]).strip()
+            if selection_kind == "asset":
+                self._require_assets(cursor, [selection_code])
+                prepared.append({"selection_kind": "asset", "selection_code": selection_code, **normalized})
+                continue
+            if selection_kind == "group":
+                asset_codes = self._group_asset_codes(cursor, selection_code)
+                if not asset_codes:
+                    raise MaterialLibraryValidationError(
+                        f"Material pack group resolves to no active assets: {selection_code}"
+                    )
+                prepared.extend(
+                    {
+                        "selection_kind": "asset",
+                        "selection_code": asset_code,
+                        "source_group_code": selection_code,
+                        **normalized,
+                    }
+                    for asset_code in asset_codes
+                )
+                continue
+            category = self._published_category_pack(cursor, selection_code)
+            if category is None:
+                raise MaterialLibraryValidationError(
+                    f"Category material pack must be published before inclusion: {selection_code}"
+                )
+            if str(category["pack_kind"]) != "classification":
+                raise MaterialLibraryValidationError(
+                    f"Total material packs cannot be included as category entries: {selection_code}"
+                )
+            category_role = str(category.get("role") or "")
+            if entry_role != category_role:
+                raise MaterialLibraryValidationError(
+                    f"Category pack role mismatch for {selection_code}: expected {entry_role}, got {category_role}"
+                )
+            for source_entry in list(category["entries"] or []):
+                for asset_code in self._entry_asset_codes(cursor, source_entry):
+                    prepared.append(
+                        {
+                            "selection_kind": "asset",
+                            "selection_code": asset_code,
+                            "source_category_pack_code": selection_code,
+                            "source_category_pack_revision": int(category["revision_number"]),
+                            "source_category_entry": {
+                                "selection_code": source_entry.get("selection_code"),
+                                "source_group_code": source_entry.get("source_group_code"),
+                            },
+                            **normalized,
+                        }
+                    )
+        self._validate_prepared_entry_roles(cursor, prepared, pack_kind=pack_kind, role=role)
+        return prepared
+
+    def _validate_prepared_entry_roles(
+        self,
+        cursor: Any,
+        entries: list[dict[str, Any]],
+        *,
+        pack_kind: str,
+        role: str | None,
+    ) -> None:
+        if pack_kind != "classification":
+            return
+        asset_codes = self._dedupe_codes([str(entry["selection_code"]) for entry in entries])
+        cursor.execute(
+            "SELECT asset_code, material_roles FROM assets WHERE asset_code = ANY(%s) AND deleted_at IS NULL",
+            (asset_codes,),
+        )
+        invalid = sorted(
+            row["asset_code"]
+            for row in cursor.fetchall()
+            if role not in list(row.get("material_roles") or [])
+        )
+        if invalid:
+            raise MaterialLibraryValidationError(
+                f"Classification pack role {role} is missing on assets: {', '.join(invalid)}"
+            )
+
+    @staticmethod
+    def _normalize_scope(value: Any) -> dict[str, Any]:
+        scope = dict(value) if isinstance(value, dict) else {}
+        kind = str(scope.get("kind") or "whole_room")
+        return {
+            "kind": kind,
+            "scene_types": MaterialLibraryRepository._dedupe_codes(scope.get("scene_types") or []),
+            "scene_codes": MaterialLibraryRepository._dedupe_codes(scope.get("scene_codes") or []),
+        }
+
+    def _group_asset_codes(self, cursor: Any, group_code: str) -> list[str]:
+        cursor.execute(
+            """SELECT a.asset_code FROM asset_group_members gm
+               JOIN asset_groups g ON g.id = gm.group_id
+               JOIN assets a ON a.id = gm.asset_id AND a.deleted_at IS NULL
+               WHERE g.group_code = %s ORDER BY a.asset_code""",
+            (group_code,),
+        )
+        rows = cursor.fetchall()
+        if not rows:
+            cursor.execute("SELECT 1 FROM asset_groups WHERE group_code = %s", (group_code,))
+            if cursor.fetchone() is None:
+                raise MaterialLibraryValidationError(f"Unknown asset group code: {group_code}")
+        return [str(row["asset_code"]) for row in rows]
+
+    def _published_category_pack(self, cursor: Any, pack_code: str) -> dict[str, Any] | None:
+        cursor.execute(
+            """SELECT p.pack_code, p.pack_kind, p.role, p.published_revision,
+                      r.revision_number, r.entries, r.fingerprint_sha256
+               FROM material_packs p
+               JOIN material_pack_revisions r
+                 ON r.pack_id = p.id AND r.revision_number = p.published_revision
+               WHERE p.pack_code = %s""",
+            (pack_code,),
+        )
+        return cursor.fetchone()
+
+    def _entry_asset_codes(self, cursor: Any, entry: dict[str, Any]) -> list[str]:
+        if str(entry.get("selection_kind") or "") == "asset":
+            asset_code = str(entry.get("selection_code") or "").strip()
+            if not asset_code:
+                return []
+            cursor.execute(
+                "SELECT asset_code FROM assets WHERE asset_code = %s AND deleted_at IS NULL",
+                (asset_code,),
+            )
+            return [asset_code] if cursor.fetchone() is not None else []
+        if str(entry.get("selection_kind") or "") == "group":
+            return self._group_asset_codes(cursor, str(entry.get("selection_code") or ""))
+        return []
 
     def _resolve_entries(self, entries: list[dict[str, Any]]) -> list[str]:
-        direct = [entry["selection_code"] for entry in entries if entry["selection_kind"] == "asset"]
-        group_codes = [entry["selection_code"] for entry in entries if entry["selection_kind"] == "group"]
-        resolved = list(direct)
-        if group_codes:
-            with self.connection.cursor(row_factory=dict_row) as cursor:
-                cursor.execute(
-                    """SELECT DISTINCT a.asset_code FROM asset_group_members gm
-                       JOIN asset_groups g ON g.id = gm.group_id
-                       JOIN assets a ON a.id = gm.asset_id AND a.deleted_at IS NULL
-                       WHERE g.group_code = ANY(%s) ORDER BY a.asset_code""",
-                    (group_codes,),
-                )
-                resolved.extend(row["asset_code"] for row in cursor.fetchall())
-        return self._dedupe_codes(resolved)
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            return self._dedupe_codes(
+                [asset_code for entry in entries for asset_code in self._entry_asset_codes(cursor, entry)]
+            )
 
     def _group_read(self, row: dict[str, Any]) -> dict[str, Any]:
         result = self._stringify(row)
@@ -862,10 +1206,190 @@ class MaterialLibraryRepository:
         result["asset_count"] = len(result["asset_codes"])
         return result
 
+    def _get_published_pack(self, pack_code: str) -> dict[str, Any] | None:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """SELECT p.pack_code, p.title, p.pack_kind, p.role, p.description,
+                          p.current_revision, p.published_revision, p.status,
+                          p.created_at, p.updated_at, r.status AS revision_status,
+                          r.entries, r.exclusive_roles, r.pack_constraints, r.fingerprint_sha256
+                   FROM material_packs p
+                   LEFT JOIN material_pack_revisions r
+                     ON r.pack_id = p.id AND r.revision_number = p.published_revision
+                   WHERE p.pack_code = %s""",
+                (pack_code,),
+            )
+            row = cursor.fetchone()
+        if row is None:
+            return None
+        if row.get("published_revision") is None:
+            return {
+                "pack_code": row["pack_code"],
+                "published_revision_number": None,
+                "resolved_asset_codes": [],
+            }
+        published_row = {**row, "revision_number": int(row["published_revision"])}
+        result = self._pack_read(published_row)
+        result["published_revision_number"] = int(row["published_revision"])
+        return result
+
+    def _resolved_entry_read(self, entry: dict[str, Any], index: int) -> dict[str, Any]:
+        source = dict(entry)
+        asset_codes = self._resolve_entries([source])
+        source_index = int(source.get("source_entry_index") if source.get("source_entry_index") is not None else index)
+        return {
+            "entry_key": f"entry-{source_index + 1}",
+            "selection_kind": source.get("selection_kind"),
+            "selection_code": source.get("selection_code"),
+            "material_role": source.get("material_role"),
+            "mode": source.get("mode") or "optional",
+            "min_occurrences": int(source.get("min_occurrences") or 0),
+            "max_occurrences": source.get("max_occurrences"),
+            "applicable_scope": self._normalize_scope(source.get("applicable_scope")),
+            "pack_constraints": list(source.get("pack_constraints") or []),
+            "alternative_set_key": source.get("alternative_set_key"),
+            "source_group_code": source.get("source_group_code"),
+            "source_category_pack_code": source.get("source_category_pack_code"),
+            "source_category_pack_revision": source.get("source_category_pack_revision"),
+            "resolved_asset_codes": asset_codes,
+        }
+
+    @staticmethod
+    def _mode_strength(mode: str) -> int:
+        return {"optional": 1, "alternative": 2, "required": 3}.get(mode, 0)
+
+    def _merge_material_rules(
+        self, refs: list[dict[str, Any]]
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        by_asset_role: dict[tuple[str, str], dict[str, Any]] = {}
+        conflicts: list[dict[str, Any]] = []
+        for ref in refs:
+            for entry in ref.get("resolved_entries") or []:
+                if not isinstance(entry, dict):
+                    continue
+                for asset_code in entry.get("resolved_asset_codes") or []:
+                    role = str(entry.get("material_role") or "")
+                    key = (str(asset_code), role)
+                    source = {
+                        "pack_code": ref["pack_code"],
+                        "revision_number": ref["revision_number"],
+                        "entry_key": entry["entry_key"],
+                        "mode": entry["mode"],
+                        "min_occurrences": entry["min_occurrences"],
+                        "max_occurrences": entry.get("max_occurrences"),
+                        "applicable_scope": entry["applicable_scope"],
+                        "alternative_set_key": entry.get("alternative_set_key"),
+                        "source_group_code": entry.get("source_group_code"),
+                        "source_category_pack_code": entry.get("source_category_pack_code"),
+                    }
+                    current = by_asset_role.get(key)
+                    if current is None:
+                        by_asset_role[key] = {
+                            "asset_code": str(asset_code),
+                            "material_role": role,
+                            "mode": entry["mode"],
+                            "min_occurrences": int(entry["min_occurrences"]),
+                            "max_occurrences": entry.get("max_occurrences"),
+                            "applicable_scopes": [entry["applicable_scope"]],
+                            "hard_constraints": [
+                                *list(ref.get("pack_constraints") or []),
+                                *list(entry.get("pack_constraints") or []),
+                            ],
+                            "sources": [source],
+                        }
+                        continue
+                    if self._mode_strength(str(entry["mode"])) > self._mode_strength(str(current["mode"])):
+                        current["mode"] = entry["mode"]
+                    current["min_occurrences"] = max(
+                        int(current["min_occurrences"]), int(entry["min_occurrences"])
+                    )
+                    maxima = [
+                        value for value in (current.get("max_occurrences"), entry.get("max_occurrences"))
+                        if value is not None
+                    ]
+                    current["max_occurrences"] = min(maxima) if maxima else None
+                    if entry["applicable_scope"] not in current["applicable_scopes"]:
+                        current["applicable_scopes"].append(entry["applicable_scope"])
+                    current["hard_constraints"].extend(
+                        [*list(ref.get("pack_constraints") or []), *list(entry.get("pack_constraints") or [])]
+                    )
+                    current["sources"].append(source)
+        rules = sorted(by_asset_role.values(), key=lambda rule: (rule["material_role"], rule["asset_code"]))
+        for rule in rules:
+            maximum = rule.get("max_occurrences")
+            if maximum is not None and int(maximum) < int(rule["min_occurrences"]):
+                conflicts.append(
+                    {
+                        "code": "MATERIAL_PACK_OCCURRENCE_CONFLICT",
+                        "asset_code": rule["asset_code"],
+                        "material_role": rule["material_role"],
+                        "sources": rule["sources"],
+                        "remediation": "调整同一素材的 min/max occurrences 或移除冲突来源",
+                    }
+                )
+        return rules, conflicts
+
+    @staticmethod
+    def _exclusive_role_conflicts(refs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        conflicts: list[dict[str, Any]] = []
+        for role in sorted({role for ref in refs for role in ref.get("exclusive_roles") or []}):
+            scoped = [
+                ref for ref in refs
+                if role in (ref.get("exclusive_roles") or [])
+            ]
+            for index, left in enumerate(scoped):
+                left_assets = {
+                    asset_code
+                    for entry in left.get("resolved_entries") or []
+                    if entry.get("material_role") == role
+                    for asset_code in entry.get("resolved_asset_codes") or []
+                }
+                for right in scoped[index + 1:]:
+                    right_assets = {
+                        asset_code
+                        for entry in right.get("resolved_entries") or []
+                        if entry.get("material_role") == role
+                        for asset_code in entry.get("resolved_asset_codes") or []
+                    }
+                    if left_assets != right_assets:
+                        conflicts.append(
+                            {
+                                "code": "MATERIAL_PACK_EXCLUSIVE_ROLE_CONFLICT",
+                                "material_role": role,
+                                "pack_codes": [left["pack_code"], right["pack_code"]],
+                                "left_asset_codes": sorted(left_assets),
+                                "right_asset_codes": sorted(right_assets),
+                                "remediation": "对该角色域只保留一个排他素材包，或将其中一个改为非排他",
+                            }
+                        )
+        return conflicts
+
     def _pack_read(self, row: dict[str, Any]) -> dict[str, Any]:
         result = self._stringify(row)
-        result["revision_number"] = result.pop("current_revision")
-        result["resolved_asset_codes"] = self._resolve_entries(result.get("entries") or [])
+        result["revision_number"] = int(result.get("revision_number") or result.pop("current_revision"))
+        result["pack_kind"] = str(result.get("pack_kind") or "total")
+        result["revision_status"] = str(result.get("revision_status") or result.get("status") or "draft")
+        result["published_revision_number"] = (
+            int(result["published_revision"]) if result.get("published_revision") is not None else None
+        )
+        result["exclusive_roles"] = self._dedupe_codes(result.get("exclusive_roles") or [])
+        result["pack_constraints"] = list(result.get("pack_constraints") or [])
+        entries = list(result.get("entries") or [])
+        result["entries"] = entries
+        by_key: dict[str, dict[str, Any]] = {}
+        for index, entry in enumerate(entries):
+            resolved = self._resolved_entry_read(entry, index)
+            existing = by_key.get(resolved["entry_key"])
+            if existing is None:
+                by_key[resolved["entry_key"]] = resolved
+            else:
+                existing["resolved_asset_codes"] = self._dedupe_codes(
+                    [*existing["resolved_asset_codes"], *resolved["resolved_asset_codes"]]
+                )
+        result["resolved_entries"] = list(by_key.values())
+        result["resolved_asset_codes"] = self._dedupe_codes(
+            [asset_code for entry in result["resolved_entries"] for asset_code in entry["resolved_asset_codes"]]
+        )
         return result
 
     @staticmethod

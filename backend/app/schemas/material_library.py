@@ -152,44 +152,108 @@ class MaterialPackEntryMode(StrEnum):
 class MaterialPackEntryKind(StrEnum):
     ASSET = "asset"
     GROUP = "group"
+    CATEGORY_PACK = "category_pack"
+
+
+class MaterialPackKind(StrEnum):
+    TOTAL = "total"
+    CLASSIFICATION = "classification"
+
+
+class MaterialPackScopeKind(StrEnum):
+    WHOLE_ROOM = "whole_room"
+    SCENE_TYPES = "scene_types"
+    SCENE_CODES = "scene_codes"
+
+
+class MaterialPackScope(BaseModel):
+    kind: MaterialPackScopeKind = MaterialPackScopeKind.WHOLE_ROOM
+    scene_types: list[str] = Field(default_factory=list)
+    scene_codes: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_scope(self) -> "MaterialPackScope":
+        self.scene_types = list(dict.fromkeys(item.strip() for item in self.scene_types if item.strip()))
+        self.scene_codes = list(dict.fromkeys(item.strip() for item in self.scene_codes if item.strip()))
+        if self.kind == MaterialPackScopeKind.SCENE_TYPES and not self.scene_types:
+            raise ValueError("scene_types scope requires at least one scene type")
+        if self.kind == MaterialPackScopeKind.SCENE_CODES and not self.scene_codes:
+            raise ValueError("scene_codes scope requires at least one scene code")
+        if self.kind == MaterialPackScopeKind.WHOLE_ROOM and (self.scene_types or self.scene_codes):
+            raise ValueError("whole_room scope cannot declare scene types or scene codes")
+        return self
 
 
 class MaterialPackEntry(BaseModel):
     selection_kind: MaterialPackEntryKind
     selection_code: str = Field(min_length=1, max_length=64)
+    material_role: MaterialRole | None = None
     mode: MaterialPackEntryMode = MaterialPackEntryMode.OPTIONAL
     min_occurrences: int = Field(default=0, ge=0)
     max_occurrences: int | None = Field(default=None, ge=1)
+    applicable_scope: MaterialPackScope = Field(default_factory=MaterialPackScope)
+    pack_constraints: list[dict[str, Any]] = Field(default_factory=list)
+    alternative_set_key: str | None = Field(default=None, min_length=1, max_length=128)
 
     @model_validator(mode="after")
     def validate_occurrences(self) -> "MaterialPackEntry":
         if self.max_occurrences is not None and self.max_occurrences < self.min_occurrences:
             raise ValueError("max_occurrences must be greater than or equal to min_occurrences")
+        if self.mode in {MaterialPackEntryMode.REQUIRED, MaterialPackEntryMode.ALTERNATIVE} and self.min_occurrences < 1:
+            raise ValueError("required and alternative entries need min_occurrences of at least one")
+        if self.mode == MaterialPackEntryMode.ALTERNATIVE and not self.alternative_set_key:
+            raise ValueError("alternative entries require alternative_set_key")
+        if self.mode != MaterialPackEntryMode.ALTERNATIVE and self.alternative_set_key:
+            raise ValueError("alternative_set_key is only valid for alternative entries")
         return self
 
 
 class MaterialPackCreate(BaseModel):
     title: str = Field(min_length=1, max_length=255)
-    role: MaterialRole
+    pack_kind: MaterialPackKind = MaterialPackKind.CLASSIFICATION
+    role: MaterialRole | None = None
     description: str | None = None
     entries: list[MaterialPackEntry] = Field(default_factory=list)
+    exclusive_roles: list[MaterialRole] = Field(default_factory=list)
+    pack_constraints: list[dict[str, Any]] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_pack_shape(self) -> "MaterialPackCreate":
+        self.exclusive_roles = list(dict.fromkeys(self.exclusive_roles))
+        if self.pack_kind == MaterialPackKind.CLASSIFICATION and self.role is None:
+            raise ValueError("classification packs require one material role")
+        if self.pack_kind == MaterialPackKind.CLASSIFICATION and any(
+            entry.material_role is not None and entry.material_role != self.role for entry in self.entries
+        ):
+            raise ValueError("classification pack entries must use the pack material role")
+        if self.pack_kind == MaterialPackKind.TOTAL and any(entry.material_role is None for entry in self.entries):
+            raise ValueError("total pack entries require material_role")
+        return self
 
 
 class MaterialPackRevisionCreate(BaseModel):
     expected_revision: int = Field(ge=1)
     entries: list[MaterialPackEntry] = Field(min_length=1)
+    exclusive_roles: list[MaterialRole] | None = None
+    pack_constraints: list[dict[str, Any]] | None = None
 
 
 class MaterialPackRead(BaseModel):
     pack_code: str
     title: str
-    role: str
+    pack_kind: MaterialPackKind = MaterialPackKind.TOTAL
+    role: str | None = None
     description: str | None = None
     revision_number: int
     status: str
+    revision_status: str = "draft"
+    published_revision_number: int | None = None
     fingerprint_sha256: str
     entries: list[MaterialPackEntry]
+    exclusive_roles: list[str] = Field(default_factory=list)
+    pack_constraints: list[dict[str, Any]] = Field(default_factory=list)
     resolved_asset_codes: list[str] = Field(default_factory=list)
+    resolved_entries: list[dict[str, Any]] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
@@ -198,7 +262,32 @@ class MaterialPackRevisionRead(BaseModel):
     revision_number: int
     entries: list[MaterialPackEntry]
     fingerprint_sha256: str
+    status: str = "draft"
+    exclusive_roles: list[str] = Field(default_factory=list)
+    pack_constraints: list[dict[str, Any]] = Field(default_factory=list)
     created_at: datetime
+
+
+class MaterialPackResolveRequest(BaseModel):
+    pack_codes: list[str] = Field(min_length=1, max_length=20)
+
+    @field_validator("pack_codes")
+    @classmethod
+    def normalize_pack_codes(cls, value: list[str]) -> list[str]:
+        normalized = list(dict.fromkeys(item.strip() for item in value if item.strip()))
+        if len(normalized) != len(value):
+            raise ValueError("pack_codes must be unique and non-empty")
+        return normalized
+
+
+class MaterialPackResolutionRead(BaseModel):
+    schema_version: str
+    pack_refs: list[dict[str, Any]]
+    resolved_asset_codes: list[str]
+    entry_requirements: list[dict[str, Any]]
+    material_rules: list[dict[str, Any]]
+    conflicts: list[dict[str, Any]]
+    fingerprint_sha256: str
 
 
 class AssetGapCreate(BaseModel):

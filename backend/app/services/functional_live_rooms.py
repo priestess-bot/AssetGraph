@@ -45,11 +45,19 @@ class FunctionalLiveRoomService:
         if not detail["generated"]:
             raise DomainValidationError("LIVE_ROOM_SHOT_LIST_REQUIRED", "Generate the ContentProject before planning a live room")
         try:
-            material_pack_refs, material_pack_asset_codes = self.materials.resolve_published_packs(
+            material_pack_resolution = self.materials.preview_published_pack_resolution(
                 payload.get("material_pack_codes") or []
             )
         except MaterialLibraryValidationError as exc:
             raise DomainValidationError("LIVE_ROOM_MATERIAL_PACK_INVALID", str(exc)) from exc
+        if material_pack_resolution["conflicts"]:
+            raise DomainValidationError(
+                "LIVE_ROOM_MATERIAL_PACK_CONFLICT",
+                "Selected material packs contain conflicting hard rules",
+                details={"conflicts": material_pack_resolution["conflicts"]},
+            )
+        material_pack_refs = list(material_pack_resolution["pack_refs"])
+        material_pack_asset_codes = list(material_pack_resolution["resolved_asset_codes"])
         try:
             asset_gap_refs = self.materials.resolve_gap_refs(payload.get("asset_gap_codes") or [])
         except MaterialLibraryValidationError as exc:
@@ -60,6 +68,13 @@ class FunctionalLiveRoomService:
         )
         if not selected_assets:
             raise DomainValidationError("LIVE_ROOM_ASSETS_REQUIRED", "Select at least one asset or group before planning")
+        material_rules_by_asset: dict[str, list[dict[str, Any]]] = {}
+        for rule in material_pack_resolution["material_rules"]:
+            material_rules_by_asset.setdefault(str(rule["asset_code"]), []).append(rule)
+        selected_assets = [
+            {**asset, "material_pack_rules": material_rules_by_asset.get(str(asset["asset_code"]), [])}
+            for asset in selected_assets
+        ]
         material_role_overrides = self._validate_material_role_overrides(
             payload.get("material_role_overrides") or {}, selected_assets
         )
@@ -93,6 +108,12 @@ class FunctionalLiveRoomService:
                 for asset in selected_assets
             ],
             "material_pack_refs": material_pack_refs,
+            "material_pack_resolution": {
+                "schema_version": material_pack_resolution["schema_version"],
+                "entry_requirements": material_pack_resolution["entry_requirements"],
+                "material_rules": material_pack_resolution["material_rules"],
+                "fingerprint_sha256": material_pack_resolution["fingerprint_sha256"],
+            },
             "asset_gap_refs": asset_gap_refs,
             "material_role_overrides": material_role_overrides,
             "room_constraint_overrides": room_constraint_overrides,
@@ -164,6 +185,7 @@ class FunctionalLiveRoomService:
             selected_assets,
             payload,
             variant_code=variant["variant_code"],
+            material_pack_entry_requirements=material_pack_resolution["entry_requirements"],
         )
         blocked_reasons = list(
             dict.fromkeys(
@@ -1267,6 +1289,7 @@ class FunctionalLiveRoomService:
             "compiler_blocked_reasons": compiler_blocked_reasons,
             "material_role_overrides": dict(blueprint.get("material_role_overrides") or {}),
             "material_selection_decisions": list(blueprint.get("material_selection_decisions") or []),
+            "material_pack_requirement_evidence": list(blueprint.get("material_pack_requirement_evidence") or []),
         }
         return gates, quality_report
 
@@ -1402,14 +1425,34 @@ class FunctionalLiveRoomService:
         role: str,
         candidates: list[dict[str, Any]],
         overrides: dict[str, str],
+        shot_code: str,
+        scene_code: str,
+        scene_type: str | None,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         def candidate_score(asset: dict[str, Any]) -> tuple[int, list[str]]:
             capability = str(asset.get("execution_capability") or "unclassified")
             profile_bound = isinstance(asset.get("constraint_profile_ref"), dict)
-            score = 60 + (30 if capability == "maitu_bound" else 0) + (10 if profile_bound else 0)
+            applicable_rules = [
+                rule for rule in asset.get("material_pack_rules") or []
+                if str(rule.get("material_role") or "") == role
+                and FunctionalLiveRoomService._scope_applies(
+                    scope=rule.get("applicable_scopes") or [],
+                    shot_code=shot_code,
+                    scene_code=scene_code,
+                    scene_type=scene_type,
+                )
+            ]
+            strongest_mode = max(
+                (FunctionalLiveRoomService._material_pack_mode_strength(str(rule.get("mode") or "optional"))
+                 for rule in applicable_rules),
+                default=0,
+            )
+            score = 60 + (30 if capability == "maitu_bound" else 0) + (10 if profile_bound else 0) + strongest_mode * 100
             reasons = ["ROLE_MATCH", f"CAPABILITY_{capability.upper()}"]
             if profile_bound:
                 reasons.append("CONSTRAINT_PROFILE_BOUND")
+            if strongest_mode:
+                reasons.append({1: "PACK_OPTIONAL", 2: "PACK_ALTERNATIVE", 3: "PACK_REQUIRED"}[strongest_mode])
             return score, reasons
 
         ordered = sorted(candidates, key=lambda asset: (-candidate_score(asset)[0], str(asset["asset_code"])))
@@ -1430,6 +1473,16 @@ class FunctionalLiveRoomService:
             "selected_asset_code": selected["asset_code"],
             "selected_score": score,
             "selection_reasons": reasons,
+            "applicable_material_pack_rules": [
+                rule for rule in selected.get("material_pack_rules") or []
+                if str(rule.get("material_role") or "") == role
+                and FunctionalLiveRoomService._scope_applies(
+                    scope=rule.get("applicable_scopes") or [],
+                    shot_code=shot_code,
+                    scene_code=scene_code,
+                    scene_type=scene_type,
+                )
+            ],
             "candidate_scores": [
                 {
                     "asset_code": candidate["asset_code"],
@@ -1441,12 +1494,158 @@ class FunctionalLiveRoomService:
         }
 
     @staticmethod
+    def _material_pack_mode_strength(mode: str) -> int:
+        return {"optional": 1, "alternative": 2, "required": 3}.get(mode, 0)
+
+    @staticmethod
+    def _scope_applies(
+        *,
+        scope: Any,
+        shot_code: str,
+        scene_code: str,
+        scene_type: str | None,
+    ) -> bool:
+        scopes = scope if isinstance(scope, list) else [scope]
+        for raw_scope in scopes:
+            value = dict(raw_scope) if isinstance(raw_scope, dict) else {}
+            kind = str(value.get("kind") or "whole_room")
+            if kind == "whole_room":
+                return True
+            if kind == "scene_codes" and ({shot_code, scene_code} & set(value.get("scene_codes") or [])):
+                return True
+            if kind == "scene_types" and scene_type and scene_type in set(value.get("scene_types") or []):
+                return True
+        return False
+
+    @staticmethod
+    def _evaluate_material_pack_requirements(
+        *,
+        requirements: list[dict[str, Any]],
+        decisions: list[dict[str, Any]],
+    ) -> tuple[list[dict[str, Any]], list[str]]:
+        """Check occurrence contracts against the layers actually selected.
+
+        The fast-track compiler intentionally remains deterministic rather than
+        acting as a generic constraint solver.  It can still prove whether its
+        emitted layers meet a frozen pack contract, and surfaces every unmet
+        requirement as a concrete branch-blocking reason.
+        """
+        evidence: list[dict[str, Any]] = []
+        failures: list[str] = []
+        alternatives: dict[tuple[str, int, str, str], list[dict[str, Any]]] = {}
+        for requirement in requirements:
+            if str(requirement.get("mode") or "optional") == "alternative":
+                key = (
+                    str(requirement.get("pack_code") or ""),
+                    int(requirement.get("revision_number") or 0),
+                    str(requirement.get("material_role") or ""),
+                    str(requirement.get("alternative_set_key") or ""),
+                )
+                alternatives.setdefault(key, []).append(requirement)
+                continue
+            observed = FunctionalLiveRoomService._requirement_occurrence_count(requirement, decisions)
+            minimum = int(requirement.get("min_occurrences") or 0)
+            maximum = requirement.get("max_occurrences")
+            mode = str(requirement.get("mode") or "optional")
+            status = "satisfied"
+            if mode == "required" and observed < minimum:
+                status = "unsatisfied_minimum"
+            elif maximum is not None and observed > int(maximum):
+                status = "unsatisfied_maximum"
+            record = {
+                "pack_code": requirement.get("pack_code"),
+                "revision_number": requirement.get("revision_number"),
+                "entry_key": requirement.get("entry_key"),
+                "mode": mode,
+                "material_role": requirement.get("material_role"),
+                "candidate_asset_codes": list(requirement.get("resolved_asset_codes") or []),
+                "min_occurrences": minimum,
+                "max_occurrences": maximum,
+                "observed_occurrences": observed,
+                "status": status,
+            }
+            evidence.append(record)
+            if status != "satisfied":
+                failures.append(
+                    f"material_pack_{status}:{requirement.get('pack_code')}:{requirement.get('entry_key')}"
+                )
+        for key, members in alternatives.items():
+            candidate_codes = {
+                str(asset_code)
+                for member in members
+                for asset_code in member.get("resolved_asset_codes") or []
+            }
+            observed = sum(
+                1
+                for decision in decisions
+                if str(decision.get("role") or "") == key[2]
+                and str(decision.get("selected_asset_code") or "") in candidate_codes
+                and any(
+                    FunctionalLiveRoomService._scope_applies(
+                        scope=member.get("applicable_scope") or {"kind": "whole_room"},
+                        shot_code=str(decision.get("shot_code") or ""),
+                        scene_code=str(decision.get("scene_code") or ""),
+                        scene_type=str(decision.get("scene_type") or "") or None,
+                    )
+                    for member in members
+                )
+            )
+            minimum = max(int(member.get("min_occurrences") or 0) for member in members)
+            maxima = [member.get("max_occurrences") for member in members if member.get("max_occurrences") is not None]
+            maximum = min(int(value) for value in maxima) if maxima else None
+            status = "satisfied"
+            if observed < minimum:
+                status = "unsatisfied_minimum"
+            elif maximum is not None and observed > maximum:
+                status = "unsatisfied_maximum"
+            evidence.append(
+                {
+                    "pack_code": key[0],
+                    "revision_number": key[1],
+                    "alternative_set_key": key[3],
+                    "mode": "alternative",
+                    "material_role": key[2],
+                    "candidate_asset_codes": sorted(candidate_codes),
+                    "min_occurrences": minimum,
+                    "max_occurrences": maximum,
+                    "observed_occurrences": observed,
+                    "status": status,
+                }
+            )
+            if status != "satisfied":
+                failures.append(
+                    f"material_pack_{status}:{key[0]}:alternative:{key[3]}"
+                )
+        return evidence, failures
+
+    @staticmethod
+    def _requirement_occurrence_count(
+        requirement: dict[str, Any], decisions: list[dict[str, Any]]
+    ) -> int:
+        candidate_codes = {str(code) for code in requirement.get("resolved_asset_codes") or []}
+        role = str(requirement.get("material_role") or "")
+        scope = requirement.get("applicable_scope") or {"kind": "whole_room"}
+        return sum(
+            1
+            for decision in decisions
+            if str(decision.get("role") or "") == role
+            and str(decision.get("selected_asset_code") or "") in candidate_codes
+            and FunctionalLiveRoomService._scope_applies(
+                scope=scope,
+                shot_code=str(decision.get("shot_code") or ""),
+                scene_code=str(decision.get("scene_code") or ""),
+                scene_type=str(decision.get("scene_type") or "") or None,
+            )
+        )
+
+    @staticmethod
     def _compile(
         detail: dict[str, Any],
         assets: list[dict[str, Any]],
         payload: dict[str, Any],
         *,
         variant_code: str,
+        material_pack_entry_requirements: list[dict[str, Any]] | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
         room_constraint_overrides = dict(payload.get("room_constraint_overrides") or {})
         assets = [
@@ -1471,6 +1670,7 @@ class FunctionalLiveRoomService:
         blocked.extend(named_region_failures)
         active_start_ms = 0
         for index, shot in enumerate(shots):
+            scene_code = f"MSB-{variant_code}-{index + 1:03d}"
             layers: list[dict[str, Any]] = []
             for role in shot["material_role_requirements"]:
                 candidates = layers_by_role.get(role, [])
@@ -1478,9 +1678,16 @@ class FunctionalLiveRoomService:
                     blocked.append(f"missing_role:{role}:shot:{shot['shot_code']}")
                     continue
                 asset, selection_decision = FunctionalLiveRoomService._choose_material_for_role(
-                    role=str(role), candidates=candidates, overrides=material_role_overrides
+                    role=str(role), candidates=candidates, overrides=material_role_overrides,
+                    shot_code=str(shot["shot_code"]), scene_code=scene_code,
+                    scene_type=str(shot.get("scene_type") or "") or None,
                 )
-                selection_decision = {**selection_decision, "shot_code": shot["shot_code"]}
+                selection_decision = {
+                    **selection_decision,
+                    "shot_code": shot["shot_code"],
+                    "scene_code": scene_code,
+                    "scene_type": shot.get("scene_type"),
+                }
                 material_selection_decisions.append(selection_decision)
                 geometry, z_order, visual_properties, audio_properties, constraint_evidence, failures = (
                     FunctionalLiveRoomService._resolve_layer_constraints(
@@ -1515,13 +1722,17 @@ class FunctionalLiveRoomService:
                 f"{failure}:shot:{shot['shot_code']}"
                 for failure in FunctionalLiveRoomService._resolve_scene_layer_relationships(layers)
             )
-            scene_code = f"MSB-{variant_code}-{index + 1:03d}"
             duration_ms = int(shot.get("estimated_duration_ms") or 1)
             scenes.append({"scene_code": scene_code, "shot_code": shot["shot_code"], "title": shot["shot_goal"], "layers": layers, "script": blocks[index]["content"], "transition_strategy": {"type": "cut" if index else "initial"}, "estimated_active_start_ms": active_start_ms, "estimated_active_end_ms": active_start_ms + duration_ms, "estimated_duration_ms": duration_ms, "constraint_evidence": {"selection_source": "functional_live_room.v1", "required_roles": shot["material_role_requirements"], "named_regions": named_regions}})
             operations.append({"kind": "create_scene", "scene_code": scene_code, "source_shot": shot["shot_code"]})
             operations.extend({"kind": "insert_bound_asset", "scene_code": scene_code, "asset_code": layer["asset_code"], "role": layer["role"]} for layer in layers)
             operations.append({"kind": "write_script", "scene_code": scene_code, "script_block_code": blocks[index]["block_code"]})
             active_start_ms += duration_ms
+        pack_requirement_evidence, requirement_failures = FunctionalLiveRoomService._evaluate_material_pack_requirements(
+            requirements=material_pack_entry_requirements or [],
+            decisions=material_selection_decisions,
+        )
+        blocked.extend(requirement_failures)
         operations.append({"kind": "save_draft"})
         return (
             {
@@ -1530,6 +1741,7 @@ class FunctionalLiveRoomService:
                 "material_role_overrides": material_role_overrides,
                 "room_constraint_overrides": room_constraint_overrides,
                 "material_selection_decisions": material_selection_decisions,
+                "material_pack_requirement_evidence": pack_requirement_evidence,
             },
             {"schema_version": "maitu-build-plan.functional.v1", "target_live_room_id": payload["target_live_room_id"], "operations": operations, "go_live": False},
             list(dict.fromkeys(blocked)),

@@ -52,17 +52,18 @@ describe("AssetLibraryPage", () => {
     await user.click(await screen.findByRole("tab", { name: "素材包" }));
     await user.type(screen.getByLabelText("素材包名称"), "主场景素材包");
     await user.type(screen.getByPlaceholderText("AG-GRP-*"), "AG-GRP-001");
-    const selects = screen.getAllByRole("combobox");
-    await user.selectOptions(selects[2]!, "required");
+    const usageMode = screen.getAllByRole("combobox").find((element) => Array.from((element as HTMLSelectElement).options).some((option) => option.value === "required"));
+    expect(usageMode).toBeDefined();
+    await user.selectOptions(usageMode!, "required");
     await user.clear(screen.getByLabelText("最少出现次数"));
     await user.type(screen.getByLabelText("最少出现次数"), "2");
     await user.type(screen.getByLabelText("最多出现次数"), "3");
-    await user.click(screen.getByRole("button", { name: "添加" }));
-    expect(screen.getByText("required · 2 至 3 次")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "添加条目" }));
+    expect(screen.getByText(/background · required · 2 至 3 次/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "创建素材包" }));
 
     const request = requests.find((item) => item.url === "/api/assets/material-packs" && item.init?.method === "POST");
-    expect(request?.init?.body).toBe(JSON.stringify({ title: "主场景素材包", role: "background", entries: [{ selection_kind: "group", selection_code: "AG-GRP-001", mode: "required", min_occurrences: 2, max_occurrences: 3 }] }));
+    expect(request?.init?.body).toBe(JSON.stringify({ title: "主场景素材包", pack_kind: "classification", role: "background", entries: [{ selection_kind: "group", selection_code: "AG-GRP-001", material_role: "background", mode: "required", min_occurrences: 2, max_occurrences: 3, applicable_scope: { kind: "whole_room", scene_types: [], scene_codes: [] }, pack_constraints: [] }], exclusive_roles: [] }));
   });
 
   it("writes a table-surface constraint through structured normalized fields", async () => {
@@ -111,7 +112,7 @@ describe("AssetLibraryPage", () => {
     await user.click(screen.getByRole("button", { name: "创建 r2" }));
 
     const request = requests.find((item) => item.url === "/api/assets/material-packs/AG-PACK-001/revisions" && item.init?.method === "POST");
-    expect(request?.init?.body).toBe(JSON.stringify({ expected_revision: 1, entries: [{ selection_kind: "group", selection_code: "AG-GRP-001", mode: "required", min_occurrences: 1 }] }));
+    expect(request?.init?.body).toBe(JSON.stringify({ expected_revision: 1, entries: [{ selection_kind: "group", selection_code: "AG-GRP-001", mode: "required", min_occurrences: 1, applicable_scope: { kind: "whole_room", scene_types: [], scene_codes: [] }, pack_constraints: [] }] }));
   });
 
   it("shows structured additions and removals against the prior material-pack revision", async () => {

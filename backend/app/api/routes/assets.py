@@ -42,6 +42,8 @@ from app.schemas.material_library import (
     ExecutionCapability,
     MaterialPackCreate,
     MaterialPackRead,
+    MaterialPackResolveRequest,
+    MaterialPackResolutionRead,
     MaterialPackRevisionCreate,
     MaterialPackRevisionRead,
     MaterialRole,
@@ -347,6 +349,17 @@ def list_material_packs(
     return repository.list_packs()
 
 
+@router.post("/material-packs/resolve", response_model=MaterialPackResolutionRead)
+def resolve_material_packs(
+    payload: MaterialPackResolveRequest,
+    repository: Annotated[MaterialLibraryRepository, Depends(get_material_library_repository)],
+) -> dict:
+    try:
+        return repository.preview_published_pack_resolution(payload.pack_codes)
+    except MaterialLibraryValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+
+
 @router.post("/material-packs/{pack_code}/publish", response_model=MaterialPackRead)
 def publish_material_pack(
     pack_code: str,
@@ -379,11 +392,15 @@ def create_material_pack_revision(
     repository: Annotated[MaterialLibraryRepository, Depends(get_material_library_repository)],
 ) -> dict:
     try:
-        row = repository.create_pack_revision(
-            pack_code,
-            expected_revision=payload.expected_revision,
-            entries=[entry.model_dump(mode="json") for entry in payload.entries],
-        )
+        revision_kwargs: dict[str, object] = {
+            "expected_revision": payload.expected_revision,
+            "entries": [entry.model_dump(mode="json") for entry in payload.entries],
+        }
+        if payload.exclusive_roles is not None:
+            revision_kwargs["exclusive_roles"] = [role.value for role in payload.exclusive_roles]
+        if payload.pack_constraints is not None:
+            revision_kwargs["pack_constraints"] = payload.pack_constraints
+        row = repository.create_pack_revision(pack_code, **revision_kwargs)  # type: ignore[arg-type]
     except MaterialLibraryValidationError as exc:
         status_code = (
             status.HTTP_409_CONFLICT
