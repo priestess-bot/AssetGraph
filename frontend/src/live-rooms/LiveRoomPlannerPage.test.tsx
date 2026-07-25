@@ -52,6 +52,8 @@ describe("LiveRoomPlannerPage", () => {
     await user.click(screen.getByRole("button", { name: "检测素材缺口" }));
     expect(await screen.findByText("缺少可执行 background 素材")).toBeInTheDocument();
     expect(screen.getByText(/可复核候选：AG-IMG-002/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "选入 AG-IMG-002" }));
+    expect(screen.getByRole("button", { name: "AG-IMG-002 已选入" })).toBeDisabled();
     await user.click(screen.getByRole("button", { name: "登记为素材缺口" }));
 
     await waitFor(() =>

@@ -1664,9 +1664,36 @@ export function LiveRoomPlannerPage({
                         Shot：{item.requiredShotCodes.join(" / ") || "未命名"}
                       </small>
                       {item.alternativeAssetCodes.length ? (
-                        <small>
-                          可复核候选：{item.alternativeAssetCodes.join(" / ")}
-                        </small>
+                        item.selectionMode === "replace" ? (
+                          <small>
+                            可复核候选：{item.alternativeAssetCodes.join(" / ")}；替换模式需先加入对应分类素材包。
+                          </small>
+                        ) : (
+                          <div>
+                            <small>
+                              可复核候选：{item.alternativeAssetCodes.join(" / ")}
+                            </small>
+                            {item.alternativeAssetCodes.map((assetCode) => (
+                              <button
+                                key={assetCode}
+                                type="button"
+                                className="wb-button"
+                                disabled={assetCodes.includes(assetCode)}
+                                onClick={() =>
+                                  setAssetCodes((current) =>
+                                    current.includes(assetCode)
+                                      ? current
+                                      : [...current, assetCode],
+                                  )
+                                }
+                              >
+                                {assetCodes.includes(assetCode)
+                                  ? `${assetCode} 已选入`
+                                  : `选入 ${assetCode}`}
+                              </button>
+                            ))}
+                          </div>
+                        )
                       ) : null}
                       {existingGap ? (
                         <small>
