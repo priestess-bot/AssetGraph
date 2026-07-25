@@ -148,6 +148,46 @@ export interface FactClaimCreateInput {
   related_codes?: string[];
 }
 
+export interface ContentRule {
+  ruleCode: string;
+  ruleKind: "content_guidance" | "compliance_rule" | "term" | "expression_ban";
+  directive: "guidance" | "must_include" | "must_avoid";
+  title: string;
+  ruleText: string;
+  scope: Record<string, unknown>;
+  sourceEvidenceCode?: string;
+  sourceTitle?: string;
+  sourceStatus?: string;
+  sourceContentChecksum?: string;
+  validFrom?: string;
+  validUntil?: string;
+  status: string;
+  createdBy?: string;
+  approvedBy?: string;
+  approvedAt?: string;
+  revokedBy?: string;
+  revokedAt?: string;
+  revokedReason?: string;
+  rejectedBy?: string;
+  rejectedAt?: string;
+  rejectionReason?: string;
+  fingerprint: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface ContentRuleCreateInput {
+  rule_kind: ContentRule["ruleKind"];
+  directive: ContentRule["directive"];
+  title: string;
+  rule_text: string;
+  scope?: Record<string, unknown>;
+  source_evidence_code?: string;
+  valid_from?: string;
+  valid_until?: string;
+  created_by?: string;
+}
+
 export interface FactClaimLineageUse {
   relationType: string;
   objectType: string;
@@ -271,6 +311,41 @@ function factClaim(value: unknown): FactClaim {
   };
 }
 
+function contentRule(value: unknown): ContentRule {
+  if (!isRecord(value)) throw new Error("内容规则响应无效");
+  const ruleCode = asString(value.rule_code);
+  if (!ruleCode) throw new Error("内容规则缺少编码");
+  const ruleKind = asString(value.rule_kind) as ContentRule["ruleKind"];
+  const directive = asString(value.directive) as ContentRule["directive"];
+  return {
+    ruleCode,
+    ruleKind,
+    directive,
+    title: asString(value.title),
+    ruleText: asString(value.rule_text),
+    scope: isRecord(value.scope) ? value.scope : {},
+    sourceEvidenceCode: asOptionalString(value.source_evidence_code),
+    sourceTitle: asOptionalString(value.source_title),
+    sourceStatus: asOptionalString(value.source_status),
+    sourceContentChecksum: asOptionalString(value.source_content_sha256),
+    validFrom: asOptionalString(value.valid_from),
+    validUntil: asOptionalString(value.valid_until),
+    status: asString(value.status),
+    createdBy: asOptionalString(value.created_by),
+    approvedBy: asOptionalString(value.approved_by),
+    approvedAt: asOptionalString(value.approved_at),
+    revokedBy: asOptionalString(value.revoked_by),
+    revokedAt: asOptionalString(value.revoked_at),
+    revokedReason: asOptionalString(value.revoked_reason),
+    rejectedBy: asOptionalString(value.rejected_by),
+    rejectedAt: asOptionalString(value.rejected_at),
+    rejectionReason: asOptionalString(value.rejection_reason),
+    fingerprint: asString(value.fingerprint_sha256),
+    createdAt: asOptionalString(value.created_at),
+    updatedAt: asOptionalString(value.updated_at),
+  };
+}
+
 function factClaimLineage(value: unknown): FactClaimLineage {
   if (!isRecord(value)) throw new Error("事实声明使用链响应无效");
   const claimCode = asString(value.claim_code);
@@ -312,6 +387,12 @@ export const knowledgeApi = {
   approveSourceEvidence: (evidenceCode: string, approvedBy: string) => postJson<unknown>(`${FUNCTIONAL_ROOT}/source-evidences/${encodeURIComponent(evidenceCode)}/approve`, { approved_by: approvedBy }).then(sourceEvidence),
   rejectSourceEvidence: (evidenceCode: string, actor: string, reason: string) => postJson<unknown>(`${FUNCTIONAL_ROOT}/source-evidences/${encodeURIComponent(evidenceCode)}/reject`, { actor, reason }).then(sourceEvidence),
   revokeSourceEvidence: (evidenceCode: string, actor: string, reason: string) => postJson<unknown>(`${FUNCTIONAL_ROOT}/source-evidences/${encodeURIComponent(evidenceCode)}/revoke`, { actor, reason }).then(sourceEvidence),
+  listContentRules: () => requestJson<unknown[]>(`${FUNCTIONAL_ROOT}/content-rules`).then((items) => items.map(contentRule)),
+  searchContentRules: (query: string) => requestJson<unknown[]>(`${FUNCTIONAL_ROOT}/content-rules?q=${encodeURIComponent(query.trim())}`).then((items) => items.map(contentRule)),
+  createContentRule: (payload: ContentRuleCreateInput) => postJson<unknown>(`${FUNCTIONAL_ROOT}/content-rules`, payload).then(contentRule),
+  approveContentRule: (ruleCode: string, approvedBy: string) => postJson<unknown>(`${FUNCTIONAL_ROOT}/content-rules/${encodeURIComponent(ruleCode)}/approve`, { approved_by: approvedBy }).then(contentRule),
+  rejectContentRule: (ruleCode: string, actor: string, reason: string) => postJson<unknown>(`${FUNCTIONAL_ROOT}/content-rules/${encodeURIComponent(ruleCode)}/reject`, { actor, reason }).then(contentRule),
+  revokeContentRule: (ruleCode: string, actor: string, reason: string) => postJson<unknown>(`${FUNCTIONAL_ROOT}/content-rules/${encodeURIComponent(ruleCode)}/revoke`, { actor, reason }).then(contentRule),
   listFactClaims: () => requestJson<unknown[]>(`${FUNCTIONAL_ROOT}/fact-claims`).then((items) => items.map(factClaim)),
   searchFactClaims: (query: string) => requestJson<unknown[]>(`${FUNCTIONAL_ROOT}/fact-claims?q=${encodeURIComponent(query.trim())}`).then((items) => items.map(factClaim)),
   getFactClaimLineage: (claimCode: string) => requestJson<unknown>(`${FUNCTIONAL_ROOT}/fact-claims/${encodeURIComponent(claimCode)}/lineage`).then(factClaimLineage),

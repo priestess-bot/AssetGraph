@@ -2,7 +2,7 @@ import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BookOpen, CheckCircle2, FilePlus2, Search, XCircle } from "lucide-react";
 import { EmptyBlock, InlineNotice, LoadingBlock, SectionHeader, StatusBadge, formatDate } from "../workbench/components";
-import { knowledgeApi, type FactClaimLineage, type ProductFactCard, type ProductFactCardContentInput } from "./api";
+import { knowledgeApi, type ContentRule, type FactClaimLineage, type ProductFactCard, type ProductFactCardContentInput } from "./api";
 
 interface FactEditorValues {
   title: string;
@@ -155,6 +155,62 @@ function FactClaimLineagePanel({ claimCode }: { claimCode: string }) {
   </section>;
 }
 
+function ContentRuleWorkspace({ onShowFactCards, onShowEvidence }: { onShowFactCards: () => void; onShowEvidence: () => void }) {
+  const client = useQueryClient();
+  const [ruleKind, setRuleKind] = useState<ContentRule["ruleKind"]>("content_guidance");
+  const [directive, setDirective] = useState<ContentRule["directive"]>("guidance");
+  const [title, setTitle] = useState("");
+  const [ruleText, setRuleText] = useState("");
+  const [sourceCode, setSourceCode] = useState("");
+  const [platforms, setPlatforms] = useState("");
+  const [author, setAuthor] = useState("console_operator");
+  const [reviewer, setReviewer] = useState("console_reviewer");
+  const [reasons, setReasons] = useState<Record<string, string>>({});
+  const sources = useQuery({ queryKey: ["knowledge-source-evidences"], queryFn: knowledgeApi.listSourceEvidences });
+  const rules = useQuery({ queryKey: ["knowledge-content-rules"], queryFn: knowledgeApi.listContentRules });
+  const refresh = async () => client.invalidateQueries({ queryKey: ["knowledge-content-rules"] });
+  const create = useMutation({
+    mutationFn: () => knowledgeApi.createContentRule({
+      rule_kind: ruleKind,
+      directive,
+      title: title.trim(),
+      rule_text: ruleText.trim(),
+      scope: platforms.trim() ? { platforms: lines(platforms) } : {},
+      source_evidence_code: sourceCode || undefined,
+      created_by: author.trim() || undefined,
+    }),
+    onSuccess: async () => { setTitle(""); setRuleText(""); setPlatforms(""); await refresh(); },
+  });
+  const approve = useMutation({ mutationFn: (code: string) => knowledgeApi.approveContentRule(code, reviewer.trim()), onSuccess: refresh });
+  const reject = useMutation({ mutationFn: ({ code, reason }: { code: string; reason: string }) => knowledgeApi.rejectContentRule(code, reviewer.trim(), reason), onSuccess: async (_value, item) => { setReasons((current) => ({ ...current, [item.code]: "" })); await refresh(); } });
+  const revoke = useMutation({ mutationFn: ({ code, reason }: { code: string; reason: string }) => knowledgeApi.revokeContentRule(code, reviewer.trim(), reason), onSuccess: async (_value, item) => { setReasons((current) => ({ ...current, [item.code]: "" })); await refresh(); } });
+  const approvedSources = (sources.data ?? []).filter((source) => source.status === "approved");
+  const sourceRequired = ruleKind !== "content_guidance";
+  const problem = sources.error ?? rules.error ?? create.error ?? approve.error ?? reject.error ?? revoke.error;
+
+  return <div className="knowledge-layout">
+    <aside className="wb-section knowledge-rail">
+      <SectionHeader kicker="KNOWLEDGE RULES" title="内容规则" actions={<><button type="button" className="wb-button" onClick={onShowEvidence}>来源证据</button><button type="button" className="wb-button" onClick={onShowFactCards}>商品事实卡</button></>} />
+      <form className="knowledge-create knowledge-editor" onSubmit={(event: FormEvent) => { event.preventDefault(); create.mutate(); }}>
+        <label className="wb-field"><span>规则类型</span><select className="wb-input" value={ruleKind} onChange={(event) => { const next = event.target.value as ContentRule["ruleKind"]; setRuleKind(next); if (next === "expression_ban") setDirective("must_avoid"); }}><option value="content_guidance">内容知识</option><option value="compliance_rule">合规规则</option><option value="term">术语</option><option value="expression_ban">表达禁区</option></select></label>
+        <label className="wb-field"><span>应用方式</span><select className="wb-input" value={directive} disabled={ruleKind === "expression_ban"} onChange={(event) => setDirective(event.target.value as ContentRule["directive"])}><option value="guidance">指导</option><option value="must_include">必须包含</option><option value="must_avoid">必须避免</option></select></label>
+        <label className="wb-field"><span>规则标题</span><input className="wb-input" value={title} onChange={(event) => setTitle(event.target.value)} required /></label>
+        <label className="wb-field"><span>批准来源</span><select className="wb-input" value={sourceCode} onChange={(event) => setSourceCode(event.target.value)} required={sourceRequired}><option value="">{sourceRequired ? "选择批准来源" : "无需来源（本地内容知识）"}</option>{approvedSources.map((source) => <option key={source.evidenceCode} value={source.evidenceCode}>{source.title}</option>)}</select></label>
+        <label className="wb-field"><span>适用平台</span><input className="wb-input" value={platforms} onChange={(event) => setPlatforms(event.target.value)} placeholder="逗号分隔；留空表示不限制" /></label>
+        <label className="wb-field"><span>登记人</span><input className="wb-input" value={author} onChange={(event) => setAuthor(event.target.value)} required /></label>
+        <label className="wb-field wide"><span>规则正文</span><textarea className="wb-textarea" value={ruleText} onChange={(event) => setRuleText(event.target.value)} required /></label>
+        <button className="wb-button wb-button-primary" disabled={create.isPending || !title.trim() || !ruleText.trim() || (sourceRequired && !sourceCode)}><FilePlus2 size={15} aria-hidden="true" />登记规则草稿</button>
+      </form>
+    </aside>
+    <main className="knowledge-main">
+      <section className="wb-section"><SectionHeader kicker="RULE REVIEW" title="内容规则审核" actions={<label className="wb-field"><span>审核/撤销操作人</span><input className="wb-input" value={reviewer} onChange={(event) => setReviewer(event.target.value)} required /></label>} />
+        {problem ? <InlineNotice tone="danger" title="规则操作未完成">{errorMessage(problem)}</InlineNotice> : null}
+        {rules.isLoading ? <LoadingBlock /> : rules.data?.length ? <div className="knowledge-usage-list">{rules.data.map((rule) => { const reason = reasons[rule.ruleCode] ?? ""; return <article key={rule.ruleCode}><span><strong>{rule.title}</strong><small>{rule.ruleKind} · {rule.directive}</small><small>{rule.ruleText}</small><small>来源：{rule.sourceTitle ?? "本地内容知识"} · {rule.sourceStatus ?? "不适用"}</small><code>{rule.ruleCode} · {rule.fingerprint.slice(0, 12)}</code>{rule.status === "rejected" && rule.rejectionReason ? <small>驳回：{rule.rejectionReason}</small> : null}{rule.status === "revoked" && rule.revokedReason ? <small>撤销：{rule.revokedReason}</small> : null}</span><div className="knowledge-source-actions"><StatusBadge label={rule.status} tone={versionTone(rule.status)} />{rule.status === "draft" ? <><button type="button" className="wb-button" disabled={approve.isPending || !reviewer.trim()} onClick={() => approve.mutate(rule.ruleCode)}><CheckCircle2 size={14} aria-hidden="true" />批准规则</button><input aria-label={`${rule.ruleCode} 驳回原因`} className="wb-input" value={reason} onChange={(event) => setReasons((current) => ({ ...current, [rule.ruleCode]: event.target.value }))} placeholder="驳回原因" /><button type="button" className="wb-button" disabled={reject.isPending || !reviewer.trim() || !reason.trim()} onClick={() => reject.mutate({ code: rule.ruleCode, reason: reason.trim() })}><XCircle size={14} aria-hidden="true" />驳回规则</button></> : null}{rule.status === "approved" ? <><input aria-label={`${rule.ruleCode} 撤销原因`} className="wb-input" value={reason} onChange={(event) => setReasons((current) => ({ ...current, [rule.ruleCode]: event.target.value }))} placeholder="撤销原因" /><button type="button" className="wb-button" disabled={revoke.isPending || !reviewer.trim() || !reason.trim()} onClick={() => revoke.mutate({ code: rule.ruleCode, reason: reason.trim() })}><XCircle size={14} aria-hidden="true" />撤销规则</button></> : null}</div></article>; })}</div> : <EmptyBlock icon={BookOpen} title="尚无内容规则" />}
+      </section>
+    </main>
+  </div>;
+}
+
 function EvidenceWorkspace({ onShowFactCards }: { onShowFactCards: () => void }) {
   const client = useQueryClient();
   const [sourceType, setSourceType] = useState<"human" | "document" | "webpage" | "export">("document");
@@ -250,7 +306,7 @@ function EvidenceWorkspace({ onShowFactCards }: { onShowFactCards: () => void })
 
 export function KnowledgePage() {
   const queryClient = useQueryClient();
-  const [workspace, setWorkspace] = useState<"fact_cards" | "evidence">("fact_cards");
+  const [workspace, setWorkspace] = useState<"fact_cards" | "evidence" | "rules">("fact_cards");
   const [query, setQuery] = useState("");
   const [selectedCode, setSelectedCode] = useState("");
   const [showCreate, setShowCreate] = useState(false);
@@ -300,10 +356,11 @@ export function KnowledgePage() {
   const reject = useMutation({ mutationFn: () => knowledgeApi.rejectProductFactCardVersion(selectedCode, activeVersion?.versionNumber ?? 0, reviewer.trim(), rejectionReason.trim()), onSuccess: async () => { setRejectionReason(""); await refresh(selectedCode); } });
 
   if (workspace === "evidence") return <EvidenceWorkspace onShowFactCards={() => setWorkspace("fact_cards")} />;
+  if (workspace === "rules") return <ContentRuleWorkspace onShowFactCards={() => setWorkspace("fact_cards")} onShowEvidence={() => setWorkspace("evidence")} />;
   if (cards.isLoading) return <LoadingBlock />;
   return <div className="knowledge-layout">
     <aside className="wb-section knowledge-rail">
-      <SectionHeader kicker="FACT CARDS" title="事实卡" actions={<><button type="button" className="wb-button" onClick={() => setWorkspace("evidence")}>来源证据</button><button type="button" className="wb-button wb-button-primary" onClick={() => setShowCreate((current) => !current)}><FilePlus2 size={14} aria-hidden="true" />新建</button></>} />
+      <SectionHeader kicker="FACT CARDS" title="事实卡" actions={<><button type="button" className="wb-button" onClick={() => setWorkspace("evidence")}>来源证据</button><button type="button" className="wb-button" onClick={() => setWorkspace("rules")}>内容规则</button><button type="button" className="wb-button wb-button-primary" onClick={() => setShowCreate((current) => !current)}><FilePlus2 size={14} aria-hidden="true" />新建</button></>} />
       {showCreate ? <div className="knowledge-create"><FactEditor values={createValues} setValues={setCreateValues} includeTitle submitLabel="创建草稿" pending={create.isPending} onSubmit={() => create.mutate()} />{create.error ? <InlineNotice tone="danger" title="事实卡创建失败">{errorMessage(create.error)}</InlineNotice> : null}</div> : null}
       <label className="asset-search"><Search size={15} aria-hidden="true" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索事实卡" /></label>
       {cards.error ? <InlineNotice tone="danger" title="事实卡读取失败">{errorMessage(cards.error)}</InlineNotice> : filtered.length ? <div className="knowledge-card-list">{filtered.map((card) => <button type="button" key={card.factCardCode} className={card.factCardCode === selectedCode ? "active" : undefined} onClick={() => { setSelectedCode(card.factCardCode); setShowRevision(false); }}><span><strong>{card.title}</strong><small>{stringValue(versionContent(card), "product_name") || "未填写商品名称"}</small><code>{card.factCardCode}{card.currentApprovedVersion ? ` · 已批准 v${card.currentApprovedVersion}` : " · 尚无已批准版本"}</code></span><StatusBadge label={card.status} tone="info" /></button>)}</div> : <EmptyBlock icon={BookOpen} title="尚无事实卡" />}

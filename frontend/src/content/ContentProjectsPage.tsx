@@ -421,6 +421,7 @@ function ProjectCreate({ onCreated }: { onCreated: (code: string) => void }) {
   const [audio, setAudio] = useState("");
   const [factCodes, setFactCodes] = useState<string[]>([]);
   const [claimCodes, setClaimCodes] = useState<string[]>([]);
+  const [ruleCodes, setRuleCodes] = useState<string[]>([]);
   const [primaryTemplate, setPrimaryTemplate] = useState("");
   const [secondaryTemplates, setSecondaryTemplates] = useState<string[]>([]);
   const [acceptedModules, setAcceptedModules] = useState<
@@ -437,6 +438,10 @@ function ProjectCreate({ onCreated }: { onCreated: (code: string) => void }) {
   const claims = useQuery({
     queryKey: ["knowledge-fact-claims"],
     queryFn: knowledgeApi.listFactClaims,
+  });
+  const rules = useQuery({
+    queryKey: ["knowledge-content-rules"],
+    queryFn: knowledgeApi.listContentRules,
   });
   const usableTemplates = useMemo(
     () =>
@@ -468,6 +473,9 @@ function ProjectCreate({ onCreated }: { onCreated: (code: string) => void }) {
   );
   const approvedClaims = (claims.data ?? []).filter(
     (claim) => claim.status === "approved" && claim.sourceStatus === "approved",
+  );
+  const approvedRules = (rules.data ?? []).filter(
+    (rule) => rule.status === "approved" && (!rule.sourceEvidenceCode || rule.sourceStatus === "approved"),
   );
   const factConflicts = findFactCardConflicts(
     approvedFacts,
@@ -505,6 +513,12 @@ function ProjectCreate({ onCreated }: { onCreated: (code: string) => void }) {
       current.includes(claimCode)
         ? current.filter((code) => code !== claimCode)
         : [...current, claimCode],
+    );
+  const toggleRule = (ruleCode: string) =>
+    setRuleCodes((current) =>
+      current.includes(ruleCode)
+        ? current.filter((code) => code !== ruleCode)
+        : [...current, ruleCode],
     );
   const choosePrimary = (templateCode: string) => {
     setPrimaryTemplate(templateCode);
@@ -547,6 +561,7 @@ function ProjectCreate({ onCreated }: { onCreated: (code: string) => void }) {
         audio_requirements: list(audio),
         fact_card_codes: factCodes,
         fact_claim_codes: claimCodes,
+        content_rule_codes: ruleCodes,
         primary_template_code: primaryTemplate || undefined,
         secondary_template_codes: secondaryTemplates,
         template_contribution_decisions: selectedTemplateCodes.map(
@@ -723,7 +738,7 @@ function ProjectCreate({ onCreated }: { onCreated: (code: string) => void }) {
               仍可创建无事实卡内容项目。
             </InlineNotice>
           ) : approvedFacts.length ? (
-            <div className="content-template-options">
+        <div className="content-template-options">
               {approvedFacts.map((fact) => (
                 <label key={fact.factCardCode}>
                   <input
@@ -777,6 +792,10 @@ function ProjectCreate({ onCreated }: { onCreated: (code: string) => void }) {
           ) : (
             <small>暂无已批准事实声明。</small>
           )}
+        </section>
+        <section className="wb-field wide">
+          <span>已批准内容规则</span>
+          {rules.isLoading ? <small>正在读取内容规则。</small> : rules.error ? <InlineNotice tone="warning" title="内容规则暂不可用">仍可创建不使用规则的内容项目。</InlineNotice> : approvedRules.length ? <div className="content-template-options">{approvedRules.map((rule) => <label key={rule.ruleCode}><input type="checkbox" checked={ruleCodes.includes(rule.ruleCode)} onChange={() => toggleRule(rule.ruleCode)} />{rule.title}<code>{rule.ruleKind} · {rule.directive}</code><small>{rule.ruleText}</small></label>)}</div> : <small>暂无已批准内容规则。</small>}
         </section>
         <section className="wb-field wide">
           <span>内容策略参考模板</span>

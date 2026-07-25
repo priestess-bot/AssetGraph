@@ -23,6 +23,29 @@ def test_product_order_is_preserved_in_story_context_and_product_segments() -> N
     ]
 
 
+def test_pinned_content_rules_extend_frozen_story_and_shot_constraints() -> None:
+    content = {
+        "must_include": ["说明适用场景"],
+        "must_avoid": ["手工禁用表达"],
+        "content_rule_refs": [
+            {"directive": "must_include", "rule_text": "说明限制条件"},
+            {"directive": "must_avoid", "rule_text": "不得承诺未核验价格"},
+            {"directive": "guidance", "rule_text": "用短句表达"},
+        ],
+    }
+    story = FunctionalContentService._story_content("Explain choices", content, {})
+    shots = FunctionalContentService._shots(
+        [{"segment_code": "SEG-001", "semantic_goal": "开场"}],
+        [{"block_code": "BLOCK-001", "module_type": "opening", "estimated_duration_ms": 20_000, "template_sources": []}],
+        content,
+    )
+
+    assert story["must_include"] == ["说明适用场景", "说明限制条件"]
+    assert story["must_avoid"] == ["手工禁用表达", "不得承诺未核验价格"]
+    assert shots[0]["must_include"] == story["must_include"]
+    assert shots[0]["must_avoid"] == story["must_avoid"]
+
+
 def test_selected_content_strategy_policy_reaches_script_and_program_actions() -> None:
     policy = FunctionalContentService._content_strategy_policy_snapshot(
         {

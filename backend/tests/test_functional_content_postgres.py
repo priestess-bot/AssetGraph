@@ -293,6 +293,62 @@ def test_content_project_pins_source_backed_fact_claim_and_cites_it() -> None:
         assert citation["source_evidence_code"] == source["evidence_code"]
 
 
+def test_content_project_pins_approved_content_rules_into_story_and_shots() -> None:
+    with psycopg.connect(DATABASE_URL) as connection:
+        knowledge = FunctionalKnowledgeService(connection)
+        source = knowledge.create_source_evidence(
+            {
+                "source_type": "document",
+                "title": f"Content rule source {uuid4().hex}",
+                "excerpt": "Do not promise a price unless it has been approved.",
+                "access_scope": "internal",
+                "created_by": "test-author",
+            }
+        )
+        knowledge.approve_source_evidence(source["evidence_code"], "test-reviewer")
+        rule = knowledge.create_content_rule(
+            {
+                "rule_kind": "expression_ban",
+                "directive": "must_avoid",
+                "title": "No unverified price promises",
+                "rule_text": "Do not promise a price unless it has been approved.",
+                "source_evidence_code": source["evidence_code"],
+                "created_by": "test-author",
+            }
+        )
+        knowledge.approve_content_rule(rule["rule_code"], "test-reviewer")
+
+        content = FunctionalContentService(connection)
+        project = content.create_project(
+            {
+                "title": f"Rule project {uuid4().hex}",
+                "generation_goal": "Explain a product without unsupported price claims.",
+                "content_rule_codes": [rule["rule_code"]],
+            },
+            actor_id="test-operator",
+        )
+        detail = content.get_detail(project["project_code"])
+        assert detail is not None
+        assert detail["content_rules"] == [
+            {
+                "rule_code": rule["rule_code"],
+                "rule_kind": "expression_ban",
+                "directive": "must_avoid",
+                "title": "No unverified price promises",
+                "rule_text": "Do not promise a price unless it has been approved.",
+                "source_evidence_code": source["evidence_code"],
+                "fingerprint_sha256": rule["fingerprint_sha256"],
+            }
+        ]
+        content.confirm_project(project["project_code"], expected_revision=1, actor_id="test-operator")
+        content.parse_design_brief(project["project_code"], expected_revision=1, raw_input="Use approved content rules.", actor_id="test-operator")
+        content.confirm_design_brief(project["project_code"], expected_revision=1, actor_id="test-operator")
+        generated = content.generate_chain(project["project_code"], actor_id="test-operator")
+
+        assert "Do not promise a price unless it has been approved." in generated["story_brief"]["content"]["must_avoid"]
+        assert "Do not promise a price unless it has been approved." in generated["shot_list"]["shots"][0]["must_avoid"]
+
+
 def test_content_project_update_requires_current_revision() -> None:
     with psycopg.connect(DATABASE_URL) as connection:
         service = FunctionalContentService(connection)

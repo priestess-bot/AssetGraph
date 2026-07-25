@@ -4,6 +4,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from psycopg import Connection
 from app.core.database import get_db
 from app.schemas.functional_knowledge import (
+    ContentRuleApprove,
+    ContentRuleCreate,
+    ContentRuleRead,
+    ContentRuleReject,
+    ContentRuleRevoke,
     FactClaimApprove,
     FactClaimCreate,
     FactClaimLineageRead,
@@ -109,6 +114,69 @@ def revoke_source_evidence(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if result is None:
         raise HTTPException(status_code=404, detail="Source evidence not found")
+    return result
+
+
+@router.post("/content-rules", response_model=ContentRuleRead, status_code=201)
+def create_content_rule(
+    payload: ContentRuleCreate,
+    service: Annotated[FunctionalKnowledgeService, Depends(svc)],
+) -> dict:
+    try:
+        return service.create_content_rule(payload.model_dump())
+    except FunctionalKnowledgeConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.get("/content-rules", response_model=list[ContentRuleRead])
+def list_content_rules(
+    service: Annotated[FunctionalKnowledgeService, Depends(svc)], q: str | None = None
+) -> list[dict]:
+    return service.list_content_rules(q)
+
+
+@router.post("/content-rules/{rule_code}/approve", response_model=ContentRuleRead)
+def approve_content_rule(
+    rule_code: str,
+    payload: ContentRuleApprove,
+    service: Annotated[FunctionalKnowledgeService, Depends(svc)],
+) -> dict:
+    try:
+        result = service.approve_content_rule(rule_code, payload.approved_by)
+    except FunctionalKnowledgeConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if result is None:
+        raise HTTPException(status_code=404, detail="Content rule not found")
+    return result
+
+
+@router.post("/content-rules/{rule_code}/reject", response_model=ContentRuleRead)
+def reject_content_rule(
+    rule_code: str,
+    payload: ContentRuleReject,
+    service: Annotated[FunctionalKnowledgeService, Depends(svc)],
+) -> dict:
+    try:
+        result = service.reject_content_rule(rule_code, payload.actor, payload.reason)
+    except FunctionalKnowledgeConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if result is None:
+        raise HTTPException(status_code=404, detail="Content rule not found")
+    return result
+
+
+@router.post("/content-rules/{rule_code}/revoke", response_model=ContentRuleRead)
+def revoke_content_rule(
+    rule_code: str,
+    payload: ContentRuleRevoke,
+    service: Annotated[FunctionalKnowledgeService, Depends(svc)],
+) -> dict:
+    try:
+        result = service.revoke_content_rule(rule_code, payload.actor, payload.reason)
+    except FunctionalKnowledgeConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if result is None:
+        raise HTTPException(status_code=404, detail="Content rule not found")
     return result
 
 

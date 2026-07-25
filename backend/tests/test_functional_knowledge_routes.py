@@ -57,6 +57,37 @@ def _claim(**overrides: Any) -> dict[str, Any]:
     }
 
 
+def _rule(**overrides: Any) -> dict[str, Any]:
+    return {
+        "rule_code": "RULE-001",
+        "rule_kind": "expression_ban",
+        "directive": "must_avoid",
+        "title": "No unsupported price claim",
+        "rule_text": "Do not promise an unverified price.",
+        "scope": {"platforms": ["douyin"]},
+        "source_evidence_code": "EVIDENCE-001",
+        "source_title": "Approved product sheet",
+        "source_status": "approved",
+        "source_content_sha256": "a" * 64,
+        "valid_from": None,
+        "valid_until": None,
+        "status": "draft",
+        "created_by": "author",
+        "approved_by": None,
+        "approved_at": None,
+        "revoked_by": None,
+        "revoked_at": None,
+        "revoked_reason": None,
+        "rejected_by": None,
+        "rejected_at": None,
+        "rejection_reason": None,
+        "fingerprint_sha256": "c" * 64,
+        "created_at": NOW,
+        "updated_at": NOW,
+        **overrides,
+    }
+
+
 class FakeFunctionalKnowledgeService:
     def __init__(self) -> None:
         self.source_payload: dict[str, Any] | None = None
@@ -65,6 +96,9 @@ class FakeFunctionalKnowledgeService:
         self.claim_revocation: tuple[str, str, str] | None = None
         self.source_rejection: tuple[str, str, str] | None = None
         self.claim_rejection: tuple[str, str, str] | None = None
+        self.rule_payload: dict[str, Any] | None = None
+        self.rule_rejection: tuple[str, str, str] | None = None
+        self.rule_revocation: tuple[str, str, str] | None = None
 
     def create_source_evidence(self, payload: dict[str, Any]) -> dict[str, Any]:
         self.source_payload = payload
@@ -105,6 +139,30 @@ class FakeFunctionalKnowledgeService:
     def create_fact_claim(self, payload: dict[str, Any]) -> dict[str, Any] | None:
         self.claim_payload = payload
         return _claim(**payload)
+
+    def create_content_rule(self, payload: dict[str, Any]) -> dict[str, Any]:
+        self.rule_payload = payload
+        return _rule(**payload)
+
+    @staticmethod
+    def list_content_rules(q: str | None = None) -> list[dict[str, Any]]:
+        return [_rule()] if q != "none" else []
+
+    @staticmethod
+    def approve_content_rule(code: str, approved_by: str) -> dict[str, Any] | None:
+        return _rule(rule_code=code, status="approved", approved_by=approved_by, approved_at=NOW)
+
+    def reject_content_rule(self, code: str, actor: str, reason: str) -> dict[str, Any] | None:
+        if code == "missing":
+            return None
+        self.rule_rejection = (code, actor, reason)
+        return _rule(rule_code=code, status="rejected", rejected_by=actor, rejected_at=NOW, rejection_reason=reason)
+
+    def revoke_content_rule(self, code: str, actor: str, reason: str) -> dict[str, Any] | None:
+        if code == "missing":
+            return None
+        self.rule_revocation = (code, actor, reason)
+        return _rule(rule_code=code, status="revoked", revoked_by=actor, revoked_at=NOW, revoked_reason=reason)
 
     @staticmethod
     def list_fact_claims(q: str | None = None) -> list[dict[str, Any]]:
@@ -233,6 +291,56 @@ def test_fact_claim_route_rejects_naive_datetimes(
         },
     )
     assert result.status_code == 422
+
+
+def test_content_rule_routes_keep_compliance_separate_and_reviewed(
+    client: tuple[TestClient, FakeFunctionalKnowledgeService],
+) -> None:
+    test_client, service = client
+    created = test_client.post(
+        "/api/functional-knowledge/content-rules",
+        json={
+            "rule_kind": "expression_ban",
+            "directive": "must_avoid",
+            "title": "No unsupported price claim",
+            "rule_text": "Do not promise an unverified price.",
+            "scope": {"platforms": ["douyin"]},
+            "source_evidence_code": "EVIDENCE-001",
+            "created_by": "author",
+        },
+    )
+    approved = test_client.post(
+        "/api/functional-knowledge/content-rules/RULE-001/approve",
+        json={"approved_by": "reviewer"},
+    )
+    rejected = test_client.post(
+        "/api/functional-knowledge/content-rules/RULE-001/reject",
+        json={"actor": "reviewer", "reason": "Rule wording is incomplete."},
+    )
+    revoked = test_client.post(
+        "/api/functional-knowledge/content-rules/RULE-001/revoke",
+        json={"actor": "reviewer", "reason": "Rule was replaced."},
+    )
+    invalid = test_client.post(
+        "/api/functional-knowledge/content-rules",
+        json={
+            "rule_kind": "expression_ban",
+            "directive": "guidance",
+            "title": "Bad rule",
+            "rule_text": "Do not use this.",
+            "source_evidence_code": "EVIDENCE-001",
+        },
+    )
+
+    assert created.status_code == 201
+    assert service.rule_payload is not None
+    assert service.rule_payload["rule_kind"] == "expression_ban"
+    assert approved.json()["approved_by"] == "reviewer"
+    assert rejected.json()["rejection_reason"] == "Rule wording is incomplete."
+    assert revoked.json()["revoked_reason"] == "Rule was replaced."
+    assert service.rule_rejection == ("RULE-001", "reviewer", "Rule wording is incomplete.")
+    assert service.rule_revocation == ("RULE-001", "reviewer", "Rule was replaced.")
+    assert invalid.status_code == 422
 
 
 def test_fact_claim_lineage_keeps_statuses_and_fixed_usage_explicit(

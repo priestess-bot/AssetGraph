@@ -107,4 +107,20 @@ describe("knowledge api", () => {
     expect(lineage).toMatchObject({ claimCode: "CLAIM-001", factStatus: "approved", uses: [{ objectCode: "CONTENT-001", revisionNumber: 2, relationType: "pins_fact_claim" }] });
     expect(fetch).toHaveBeenCalledWith("/api/functional-knowledge/fact-claims/CLAIM-001/lineage", expect.any(Object));
   });
+
+  it("keeps reviewed content rules separate from product facts", async () => {
+    const fetch = vi.fn().mockResolvedValue(response({
+      rule_code: "RULE-001", rule_kind: "expression_ban", directive: "must_avoid",
+      title: "No unsupported price claim", rule_text: "Do not promise an unverified price.",
+      scope: { platforms: ["douyin"] }, source_evidence_code: "EVIDENCE-001",
+      source_title: "Product sheet", source_status: "approved", source_content_sha256: "a".repeat(64),
+      status: "draft", fingerprint_sha256: "c".repeat(64), created_at: "2026-07-25T00:00:00Z", updated_at: "2026-07-25T00:00:00Z",
+    }));
+    vi.stubGlobal("fetch", fetch);
+
+    const rule = await knowledgeApi.createContentRule({ rule_kind: "expression_ban", directive: "must_avoid", title: "No unsupported price claim", rule_text: "Do not promise an unverified price.", source_evidence_code: "EVIDENCE-001" });
+
+    expect(rule).toMatchObject({ ruleCode: "RULE-001", ruleKind: "expression_ban", directive: "must_avoid", sourceStatus: "approved" });
+    expect(fetch).toHaveBeenCalledWith("/api/functional-knowledge/content-rules", expect.objectContaining({ method: "POST" }));
+  });
 });

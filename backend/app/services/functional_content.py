@@ -32,6 +32,7 @@ class FunctionalContentService:
         document = self._document(payload)
         self._pin_fact_cards(document)
         self._pin_fact_claims(document)
+        self._pin_content_rules(document)
         self._pin_template_refs(document)
         created = self.core.create_project(
             title=payload["title"],
@@ -65,6 +66,8 @@ class FunctionalContentService:
             document.pop("fact_card_refs", None)
         if "fact_claim_codes" in updates and "fact_claim_refs" not in updates:
             document.pop("fact_claim_refs", None)
+        if "content_rule_codes" in updates and "content_rule_refs" not in updates:
+            document.pop("content_rule_refs", None)
         if (
             {"primary_template_code", "secondary_template_codes"} & set(updates)
             and "template_contribution_decisions" not in updates
@@ -73,6 +76,7 @@ class FunctionalContentService:
         document.update(updates)
         self._pin_fact_cards(document)
         self._pin_fact_claims(document)
+        self._pin_content_rules(document)
         self._pin_template_refs(document)
         revision = self.core.create_project_revision(
             project_code,
@@ -113,6 +117,7 @@ class FunctionalContentService:
         document = dict(current["content"] or {})
         self._pin_fact_cards(document, require_existing_pins=True)
         self._pin_fact_claims(document, require_existing_pins=True)
+        self._pin_content_rules(document, require_existing_pins=True)
         self._pin_template_refs(document, require_existing_pins=True)
         if document != current["content"]:
             revision = self.core.create_project_revision(
@@ -589,8 +594,8 @@ class FunctionalContentService:
                     "acceptance_criteria": shot.get("acceptance_criteria") or [],
                     "estimated_duration_ms": shot.get("estimated_duration_ms"),
                     "branch_applicability": shot.get("branch_applicability") or [],
-                    "must_include": shot.get("must_include") or content.get("must_include") or [],
-                    "must_avoid": shot.get("must_avoid") or content.get("must_avoid") or [],
+                    "must_include": shot.get("must_include") or self._effective_rule_directives(content, "must_include"),
+                    "must_avoid": shot.get("must_avoid") or self._effective_rule_directives(content, "must_avoid"),
                     "script_block_sources": [{"block_code": code, "relation_type": "derived_from"} for code in source_codes],
                 }
             )
@@ -777,6 +782,7 @@ class FunctionalContentService:
                 "content": content,
                 "fact_cards": self._fact_card_views(content),
                 "fact_claims": self._fact_claim_views(content),
+                "content_rules": self._content_rule_views(content),
                 "design_brief": self._design_brief_view(design_brief),
                 "generated": shot_list is not None,
                 "generation_mode": content.get("generation_mode"),
@@ -795,6 +801,7 @@ class FunctionalContentService:
         frozen_inputs = dict(current["content"] or {})
         self._pin_fact_cards(frozen_inputs, require_existing_pins=True)
         self._pin_fact_claims(frozen_inputs, require_existing_pins=True)
+        self._pin_content_rules(frozen_inputs, require_existing_pins=True)
         self._pin_template_refs(frozen_inputs, require_existing_pins=True)
         if current["status"] != "confirmed":
             raise DomainConflictError(
@@ -882,6 +889,7 @@ class FunctionalContentService:
             "interaction_requirements", "conversion_requirements", "staging_requirements",
             "visual_requirements", "audio_requirements", "fact_card_codes", "fact_card_refs",
             "fact_claim_codes", "fact_claim_refs",
+            "content_rule_codes", "content_rule_refs",
             "primary_template_code", "secondary_template_codes", "primary_template_ref",
             "secondary_template_refs", "template_contribution_decisions",
         )
@@ -891,7 +899,7 @@ class FunctionalContentService:
                 "product_order", "must_include", "must_avoid", "interaction_requirements",
                 "conversion_requirements", "staging_requirements", "visual_requirements",
                 "audio_requirements", "fact_card_codes", "fact_card_refs", "fact_claim_codes",
-                "fact_claim_refs", "secondary_template_codes",
+                "fact_claim_refs", "content_rule_codes", "content_rule_refs", "secondary_template_codes",
                 "secondary_template_refs", "template_contribution_decisions",
             ):
                 document[field] = document.get(field) or []
@@ -998,6 +1006,70 @@ class FunctionalContentService:
             )
         document["fact_claim_refs"] = pinned
         document["fact_claim_codes"] = [ref["claim_code"] for ref in pinned]
+
+    def _pin_content_rules(self, document: dict[str, Any], *, require_existing_pins: bool = False) -> None:
+        raw_refs = document.get("content_rule_refs") or []
+        raw_codes = document.get("content_rule_codes") or []
+        if require_existing_pins and raw_codes and not raw_refs:
+            raise DomainValidationError(
+                "CONTENT_RULE_PIN_REQUIRED",
+                "A content project must pin a content rule before confirmation or generation",
+            )
+        if raw_refs:
+            requested = [
+                str(value.get("rule_code") or "").strip()
+                for value in raw_refs
+                if isinstance(value, dict)
+            ]
+            if len(requested) != len(raw_refs) or not all(requested):
+                raise DomainValidationError("CONTENT_RULE_REFERENCE_INVALID", "Content rule references must contain rule_code")
+        else:
+            requested = [str(code).strip() for code in raw_codes if str(code).strip()]
+        if len(requested) != len(set(requested)):
+            raise DomainValidationError("CONTENT_RULE_REFERENCE_DUPLICATE", "A content rule can only be selected once")
+
+        now = datetime.now(UTC)
+        platform = str(document.get("platform") or "").strip().lower()
+        pinned: list[dict[str, Any]] = []
+        for rule_code in requested:
+            resolved = self.knowledge.resolve_approved_content_rule(rule_code)
+            if resolved is None:
+                raise DomainValidationError(
+                    "CONTENT_RULE_NOT_APPROVED",
+                    "The selected content rule or its source is unavailable or not approved",
+                    details={"rule_code": rule_code},
+                )
+            valid_from = resolved.get("valid_from")
+            valid_until = resolved.get("valid_until")
+            if valid_from and now < valid_from:
+                raise DomainValidationError("CONTENT_RULE_NOT_YET_VALID", "Content rule is not effective yet", details={"rule_code": rule_code})
+            if valid_until and now >= valid_until:
+                raise DomainValidationError("CONTENT_RULE_EXPIRED", "Content rule has expired", details={"rule_code": rule_code})
+            scope = resolved.get("scope") or {}
+            platforms = scope.get("platforms") if isinstance(scope, dict) else None
+            if platforms is not None:
+                if not isinstance(platforms, list) or not all(isinstance(value, str) for value in platforms):
+                    raise DomainValidationError("CONTENT_RULE_SCOPE_INVALID", "Content rule scope.platforms must be a string array", details={"rule_code": rule_code})
+                normalized = {value.strip().lower() for value in platforms if value.strip()}
+                if platform and normalized and "all" not in normalized and platform not in normalized:
+                    raise DomainValidationError("CONTENT_RULE_SCOPE_MISMATCH", "Content rule does not apply to the selected platform", details={"rule_code": rule_code, "platform": platform})
+            pinned.append(
+                {
+                    "rule_code": resolved["rule_code"],
+                    "rule_kind": resolved["rule_kind"],
+                    "directive": resolved["directive"],
+                    "title": resolved["title"],
+                    "rule_text": resolved["rule_text"],
+                    "scope": scope,
+                    "source_evidence_code": resolved.get("source_evidence_code"),
+                    "source_content_sha256": resolved.get("source_content_sha256"),
+                    "valid_from": self._json_timestamp(valid_from),
+                    "valid_until": self._json_timestamp(valid_until),
+                    "fingerprint_sha256": resolved["fingerprint_sha256"],
+                }
+            )
+        document["content_rule_refs"] = pinned
+        document["content_rule_codes"] = [ref["rule_code"] for ref in pinned]
 
     @staticmethod
     def _json_timestamp(value: Any) -> str | None:
@@ -1341,6 +1413,9 @@ class FunctionalContentService:
             {"object_type": "fact_claim", **ref, "relation_type": "approved_claim"}
             for ref in document.get("fact_claim_refs") or []
         ] + [
+            {"object_type": "content_rule", **ref, "relation_type": "approved_content_rule"}
+            for ref in document.get("content_rule_refs") or []
+        ] + [
             {"object_type": "live_room_template", "template_code": ref["template_code"], "revision": ref["revision"], "relation_type": "reference_template"}
             for ref in FunctionalContentService._template_refs(document)
         ]
@@ -1354,6 +1429,32 @@ class FunctionalContentService:
             {"claim_code": ref["claim_code"], "fact_code": ref["fact_code"], "source_evidence_code": ref["source_evidence_code"], "fingerprint_sha256": ref["fingerprint_sha256"]}
             for ref in content.get("fact_claim_refs") or []
         ]
+
+    @staticmethod
+    def _content_rule_views(content: dict[str, Any]) -> list[dict[str, Any]]:
+        return [
+            {
+                "rule_code": ref.get("rule_code"),
+                "rule_kind": ref.get("rule_kind"),
+                "directive": ref.get("directive"),
+                "title": ref.get("title"),
+                "rule_text": ref.get("rule_text"),
+                "source_evidence_code": ref.get("source_evidence_code"),
+                "fingerprint_sha256": ref.get("fingerprint_sha256"),
+            }
+            for ref in content.get("content_rule_refs") or []
+            if isinstance(ref, dict)
+        ]
+
+    @staticmethod
+    def _effective_rule_directives(content: dict[str, Any], directive: str) -> list[str]:
+        manual = [str(value).strip() for value in content.get(directive) or [] if str(value).strip()]
+        rules = [
+            str(ref.get("rule_text") or "").strip()
+            for ref in content.get("content_rule_refs") or []
+            if isinstance(ref, dict) and ref.get("directive") == directive
+        ]
+        return list(dict.fromkeys([*manual, *[value for value in rules if value]]))
 
     @staticmethod
     def _fact_card_views(content: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1383,12 +1484,12 @@ class FunctionalContentService:
             "theme": content.get("theme"),
             "story": content.get("story"),
             "audience": content.get("audience"),
-            "priorities": content.get("must_include") or [],
+            "priorities": FunctionalContentService._effective_rule_directives(content, "must_include"),
             "persona": content.get("persona"),
             "tone": content.get("tone"),
             "duration_seconds": content.get("target_duration_seconds"),
-            "must_include": content.get("must_include") or [],
-            "must_avoid": content.get("must_avoid") or [],
+            "must_include": FunctionalContentService._effective_rule_directives(content, "must_include"),
+            "must_avoid": FunctionalContentService._effective_rule_directives(content, "must_avoid"),
             "staging": content.get("staging_requirements") or [],
             "interaction": content.get("interaction_requirements") or [],
             "conversion": content.get("conversion_requirements") or [],
@@ -1498,12 +1599,37 @@ class FunctionalContentService:
                     "content": {"verified_facts": [resolved["claim"]]},
                 }
             )
+        approved_content_rules: list[dict[str, Any]] = []
+        for ref in content.get("content_rule_refs") or []:
+            if not isinstance(ref, dict):
+                continue
+            resolved = self.knowledge.resolve_approved_content_rule(str(ref.get("rule_code") or ""))
+            if (
+                resolved is None
+                or resolved["fingerprint_sha256"] != ref.get("fingerprint_sha256")
+                or resolved.get("source_content_sha256") != ref.get("source_content_sha256")
+            ):
+                raise DomainValidationError(
+                    "CONTENT_RULE_STALE_OR_UNAVAILABLE",
+                    "A pinned content rule changed or is no longer approved before generation",
+                    details={"rule_code": ref.get("rule_code")},
+                )
+            approved_content_rules.append(
+                {
+                    "rule_code": resolved["rule_code"],
+                    "rule_kind": resolved["rule_kind"],
+                    "directive": resolved["directive"],
+                    "rule_text": resolved["rule_text"],
+                    "fingerprint_sha256": resolved["fingerprint_sha256"],
+                }
+            )
         return {
             "system_baseline": {
                 "strategy_revision": "content-generation-baseline.v1",
                 "rules": ["approved facts are authoritative", "external references are non-authoritative"],
             },
             "approved_facts": approved_facts,
+            "approved_content_rules": approved_content_rules,
             "user_goal": {
                 "title": project["title"],
                 "generation_goal": project["generation_goal"],
@@ -1644,8 +1770,8 @@ class FunctionalContentService:
             "audience": design_brief.get("audience") or content.get("audience") or "目标直播间观众",
             "tone": design_brief.get("tone") or content.get("tone") or "自然、可信、直接",
             "product_order": content.get("product_order") or [],
-            "must_include": design_brief.get("must_include") or content.get("must_include") or [],
-            "must_avoid": design_brief.get("must_avoid") or content.get("must_avoid") or [],
+            "must_include": design_brief.get("must_include") or FunctionalContentService._effective_rule_directives(content, "must_include"),
+            "must_avoid": design_brief.get("must_avoid") or FunctionalContentService._effective_rule_directives(content, "must_avoid"),
             "design_brief_fingerprint": canonical_fingerprint(design_brief),
         }
 
@@ -2047,8 +2173,8 @@ class FunctionalContentService:
                 "continuity": {"from_previous": index > 0},
                 "acceptance_criteria": ["script_visible", "required_materials_present"],
                 "estimated_duration_ms": blocks[index].get("estimated_duration_ms"),
-                "must_include": content.get("must_include") or [],
-                "must_avoid": content.get("must_avoid") or [],
+                "must_include": FunctionalContentService._effective_rule_directives(content, "must_include"),
+                "must_avoid": FunctionalContentService._effective_rule_directives(content, "must_avoid"),
                 "script_block_sources": [{"block_code": blocks[index]["block_code"], "relation_type": "derived_from"}],
             }
             for index, segment in enumerate(segments)

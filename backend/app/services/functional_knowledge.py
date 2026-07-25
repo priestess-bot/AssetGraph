@@ -102,6 +102,168 @@ class FunctionalKnowledgeService:
             )
             return [dict(row) for row in cur.fetchall()]
 
+    def create_content_rule(self, payload: dict[str, Any]) -> dict[str, Any]:
+        try:
+            with self.c.cursor(row_factory=dict_row) as cur:
+                self._require_approved_rule_source(cur, payload.get("source_evidence_code"))
+                code = self._next(cur, "functional_knowledge_content_rule", "RULE")
+                fingerprint = canonical_fingerprint(
+                    {
+                        "rule_kind": payload["rule_kind"],
+                        "directive": payload["directive"],
+                        "title": payload["title"],
+                        "rule_text": payload["rule_text"],
+                        "scope": payload.get("scope") or {},
+                        "source_evidence_code": payload.get("source_evidence_code"),
+                        "valid_from": payload.get("valid_from"),
+                        "valid_until": payload.get("valid_until"),
+                    }
+                )
+                cur.execute(
+                    """
+                    INSERT INTO functional_knowledge_content_rules (
+                        rule_code, rule_kind, directive, title, rule_text, scope,
+                        source_evidence_code, valid_from, valid_until, created_by,
+                        fingerprint_sha256
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        code,
+                        payload["rule_kind"],
+                        payload["directive"],
+                        payload["title"].strip(),
+                        payload["rule_text"].strip(),
+                        Jsonb(payload.get("scope") or {}),
+                        payload.get("source_evidence_code"),
+                        payload.get("valid_from"),
+                        payload.get("valid_until"),
+                        payload.get("created_by"),
+                        fingerprint,
+                    ),
+                )
+                row = self._content_rule(cur, code)
+            self.c.commit()
+        except Exception:
+            self.c.rollback()
+            raise
+        if row is None:
+            raise RuntimeError("created content rule could not be read")
+        return row
+
+    def list_content_rules(self, q: str | None = None) -> list[dict[str, Any]]:
+        with self.c.cursor(row_factory=dict_row) as cur:
+            if q and q.strip():
+                pattern = f"%{q.strip()}%"
+                cur.execute(
+                    self._content_rule_query(
+                        "WHERE rule.title ILIKE %s OR rule.rule_text ILIKE %s OR rule.rule_code ILIKE %s"
+                    ),
+                    (pattern, pattern, pattern),
+                )
+            else:
+                cur.execute(self._content_rule_query())
+            return [dict(row) for row in cur.fetchall()]
+
+    def resolve_approved_content_rule(self, rule_code: str) -> dict[str, Any] | None:
+        with self.c.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                self._content_rule_query(
+                    "WHERE rule.rule_code = %s AND rule.status = 'approved' "
+                    "AND (rule.source_evidence_code IS NULL OR source.status = 'approved')"
+                ),
+                (rule_code,),
+            )
+            row = cur.fetchone()
+        return dict(row) if row else None
+
+    def approve_content_rule(self, rule_code: str, approved_by: str) -> dict[str, Any] | None:
+        try:
+            with self.c.cursor(row_factory=dict_row) as cur:
+                rule = self._content_rule(cur, rule_code, lock=True)
+                if rule is None:
+                    self.c.rollback()
+                    return None
+                if rule["status"] == "approved":
+                    self.c.commit()
+                    return rule
+                if rule["status"] != "draft":
+                    raise FunctionalKnowledgeConflictError("Only draft content rules can be approved")
+                self._require_approved_rule_source(cur, rule.get("source_evidence_code"))
+                cur.execute(
+                    """
+                    UPDATE functional_knowledge_content_rules
+                    SET status = 'approved', approved_by = %s, approved_at = now(), updated_at = now()
+                    WHERE rule_code = %s
+                    """,
+                    (approved_by.strip(), rule_code),
+                )
+                result = self._content_rule(cur, rule_code)
+            self.c.commit()
+        except Exception:
+            self.c.rollback()
+            raise
+        return result
+
+    def reject_content_rule(
+        self, rule_code: str, actor: str, reason: str
+    ) -> dict[str, Any] | None:
+        try:
+            with self.c.cursor(row_factory=dict_row) as cur:
+                rule = self._content_rule(cur, rule_code, lock=True)
+                if rule is None:
+                    self.c.rollback()
+                    return None
+                if rule["status"] == "rejected":
+                    result = rule
+                elif rule["status"] == "draft":
+                    cur.execute(
+                        """
+                        UPDATE functional_knowledge_content_rules
+                        SET status = 'rejected', rejected_by = %s, rejected_at = now(),
+                            rejection_reason = %s, updated_at = now()
+                        WHERE rule_code = %s
+                        """,
+                        (actor.strip(), reason.strip(), rule_code),
+                    )
+                    result = self._content_rule(cur, rule_code)
+                else:
+                    raise FunctionalKnowledgeConflictError("Only draft content rules can be rejected")
+            self.c.commit()
+        except Exception:
+            self.c.rollback()
+            raise
+        return result
+
+    def revoke_content_rule(
+        self, rule_code: str, actor: str, reason: str
+    ) -> dict[str, Any] | None:
+        try:
+            with self.c.cursor(row_factory=dict_row) as cur:
+                rule = self._content_rule(cur, rule_code, lock=True)
+                if rule is None:
+                    self.c.rollback()
+                    return None
+                if rule["status"] == "revoked":
+                    result = rule
+                elif rule["status"] == "approved":
+                    cur.execute(
+                        """
+                        UPDATE functional_knowledge_content_rules
+                        SET status = 'revoked', revoked_by = %s, revoked_at = now(),
+                            revoked_reason = %s, updated_at = now()
+                        WHERE rule_code = %s
+                        """,
+                        (actor.strip(), reason.strip(), rule_code),
+                    )
+                    result = self._content_rule(cur, rule_code)
+                else:
+                    raise FunctionalKnowledgeConflictError("Only approved content rules can be revoked")
+            self.c.commit()
+        except Exception:
+            self.c.rollback()
+            raise
+        return result
+
     def approve_source_evidence(self, evidence_code: str, approved_by: str) -> dict[str, Any] | None:
         try:
             with self.c.cursor(row_factory=dict_row) as cur:
@@ -678,6 +840,17 @@ class FunctionalKnowledgeService:
                    {where}
                    ORDER BY claim.created_at DESC, claim.claim_code DESC"""
 
+    @staticmethod
+    def _content_rule_query(where: str = "") -> str:
+        return f"""SELECT rule.*, source.title AS source_title,
+                          source.status AS source_status,
+                          source.content_sha256 AS source_content_sha256
+                   FROM functional_knowledge_content_rules AS rule
+                   LEFT JOIN functional_knowledge_source_evidences AS source
+                     ON source.evidence_code = rule.source_evidence_code
+                   {where}
+                   ORDER BY rule.created_at DESC, rule.rule_code DESC"""
+
     def _claim(self, cur: Any, claim_code: str, *, lock: bool = False) -> dict[str, Any] | None:
         lock_clause = " FOR UPDATE OF claim, source, fact" if lock else ""
         cur.execute(
@@ -686,6 +859,34 @@ class FunctionalKnowledgeService:
         )
         row = cur.fetchone()
         return dict(row) if row else None
+
+    def _content_rule(
+        self, cur: Any, rule_code: str, *, lock: bool = False
+    ) -> dict[str, Any] | None:
+        lock_clause = " FOR UPDATE OF rule" if lock else ""
+        cur.execute(
+            self._content_rule_query("WHERE rule.rule_code = %s") + lock_clause,
+            (rule_code,),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+    @staticmethod
+    def _require_approved_rule_source(cur: Any, source_evidence_code: Any) -> None:
+        if not source_evidence_code:
+            return
+        cur.execute(
+            """
+            SELECT status FROM functional_knowledge_source_evidences
+            WHERE evidence_code = %s FOR UPDATE
+            """,
+            (source_evidence_code,),
+        )
+        source = cur.fetchone()
+        if source is None or source["status"] != "approved":
+            raise FunctionalKnowledgeConflictError(
+                "Content rules require an approved source evidence when a source is declared"
+            )
 
     @staticmethod
     def _lineage_use(

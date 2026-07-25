@@ -282,6 +282,20 @@ def test_knowledge_evidence_rejection_migration_requires_attributed_details() ->
     assert "chk_functional_knowledge_claim_rejection_details" in sql
 
 
+def test_content_rule_migration_keeps_content_knowledge_separate_from_facts() -> None:
+    migration = MIGRATIONS_DIR / "092_knowledge_content_rules.sql"
+
+    assert migration.exists()
+    sql = migration.read_text(encoding="utf-8")
+    assert "functional_knowledge_content_rules" in sql
+    assert "'content_guidance'" in sql
+    assert "'compliance_rule'" in sql
+    assert "'term'" in sql
+    assert "'expression_ban'" in sql
+    assert "source_evidence_code VARCHAR(64)" in sql
+    assert "chk_functional_knowledge_content_rule_expression_ban" in sql
+
+
 def test_constraint_profile_promotion_migration_keeps_room_override_provenance() -> None:
     migration = MIGRATIONS_DIR / "081_constraint_profile_promotion_provenance.sql"
 

@@ -198,10 +198,18 @@ describe("ContentProjectsPage", () => {
           return response(detail);
         if (url === "/api/content-projects/CONTENT-001/content-chain-revisions")
           return response([]);
+        if (url === "/api/functional-knowledge/content-rules")
+          return response([{
+            rule_code: "RULE-001", rule_kind: "expression_ban", directive: "must_avoid",
+            title: "No unsupported price claim", rule_text: "Do not promise an unverified price.",
+            scope: {}, source_evidence_code: "EVIDENCE-001", source_status: "approved",
+            status: "approved", fingerprint_sha256: "c".repeat(64), created_at: "2026-07-25T00:00:00Z", updated_at: "2026-07-25T00:00:00Z",
+          }]);
         if (
           url === "/api/live-research/room-templates" ||
           url === "/api/maitu/workbench/product-fact-cards" ||
-          url === "/api/functional-knowledge/fact-claims"
+          url === "/api/functional-knowledge/fact-claims" ||
+          url === "/api/functional-knowledge/content-rules"
         )
           return response([]);
         throw new Error(`Unexpected request: ${url}`);
@@ -256,6 +264,7 @@ describe("ContentProjectsPage", () => {
     fireEvent.change(screen.getAllByLabelText("音频要求")[0], {
       target: { value: "降低背景音乐" },
     });
+    await user.click(screen.getByLabelText(/No unsupported price claim/));
     await user.click(screen.getByRole("button", { name: "创建内容项目" }));
 
     await waitFor(() =>
@@ -279,6 +288,7 @@ describe("ContentProjectsPage", () => {
       staging_requirements: ["商品置于桌面"],
       visual_requirements: ["保持商品完整可见"],
       audio_requirements: ["降低背景音乐"],
+      content_rule_codes: ["RULE-001"],
     });
   });
 
@@ -297,7 +307,8 @@ describe("ContentProjectsPage", () => {
         if (
           url === "/api/live-research/room-templates" ||
           url === "/api/maitu/workbench/product-fact-cards" ||
-          url === "/api/functional-knowledge/fact-claims"
+          url === "/api/functional-knowledge/fact-claims" ||
+          url === "/api/functional-knowledge/content-rules"
         )
           return response([]);
         if (
@@ -465,7 +476,7 @@ describe("ContentProjectsPage", () => {
           url === "/api/maitu/workbench/product-fact-cards"
         )
           return response([]);
-        if (url === "/api/functional-knowledge/fact-claims")
+        if (url === "/api/functional-knowledge/fact-claims" || url === "/api/functional-knowledge/content-rules")
           return response([claim]);
         throw new Error(`Unexpected request: ${url}`);
       }),

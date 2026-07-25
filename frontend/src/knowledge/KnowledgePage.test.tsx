@@ -112,6 +112,25 @@ describe("KnowledgePage", () => {
     expect(screen.getByText("pins_fact_claim")).toBeInTheDocument();
   });
 
+  it("keeps content rules in a workspace separate from product facts", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/maitu/workbench/product-fact-cards") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/functional-knowledge/source-evidences") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/functional-knowledge/content-rules") return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    const user = userEvent.setup();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><KnowledgePage /></QueryClientProvider>);
+
+    await screen.findByText("尚无事实卡");
+    await user.click(screen.getByRole("button", { name: "内容规则" }));
+
+    expect(await screen.findByRole("heading", { name: "内容规则" })).toBeInTheDocument();
+    expect(screen.getByText("尚无内容规则")).toBeInTheDocument();
+  });
+
   it("revokes approved local evidence with an explicit reason", async () => {
     const requests: Array<{ url: string; init?: RequestInit }> = [];
     const approvedSource = {

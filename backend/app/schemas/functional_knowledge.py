@@ -109,6 +109,76 @@ class FactClaimReject(KnowledgeRevocation):
     pass
 
 
+ContentRuleKind = Literal["content_guidance", "compliance_rule", "term", "expression_ban"]
+ContentRuleDirective = Literal["guidance", "must_include", "must_avoid"]
+
+
+class ContentRuleCreate(BaseModel):
+    rule_kind: ContentRuleKind
+    directive: ContentRuleDirective
+    title: str = Field(min_length=1, max_length=255)
+    rule_text: str = Field(min_length=1, max_length=10000)
+    scope: dict[str, object] = Field(default_factory=dict)
+    source_evidence_code: str | None = Field(default=None, min_length=1, max_length=64)
+    valid_from: datetime | None = None
+    valid_until: datetime | None = None
+    created_by: str | None = Field(default=None, max_length=128)
+
+    @model_validator(mode="after")
+    def validate_content_rule(self) -> "ContentRuleCreate":
+        if self.rule_kind == "expression_ban" and self.directive != "must_avoid":
+            raise ValueError("expression_ban must use the must_avoid directive")
+        if self.rule_kind in {"compliance_rule", "term", "expression_ban"} and not self.source_evidence_code:
+            raise ValueError("source_evidence_code is required for compliance, term, and expression-ban rules")
+        if self.valid_from and self.valid_from.tzinfo is None:
+            raise ValueError("valid_from must include a timezone")
+        if self.valid_until and self.valid_until.tzinfo is None:
+            raise ValueError("valid_until must include a timezone")
+        if self.valid_from and self.valid_until and self.valid_until <= self.valid_from:
+            raise ValueError("valid_until must be later than valid_from")
+        return self
+
+
+class ContentRuleApprove(BaseModel):
+    approved_by: str = Field(min_length=1, max_length=128)
+
+
+class ContentRuleRevoke(KnowledgeRevocation):
+    pass
+
+
+class ContentRuleReject(KnowledgeRevocation):
+    pass
+
+
+class ContentRuleRead(BaseModel):
+    rule_code: str
+    rule_kind: ContentRuleKind
+    directive: ContentRuleDirective
+    title: str
+    rule_text: str
+    scope: dict[str, object]
+    source_evidence_code: str | None = None
+    source_title: str | None = None
+    source_status: str | None = None
+    source_content_sha256: str | None = None
+    valid_from: datetime | None = None
+    valid_until: datetime | None = None
+    status: str
+    created_by: str | None = None
+    approved_by: str | None = None
+    approved_at: datetime | None = None
+    revoked_by: str | None = None
+    revoked_at: datetime | None = None
+    revoked_reason: str | None = None
+    rejected_by: str | None = None
+    rejected_at: datetime | None = None
+    rejection_reason: str | None = None
+    fingerprint_sha256: str
+    created_at: datetime
+    updated_at: datetime
+
+
 class FactClaimLineageUseRead(BaseModel):
     relation_type: str
     object_type: str
