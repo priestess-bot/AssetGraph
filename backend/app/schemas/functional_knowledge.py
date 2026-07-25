@@ -80,6 +80,8 @@ class FactClaimCreate(BaseModel):
     claim: str = Field(min_length=1, max_length=10000)
     source_evidence_code: str = Field(min_length=1, max_length=64)
     citation_excerpt: str = Field(min_length=1, max_length=20000)
+    citation_start_offset: int | None = Field(default=None, ge=0)
+    citation_end_offset: int | None = Field(default=None, ge=1)
     field_path: str | None = Field(default=None, max_length=255)
     valid_from: datetime | None = None
     valid_until: datetime | None = None
@@ -94,6 +96,10 @@ class FactClaimCreate(BaseModel):
             raise ValueError("valid_until must include a timezone")
         if self.valid_from and self.valid_until and self.valid_until <= self.valid_from:
             raise ValueError("valid_until must be later than valid_from")
+        if (self.citation_start_offset is None) != (self.citation_end_offset is None):
+            raise ValueError("citation_start_offset and citation_end_offset must be supplied together")
+        if self.citation_start_offset is not None and self.citation_end_offset is not None and self.citation_end_offset <= self.citation_start_offset:
+            raise ValueError("citation_end_offset must be later than citation_start_offset")
         return self
 
 
@@ -210,6 +216,8 @@ class FactClaimRead(BaseModel):
     field_path: str | None = None
     claim: str
     citation_excerpt: str
+    citation_start_offset: int | None = None
+    citation_end_offset: int | None = None
     valid_from: datetime | None = None
     valid_until: datetime | None = None
     status: str

@@ -998,6 +998,8 @@ class FunctionalContentService:
                     "source_content_sha256": resolved["content_sha256"],
                     "claim": resolved["claim"],
                     "citation_excerpt": resolved["citation_excerpt"],
+                    "citation_start_offset": resolved.get("citation_start_offset"),
+                    "citation_end_offset": resolved.get("citation_end_offset"),
                     "field_path": resolved.get("field_path"),
                     "valid_from": self._json_timestamp(valid_from),
                     "valid_until": self._json_timestamp(valid_until),
@@ -1471,6 +1473,7 @@ class FunctionalContentService:
                 "claim_code": ref.get("claim_code"), "fact_code": ref.get("fact_code"),
                 "source_evidence_code": ref.get("source_evidence_code"), "claim": ref.get("claim"),
                 "citation_excerpt": ref.get("citation_excerpt"), "fingerprint_sha256": ref.get("fingerprint_sha256"),
+                "citation_start_offset": ref.get("citation_start_offset"), "citation_end_offset": ref.get("citation_end_offset"),
             }
             for ref in content.get("fact_claim_refs") or []
             if isinstance(ref, dict)

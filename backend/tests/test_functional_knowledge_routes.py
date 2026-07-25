@@ -293,6 +293,39 @@ def test_fact_claim_route_rejects_naive_datetimes(
     assert result.status_code == 422
 
 
+def test_fact_claim_route_requires_a_complete_citation_interval_when_supplied(
+    client: tuple[TestClient, FakeFunctionalKnowledgeService],
+) -> None:
+    test_client, service = client
+    created = test_client.post(
+        "/api/functional-knowledge/fact-claims",
+        json={
+            "fact_title": "Warranty",
+            "claim": "The product has a 12-month warranty.",
+            "source_evidence_code": "EVIDENCE-001",
+            "citation_excerpt": "The product has a verified 12-month warranty.",
+            "citation_start_offset": 4,
+            "citation_end_offset": 48,
+        },
+    )
+    incomplete = test_client.post(
+        "/api/functional-knowledge/fact-claims",
+        json={
+            "fact_title": "Warranty",
+            "claim": "The product has a 12-month warranty.",
+            "source_evidence_code": "EVIDENCE-001",
+            "citation_excerpt": "The product has a verified 12-month warranty.",
+            "citation_start_offset": 4,
+        },
+    )
+
+    assert created.status_code == 201
+    assert service.claim_payload is not None
+    assert service.claim_payload["citation_start_offset"] == 4
+    assert service.claim_payload["citation_end_offset"] == 48
+    assert incomplete.status_code == 422
+
+
 def test_content_rule_routes_keep_compliance_separate_and_reviewed(
     client: tuple[TestClient, FakeFunctionalKnowledgeService],
 ) -> None:

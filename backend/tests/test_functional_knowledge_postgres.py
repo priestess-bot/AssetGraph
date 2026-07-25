@@ -65,6 +65,8 @@ def test_source_evidence_must_be_approved_before_a_claim_can_be_approved() -> No
             }
         )
         assert claim is not None
+        assert claim["citation_start_offset"] == 0
+        assert claim["citation_end_offset"] == len("The device includes a verified 12-month warranty.")
         approved = service.approve_fact_claim(claim["claim_code"], "reviewer")
         assert approved is not None
         assert approved["status"] == "approved"

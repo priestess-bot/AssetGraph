@@ -119,6 +119,8 @@ export interface FactClaim {
   fieldPath?: string;
   claim: string;
   citationExcerpt: string;
+  citationStartOffset?: number;
+  citationEndOffset?: number;
   validFrom?: string;
   validUntil?: string;
   status: string;
@@ -141,6 +143,8 @@ export interface FactClaimCreateInput {
   claim: string;
   source_evidence_code: string;
   citation_excerpt: string;
+  citation_start_offset?: number;
+  citation_end_offset?: number;
   field_path?: string;
   valid_from?: string;
   valid_until?: string;
@@ -293,6 +297,8 @@ function factClaim(value: unknown): FactClaim {
     fieldPath: asOptionalString(value.field_path),
     claim: asString(value.claim),
     citationExcerpt: asString(value.citation_excerpt),
+    citationStartOffset: typeof value.citation_start_offset === "number" ? value.citation_start_offset : undefined,
+    citationEndOffset: typeof value.citation_end_offset === "number" ? value.citation_end_offset : undefined,
     validFrom: asOptionalString(value.valid_from),
     validUntil: asOptionalString(value.valid_until),
     status: asString(value.status),

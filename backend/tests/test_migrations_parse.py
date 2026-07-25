@@ -296,6 +296,16 @@ def test_content_rule_migration_keeps_content_knowledge_separate_from_facts() ->
     assert "chk_functional_knowledge_content_rule_expression_ban" in sql
 
 
+def test_claim_citation_offset_migration_preserves_historical_nulls() -> None:
+    migration = MIGRATIONS_DIR / "093_knowledge_claim_citation_offsets.sql"
+
+    assert migration.exists()
+    sql = migration.read_text(encoding="utf-8")
+    assert "citation_start_offset INTEGER" in sql
+    assert "citation_end_offset INTEGER" in sql
+    assert "chk_functional_knowledge_claim_citation_offsets" in sql
+
+
 def test_constraint_profile_promotion_migration_keeps_room_override_provenance() -> None:
     migration = MIGRATIONS_DIR / "081_constraint_profile_promotion_provenance.sql"
 

@@ -382,7 +382,19 @@ class FunctionalKnowledgeService:
                 if source["status"] != "approved":
                     raise FunctionalKnowledgeConflictError("Fact claims require approved source evidence")
                 citation = payload["citation_excerpt"].strip()
-                if citation not in source["excerpt"]:
+                requested_start = payload.get("citation_start_offset")
+                requested_end = payload.get("citation_end_offset")
+                if requested_start is None:
+                    citation_start = source["excerpt"].find(citation)
+                    citation_end = citation_start + len(citation)
+                else:
+                    citation_start = int(requested_start)
+                    citation_end = int(requested_end)
+                if (
+                    citation_start < 0
+                    or citation_end > len(source["excerpt"])
+                    or source["excerpt"][citation_start:citation_end] != citation
+                ):
                     raise FunctionalKnowledgeConflictError("Citation excerpt must be contained in the approved evidence excerpt")
                 fact_code = self._next(cur, "functional_knowledge_fact", "FACT")
                 cur.execute(
@@ -406,14 +418,16 @@ class FunctionalKnowledgeService:
                         "field_path": payload.get("field_path"),
                         "claim": payload["claim"],
                         "citation_excerpt": citation,
+                        "citation_start_offset": citation_start,
+                        "citation_end_offset": citation_end,
                         "valid_from": payload.get("valid_from"),
                         "valid_until": payload.get("valid_until"),
                     }
                 )
                 cur.execute(
                     """INSERT INTO functional_knowledge_fact_claims
-                       (claim_code,fact_code,source_evidence_code,field_path,claim,citation_excerpt,valid_from,valid_until,created_by,fingerprint_sha256)
-                       VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING claim_code""",
+                       (claim_code,fact_code,source_evidence_code,field_path,claim,citation_excerpt,citation_start_offset,citation_end_offset,valid_from,valid_until,created_by,fingerprint_sha256)
+                       VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING claim_code""",
                     (
                         claim_code,
                         fact_code,
@@ -421,6 +435,8 @@ class FunctionalKnowledgeService:
                         payload.get("field_path"),
                         payload["claim"],
                         citation,
+                        citation_start,
+                        citation_end,
                         payload.get("valid_from"),
                         payload.get("valid_until"),
                         payload.get("created_by"),
