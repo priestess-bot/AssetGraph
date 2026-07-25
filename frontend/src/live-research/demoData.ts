@@ -152,7 +152,7 @@ export const DEMO_TEMPLATES: RoomTemplate[] = [
     layout_fidelity: "approximate",
     buildability: "reference_only",
     contentReadiness: "review_required",
-    contentStrategy: { targetCategory: "", compatibilityTags: [], programOutline: [], materialCues: [], reviewedExamples: [] },
+    contentStrategy: { targetCategory: "", compatibilityTags: [], programOutline: [], durationPolicy: {}, moduleRecipes: [], productRotationPolicy: {}, interactionPolicy: {}, conversionPolicy: {}, hostStyle: {}, materialCues: [], reviewedExamples: [], removedSourceFactCategories: [] },
     scenes: [
       { title: "问题钩子", start_seconds: 22, end_seconds: 68, purpose: "用真实聚餐难题建立代入", script_pattern: "聚餐选酒不用先……", interaction_cue: "读取高频选择困难问题", material_slots: ["品牌背景", "主播"], components: [{ role: "host", label: "主播区域", x: .12, y: .17, width: .76, height: .68, confidence: .82 }, { role: "title", label: "问题标题", x: .08, y: .08, width: .84, height: .11, confidence: .76 }] },
       { title: "产品近景", start_seconds: 68, end_seconds: 180, purpose: "从瓶身视觉过渡到已核验事实", script_pattern: "先看瓶身，再把口感放进场景", interaction_cue: "产品出现后观察点赞峰值", material_slots: ["产品主图", "卖点标题"], components: [{ role: "product", label: "产品主视觉", x: .18, y: .22, width: .5, height: .59, confidence: .88 }, { role: "fact_strip", label: "事实条", x: .08, y: .78, width: .84, height: .12, confidence: .73 }] },
@@ -172,7 +172,7 @@ export const DEMO_TEMPLATES: RoomTemplate[] = [
     layout_fidelity: "approximate",
     buildability: "reference_only",
     contentReadiness: "review_required",
-    contentStrategy: { targetCategory: "", compatibilityTags: [], programOutline: [], materialCues: [], reviewedExamples: [] },
+    contentStrategy: { targetCategory: "", compatibilityTags: [], programOutline: [], durationPolicy: {}, moduleRecipes: [], productRotationPolicy: {}, interactionPolicy: {}, conversionPolicy: {}, hostStyle: {}, materialCues: [], reviewedExamples: [], removedSourceFactCategories: [] },
     scenes: [],
     published_version_code: "DY-TPLV-DEMO-002-R1",
     updated_at: "2026-07-19T04:25:00Z",

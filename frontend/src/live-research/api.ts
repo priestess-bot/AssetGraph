@@ -365,6 +365,11 @@ function normalizeScene(value: unknown): TemplateScene | undefined {
 
 function normalizeContentStrategy(value: unknown): ContentStrategy {
   const record = isRecord(value) ? value : {};
+  const durationPolicy = isRecord(record.duration_policy) ? record.duration_policy : {};
+  const productRotationPolicy = isRecord(record.product_rotation_policy) ? record.product_rotation_policy : {};
+  const interactionPolicy = isRecord(record.interaction_policy) ? record.interaction_policy : {};
+  const conversionPolicy = isRecord(record.conversion_policy) ? record.conversion_policy : {};
+  const hostStyle = isRecord(record.host_style) ? record.host_style : {};
   return {
     targetCategory: asString(record.target_category),
     compatibilityTags: strings(record.compatibility_tags),
@@ -372,11 +377,35 @@ function normalizeContentStrategy(value: unknown): ContentStrategy {
       moduleKey: asString(item.module_key), title: asString(item.title), purpose: asString(item.purpose),
       sourceSessionCode: asOptionalString(item.source_session_code), startMs: asNumber(item.start_ms), endMs: asNumber(item.end_ms),
     }] : []),
+    durationPolicy: {
+      targetDurationSeconds: typeof durationPolicy.target_duration_seconds === "number" ? durationPolicy.target_duration_seconds : undefined,
+      pacing: asOptionalString(durationPolicy.pacing),
+    },
+    moduleRecipes: asArray(record.module_recipes).flatMap((item) => isRecord(item) ? [{
+      moduleKey: asString(item.module_key), guidance: asString(item.guidance ?? item.recipe),
+    }] : []),
+    productRotationPolicy: {
+      cadence: asOptionalString(productRotationPolicy.cadence),
+      maxProductsPerModule: typeof productRotationPolicy.max_products_per_module === "number" ? productRotationPolicy.max_products_per_module : undefined,
+    },
+    interactionPolicy: {
+      cadence: asOptionalString(interactionPolicy.cadence),
+      promptFocus: asOptionalString(interactionPolicy.prompt_focus),
+    },
+    conversionPolicy: {
+      ctaStyle: asOptionalString(conversionPolicy.cta_style),
+      ctaCadence: asOptionalString(conversionPolicy.cta_cadence),
+    },
+    hostStyle: {
+      tone: asOptionalString(hostStyle.tone),
+      delivery: asOptionalString(hostStyle.delivery),
+    },
     materialCues: strings(record.material_cues),
     reviewedExamples: asArray(record.reviewed_examples).flatMap((item) => isRecord(item) ? [{
       moduleKey: asString(item.module_key), exampleText: asString(item.example_text), sourceSessionCode: asString(item.source_session_code),
       startMs: asNumber(item.start_ms), endMs: asNumber(item.end_ms),
     }] : []),
+    removedSourceFactCategories: strings(record.removed_source_fact_categories),
   };
 }
 
@@ -508,7 +537,14 @@ export const liveResearchApi = {
     sourceTargetCode: string;
     sourceSessionCodes: string[];
     targetCategory: string;
+    compatibilityTags: string[];
     modules: Array<{ moduleKey: string; title: string; purpose: string; sourceSessionCode: string; startMs: number; endMs: number }>;
+    moduleRecipes: Array<{ moduleKey: string; guidance: string }>;
+    durationPolicy: { targetDurationSeconds?: number; pacing?: string };
+    productRotationPolicy: { cadence?: string; maxProductsPerModule?: number };
+    interactionPolicy: { cadence?: string; promptFocus?: string };
+    conversionPolicy: { ctaStyle?: string; ctaCadence?: string };
+    hostStyle: { tone?: string; delivery?: string };
     reviewedExamples: Array<{ moduleKey: string; exampleText: string; sourceSessionCode: string; startMs: number; endMs: number }>;
     materialCues: string[];
   }) => {
@@ -528,7 +564,7 @@ export const liveResearchApi = {
       layout_fidelity: "none", buildability: "reference_only", layout_reference: {}, confidence: 0.8,
       created_by: "assetgraph_content_strategy_reviewer",
       content_strategy: {
-        target_category: payload.targetCategory, compatibility_tags: [],
+        target_category: payload.targetCategory, compatibility_tags: payload.compatibilityTags,
         program_outline: payload.modules.map((module) => ({
           module_key: module.moduleKey,
           title: module.title,
@@ -537,7 +573,27 @@ export const liveResearchApi = {
           start_ms: Math.round(module.startMs),
           end_ms: Math.round(module.endMs),
         })),
-        duration_policy: {}, module_recipes: [], product_rotation_policy: {}, interaction_policy: {}, conversion_policy: {}, host_style: {},
+        duration_policy: {
+          ...(payload.durationPolicy.targetDurationSeconds ? { target_duration_seconds: Math.round(payload.durationPolicy.targetDurationSeconds) } : {}),
+          ...(payload.durationPolicy.pacing ? { pacing: payload.durationPolicy.pacing } : {}),
+        },
+        module_recipes: payload.moduleRecipes.filter((item) => item.guidance).map((item) => ({ module_key: item.moduleKey, guidance: item.guidance })),
+        product_rotation_policy: {
+          ...(payload.productRotationPolicy.cadence ? { cadence: payload.productRotationPolicy.cadence } : {}),
+          ...(payload.productRotationPolicy.maxProductsPerModule ? { max_products_per_module: Math.round(payload.productRotationPolicy.maxProductsPerModule) } : {}),
+        },
+        interaction_policy: {
+          ...(payload.interactionPolicy.cadence ? { cadence: payload.interactionPolicy.cadence } : {}),
+          ...(payload.interactionPolicy.promptFocus ? { prompt_focus: payload.interactionPolicy.promptFocus } : {}),
+        },
+        conversion_policy: {
+          ...(payload.conversionPolicy.ctaStyle ? { cta_style: payload.conversionPolicy.ctaStyle } : {}),
+          ...(payload.conversionPolicy.ctaCadence ? { cta_cadence: payload.conversionPolicy.ctaCadence } : {}),
+        },
+        host_style: {
+          ...(payload.hostStyle.tone ? { tone: payload.hostStyle.tone } : {}),
+          ...(payload.hostStyle.delivery ? { delivery: payload.hostStyle.delivery } : {}),
+        },
         material_cues: payload.materialCues,
         reviewed_examples: payload.reviewedExamples.map((example) => ({
           module_key: example.moduleKey,

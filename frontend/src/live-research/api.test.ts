@@ -87,7 +87,14 @@ describe("live research api", () => {
         revision_number: 1, source_session_codes: ["DY-CAP-001"],
         content_strategy: {
           target_category: "beverage",
+          compatibility_tags: ["new_launch"],
           program_outline: [{ module_key: "opening", title: "开场", purpose: "建立目标", source_session_code: "DY-CAP-001", start_ms: 0, end_ms: 30_000 }],
+          duration_policy: { target_duration_seconds: 1800, pacing: "开场紧凑" },
+          module_recipes: [{ module_key: "opening", guidance: "先提出选择问题" }],
+          product_rotation_policy: { cadence: "每两个模块", max_products_per_module: 2 },
+          interaction_policy: { cadence: "模块结束", prompt_focus: "使用场景" },
+          conversion_policy: { cta_style: "总结依据", cta_cadence: "结尾一次" },
+          host_style: { tone: "清晰", delivery: "短句" },
           reviewed_examples: [],
         },
       }],
@@ -98,16 +105,25 @@ describe("live research api", () => {
       .mockResolvedValueOnce(response(strategyTemplate));
     vi.stubGlobal("fetch", fetchMock);
 
-    await liveResearchApi.createContentStrategyTemplate({
-      title: "结构策略", sourceTargetCode: "DY-WATCH-001", sourceSessionCodes: ["DY-CAP-001"], targetCategory: "beverage", materialCues: ["background"],
+    const created = await liveResearchApi.createContentStrategyTemplate({
+      title: "结构策略", sourceTargetCode: "DY-WATCH-001", sourceSessionCodes: ["DY-CAP-001"], targetCategory: "beverage", compatibilityTags: ["new_launch"], materialCues: ["background"],
       modules: [{ moduleKey: "opening", title: "开场", purpose: "建立目标", sourceSessionCode: "DY-CAP-001", startMs: 0, endMs: 30_000 }],
+      moduleRecipes: [{ moduleKey: "opening", guidance: "先提出选择问题" }],
+      durationPolicy: { targetDurationSeconds: 1800, pacing: "开场紧凑" },
+      productRotationPolicy: { cadence: "每两个模块", maxProductsPerModule: 2 },
+      interactionPolicy: { cadence: "模块结束", promptFocus: "使用场景" },
+      conversionPolicy: { ctaStyle: "总结依据", ctaCadence: "结尾一次" },
+      hostStyle: { tone: "清晰", delivery: "短句" },
       reviewedExamples: [{ moduleKey: "opening", exampleText: "以问题引导选择", sourceSessionCode: "DY-CAP-001", startMs: 1_000, endMs: 8_000 }],
     });
 
     const revision = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
     expect(revision.layout_fidelity).toBe("none");
     expect(revision.content_strategy.program_outline[0]).toMatchObject({ source_session_code: "DY-CAP-001", end_ms: 30_000 });
+    expect(revision.content_strategy).toMatchObject({ compatibility_tags: ["new_launch"], duration_policy: { target_duration_seconds: 1800, pacing: "开场紧凑" }, product_rotation_policy: { cadence: "每两个模块", max_products_per_module: 2 }, interaction_policy: { cadence: "模块结束", prompt_focus: "使用场景" }, conversion_policy: { cta_style: "总结依据", cta_cadence: "结尾一次" }, host_style: { tone: "清晰", delivery: "短句" } });
+    expect(revision.content_strategy.module_recipes).toEqual([{ module_key: "opening", guidance: "先提出选择问题" }]);
     expect(revision.content_strategy.reviewed_examples[0]).toMatchObject({ example_text: "以问题引导选择", source_session_code: "DY-CAP-001" });
+    expect(created.contentStrategy).toMatchObject({ compatibilityTags: ["new_launch"], durationPolicy: { targetDurationSeconds: 1800, pacing: "开场紧凑" }, moduleRecipes: [{ moduleKey: "opening", guidance: "先提出选择问题" }], productRotationPolicy: { cadence: "每两个模块", maxProductsPerModule: 2 }, interactionPolicy: { cadence: "模块结束", promptFocus: "使用场景" }, conversionPolicy: { ctaStyle: "总结依据", ctaCadence: "结尾一次" }, hostStyle: { tone: "清晰", delivery: "短句" } });
   });
 
   it("projects real provider outputs from each chunk onto the global timeline", async () => {

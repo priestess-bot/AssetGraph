@@ -10,6 +10,7 @@ interface DraftModule {
   moduleKey: string;
   title: string;
   purpose: string;
+  guidance: string;
   sourceSessionCode: string;
   startMs: number;
   endMs: number;
@@ -31,7 +32,7 @@ function nextModuleKey(modules: DraftModule[]): string {
   const largest = Math.max(0, ...modules.map((module) => Number(module.moduleKey.match(/^module-(\d+)$/)?.[1]) || 0));
   return `module-${largest + 1}`;
 }
-function emptyModule(key: string): DraftModule { return { moduleKey: key, title: "", purpose: "", sourceSessionCode: "", startMs: 0, endMs: 30_000 }; }
+function emptyModule(key: string): DraftModule { return { moduleKey: key, title: "", purpose: "", guidance: "", sourceSessionCode: "", startMs: 0, endMs: 30_000 }; }
 function readinessTone(value: string): "success" | "warning" | "danger" | "neutral" { return value === "ready" ? "success" : value === "blocked" ? "danger" : "warning"; }
 
 export function sourceEvidenceHref(sourceSessionCode: string, startMs: number, endMs: number): string {
@@ -58,6 +59,19 @@ function boundedIntervalValid(item: { sourceSessionCode: string; startMs: number
   return Boolean(source && item.startMs >= 0 && item.endMs > item.startMs && (!source.duration_seconds || item.endMs <= source.duration_seconds * 1000));
 }
 
+function PolicySummary({ strategy }: { strategy: RoomTemplate["contentStrategy"] }) {
+  const rows = [
+    ["兼容标签", strategy.compatibilityTags.join(" / ")],
+    ["目标时长", strategy.durationPolicy.targetDurationSeconds ? `${strategy.durationPolicy.targetDurationSeconds} 秒` : ""],
+    ["节目节奏", strategy.durationPolicy.pacing],
+    ["商品轮换", [strategy.productRotationPolicy.cadence, strategy.productRotationPolicy.maxProductsPerModule ? `每模块最多 ${strategy.productRotationPolicy.maxProductsPerModule} 个` : ""].filter(Boolean).join(" / ")],
+    ["互动", [strategy.interactionPolicy.cadence, strategy.interactionPolicy.promptFocus].filter(Boolean).join(" / ")],
+    ["转化", [strategy.conversionPolicy.ctaStyle, strategy.conversionPolicy.ctaCadence].filter(Boolean).join(" / ")],
+    ["主播表达", [strategy.hostStyle.tone, strategy.hostStyle.delivery].filter(Boolean).join(" / ")],
+  ].filter(([, value]) => Boolean(value));
+  return <section className="research-strategy-policies"><h3>固定节目策略</h3>{rows.length ? <div>{rows.map(([label, value]) => <article key={label}><span>{label}</span><strong>{value}</strong></article>)}</div> : <small>未额外声明策略字段。</small>}{strategy.moduleRecipes.filter((item) => item.guidance).length ? <section className="research-strategy-recipes"><h4>模块配方</h4>{strategy.moduleRecipes.filter((item) => item.guidance).map((item) => <article key={item.moduleKey}><code>{item.moduleKey}</code><span>{item.guidance}</span></article>)}</section> : null}</section>;
+}
+
 export function ContentStrategiesPage() {
   const queryClient = useQueryClient();
   const [selectedCode, setSelectedCode] = useState("");
@@ -65,8 +79,19 @@ export function ContentStrategiesPage() {
   const [targetCode, setTargetCode] = useState("");
   const [sessionCodes, setSessionCodes] = useState<string[]>([]);
   const [category, setCategory] = useState("");
+  const [compatibilityTags, setCompatibilityTags] = useState("");
   const [modules, setModules] = useState<DraftModule[]>([emptyModule("module-1")]);
   const [examples, setExamples] = useState<DraftExample[]>([]);
+  const [targetDurationSeconds, setTargetDurationSeconds] = useState("");
+  const [durationPacing, setDurationPacing] = useState("");
+  const [productRotationCadence, setProductRotationCadence] = useState("");
+  const [maxProductsPerModule, setMaxProductsPerModule] = useState("");
+  const [interactionCadence, setInteractionCadence] = useState("");
+  const [interactionPromptFocus, setInteractionPromptFocus] = useState("");
+  const [ctaStyle, setCtaStyle] = useState("");
+  const [ctaCadence, setCtaCadence] = useState("");
+  const [hostTone, setHostTone] = useState("");
+  const [hostDelivery, setHostDelivery] = useState("");
   const [materialCues, setMaterialCues] = useState("background,promotion_text");
   const [factsRemovedConfirmed, setFactsRemovedConfirmed] = useState(false);
   const targets = useQuery({ queryKey: ["live-research", "watch-targets"], queryFn: liveResearchApi.listWatchTargets });
@@ -81,11 +106,22 @@ export function ContentStrategiesPage() {
   const selectedSessions = useMemo(() => availableSessions.filter((session) => sessionCodes.includes(session.session_code)), [availableSessions, sessionCodes]);
 
   useEffect(() => { if (!targetCode && targetData[0]) setTargetCode(targetData[0].target_code); }, [targetCode, targetData]);
-  useEffect(() => { setSessionCodes((current) => current.filter((code) => availableSessions.some((session) => session.session_code === code))); }, [availableSessions]);
+  useEffect(() => {
+    setSessionCodes((current) => {
+      const next = current.filter((code) => availableSessions.some((session) => session.session_code === code));
+      return next.length === current.length ? current : next;
+    });
+  }, [availableSessions]);
   useEffect(() => {
     const selected = new Set(sessionCodes);
-    setModules((current) => current.map((module) => selected.has(module.sourceSessionCode) || !module.sourceSessionCode ? module : { ...module, sourceSessionCode: "" }));
-    setExamples((current) => current.map((example) => selected.has(example.sourceSessionCode) || !example.sourceSessionCode ? example : { ...example, sourceSessionCode: "" }));
+    setModules((current) => {
+      const next = current.map((module) => selected.has(module.sourceSessionCode) || !module.sourceSessionCode ? module : { ...module, sourceSessionCode: "" });
+      return next.every((module, index) => module === current[index]) ? current : next;
+    });
+    setExamples((current) => {
+      const next = current.map((example) => selected.has(example.sourceSessionCode) || !example.sourceSessionCode ? example : { ...example, sourceSessionCode: "" });
+      return next.every((example, index) => example === current[index]) ? current : next;
+    });
   }, [sessionCodes]);
 
   const activeCode = strategies.some((item) => item.template_code === selectedCode) ? selectedCode : strategies[0]?.template_code ?? "";
@@ -95,11 +131,33 @@ export function ContentStrategiesPage() {
     mutationFn: () => liveResearchApi.createContentStrategyTemplate({
       title: title.trim(), sourceTargetCode: targetCode, sourceSessionCodes: sessionCodes, targetCategory: category.trim(),
       modules: modules.map((module) => ({ ...module, moduleKey: module.moduleKey.trim(), title: module.title.trim(), purpose: module.purpose.trim() })),
+      compatibilityTags: compatibilityTags.split(/[,\n]/).map((item) => item.trim()).filter(Boolean),
+      moduleRecipes: modules.map((module) => ({ moduleKey: module.moduleKey.trim(), guidance: module.guidance.trim() })),
+      durationPolicy: {
+        ...(Number(targetDurationSeconds) > 0 ? { targetDurationSeconds: Number(targetDurationSeconds) } : {}),
+        ...(durationPacing.trim() ? { pacing: durationPacing.trim() } : {}),
+      },
+      productRotationPolicy: {
+        ...(productRotationCadence.trim() ? { cadence: productRotationCadence.trim() } : {}),
+        ...(Number(maxProductsPerModule) > 0 ? { maxProductsPerModule: Number(maxProductsPerModule) } : {}),
+      },
+      interactionPolicy: {
+        ...(interactionCadence.trim() ? { cadence: interactionCadence.trim() } : {}),
+        ...(interactionPromptFocus.trim() ? { promptFocus: interactionPromptFocus.trim() } : {}),
+      },
+      conversionPolicy: {
+        ...(ctaStyle.trim() ? { ctaStyle: ctaStyle.trim() } : {}),
+        ...(ctaCadence.trim() ? { ctaCadence: ctaCadence.trim() } : {}),
+      },
+      hostStyle: {
+        ...(hostTone.trim() ? { tone: hostTone.trim() } : {}),
+        ...(hostDelivery.trim() ? { delivery: hostDelivery.trim() } : {}),
+      },
       reviewedExamples: examples.map((example) => ({ ...example, exampleText: example.exampleText.trim() })),
       materialCues: materialCues.split(/[,\n]/).map((item) => item.trim()).filter(Boolean),
     }),
     onSuccess: (created) => {
-      setSelectedCode(created.template_code); setTitle(""); setSessionCodes([]); setModules([emptyModule("module-1")]); setExamples([]); setFactsRemovedConfirmed(false);
+      setSelectedCode(created.template_code); setTitle(""); setSessionCodes([]); setCompatibilityTags(""); setModules([emptyModule("module-1")]); setExamples([]); setTargetDurationSeconds(""); setDurationPacing(""); setProductRotationCadence(""); setMaxProductsPerModule(""); setInteractionCadence(""); setInteractionPromptFocus(""); setCtaStyle(""); setCtaCadence(""); setHostTone(""); setHostDelivery(""); setFactsRemovedConfirmed(false);
       void queryClient.invalidateQueries({ queryKey: ["live-research", "templates"] });
     },
   });
@@ -121,13 +179,28 @@ export function ContentStrategiesPage() {
         <label className="wb-field"><span>来源直播间</span><select className="wb-input" value={targetCode} onChange={(event) => setTargetCode(event.target.value)}>{targetData.map((target) => <option key={target.target_code} value={target.target_code}>{target.display_name} · {target.target_code}</option>)}</select></label>
         <div className="research-strategy-sessions"><span>已完成来源录屏</span>{availableSessions.length ? availableSessions.map((session) => <label key={session.session_code}><input type="checkbox" checked={sessionCodes.includes(session.session_code)} onChange={() => setSessionCodes((current) => toggle(current, session.session_code))} /><span><strong>{session.title}</strong><small>{session.session_code} · {Math.round(session.duration_seconds)} 秒</small></span></label>) : <small>该直播间暂无已完成录屏。</small>}</div>
         <label className="wb-field"><span>适用品类</span><input className="wb-input" value={category} onChange={(event) => setCategory(event.target.value)} placeholder="例如：葡萄酒、护肤、家电" /></label>
+        <label className="wb-field"><span>兼容标签</span><input className="wb-input" value={compatibilityTags} onChange={(event) => setCompatibilityTags(event.target.value)} placeholder="逗号分隔，例如：新品讲解、礼赠场景" /></label>
         <section className="research-strategy-editor"><div className="research-editor-heading"><div><span>节目模块与来源证据</span><small>每个模块必须固定到已勾选录屏的一个半开时间区间。</small></div><button type="button" className="wb-icon-button" title="添加节目模块" onClick={() => setModules((current) => [...current, emptyModule(nextModuleKey(current))])}><Plus size={15} aria-hidden="true" /></button></div>{modules.map((module, index) => <article key={`${module.moduleKey}-${index}`} className="research-strategy-module-card"><label className="wb-field"><span>模块键</span><input className="wb-input" value={module.moduleKey} onChange={(event) => updateModule(index, { moduleKey: event.target.value })} /></label><label className="wb-field"><span>模块名称</span><input className="wb-input" value={module.title} onChange={(event) => updateModule(index, { title: event.target.value })} /></label><label className="wb-field"><span>内容目标</span><input className="wb-input" value={module.purpose} onChange={(event) => updateModule(index, { purpose: event.target.value })} /></label><label className="wb-field"><span>来源场次</span><select className="wb-input" value={module.sourceSessionCode} onChange={(event) => updateModule(index, { sourceSessionCode: event.target.value })}><option value="">选择已勾选场次</option>{selectedSessions.map((session) => <option key={session.session_code} value={session.session_code}>{session.session_code}</option>)}</select></label><label className="wb-field"><span>起点（秒）</span><input className="wb-input" type="number" min="0" step="0.1" value={module.startMs / 1000} onChange={(event) => updateModule(index, { startMs: Math.round(Number(event.target.value) * 1000) })} /></label><label className="wb-field"><span>终点（秒）</span><input className="wb-input" type="number" min="0" step="0.1" value={module.endMs / 1000} onChange={(event) => updateModule(index, { endMs: Math.round(Number(event.target.value) * 1000) })} /></label><button type="button" className="wb-icon-button" title="删除节目模块" disabled={modules.length === 1} onClick={() => setModules((current) => current.filter((_, itemIndex) => itemIndex !== index))}><Trash2 size={15} aria-hidden="true" /></button></article>)}</section>
         <section className="research-strategy-editor"><div className="research-editor-heading"><div><span>清洗后例证（可选）</span><small>仅保留去事实化短摘要，不录入来源原话或价格、品牌、主播特征。</small></div><button type="button" className="wb-icon-button" title="添加清洗后例证" onClick={() => setExamples((current) => [...current, { moduleKey: modules[0]?.moduleKey ?? "", exampleText: "", sourceSessionCode: "", startMs: 0, endMs: 10_000 }])}><Plus size={15} aria-hidden="true" /></button></div>{examples.map((example, index) => <article key={`${example.moduleKey}-${index}`} className="research-strategy-example-card"><label className="wb-field"><span>所属模块</span><select className="wb-input" value={example.moduleKey} onChange={(event) => updateExample(index, { moduleKey: event.target.value })}>{modules.map((module) => <option key={module.moduleKey} value={module.moduleKey}>{module.moduleKey}</option>)}</select></label><label className="wb-field"><span>来源场次</span><select className="wb-input" value={example.sourceSessionCode} onChange={(event) => updateExample(index, { sourceSessionCode: event.target.value })}><option value="">选择已勾选场次</option>{selectedSessions.map((session) => <option key={session.session_code} value={session.session_code}>{session.session_code}</option>)}</select></label><label className="wb-field"><span>起点（秒）</span><input className="wb-input" type="number" min="0" step="0.1" value={example.startMs / 1000} onChange={(event) => updateExample(index, { startMs: Math.round(Number(event.target.value) * 1000) })} /></label><label className="wb-field"><span>终点（秒）</span><input className="wb-input" type="number" min="0" step="0.1" value={example.endMs / 1000} onChange={(event) => updateExample(index, { endMs: Math.round(Number(event.target.value) * 1000) })} /></label><label className="wb-field wide"><span>去事实化短摘要</span><input className="wb-input" value={example.exampleText} onChange={(event) => updateExample(index, { exampleText: event.target.value })} /></label><button type="button" className="wb-icon-button" title="删除清洗后例证" onClick={() => setExamples((current) => current.filter((_, itemIndex) => itemIndex !== index))}><Trash2 size={15} aria-hidden="true" /></button></article>)}</section>
+        <section className="research-strategy-editor"><div className="research-editor-heading"><div><span>模块配方</span><small>描述每个模块的可复用编排方法，不填写来源商品、价格或主播特征。</small></div></div>{modules.map((module, index) => <label key={`${module.moduleKey}-recipe-${index}`} className="wb-field"><span>{module.title.trim() || module.moduleKey || `模块 ${index + 1}`}</span><textarea className="wb-textarea" value={module.guidance} onChange={(event) => updateModule(index, { guidance: event.target.value })} placeholder="例如：先提出选择问题，再用已核验事实组织解释，最后转入下一模块。" /></label>)}</section>
+        <section className="research-strategy-editor"><div className="research-editor-heading"><div><span>节目策略</span><small>这些字段是内容生成的显式输入，和来源模块、例证一同固定到模板修订。</small></div></div><div className="research-strategy-policy-grid"><label className="wb-field"><span>目标时长（秒）</span><input className="wb-input" type="number" min="1" value={targetDurationSeconds} onChange={(event) => setTargetDurationSeconds(event.target.value)} /></label><label className="wb-field"><span>节奏策略</span><input className="wb-input" value={durationPacing} onChange={(event) => setDurationPacing(event.target.value)} placeholder="例如：开场紧凑，讲解从容" /></label><label className="wb-field"><span>商品轮换节奏</span><input className="wb-input" value={productRotationCadence} onChange={(event) => setProductRotationCadence(event.target.value)} placeholder="例如：每两个模块复盘一次" /></label><label className="wb-field"><span>每模块商品上限</span><input className="wb-input" type="number" min="1" value={maxProductsPerModule} onChange={(event) => setMaxProductsPerModule(event.target.value)} /></label><label className="wb-field"><span>互动节奏</span><input className="wb-input" value={interactionCadence} onChange={(event) => setInteractionCadence(event.target.value)} placeholder="例如：每个模块结束时" /></label><label className="wb-field"><span>互动关注点</span><input className="wb-input" value={interactionPromptFocus} onChange={(event) => setInteractionPromptFocus(event.target.value)} placeholder="例如：收集使用场景" /></label><label className="wb-field"><span>转化表达</span><input className="wb-input" value={ctaStyle} onChange={(event) => setCtaStyle(event.target.value)} placeholder="例如：总结选择依据" /></label><label className="wb-field"><span>转化提示节奏</span><input className="wb-input" value={ctaCadence} onChange={(event) => setCtaCadence(event.target.value)} placeholder="例如：结尾一次" /></label><label className="wb-field"><span>主播语气</span><input className="wb-input" value={hostTone} onChange={(event) => setHostTone(event.target.value)} placeholder="例如：清晰、克制" /></label><label className="wb-field"><span>表达方式</span><input className="wb-input" value={hostDelivery} onChange={(event) => setHostDelivery(event.target.value)} placeholder="例如：短句分段说明" /></label></div></section>
         <label className="wb-field"><span>素材角色提示</span><input className="wb-input" value={materialCues} onChange={(event) => setMaterialCues(event.target.value)} /></label>
         <label className="research-confirm"><input type="checkbox" checked={factsRemovedConfirmed} onChange={(event) => setFactsRemovedConfirmed(event.target.checked)} /><span>我已从策略、模块和例证中移除 {SOURCE_FACT_CATEGORIES.join("、")}，仅保留可复用的节目结构。</span></label>
         <InlineNotice tone="info" title="仅内容参考">发布投影固定为 `reference_only`，模块与例证保留来源场次和时间区间以便复核，不会生成外部直播间的麦兔图层。</InlineNotice>
         <button type="button" className="wb-button wb-button-primary" disabled={!createAllowed || create.isPending} onClick={() => create.mutate()}><Sparkles size={15} aria-hidden="true" />创建策略草稿</button>{create.error ? <InlineNotice tone="danger" title="策略草稿创建失败">{errorMessage(create.error)}</InlineNotice> : null}
       </div></section>
-      {active ? <section className="wb-section"><SectionHeader kicker={`${active.template_code} · r${active.latest_revision}`} title={active.title} actions={<><StatusBadge label={active.contentReadiness === "ready" ? "内容可用" : active.contentReadiness} tone={readinessTone(active.contentReadiness)} /><StatusBadge label="reference_only" tone="info" /></>} /><div className="wb-section-body research-strategy-detail"><div><span>来源直播间</span><code>{active.sourceTargetCode}</code></div><div><span>适用品类</span><strong>{active.contentStrategy.targetCategory || "待加载"}</strong></div><div><span>素材提示</span><strong>{active.contentStrategy.materialCues.join(" / ") || "未声明"}</strong></div><section className="research-strategy-outline"><h3>节目结构与媒体证据</h3>{active.contentStrategy.programOutline.map((module) => <article key={module.moduleKey}><code>{module.moduleKey}</code><strong>{module.title}</strong><span>{module.purpose}</span><small>{Math.round((module.endMs - module.startMs) / 1000)} 秒</small><EvidenceLink sourceSessionCode={module.sourceSessionCode} startMs={module.startMs} endMs={module.endMs} /></article>)}</section>{active.contentStrategy.reviewedExamples.length ? <section className="research-strategy-examples"><h3>清洗后例证</h3>{active.contentStrategy.reviewedExamples.map((example, index) => <article key={`${example.moduleKey}-${index}`}><code>{example.moduleKey}</code><span>{example.exampleText}</span><small><EvidenceLink sourceSessionCode={example.sourceSessionCode} startMs={example.startMs} endMs={example.endMs} /></small></article>)}</section> : null}{active.published_revision ? <InlineNotice title="发布版本已固定"><CheckCircle2 size={14} aria-hidden="true" />该策略可作为内容项目的主模板或次要模板，不能作为可执行布局。</InlineNotice> : <button type="button" className="wb-button wb-button-primary" disabled={publish.isPending || active.contentReadiness !== "ready"} onClick={() => publish.mutate(active)}><Send size={15} aria-hidden="true" />发布内容策略模板</button>}{publish.error ? <InlineNotice tone="danger" title="策略模板发布失败">{errorMessage(publish.error)}</InlineNotice> : null}</div></section> : <section className="wb-section"><EmptyBlock icon={CircleAlert} title="创建或选择内容策略模板" /></section>}</>}</main>
+      {active ? <section className="wb-section">
+        <SectionHeader kicker={`${active.template_code} · r${active.latest_revision}`} title={active.title} actions={<><StatusBadge label={active.contentReadiness === "ready" ? "内容可用" : active.contentReadiness} tone={readinessTone(active.contentReadiness)} /><StatusBadge label="reference_only" tone="info" /></>} />
+        <div className="wb-section-body research-strategy-detail">
+          <div><span>来源直播间</span><code>{active.sourceTargetCode}</code></div>
+          <div><span>适用品类</span><strong>{active.contentStrategy.targetCategory || "待加载"}</strong></div>
+          <div><span>素材提示</span><strong>{active.contentStrategy.materialCues.join(" / ") || "未声明"}</strong></div>
+          <PolicySummary strategy={active.contentStrategy} />
+          <section className="research-strategy-outline"><h3>节目结构与媒体证据</h3>{active.contentStrategy.programOutline.map((module) => <article key={module.moduleKey}><code>{module.moduleKey}</code><strong>{module.title}</strong><span>{module.purpose}</span><small>{Math.round((module.endMs - module.startMs) / 1000)} 秒</small><EvidenceLink sourceSessionCode={module.sourceSessionCode} startMs={module.startMs} endMs={module.endMs} /></article>)}</section>
+          {active.contentStrategy.reviewedExamples.length ? <section className="research-strategy-examples"><h3>清洗后例证</h3>{active.contentStrategy.reviewedExamples.map((example, index) => <article key={`${example.moduleKey}-${index}`}><code>{example.moduleKey}</code><span>{example.exampleText}</span><small><EvidenceLink sourceSessionCode={example.sourceSessionCode} startMs={example.startMs} endMs={example.endMs} /></small></article>)}</section> : null}
+          {active.published_revision ? <InlineNotice title="发布版本已固定"><CheckCircle2 size={14} aria-hidden="true" />该策略可作为内容项目的主模板或次要模板，不能作为可执行布局。</InlineNotice> : <button type="button" className="wb-button wb-button-primary" disabled={publish.isPending || active.contentReadiness !== "ready"} onClick={() => publish.mutate(active)}><Send size={15} aria-hidden="true" />发布内容策略模板</button>}
+          {publish.error ? <InlineNotice tone="danger" title="策略模板发布失败">{errorMessage(publish.error)}</InlineNotice> : null}
+        </div>
+      </section> : <section className="wb-section"><EmptyBlock icon={CircleAlert} title="创建或选择内容策略模板" /></section>}</>}</main>
   </div>;
 }

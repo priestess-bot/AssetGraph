@@ -67,4 +67,19 @@ describe("live template research workbench", () => {
     expect(screen.getByLabelText("IN（秒）")).toHaveValue(12.5);
     expect(screen.getByLabelText("OUT（秒）")).toHaveValue(44);
   });
+
+  it("exposes all content-strategy policy fields alongside source-bounded modules", async () => {
+    const user = userEvent.setup();
+    renderApp();
+
+    await user.click(screen.getByRole("tab", { name: "内容策略" }));
+
+    expect(await screen.findByText("节目策略")).toBeInTheDocument();
+    expect(screen.getByLabelText("兼容标签")).toBeInTheDocument();
+    expect(screen.getByLabelText("目标时长（秒）")).toBeInTheDocument();
+    expect(screen.getByLabelText("商品轮换节奏")).toBeInTheDocument();
+    expect(screen.getByLabelText("互动关注点")).toBeInTheDocument();
+    expect(screen.getByLabelText("转化表达")).toBeInTheDocument();
+    expect(screen.getByLabelText("主播语气")).toBeInTheDocument();
+  });
 });

@@ -167,7 +167,7 @@ describe("content projects api", () => {
   it("ranks content strategies only from explicit category, module, and compatibility matches", () => {
     const template = (code: string, category: string, title: string, compatibilityTags: string[]): RoomTemplate => ({
       template_code: code, title: code, source_session_code: "CAP-001", source_type: "external_flat_video", templateKind: "content_strategy", latest_revision: 1, published_revision: 1, status: "published", layout_fidelity: "none", buildability: "reference_only", contentReadiness: "ready", scenes: [],
-      contentStrategy: { targetCategory: category, compatibilityTags, programOutline: [{ moduleKey: "opening", title, purpose: "建立选择目标", startMs: 0, endMs: 30_000 }], materialCues: [], reviewedExamples: [] },
+      contentStrategy: { targetCategory: category, compatibilityTags, programOutline: [{ moduleKey: "opening", title, purpose: "建立选择目标", startMs: 0, endMs: 30_000 }], durationPolicy: {}, moduleRecipes: [], productRotationPolicy: {}, interactionPolicy: {}, conversionPolicy: {}, hostStyle: {}, materialCues: [], reviewedExamples: [], removedSourceFactCategories: [] },
     });
 
     const recommendations = recommendContentTemplates([template("TPL-WINE", "葡萄酒", "聚会开场", ["聚会"]), template("TPL-CARE", "护肤", "日常护理", ["护肤"])], "为聚会挑选葡萄酒，并用聚会开场建立目标");

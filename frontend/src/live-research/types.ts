@@ -170,8 +170,30 @@ export interface ContentStrategy {
   targetCategory: string;
   compatibilityTags: string[];
   programOutline: Array<{ moduleKey: string; title: string; purpose: string; sourceSessionCode?: string; startMs: number; endMs: number }>;
+  durationPolicy: {
+    targetDurationSeconds?: number;
+    pacing?: string;
+  };
+  moduleRecipes: Array<{ moduleKey: string; guidance: string }>;
+  productRotationPolicy: {
+    cadence?: string;
+    maxProductsPerModule?: number;
+  };
+  interactionPolicy: {
+    cadence?: string;
+    promptFocus?: string;
+  };
+  conversionPolicy: {
+    ctaStyle?: string;
+    ctaCadence?: string;
+  };
+  hostStyle: {
+    tone?: string;
+    delivery?: string;
+  };
   materialCues: string[];
   reviewedExamples: Array<{ moduleKey: string; exampleText: string; sourceSessionCode: string; startMs: number; endMs: number }>;
+  removedSourceFactCategories: string[];
 }
 
 export interface RoomTemplate {
