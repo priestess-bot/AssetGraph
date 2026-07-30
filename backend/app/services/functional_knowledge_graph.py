@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+import json
+from collections import deque
 from typing import Any
 
 from psycopg import Connection
@@ -12,7 +14,15 @@ from app.domain.contracts import canonical_fingerprint
 from app.services.functional_knowledge import FunctionalKnowledgeService
 
 
-ONTOLOGY_VERSION = "knowledge-lineage.v1"
+ONTOLOGY_VERSION = "knowledge-lineage.v2"
+
+SEARCH_SCOPE_NODE_TYPES: dict[str, set[str]] = {
+    "all": set(),
+    "product": {"product_fact_card", "fact_claim"},
+    "topic": {"content_project", "content_strategy_template"},
+    "template": {"content_strategy_template"},
+    "material": {"asset"},
+}
 
 
 @dataclass(frozen=True)
@@ -155,6 +165,107 @@ class FunctionalKnowledgeGraphProjectionService:
     def get(self, projection_code: str) -> dict[str, Any] | None:
         return self._read_projection(projection_code)
 
+    def search_lineage(
+        self,
+        query: str,
+        scope: str = "all",
+        *,
+        max_depth: int = 6,
+        result_limit: int = 20,
+        lineage_node_limit: int = 200,
+    ) -> dict[str, Any]:
+        projection = self.current()
+        normalized_query = query.strip().casefold()
+        allowed_types = SEARCH_SCOPE_NODE_TYPES.get(scope)
+        if allowed_types is None:
+            raise ValueError(f"Unsupported graph search scope: {scope}")
+        if projection is None or not normalized_query:
+            return {
+                "query": query.strip(),
+                "scope": scope,
+                "projection_code": None,
+                "projection_revision": None,
+                "is_stale": False,
+                "results": [],
+            }
+
+        nodes = projection["nodes"]
+        edges = projection["edges"]
+        node_by_key = {
+            (node["node_type"], node["node_code"], int(node["revision_number"])): node
+            for node in nodes
+        }
+        matched_keys = [
+            key
+            for key, node in node_by_key.items()
+            if (not allowed_types or node["node_type"] in allowed_types)
+            and normalized_query
+            in (
+                f"{node['node_code']} "
+                f"{json.dumps(node.get('properties') or {}, ensure_ascii=False, sort_keys=True)}"
+            ).casefold()
+        ][:result_limit]
+
+        adjacency: dict[tuple[str, str, int], list[tuple[tuple[str, str, int], dict[str, Any]]]] = {}
+        for edge in edges:
+            source = (
+                edge["source_node_type"],
+                edge["source_node_code"],
+                int(edge["source_revision_number"]),
+            )
+            target = (
+                edge["target_node_type"],
+                edge["target_node_code"],
+                int(edge["target_revision_number"]),
+            )
+            adjacency.setdefault(source, []).append((target, edge))
+            adjacency.setdefault(target, []).append((source, edge))
+
+        results: list[dict[str, Any]] = []
+        for matched_key in matched_keys:
+            visited = {matched_key}
+            selected_edges: dict[tuple[object, ...], dict[str, Any]] = {}
+            queue: deque[tuple[tuple[str, str, int], int]] = deque([(matched_key, 0)])
+            truncated = False
+            while queue:
+                current, depth = queue.popleft()
+                if depth >= max_depth:
+                    continue
+                for neighbor, edge in adjacency.get(current, []):
+                    edge_key = (
+                        edge["source_node_type"],
+                        edge["source_node_code"],
+                        edge["source_revision_number"],
+                        edge["relationship_type"],
+                        edge["target_node_type"],
+                        edge["target_node_code"],
+                        edge["target_revision_number"],
+                    )
+                    selected_edges[edge_key] = edge
+                    if neighbor in visited:
+                        continue
+                    if len(visited) >= lineage_node_limit:
+                        truncated = True
+                        continue
+                    visited.add(neighbor)
+                    queue.append((neighbor, depth + 1))
+            results.append(
+                {
+                    "match": node_by_key[matched_key],
+                    "nodes": [node_by_key[key] for key in sorted(visited)],
+                    "edges": list(selected_edges.values()),
+                    "truncated": truncated,
+                }
+            )
+        return {
+            "query": query.strip(),
+            "scope": scope,
+            "projection_code": projection["projection_code"],
+            "projection_revision": projection["revision_number"],
+            "is_stale": projection["is_stale"],
+            "results": results,
+        }
+
     def _read_projection(self, projection_code: str) -> dict[str, Any] | None:
         with self.connection.cursor(row_factory=dict_row) as cur:
             cur.execute(
@@ -212,6 +323,26 @@ class FunctionalKnowledgeGraphProjectionService:
                 {"title": row.get("title"), "media_kind": row.get("media_kind"), "material_roles": row.get("material_roles") or [], "execution_capability": row.get("execution_capability")},
                 row.get("checksum_sha256") or canonical_fingerprint(row),
             )
+        for row in rows.get("product_fact_cards", []):
+            content = row.get("content") or {}
+            add_node(
+                "product_fact_card",
+                row["fact_card_code"],
+                int(row["version_number"]),
+                row["status"],
+                {
+                    "title": row["title"],
+                    "product_code": row.get("product_code"),
+                    "product_name": content.get("product_name"),
+                    "brand": content.get("brand"),
+                    "category": content.get("category"),
+                    "positioning": content.get("positioning"),
+                    "verified_facts": content.get("verified_facts") or [],
+                    "scenarios": content.get("scenarios") or [],
+                    "asset_keywords": content.get("asset_keywords") or [],
+                },
+                row["content_sha256"],
+            )
         for row in rows.get("templates", []):
             add_node(
                 "content_strategy_template", row["template_code"], int(row["revision_number"]), row["status"],
@@ -251,7 +382,14 @@ class FunctionalKnowledgeGraphProjectionService:
             project_key = ("content_project", row["project_code"], int(row["revision_number"]))
             add_node(
                 *project_key, row["status"],
-                {"title": row["title"], "generation_goal": row["generation_goal"]}, row["fingerprint_sha256"],
+                {
+                    "title": row["title"],
+                    "generation_goal": row["generation_goal"],
+                    "theme": (row.get("content") or {}).get("theme"),
+                    "story": (row.get("content") or {}).get("story"),
+                    "must_include": (row.get("content") or {}).get("must_include") or [],
+                },
+                row["fingerprint_sha256"],
             )
             content = row.get("content") or {}
             for ref in content.get("fact_claim_refs") or []:
@@ -267,6 +405,25 @@ class FunctionalKnowledgeGraphProjectionService:
                     edges.append(GraphEdgeInput(
                         project_key, ("content_rule", str(rule_code), 0), "CITES", "recorded_fact", 1.0,
                         None, None, {"source_table": "content_project_revisions", "source_code": row["project_code"], "source_revision": row["revision_number"], "pinned_fingerprint": ref.get("fingerprint_sha256")},
+                    ))
+            for ref in content.get("fact_card_refs") or []:
+                fact_card_code = ref.get("fact_card_code") if isinstance(ref, dict) else None
+                version_number = ref.get("version_number") if isinstance(ref, dict) else None
+                if fact_card_code and isinstance(version_number, int):
+                    edges.append(GraphEdgeInput(
+                        project_key,
+                        ("product_fact_card", str(fact_card_code), version_number),
+                        "CITES",
+                        "recorded_fact",
+                        1.0,
+                        None,
+                        None,
+                        {
+                            "source_table": "content_project_revisions",
+                            "source_code": row["project_code"],
+                            "source_revision": row["revision_number"],
+                            "pinned_fingerprint": ref.get("content_sha256") or ref.get("fingerprint_sha256"),
+                        },
                     ))
             for ref in [content.get("primary_template_ref"), *(content.get("secondary_template_refs") or [])]:
                 template_code = ref.get("template_code") if isinstance(ref, dict) else None
@@ -319,6 +476,106 @@ class FunctionalKnowledgeGraphProjectionService:
                     plan_key, ("asset", str(asset_code), 0), "USES_ASSET", "recorded_fact", 1.0,
                     None, None, {"source_table": "functional_live_room_plans", "source_code": row["plan_code"]},
                 ))
+        for row in rows.get("maitu_scenes", []):
+            scene_key = (
+                "maitu_scene_blueprint",
+                row["scene_blueprint_code"],
+                int(row["revision_number"]),
+            )
+            add_node(
+                *scene_key,
+                "recorded",
+                {
+                    "title": row["title"],
+                    "scene_code": row["scene_blueprint_code"],
+                    "variant_code": row["variant_code"],
+                    "plan_code": row.get("plan_code"),
+                    "program_segment_code": row.get("program_segment_code"),
+                    "shot_code": row.get("shot_code"),
+                    "sort_order": row["sort_order"],
+                    "estimated_active_start_ms": row["estimated_active_start_ms"],
+                    "estimated_active_end_ms": row["estimated_active_end_ms"],
+                },
+                row["fingerprint_sha256"],
+            )
+            edges.append(GraphEdgeInput(
+                ("production_variant", row["variant_code"], int(row["variant_revision"])),
+                scene_key,
+                "CONTAINS_SCENE",
+                "recorded_fact",
+                1.0,
+                None,
+                None,
+                {
+                    "source_table": "maitu_scene_blueprints",
+                    "source_code": row["scene_blueprint_code"],
+                },
+            ))
+            if row.get("plan_code"):
+                edges.append(GraphEdgeInput(
+                    ("live_room_plan", row["plan_code"], 0),
+                    scene_key,
+                    "CONTAINS_SCENE",
+                    "recorded_fact",
+                    1.0,
+                    None,
+                    None,
+                    {
+                        "source_table": "maitu_scene_blueprints",
+                        "source_code": row["scene_blueprint_code"],
+                    },
+                ))
+        for row in rows.get("layer_blueprints", []):
+            layer_key = (
+                "layer_blueprint",
+                row["layer_blueprint_code"],
+                int(row["revision_number"]),
+            )
+            scene_key = (
+                "maitu_scene_blueprint",
+                row["scene_blueprint_code"],
+                int(row["scene_revision"]),
+            )
+            add_node(
+                *layer_key,
+                "recorded",
+                {
+                    "asset_code": row["asset_code"],
+                    "material_role": row["material_role"],
+                    "normalized_geometry": row["normalized_geometry"],
+                    "z_order": row["z_order"],
+                    "source_script_block_codes": row["source_script_block_codes"],
+                },
+                row["fingerprint_sha256"],
+            )
+            edges.extend([
+                GraphEdgeInput(
+                    scene_key,
+                    layer_key,
+                    "CONTAINS_LAYER",
+                    "recorded_fact",
+                    1.0,
+                    None,
+                    None,
+                    {
+                        "source_table": "layer_blueprints",
+                        "source_code": row["layer_blueprint_code"],
+                    },
+                ),
+                GraphEdgeInput(
+                    layer_key,
+                    ("asset", row["asset_code"], 0),
+                    "USES_ASSET",
+                    "recorded_fact",
+                    1.0,
+                    None,
+                    None,
+                    {
+                        "source_table": "layer_blueprints",
+                        "source_code": row["layer_blueprint_code"],
+                    },
+                ),
+            ])
         for row in rows.get("video_plans", []):
             plan_key = ("rendered_video_plan", row["plan_code"], 0)
             add_node(
@@ -355,6 +612,36 @@ class FunctionalKnowledgeGraphProjectionService:
                 {"subject_type": row["subject_type"], "subject_code": row["subject_code"], "carrier_kind": row["carrier_kind"], "release_fingerprint": row.get("release_fingerprint")},
                 canonical_fingerprint(row),
             )
+        for row in rows.get("delivery_attempts", []):
+            delivery_key = ("delivery_attempt", row["delivery_code"], 0)
+            add_node(
+                *delivery_key,
+                row["status"],
+                {
+                    "release_code": row["release_code"],
+                    "target_type": row["target_type"],
+                    "target_id": row["target_id"],
+                    "adapter_type": row["adapter_type"],
+                    "external_identity": row.get("external_identity"),
+                    "readback_evidence": row.get("readback_evidence"),
+                    "error_code": row.get("error_code"),
+                },
+                canonical_fingerprint(row),
+            )
+            edges.append(GraphEdgeInput(
+                ("release", row["release_code"], int(row["release_revision"])),
+                delivery_key,
+                "DELIVERED_BY",
+                "recorded_fact",
+                1.0,
+                row.get("started_at"),
+                row.get("completed_at"),
+                {
+                    "source_table": "delivery_attempts",
+                    "source_code": row["delivery_code"],
+                    "status": row["status"],
+                },
+            ))
         for row in rows.get("operation_sessions", []):
             add_node(
                 "operation_session", row["session_code"], int(row["import_version"]), None,
@@ -380,6 +667,24 @@ class FunctionalKnowledgeGraphProjectionService:
                     plan_key, session_key, "EXPOSED_DURING", "recorded_fact", float(row["confidence"]),
                     row["started_at"], row["ended_at"],
                     {"source_table": "functional_content_exposures", "source_code": row["exposure_code"], "scene_code": row["scene_code"], "source_kind": row["source_kind"]},
+                ))
+            if row.get("scene_blueprint_code"):
+                edges.append(GraphEdgeInput(
+                    exposure_key,
+                    (
+                        "maitu_scene_blueprint",
+                        row["scene_blueprint_code"],
+                        int(row["scene_revision"]),
+                    ),
+                    "OBSERVES_SCENE",
+                    "recorded_fact",
+                    float(row["confidence"]),
+                    row["started_at"],
+                    row["ended_at"],
+                    {
+                        "source_table": "functional_content_exposures",
+                        "source_code": row["exposure_code"],
+                    },
                 ))
         for row in rows.get("metric_definitions", []):
             add_node(
@@ -444,13 +749,55 @@ class FunctionalKnowledgeGraphProjectionService:
 
         known = {node.key for node in nodes}
         nodes = sorted(nodes, key=lambda node: node.key)
-        edges = sorted((edge for edge in edges if edge.source in known and edge.target in known), key=lambda edge: edge.key)
+        merged_edges: dict[tuple[object, ...], GraphEdgeInput] = {}
+        for edge in (item for item in edges if item.source in known and item.target in known):
+            existing = merged_edges.get(edge.key)
+            if existing is None:
+                merged_edges[edge.key] = edge
+                continue
+            source_records = existing.evidence.get("source_records")
+            if not isinstance(source_records, list):
+                source_records = [existing.evidence]
+            merged_edges[edge.key] = GraphEdgeInput(
+                edge.source,
+                edge.target,
+                edge.relationship_type,
+                edge.assertion_kind,
+                min(
+                    value
+                    for value in (existing.confidence, edge.confidence)
+                    if value is not None
+                )
+                if existing.confidence is not None or edge.confidence is not None
+                else None,
+                min(
+                    (value for value in (existing.valid_from, edge.valid_from) if value is not None),
+                    default=None,
+                ),
+                max(
+                    (value for value in (existing.valid_until, edge.valid_until) if value is not None),
+                    default=None,
+                ),
+                {
+                    "source_records": [*source_records, edge.evidence],
+                    "source_record_count": len(source_records) + 1,
+                },
+            )
+        edges = sorted(merged_edges.values(), key=lambda edge: edge.key)
         return nodes, edges
 
     @classmethod
     def _snapshot(cls, cur: Any) -> tuple[list[GraphNodeInput], list[GraphEdgeInput]]:
         queries = {
             "assets": "SELECT asset_code, title, media_kind, material_roles, execution_capability, checksum_sha256, status, updated_at FROM assets WHERE deleted_at IS NULL ORDER BY asset_code",
+            "product_fact_cards": """SELECT card.fact_card_code, card.title, card.product_code,
+                                              version.version_number, version.status, version.content,
+                                              version.content_sha256, version.created_at
+                                       FROM maitu_workbench_product_fact_cards AS card
+                                       JOIN maitu_workbench_product_fact_card_versions AS version
+                                         ON version.fact_card_id = card.id
+                                       WHERE card.archived_at IS NULL
+                                       ORDER BY card.fact_card_code, version.version_number""",
             "templates": """SELECT template.template_code, template.name, revision.revision_number, revision.status,
                                      revision.content_readiness, revision.layout_fidelity, revision.buildability,
                                      revision.contract_version, revision.content_fingerprint
@@ -482,6 +829,32 @@ class FunctionalKnowledgeGraphProjectionService:
                                         ON variant.variant_code = plan.variant_code AND variant.status = 'confirmed'
                                       LEFT JOIN releases AS release ON release.release_code = plan.release_code
                                       ORDER BY plan.plan_code""",
+            "maitu_scenes": """SELECT scene.scene_blueprint_code, scene.revision_number, scene.title,
+                                         scene.sort_order, scene.estimated_active_start_ms,
+                                         scene.estimated_active_end_ms, scene.fingerprint_sha256,
+                                         variant.variant_code, variant.revision_number AS variant_revision,
+                                         plan.plan_code, segment.segment_code AS program_segment_code,
+                                         shot.shot_code
+                                  FROM maitu_scene_blueprints AS scene
+                                  JOIN production_variant_revisions AS variant
+                                    ON variant.id = scene.production_variant_revision_id
+                                  LEFT JOIN functional_live_room_plans AS plan
+                                    ON plan.variant_code = variant.variant_code
+                                  LEFT JOIN program_segments AS segment
+                                    ON segment.id = scene.program_segment_id
+                                  LEFT JOIN shots AS shot ON shot.id = scene.shot_id
+                                  ORDER BY scene.scene_blueprint_code, scene.revision_number""",
+            "layer_blueprints": """SELECT layer.layer_blueprint_code, layer.revision_number,
+                                            layer.asset_code, layer.material_role,
+                                            layer.normalized_geometry, layer.z_order,
+                                            layer.source_script_block_codes,
+                                            layer.fingerprint_sha256,
+                                            scene.scene_blueprint_code,
+                                            scene.revision_number AS scene_revision
+                                     FROM layer_blueprints AS layer
+                                     JOIN maitu_scene_blueprints AS scene
+                                       ON scene.id = layer.scene_blueprint_id
+                                     ORDER BY layer.layer_blueprint_code, layer.revision_number""",
             "video_plans": """SELECT plan.plan_code, plan.project_code, plan.variant_code, plan.video_job_code, plan.release_code,
                                      COALESCE(release.current_manifest_revision, 0) AS release_revision,
                                      variant.revision_number AS variant_revision, variant.material_snapshot_ref, plan.created_at, plan.updated_at
@@ -491,6 +864,16 @@ class FunctionalKnowledgeGraphProjectionService:
                                   LEFT JOIN releases AS release ON release.release_code = plan.release_code
                                   ORDER BY plan.plan_code""",
             "releases": "SELECT release_code, subject_type, subject_code, subject_revision, carrier_kind, status, current_manifest_revision, release_fingerprint, created_at, updated_at FROM releases ORDER BY release_code",
+            "delivery_attempts": """SELECT delivery.delivery_code, release.release_code,
+                                             release.current_manifest_revision AS release_revision,
+                                             delivery.target_type, delivery.target_id,
+                                             delivery.adapter_type, delivery.status,
+                                             delivery.external_identity, delivery.readback_evidence,
+                                             delivery.error_code, delivery.started_at,
+                                             delivery.completed_at, delivery.created_at
+                                      FROM delivery_attempts AS delivery
+                                      JOIN releases AS release ON release.id = delivery.release_id
+                                      ORDER BY delivery.delivery_code""",
             "operation_sessions": "SELECT session_code, title, platform, content_project_code, started_at, ended_at, source_kind, import_version, live_room_plan_code, variant_code, release_code, metrics, created_at, updated_at FROM functional_operation_sessions ORDER BY session_code",
             "content_exposures": """SELECT exposure.exposure_code, exposure.session_code, session.import_version AS session_import_version,
                                             exposure.plan_code, exposure.variant_code, exposure.release_code, exposure.scene_code,
@@ -498,11 +881,15 @@ class FunctionalKnowledgeGraphProjectionService:
                                             exposure.status, exposure.created_at,
                                             CASE WHEN live.plan_code IS NOT NULL THEN 'live_room_plan'
                                                  WHEN video.plan_code IS NOT NULL THEN 'rendered_video_plan' END AS plan_node_type,
-                                            COALESCE(live.plan_code, video.plan_code) AS plan_node_code
+                                            COALESCE(live.plan_code, video.plan_code) AS plan_node_code,
+                                            scene.scene_blueprint_code,
+                                            scene.revision_number AS scene_revision
                                      FROM functional_content_exposures AS exposure
                                      JOIN functional_operation_sessions AS session ON session.id = exposure.session_id
                                      LEFT JOIN functional_live_room_plans AS live ON live.plan_code = exposure.plan_code
                                      LEFT JOIN functional_video_plans AS video ON video.plan_code = exposure.plan_code
+                                     LEFT JOIN maitu_scene_blueprints AS scene
+                                       ON scene.scene_blueprint_code = exposure.scene_code
                                      WHERE exposure.status = 'active'
                                      ORDER BY exposure.exposure_code""",
             "metric_definitions": "SELECT metric_code, revision_number, status, name, unit, value_type, aggregation, fingerprint_sha256 FROM metric_definition_revisions ORDER BY metric_code, revision_number",

@@ -23,6 +23,57 @@ from app.services.functional_content import FunctionalContentService
 from app.services.releases import ReleaseService
 
 
+def build_video_reproducibility_evidence(
+    *,
+    timeline_revision: int,
+    production_timeline: dict[str, Any],
+    artifacts: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Project stable render identities without reading machine-local files."""
+
+    render_manifest = next(
+        (artifact for artifact in artifacts if artifact.get("artifact_key") == "render_manifest"),
+        None,
+    )
+    render_difference = next(
+        (
+            artifact
+            for artifact in artifacts
+            if artifact.get("artifact_key") == "render_manifest_diff"
+        ),
+        None,
+    )
+
+    def artifact_evidence(artifact: dict[str, Any] | None) -> dict[str, Any] | None:
+        if artifact is None:
+            return None
+        metadata = artifact.get("metadata")
+        return {
+            "artifact_key": artifact.get("artifact_key"),
+            "checksum_sha256": artifact.get("checksum_sha256"),
+            "download_url": artifact.get("download_url"),
+            "metadata": dict(metadata) if isinstance(metadata, dict) else {},
+        }
+
+    return {
+        "schema_version": "functional-video-reproducibility.v1",
+        "timeline_revision": timeline_revision,
+        "timeline_fingerprint_sha256": canonical_fingerprint(production_timeline),
+        "manifest_covers": [
+            "timeline",
+            "asset_checksums",
+            "voice_checksums",
+            "subtitle_checksum",
+            "ffmpeg_ffprobe_versions",
+            "encoding",
+            "output_checksums",
+        ],
+        "render_manifest": artifact_evidence(render_manifest),
+        "render_manifest_difference": artifact_evidence(render_difference),
+        "retry_difference_recorded": render_difference is not None,
+    }
+
+
 class FunctionalVideoService:
     """Creates a rendered-video variant whose queued worker job consumes ContentProject text."""
 
@@ -69,6 +120,7 @@ class FunctionalVideoService:
         brand_logo = self._resolve_brand_logo_asset(
             payload.get("brand_logo_asset_code"),
         )
+        inherited_live_room_snapshot = self._source_live_room_material_snapshot(detail)
         story, script, shots, timeline = self._compile_content(
             detail,
             duration,
@@ -104,6 +156,7 @@ class FunctionalVideoService:
                 "product_sticker": product_sticker,
                 "background_music": background_music,
                 "sound_effect": sound_effect,
+                "inherited_live_room_material_snapshot": inherited_live_room_snapshot,
             },
             constraint_snapshot_ref=self._video_constraint_snapshot(
                 visual_assets=visual_assets,
@@ -169,6 +222,15 @@ class FunctionalVideoService:
             ),
             "target_duration_seconds": duration,
             "source_live_room_plan_code": detail.get("source_live_room_plan_code"),
+            "inherited_live_room_material_snapshot": (
+                {
+                    key: value
+                    for key, value in inherited_live_room_snapshot.items()
+                    if key != "snapshot"
+                }
+                if inherited_live_room_snapshot
+                else None
+            ),
         }
         with self.connection.cursor(row_factory=dict_row) as cursor:
             code = self._next_code(cursor)
@@ -642,6 +704,9 @@ class FunctionalVideoService:
             cursor.execute(
                 """
                 SELECT live.plan_code AS source_live_room_plan_code,
+                       variant.variant_code AS source_live_room_variant_code,
+                       variant.revision_number AS source_live_room_variant_revision,
+                       variant.material_snapshot_ref AS source_live_room_material_snapshot,
                        project.project_code, project.title,
                        project_revision.revision_number AS project_revision_number,
                        project_revision.generation_goal,
@@ -705,6 +770,11 @@ class FunctionalVideoService:
             "generation_goal": source["generation_goal"],
             "generated": True,
             "source_live_room_plan_code": source["source_live_room_plan_code"],
+            "source_live_room_variant_code": source["source_live_room_variant_code"],
+            "source_live_room_variant_revision": int(source["source_live_room_variant_revision"]),
+            "source_live_room_material_snapshot": dict(
+                source["source_live_room_material_snapshot"] or {}
+            ),
             "story_brief": {
                 "story_brief_code": source["story_brief_code"],
                 "revision_number": int(source["story_revision_number"]),
@@ -721,6 +791,29 @@ class FunctionalVideoService:
                 "revision_number": int(source["shot_list_revision_number"]),
                 "shots": source_shots,
             },
+        }
+
+    @staticmethod
+    def _source_live_room_material_snapshot(
+        detail: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        plan_code = str(detail.get("source_live_room_plan_code") or "").strip()
+        snapshot = detail.get("source_live_room_material_snapshot")
+        if not plan_code or not isinstance(snapshot, dict):
+            return None
+        frozen_snapshot = deepcopy(snapshot)
+        return {
+            "schema_version": "functional-video-inherited-live-room-material-snapshot.v1",
+            "live_room_plan_code": plan_code,
+            "production_variant_code": str(
+                detail.get("source_live_room_variant_code") or ""
+            ),
+            "production_variant_revision": int(
+                detail.get("source_live_room_variant_revision") or 0
+            ),
+            "fingerprint_sha256": canonical_fingerprint(frozen_snapshot),
+            "asset_codes": list(frozen_snapshot.get("asset_codes") or []),
+            "snapshot": frozen_snapshot,
         }
 
     def list_plans(self) -> list[dict[str, Any]]:
@@ -834,7 +927,16 @@ class FunctionalVideoService:
         variant = self.production.confirm_production_variant_revision(
             variant["variant_code"], revision_number=int(variant["revision_number"]), actor_id=actor_id
         )
-        job = self.videos.create({"topic": source["job_topic"], "target_duration_seconds": duration})
+        # Keep a new branch out of the render queue until the operator saves the
+        # first timeline revision. A worker may poll continuously while the editor
+        # is opening, so this hold must be persisted with the job itself.
+        job = self.videos.create(
+            {
+                "topic": source["job_topic"],
+                "target_duration_seconds": duration,
+                "edit_locked": True,
+            }
+        )
         seeded = self.videos.seed_content_project_job(
             job["job_code"],
             story_brief=deepcopy(dict(source["job_story_brief"] or {})),
@@ -1599,7 +1701,7 @@ class FunctionalVideoService:
                 )
                 cursor.execute(
                     """UPDATE video_production_jobs
-                       SET shot_list = %s, target_duration_seconds = %s, updated_at = now()
+                       SET shot_list = %s, target_duration_seconds = %s, edit_locked = FALSE, updated_at = now()
                        WHERE id = %s""",
                     (Jsonb(shot_list), round(total_seconds), job["id"]),
                 )
@@ -1617,6 +1719,22 @@ class FunctionalVideoService:
 
     def _enrich(self, row: dict[str, Any]) -> dict[str, Any]:
         plan = dict(row)
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """SELECT material_snapshot_ref, constraint_snapshot_ref
+                   FROM production_variant_revisions
+                   WHERE variant_code = %s
+                   ORDER BY revision_number DESC
+                   LIMIT 1""",
+                (plan["variant_code"],),
+            )
+            variant_snapshot = cursor.fetchone()
+        plan["material_snapshot_ref"] = dict(
+            (variant_snapshot or {}).get("material_snapshot_ref") or {}
+        )
+        plan["constraint_snapshot_ref"] = dict(
+            (variant_snapshot or {}).get("constraint_snapshot_ref") or {}
+        )
         job = self.videos.get_by_code(plan["video_job_code"])
         if job is None:
             raise RuntimeError("functional video plan refers to a missing job")
@@ -1625,6 +1743,7 @@ class FunctionalVideoService:
                 "job_status": job["status"],
                 "current_stage": job.get("current_stage"),
                 "progress_percent": job["progress_percent"],
+                "error_code": job.get("error_code"),
                 "error_message": job.get("error_message"),
                 "final_asset_id": job.get("final_asset_id"),
                 "quality_report": dict(job.get("quality_report") or {}),
@@ -1648,6 +1767,11 @@ class FunctionalVideoService:
             }
             for artifact in job.get("artifacts") or []
         ]
+        plan["reproducibility"] = build_video_reproducibility_evidence(
+            timeline_revision=int(plan["timeline_revision"]),
+            production_timeline=dict(plan["production_timeline"]),
+            artifacts=plan["artifacts"],
+        )
         plan["timeline_segments"] = self._timeline_segments(
             plan["id"], int(plan["timeline_revision"])
         )
@@ -1780,7 +1904,9 @@ class FunctionalVideoService:
                     **({"fit": str(clip["fit"])} if clip.get("fit") is not None else {}),
                     **(
                         {"crop_x": float(clip["crop_x"]), "crop_y": float(clip["crop_y"])}
-                        if clip.get("crop_x") is not None and clip.get("crop_y") is not None
+                        if (clip.get("fit") or "cover") == "cover"
+                        and clip.get("crop_x") is not None
+                        and clip.get("crop_y") is not None
                         else {}
                     ),
                     **({"playback_rate": float(clip["playback_rate"])} if clip.get("playback_rate") is not None else {}),
@@ -2635,7 +2761,7 @@ class FunctionalVideoService:
         audio_clips = [{"clip_code": f"VOICE-{shot['shot_code']}", "linked_shot_code": shot["shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "gain_db": 0.0} for shot in compiled]
         if background_music is not None:
             audio_clips.append({"clip_code": "BGM-01", "timeline_range": {"start_ms": 0, "duration_ms": duration * 1000}, "asset_code": background_music["asset_code"], "gain_db": background_music["gain_db"]})
-        timeline = {"schema_version": "otio-compatible-production-timeline.v1", "global_start_ms": 0, "global_end_ms": duration * 1000, "poster_time_ms": poster_time_ms, "subtitle_style": subtitle_style, "tracks": [{"track_kind": "video", "clips": [{"clip_code": shot["shot_code"], "source_shot_code": shot["source_shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "source_range": {"asset_code": shot["asset_code"], "asset_checksum_sha256": shot.get("asset_expected_checksum"), "asset_relative_path": shot.get("asset_relative_path"), "start_seconds": shot["source_start_seconds"], "end_seconds": shot["source_end_seconds"], "available_start_seconds": shot["source_start_seconds"], "available_end_seconds": shot["source_end_seconds"]}, "fit": shot["fit"], "crop_x": 0.5, "crop_y": 0.5, "playback_rate": shot["playback_rate"], "overlay_roles": shot["overlay_roles"], "overlay_z_order": shot["overlay_z_order"], "product_sticker_layout_suggestion": shot.get("product_sticker_layout_suggestion"), "audio_roles": shot.get("audio_roles", []), "transition": shot["transition"]} for shot in compiled]}, {"track_kind": "audio", "clips": audio_clips}, {"track_kind": "subtitle", "clips": [{"clip_code": f"SUBTITLE-{shot['shot_code']}", "linked_shot_code": shot["shot_code"], "source_script_block_codes": shot["source_script_block_codes"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "subtitle_text": shot["narration"], "headline_text": shot["screen_text"], "caption_position": "bottom"} for shot in compiled]}]}
+        timeline = {"schema_version": "otio-compatible-production-timeline.v1", "global_start_ms": 0, "global_end_ms": duration * 1000, "poster_time_ms": poster_time_ms, "subtitle_style": subtitle_style, "tracks": [{"track_kind": "video", "clips": [{"clip_code": shot["shot_code"], "source_shot_code": shot["source_shot_code"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "source_range": {"asset_code": shot["asset_code"], "asset_checksum_sha256": shot.get("asset_expected_checksum"), "asset_relative_path": shot.get("asset_relative_path"), "start_seconds": shot["source_start_seconds"], "end_seconds": shot["source_end_seconds"], "available_start_seconds": shot["source_start_seconds"], "available_end_seconds": shot["source_end_seconds"]}, "fit": shot["fit"], **({"crop_x": 0.5, "crop_y": 0.5} if shot["fit"] == "cover" else {}), "playback_rate": shot["playback_rate"], "overlay_roles": shot["overlay_roles"], "overlay_z_order": shot["overlay_z_order"], "product_sticker_layout_suggestion": shot.get("product_sticker_layout_suggestion"), "audio_roles": shot.get("audio_roles", []), "transition": shot["transition"]} for shot in compiled]}, {"track_kind": "audio", "clips": audio_clips}, {"track_kind": "subtitle", "clips": [{"clip_code": f"SUBTITLE-{shot['shot_code']}", "linked_shot_code": shot["shot_code"], "source_script_block_codes": shot["source_script_block_codes"], "timeline_range": {"start_ms": int(shot["start_seconds"] * 1000), "duration_ms": int(shot["duration_seconds"] * 1000)}, "subtitle_text": shot["narration"], "headline_text": shot["screen_text"], "caption_position": "bottom"} for shot in compiled]}]}
         timeline = FunctionalVideoService._with_rational_time_projection(timeline)
         return story, script, shots, timeline
 
@@ -2844,13 +2970,8 @@ class FunctionalVideoService:
 
     @staticmethod
     def _next_release_snapshot_artifact_code(cursor: Any) -> str:
-        date = datetime.now(UTC).date()
-        cursor.execute(
-            """INSERT INTO domain_sequences (sequence_date, object_type, current_value)
-               VALUES (%s, 'functional_video_release_snapshot', 1)
-               ON CONFLICT (sequence_date, object_type)
-               DO UPDATE SET current_value = domain_sequences.current_value + 1, updated_at = now()
-               RETURNING current_value""",
-            (date,),
+        return FunctionalVideoService._next_sequence_code(
+            cursor,
+            prefix="ART",
+            object_type="artifact_ref",
         )
-        return f"ART-{date:%Y%m%d}-{int(cursor.fetchone()['current_value']):06d}"

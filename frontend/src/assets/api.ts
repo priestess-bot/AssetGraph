@@ -8,6 +8,7 @@ import {
   postJson,
   requestJson,
 } from "../workbench/api";
+import { productTitle } from "../workbench/productLanguage";
 
 const ROOT = "/api/assets";
 
@@ -28,6 +29,7 @@ export type ExecutionCapability =
   | "reference_only"
   | "unavailable"
   | "unclassified";
+export type RightsStatus = "pending" | "approved" | "restricted" | "revoked";
 
 export interface LibraryAsset {
   assetCode: string;
@@ -38,6 +40,20 @@ export interface LibraryAsset {
   materialRoles: string[];
   executionCapability: ExecutionCapability;
   maituCategory?: string;
+  status: string;
+  sourceSystem?: string;
+  rightsStatus: RightsStatus;
+  rightsNote?: string;
+}
+
+export interface AssetFile {
+  id: string;
+  assetCode: string;
+  fileRole: string;
+  mimeType?: string;
+  fileSize?: number;
+  checksumSha256?: string;
+  storageStatus: string;
 }
 
 export interface AssetGroup {
@@ -216,7 +232,7 @@ function asset(value: unknown): LibraryAsset | undefined {
   if (!assetCode) return undefined;
   return {
     assetCode,
-    title: asString(value.title, asString(value.original_filename, assetCode)),
+    title: productTitle(asString(value.title, asString(value.original_filename, assetCode)), "未命名素材"),
     originalFilename: asString(value.original_filename, assetCode),
     assetType: asString(value.asset_type),
     mediaKind: asOptionalString(value.media_kind),
@@ -226,6 +242,27 @@ function asset(value: unknown): LibraryAsset | undefined {
       "unclassified",
     ) as ExecutionCapability,
     maituCategory: asOptionalString(value.maitu_category),
+    status: asString(value.status, "created"),
+    sourceSystem: asOptionalString(value.source_system),
+    rightsStatus: asString(value.rights_status, "pending") as RightsStatus,
+    rightsNote: asOptionalString(value.rights_note),
+  };
+}
+
+function assetFile(value: unknown): AssetFile {
+  if (!isRecord(value)) throw new Error("素材文件响应无效");
+  const id = asString(value.id);
+  const assetCode = asString(value.asset_code);
+  if (!id || !assetCode) throw new Error("素材文件缺少身份信息");
+  return {
+    id,
+    assetCode,
+    fileRole: asString(value.file_role),
+    mimeType: asOptionalString(value.mime_type),
+    fileSize:
+      typeof value.file_size === "number" ? value.file_size : undefined,
+    checksumSha256: asOptionalString(value.checksum_sha256),
+    storageStatus: asString(value.storage_status, "stored"),
   };
 }
 
@@ -235,7 +272,7 @@ function group(value: unknown): AssetGroup | undefined {
   if (!groupCode) return undefined;
   return {
     groupCode,
-    title: asString(value.title, groupCode),
+    title: productTitle(asString(value.title, groupCode), "素材组"),
     description: asOptionalString(value.description),
     assetCodes: strings(value.asset_codes),
     assetCount: asNumber(value.asset_count),
@@ -288,7 +325,7 @@ function pack(value: unknown): MaterialPack | undefined {
   );
   return {
     packCode,
-    title: asString(value.title, packCode),
+    title: productTitle(asString(value.title, packCode), "素材包"),
     packKind: asString(value.pack_kind, "total") as MaterialPack["packKind"],
     role: asOptionalString(value.role),
     description: asOptionalString(value.description),
@@ -592,7 +629,10 @@ function assetEffectSummary(value: unknown): AssetEffectSummary {
 
 export const assetLibraryApi = {
   listAssets: () =>
-    requestJson<unknown[]>(ROOT).then((rows) =>
+    // The local inventory is larger than the API's compatibility default of 50.
+    // Fetch the complete first page so the library is useful immediately after
+    // importing the on-disk material inventory.
+    requestJson<unknown[]>(`${ROOT}?limit=500`).then((rows) =>
       rows.flatMap((row) => asset(row) ?? []),
     ),
   createAsset: (payload: {
@@ -602,12 +642,27 @@ export const assetLibraryApi = {
     media_kind?: string;
     material_roles: string[];
     execution_capability: ExecutionCapability;
+    file_ext?: string;
+    mime_type?: string;
+    file_size?: number;
+    source_system?: string;
   }) =>
     postJson<unknown>(ROOT, payload).then((value) => {
       const result = asset(value);
       if (!result) throw new Error("素材创建响应无效");
       return result;
     }),
+  uploadFile: (assetCode: string, file: File) => {
+    const payload = new FormData();
+    payload.append("file", file, file.name);
+    payload.append("file_role", "original");
+    return requestJson<unknown>(`${ROOT}/${assetCode}/files`, {
+      method: "POST",
+      body: payload,
+    }).then(assetFile);
+  },
+  previewUrl: (assetCode: string, variant?: "poster" | "hover" | "thumbnail") =>
+    `${ROOT}/${encodeURIComponent(assetCode)}/preview${variant ? `?variant=${variant}` : ""}`,
   updateClassification: (
     assetCode: string,
     payload: {
@@ -623,6 +678,15 @@ export const assetLibraryApi = {
         return result;
       },
     ),
+  updateRights: (
+    assetCode: string,
+    payload: { status: RightsStatus; note: string },
+  ) =>
+    patchJson<unknown>(`${ROOT}/${assetCode}/rights`, payload).then((value) => {
+      const result = asset(value);
+      if (!result) throw new Error("素材权利状态响应无效");
+      return result;
+    }),
   updateClassifications: (payload: {
     asset_codes: string[];
     media_kind: string;
@@ -647,6 +711,17 @@ export const assetLibraryApi = {
       if (!result) throw new Error("分组响应无效");
       return result;
     }),
+  updateGroup: (
+    groupCode: string,
+    payload: { title: string; description?: string },
+  ) =>
+    patchJson<unknown>(`${ROOT}/groups/${groupCode}`, payload).then((value) => {
+      const result = group(value);
+      if (!result) throw new Error("分组更新响应无效");
+      return result;
+    }),
+  archiveGroup: (groupCode: string) =>
+    requestJson<void>(`${ROOT}/groups/${groupCode}`, { method: "DELETE" }),
   replaceGroupMembers: (groupCode: string, assetCodes: string[]) =>
     requestJson<unknown>(`${ROOT}/groups/${groupCode}/members`, {
       method: "PUT",

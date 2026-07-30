@@ -346,6 +346,13 @@ class MaituAuthorityVerifier:
         intent = checkpoint.get("intent_snapshot") if isinstance(checkpoint.get("intent_snapshot"), dict) else {}
         applied = False
         if operation_type == "preflight_content_build_plan":
+            expected_title = intent.get("expected_live_room_title")
+            if expected_title is not None and (
+                not isinstance(expected_title, str)
+                or not expected_title.strip()
+                or room.get("name") != expected_title.strip()
+            ):
+                raise MaituAuthorityError("authoritative Maitu room title does not match preflight intent")
             default_clip_id = evidence.get("default_clip_id")
             if default_clip_id is None:
                 raise MaituAuthorityError("preflight evidence has no default clip identity")

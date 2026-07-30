@@ -83,6 +83,8 @@ def test_deepseek_aggregation_returns_versioned_template() -> None:
 class _FrameRunner:
     def run(self, arguments: list[str], *, timeout_seconds: int) -> str:
         del timeout_seconds
+        assert arguments.count("-ss") == 1
+        assert arguments[arguments.index("-ss") + 1] == "0.000000"
         Path(arguments[-1]).write_bytes(b"jpeg-frame")
         return ""
 

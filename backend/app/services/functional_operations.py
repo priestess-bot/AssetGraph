@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 import math
 from typing import Any
+from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from psycopg import Connection
@@ -12,6 +13,24 @@ from psycopg.types.json import Jsonb
 
 from app.domain.contracts import canonical_fingerprint
 from app.domain.errors import DomainValidationError
+
+
+def _json_snapshot(value: Any) -> Any:
+    """Convert database-native values without changing numeric semantics."""
+
+    if isinstance(value, dict):
+        return {str(key): _json_snapshot(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_snapshot(item) for item in value]
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            raise ValueError("snapshot datetime must be timezone-aware")
+        return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+    if isinstance(value, UUID):
+        return str(value)
+    if isinstance(value, Decimal):
+        return float(value)
+    return value
 
 
 class FunctionalOperationsService:
@@ -130,8 +149,9 @@ class FunctionalOperationsService:
             cursor.execute(
                 """INSERT INTO functional_operation_sessions
                    (session_code,title,platform,external_session_id,account_id,target_resource_id,source_timezone,source_evidence,
-                    content_project_code,live_room_plan_code,variant_code,release_code,started_at,ended_at,metrics,metric_definition_refs)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    content_project_code,live_room_plan_code,variant_code,release_code,bound_content_kind,
+                    bound_content_code,bound_content_revision,binding_status,started_at,ended_at,metrics,metric_definition_refs)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                    ON CONFLICT (platform, external_session_id) WHERE external_session_id IS NOT NULL DO NOTHING
                    RETURNING *""",
                 (
@@ -150,6 +170,18 @@ class FunctionalOperationsService:
                     plan["plan_code"] if plan else None,
                     plan["variant_code"] if plan else None,
                     plan["release_code"] if plan else None,
+                    "live_room_plan"
+                    if plan
+                    else (
+                        "content_project_revision"
+                        if payload.get("content_project_code")
+                        else None
+                    ),
+                    plan["plan_code"]
+                    if plan
+                    else payload.get("content_project_code"),
+                    None,
+                    "resolved" if plan else "pending",
                     payload["started_at"],
                     payload["ended_at"],
                     Jsonb(payload.get("metrics") or {}),
@@ -171,6 +203,34 @@ class FunctionalOperationsService:
                     "OPERATION_SESSION_IDEMPOTENCY_CONFLICT",
                     "Operation session could not be created or resolved by its external identity",
                 )
+            binding_code = self._next(
+                cursor, "OPS-BIND", "functional_operation_session_binding"
+            )
+            cursor.execute(
+                """INSERT INTO functional_operation_session_bindings
+                   (binding_code,session_id,session_code,revision_number,resolution_status,
+                    content_kind,content_code,content_revision,candidates,evidence_note,actor)
+                   VALUES (%s,%s,%s,1,%s,%s,%s,%s,'[]'::jsonb,%s,'functional-operator')
+                   ON CONFLICT (session_id, revision_number) DO NOTHING""",
+                (
+                    binding_code,
+                    row["id"],
+                    row["session_code"],
+                    "resolved" if plan else "pending",
+                    "live_room_plan"
+                    if plan
+                    else (
+                        "content_project_revision"
+                        if payload.get("content_project_code")
+                        else None
+                    ),
+                    plan["plan_code"]
+                    if plan
+                    else payload.get("content_project_code"),
+                    None,
+                    "手工登记场次的初始内容绑定。",
+                ),
+            )
         self.connection.commit()
         return dict(row)
 
@@ -643,7 +703,7 @@ class FunctionalOperationsService:
                         payload.get("denominator_json_pointer"),
                         Jsonb(source_batches),
                         Jsonb(quality_summary),
-                        Jsonb(input_snapshot),
+                        Jsonb(_json_snapshot(input_snapshot)),
                         fingerprint,
                     ),
                 )
@@ -1154,7 +1214,9 @@ class FunctionalOperationsService:
             time_mapping = cursor.fetchone()
             cursor.execute(
                 """SELECT exposure_code, plan_code, variant_code, release_code, scene_code,
-                          started_at, ended_at, source_kind, confidence
+                          started_at, ended_at, source_kind, confidence,
+                          content_kind, COALESCE(content_code, plan_code) AS content_code,
+                          content_revision, scope_type, COALESCE(scope_code, scene_code) AS scope_code
                    FROM functional_content_exposures
                    WHERE session_code = %s AND status = 'active'
                    ORDER BY started_at, exposure_code""",
@@ -1172,6 +1234,47 @@ class FunctionalOperationsService:
                 plans_by_code = {
                     row["plan_code"]: dict(row) for row in cursor.fetchall()
                 }
+            cursor.execute(
+                """SELECT plan.plan_code, plan.title, plan.variant_code,
+                          segment.segment_code, segment.clip_code, segment.source_shot_code,
+                          segment.timeline_start_ms, segment.timeline_end_ms,
+                          COALESCE(jsonb_agg(DISTINCT file.asset_code)
+                              FILTER (WHERE file.asset_code IS NOT NULL), '[]'::jsonb) AS asset_codes
+                   FROM functional_video_plans AS plan
+                   JOIN functional_video_timeline_segments AS segment
+                     ON segment.plan_id = plan.id AND segment.timeline_revision = plan.timeline_revision
+                   LEFT JOIN functional_video_timeline_segment_asset_files AS file
+                     ON file.timeline_segment_id = segment.id
+                   WHERE plan.plan_code = ANY(%s)
+                   GROUP BY plan.plan_code, plan.title, plan.variant_code, segment.segment_code,
+                            segment.clip_code, segment.source_shot_code,
+                            segment.timeline_start_ms, segment.timeline_end_ms""",
+                (plan_codes,),
+            ) if plan_codes else None
+            video_segments = {
+                (str(row["plan_code"]), str(row["segment_code"])): dict(row)
+                for row in cursor.fetchall()
+            } if plan_codes else {}
+            content_project_codes = sorted(
+                {
+                    str(item["content_code"])
+                    for item in exposures
+                    if item.get("content_kind") == "content_project_revision"
+                }
+            )
+            cursor.execute(
+                """SELECT project.project_code, segment.segment_code, segment.semantic_goal,
+                          segment.metadata, program.revision_number
+                   FROM program_segments AS segment
+                   JOIN content_program_revisions AS program ON program.id = segment.program_revision_id
+                   JOIN content_projects AS project ON project.id = program.project_id
+                   WHERE project.project_code = ANY(%s)""",
+                (content_project_codes,),
+            ) if content_project_codes else None
+            program_segments = {
+                (str(row["project_code"]), str(row["segment_code"])): dict(row)
+                for row in cursor.fetchall()
+            } if content_project_codes else {}
             content_by_variant_shot = self._timeline_content_projections(
                 cursor,
                 sorted({str(item["variant_code"]) for item in exposures}),
@@ -1187,14 +1290,76 @@ class FunctionalOperationsService:
                 exposure["ended_at"] - exposure["started_at"]
             ).total_seconds()
             observed_seconds += duration_seconds
+            content_kind = exposure.get("content_kind") or "live_room_plan"
             plan = plans_by_code.get(exposure["plan_code"])
             scene: dict[str, Any] = {
-                "scene_code": exposure["scene_code"],
+                "scene_code": exposure.get("scope_code") or exposure["scene_code"],
                 "status": "missing_plan",
             }
             content: dict[str, Any] = {"status": "missing_plan", "script_blocks": []}
             layers: list[dict[str, Any]] = []
-            if plan is None:
+            if content_kind == "rendered_video_plan":
+                segment = video_segments.get(
+                    (str(exposure["content_code"]), str(exposure["scope_code"]))
+                )
+                if segment is None:
+                    if exposure["content_code"] not in missing_plan_codes:
+                        missing_plan_codes.append(exposure["content_code"])
+                else:
+                    scene = {
+                        "scene_code": segment["segment_code"],
+                        "shot_code": segment["source_shot_code"],
+                        "title": segment["clip_code"],
+                        "estimated_duration_ms": int(segment["timeline_end_ms"])
+                        - int(segment["timeline_start_ms"]),
+                        "status": "resolved",
+                    }
+                    content = content_by_variant_shot.get(
+                        (
+                            str(segment["variant_code"]),
+                            str(segment["source_shot_code"]),
+                        ),
+                        {"status": "missing_source_projection", "script_blocks": []},
+                    )
+                    layers = [
+                        {
+                            "role": "source_video",
+                            "asset_code": asset_code,
+                            "execution_capability": "local_only",
+                        }
+                        for asset_code in segment["asset_codes"] or []
+                    ]
+            elif content_kind == "content_project_revision":
+                segment = program_segments.get(
+                    (str(exposure["content_code"]), str(exposure["scope_code"]))
+                )
+                if segment is None:
+                    if exposure["content_code"] not in missing_plan_codes:
+                        missing_plan_codes.append(exposure["content_code"])
+                else:
+                    scene = {
+                        "scene_code": segment["segment_code"],
+                        "title": segment["semantic_goal"],
+                        "status": "resolved",
+                    }
+                    content = {
+                        "status": "resolved",
+                        "program_segment": {
+                            "segment_code": segment["segment_code"],
+                            "semantic_goal": segment["semantic_goal"],
+                            "program_phase": (segment["metadata"] or {}).get(
+                                "program_phase"
+                            ),
+                            "product_refs": (segment["metadata"] or {}).get(
+                                "product_refs", []
+                            ),
+                            "cta_actions": (segment["metadata"] or {}).get(
+                                "cta_actions", []
+                            ),
+                        },
+                        "script_blocks": [],
+                    }
+            elif plan is None:
                 if exposure["plan_code"] not in missing_plan_codes:
                     missing_plan_codes.append(exposure["plan_code"])
             else:
@@ -1327,8 +1492,10 @@ class FunctionalOperationsService:
                 rows, payload["metric_key"]
             )
             cursor.execute(
-                """SELECT exposure_code, session_code, plan_code, release_code, scene_code,
-                          started_at, ended_at, source_kind, confidence
+                """SELECT exposure_code, session_code, plan_code, variant_code,
+                          release_code, scene_code, started_at, ended_at, source_kind,
+                          confidence, content_kind, COALESCE(content_code, plan_code) AS content_code,
+                          content_revision, scope_type, COALESCE(scope_code, scene_code) AS scope_code
                    FROM functional_content_exposures
                    WHERE session_code = ANY(%s) AND status = 'active'
                    ORDER BY session_code, started_at, exposure_code""",
@@ -1442,12 +1609,19 @@ class FunctionalOperationsService:
             measured_scene_allocations, measured_allocation_summary = (
                 self._measured_scene_allocations(cursor, rows, exposures_by_session)
             )
+            dimension_groups = self._dimension_groups(
+                cursor,
+                rows,
+                exposures_by_session,
+                metric_key=payload["metric_key"],
+            )
             results = {
                 "schema_version": "functional-attribution-report.v2",
                 "groups": materialized_groups,
                 "scene_allocations": scene_allocations,
                 "measured_scene_allocations": measured_scene_allocations,
                 "measured_scene_allocation_summary": measured_allocation_summary,
+                "dimension_groups": dimension_groups,
                 "metadata": {
                     "method": "session_metric_grouped_by_source_backed_exposure",
                     "metric_grain": "operation_session",
@@ -1497,7 +1671,7 @@ class FunctionalOperationsService:
                     Jsonb(results),
                     Jsonb(metric_definition_ref) if metric_definition_ref else None,
                     report_status,
-                    Jsonb(input_snapshot),
+                    Jsonb(_json_snapshot(input_snapshot)),
                     Jsonb(quality_snapshot),
                     fingerprint,
                     supersedes_report_code,
@@ -1549,6 +1723,11 @@ class FunctionalOperationsService:
                             "plan_code",
                             "release_code",
                             "scene_code",
+                            "content_kind",
+                            "content_code",
+                            "content_revision",
+                            "scope_type",
+                            "scope_code",
                             "started_at",
                             "ended_at",
                             "source_kind",
@@ -1747,6 +1926,258 @@ class FunctionalOperationsService:
             materialized,
             key=lambda item: (-float(item["estimated_metric_value"]), item["plan_code"], item["scene_code"]),
         )
+
+    @classmethod
+    def _dimension_groups(
+        cls,
+        cursor: Any,
+        sessions: list[dict[str, Any]],
+        exposures_by_session: dict[str, list[dict[str, Any]]],
+        *,
+        metric_key: str,
+    ) -> list[dict[str, Any]]:
+        """Project descriptive session metrics onto explicit content lineage.
+
+        Values are split within each dimension so a session is never silently
+        counted multiple times. Results across different dimensions are not
+        additive and are never presented as causal effects.
+        """
+
+        exposures = [
+            exposure
+            for session_exposures in exposures_by_session.values()
+            for exposure in session_exposures
+        ]
+        members = cls._exposure_dimension_members(cursor, exposures)
+        grouped: dict[tuple[str, str], dict[str, Any]] = {}
+
+        def add(
+            dimension_type: str,
+            dimension_code: str,
+            display_label: str,
+            value: float,
+            session_code: str,
+            exposure_code: str | None,
+            duration_seconds: float,
+        ) -> None:
+            item = grouped.setdefault(
+                (dimension_type, dimension_code),
+                {
+                    "dimension_type": dimension_type,
+                    "dimension_code": dimension_code,
+                    "display_label": display_label,
+                    "descriptive_value_total": 0.0,
+                    "session_codes": [],
+                    "exposure_codes": [],
+                    "observed_duration_seconds": 0.0,
+                },
+            )
+            item["descriptive_value_total"] += value
+            item["observed_duration_seconds"] += duration_seconds
+            if session_code not in item["session_codes"]:
+                item["session_codes"].append(session_code)
+            if exposure_code and exposure_code not in item["exposure_codes"]:
+                item["exposure_codes"].append(exposure_code)
+
+        for session in sessions:
+            session_code = str(session["session_code"])
+            metric_value = float((session.get("metrics") or {}).get(metric_key, 0))
+            add(
+                "operation_session",
+                session_code,
+                str(session.get("title") or session_code),
+                metric_value,
+                session_code,
+                None,
+                0,
+            )
+            session_exposures = exposures_by_session.get(session_code, [])
+            durations = [
+                max(
+                    0.0,
+                    (exposure["ended_at"] - exposure["started_at"]).total_seconds(),
+                )
+                for exposure in session_exposures
+            ]
+            observed_seconds = sum(durations)
+            if observed_seconds <= 0:
+                continue
+            for exposure, duration_seconds in zip(session_exposures, durations, strict=True):
+                if duration_seconds <= 0:
+                    continue
+                allocated = metric_value * duration_seconds / observed_seconds
+                exposure_members = members.get(str(exposure["exposure_code"]), {})
+                for dimension_type in ("content_segment", "content_template", "material"):
+                    dimension_members = exposure_members.get(dimension_type) or []
+                    if not dimension_members:
+                        continue
+                    member_value = allocated / len(dimension_members)
+                    for dimension_code, display_label in dimension_members:
+                        add(
+                            dimension_type,
+                            dimension_code,
+                            display_label,
+                            member_value,
+                            session_code,
+                            str(exposure["exposure_code"]),
+                            duration_seconds / len(dimension_members),
+                        )
+
+        result: list[dict[str, Any]] = []
+        for item in grouped.values():
+            sample_size = len(item["session_codes"])
+            result.append(
+                {
+                    **item,
+                    "descriptive_value_total": round(
+                        float(item["descriptive_value_total"]), 6
+                    ),
+                    "average_per_session": round(
+                        float(item["descriptive_value_total"]) / sample_size, 6
+                    )
+                    if sample_size
+                    else 0,
+                    "sample_size": sample_size,
+                    "observed_duration_seconds": round(
+                        float(item["observed_duration_seconds"]), 3
+                    ),
+                    "metric_key": metric_key,
+                    "evidence_level": "descriptive",
+                    "effect_signal_eligible": False,
+                    "limitations": [
+                        "Session-grain metrics are allocated by explicit observed duration within this dimension.",
+                        "Dimensions are not additive to one another and do not establish causality.",
+                    ],
+                }
+            )
+        order = {
+            "operation_session": 0,
+            "content_segment": 1,
+            "content_template": 2,
+            "material": 3,
+        }
+        return sorted(
+            result,
+            key=lambda item: (
+                order.get(str(item["dimension_type"]), 99),
+                -float(item["average_per_session"]),
+                str(item["dimension_code"]),
+            ),
+        )
+
+    @classmethod
+    def _exposure_dimension_members(
+        cls,
+        cursor: Any,
+        exposures: list[dict[str, Any]],
+    ) -> dict[str, dict[str, list[tuple[str, str]]]]:
+        if not exposures:
+            return {}
+        plan_codes = sorted({str(exposure["plan_code"]) for exposure in exposures})
+        cursor.execute(
+            "SELECT plan_code, variant_code, blueprint FROM functional_live_room_plans WHERE plan_code = ANY(%s)",
+            (plan_codes,),
+        )
+        live_plans = {str(row["plan_code"]): dict(row) for row in cursor.fetchall()}
+        cursor.execute(
+            """SELECT plan.plan_code, plan.variant_code, segment.segment_code,
+                      segment.source_shot_code,
+                      COALESCE(jsonb_agg(DISTINCT file.asset_code)
+                        FILTER (WHERE file.asset_code IS NOT NULL), '[]'::jsonb) AS asset_codes
+               FROM functional_video_plans AS plan
+               JOIN functional_video_timeline_segments AS segment
+                 ON segment.plan_id = plan.id AND segment.timeline_revision = plan.timeline_revision
+               LEFT JOIN functional_video_timeline_segment_asset_files AS file
+                 ON file.timeline_segment_id = segment.id
+               WHERE plan.plan_code = ANY(%s)
+               GROUP BY plan.plan_code, plan.variant_code, segment.segment_code,
+                        segment.source_shot_code""",
+            (plan_codes,),
+        )
+        video_segments = {
+            (str(row["plan_code"]), str(row["segment_code"])): dict(row)
+            for row in cursor.fetchall()
+        }
+        variants = sorted(
+            {
+                str(exposure["variant_code"])
+                for exposure in exposures
+                if exposure.get("variant_code")
+            }
+        )
+        projections = cls._timeline_content_projections(cursor, variants)
+        output: dict[str, dict[str, list[tuple[str, str]]]] = {}
+        for exposure in exposures:
+            code = str(exposure["exposure_code"])
+            plan_code = str(exposure["plan_code"])
+            scope_code = str(exposure.get("scope_code") or exposure["scene_code"])
+            kind = str(exposure.get("content_kind") or "live_room_plan")
+            dimensions: dict[str, list[tuple[str, str]]] = {
+                "content_segment": [
+                    (
+                        scope_code,
+                        f"{exposure.get('scope_type') or 'content_scope'} {scope_code}",
+                    )
+                ],
+                "content_template": [],
+                "material": [],
+            }
+            shot_code: str | None = None
+            variant_code = str(exposure.get("variant_code") or "")
+            if kind == "live_room_plan" and (plan := live_plans.get(plan_code)):
+                scene = next(
+                    (
+                        item
+                        for item in (plan["blueprint"] or {}).get("scenes") or []
+                        if isinstance(item, dict)
+                        and item.get("scene_code") == scope_code
+                    ),
+                    None,
+                )
+                if scene:
+                    shot_code = str(scene.get("shot_code") or "") or None
+                    dimensions["material"] = sorted(
+                        {
+                            (
+                                str(layer["asset_code"]),
+                                str(layer.get("title") or layer["asset_code"]),
+                            )
+                            for layer in scene.get("layers") or []
+                            if isinstance(layer, dict) and layer.get("asset_code")
+                        }
+                    )
+            elif kind == "rendered_video_plan" and (
+                segment := video_segments.get((plan_code, scope_code))
+            ):
+                shot_code = str(segment["source_shot_code"])
+                variant_code = str(segment["variant_code"])
+                dimensions["material"] = [
+                    (str(asset_code), str(asset_code))
+                    for asset_code in segment["asset_codes"] or []
+                ]
+            if shot_code:
+                projection = projections.get((variant_code, shot_code)) or {}
+                program_segment = projection.get("program_segment") or {}
+                if program_segment.get("segment_code"):
+                    segment_code = str(program_segment["segment_code"])
+                    dimensions["content_segment"] = [
+                        (
+                            segment_code,
+                            str(program_segment.get("semantic_goal") or segment_code),
+                        )
+                    ]
+                template_members = {
+                    (
+                        str(template["template_code"]),
+                        f"{template['template_code']}:{template.get('module_key') or 'module'}",
+                    )
+                    for block in projection.get("script_blocks") or []
+                    for template in block.get("template_modules") or []
+                    if isinstance(template, dict) and template.get("template_code")
+                }
+                dimensions["content_template"] = sorted(template_members)
+            output[code] = dimensions
+        return output
 
     @staticmethod
     def _bucket_allocation_time(

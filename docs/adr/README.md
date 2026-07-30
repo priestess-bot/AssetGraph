@@ -9,6 +9,7 @@ the superseded record.
 | --- | --- | --- |
 | [0001](0001-closed-loop-domain-invariants.md) | accepted | Closed-loop domain and evolution invariants |
 | [0002](0002-defer-temporal-until-measured-thresholds.md) | accepted | Keep PostgreSQL workflow execution until measured adoption triggers |
+| [0003](0003-customer-experience-v1-scope.md) | accepted | Deliver a customer-experience-first v1 with explicit Maitu capability boundaries |
 
 Use [the template](template.md) for new decisions. Every ADR must include data
 migration, compatibility, rollback/forward-fix, security, observability and exit

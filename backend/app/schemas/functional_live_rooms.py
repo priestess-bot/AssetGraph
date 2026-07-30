@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from math import isfinite
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -175,19 +175,92 @@ class FunctionalLiveRoomExecutionConfirm(BaseModel):
     confirmed: bool
 
 
+class MaituCapabilityRead(BaseModel):
+    key: str
+    title: str
+    status: Literal["verified", "manual_only", "unsupported"]
+    required_for_draft: bool
+    last_verified_at: datetime | None = None
+    evidence_level: str
+    evidence_refs: list[str]
+    customer_message: str
+
+
+class MaituCapabilityMatrixRead(BaseModel):
+    schema_version: Literal["maitu-capability-matrix.v1"]
+    adapter_contract: str
+    contract_fingerprint: str = Field(pattern="^[0-9a-f]{64}$")
+    source: str
+    can_execute_draft: bool
+    manual_handoff_available: bool
+    unverified_required_capabilities: list[str]
+    capabilities: list[MaituCapabilityRead]
+
+
 class FunctionalLiveRoomExecutionHandoffRead(BaseModel):
     plan_code: str
     build_plan_code: str
     target_live_room_id: str
+    expected_title: str
     checkpoint_contract: str
     source_plan_fingerprint: str
     operation_count: int
     operation_types: list[str]
+    operations: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class FunctionalLiveRoomPlanClone(BaseModel):
     target_live_room_id: str = Field(min_length=1, max_length=128)
     expected_title: str = Field(min_length=1, max_length=255)
+
+
+class FunctionalLiveRoomLayerRevisionInput(BaseModel):
+    role: str = Field(min_length=1, max_length=64)
+    asset_code: str = Field(min_length=1, max_length=64)
+    geometry: dict[str, float]
+    z_order: int = Field(ge=-1000, le=1000)
+
+    @field_validator("geometry")
+    @classmethod
+    def normalized_geometry(cls, value: dict[str, float]) -> dict[str, float]:
+        if set(value) != {"x", "y", "width", "height"}:
+            raise ValueError("layer geometry must contain x, y, width and height")
+        x, y, width, height = (float(value[key]) for key in ("x", "y", "width", "height"))
+        if not all(isfinite(item) for item in (x, y, width, height)) or x < 0 or y < 0 or width <= 0 or height <= 0 or x + width > 1 or y + height > 1:
+            raise ValueError("layer geometry must stay within the normalized canvas")
+        return {"x": x, "y": y, "width": width, "height": height}
+
+
+class FunctionalLiveRoomSceneRevisionInput(BaseModel):
+    shot_code: str = Field(min_length=1, max_length=64)
+    sort_order: int = Field(ge=0)
+    title: str = Field(min_length=1, max_length=255)
+    script: str = Field(min_length=1, max_length=20_000)
+    layers: list[FunctionalLiveRoomLayerRevisionInput] = Field(min_length=1)
+
+    @field_validator("layers")
+    @classmethod
+    def unique_layer_roles(
+        cls, value: list[FunctionalLiveRoomLayerRevisionInput]
+    ) -> list[FunctionalLiveRoomLayerRevisionInput]:
+        roles = [item.role for item in value]
+        if len(roles) != len(set(roles)):
+            raise ValueError("a scene revision can contain each material role once")
+        return value
+
+
+class FunctionalLiveRoomBlueprintRevision(BaseModel):
+    scenes: list[FunctionalLiveRoomSceneRevisionInput] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def unique_scenes_and_order(self) -> "FunctionalLiveRoomBlueprintRevision":
+        shots = [scene.shot_code for scene in self.scenes]
+        orders = [scene.sort_order for scene in self.scenes]
+        if len(shots) != len(set(shots)):
+            raise ValueError("a blueprint revision can contain each source shot once")
+        if sorted(orders) != list(range(len(orders))):
+            raise ValueError("scene sort_order must be a contiguous zero-based sequence")
+        return self
 
 
 class FunctionalLiveRoomReleaseRead(BaseModel):
@@ -227,6 +300,8 @@ class FunctionalLiveRoomPlanRead(BaseModel):
     execution_evidence: dict[str, Any]
     cloned_from_plan_code: str | None = None
     clone_context: dict[str, Any] = Field(default_factory=dict)
+    revised_from_plan_code: str | None = None
+    revision_context: dict[str, Any] = Field(default_factory=dict)
     release_code: str | None = None
     release_snapshot_artifact_code: str | None = None
     release_manifest_fingerprint: str | None = None

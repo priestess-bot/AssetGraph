@@ -75,8 +75,111 @@ class OperationSessionRead(OperationSessionCreate):
     session_code: str
     source_kind: str
     import_version: int
+    video_plan_code: str | None = None
+    bound_content_kind: str | None = None
+    bound_content_code: str | None = None
+    bound_content_revision: int | None = None
+    binding_status: str = "pending"
     created_at: datetime
     metric_definition_refs: list[OperationMetricDefinitionRef] = Field(default_factory=list)
+
+
+class OperationImportConfirm(BaseModel):
+    actor: str = Field(default="functional-operator", min_length=1, max_length=128)
+
+
+class OperationImportFinding(BaseModel):
+    field: str
+    code: str
+    message: str
+
+
+class OperationBindingCandidate(BaseModel):
+    content_kind: str
+    content_code: str
+    content_revision: int | None = None
+    title: str | None = None
+
+
+class OperationImportRowRead(BaseModel):
+    row_number: int
+    row_fingerprint_sha256: str
+    raw_values: dict[str, str]
+    normalized_payload: dict[str, Any]
+    validation_errors: list[OperationImportFinding] = Field(default_factory=list)
+    validation_warnings: list[OperationImportFinding] = Field(default_factory=list)
+    duplicate_kind: str | None = None
+    duplicate_of_session_code: str | None = None
+    binding_status: str
+    binding_candidates: list[OperationBindingCandidate] = Field(default_factory=list)
+    import_status: str
+    imported_session_code: str | None = None
+    created_at: datetime
+
+
+class OperationImportBatchRead(BaseModel):
+    batch_code: str
+    original_filename: str
+    file_kind: str
+    source_checksum_sha256: str
+    field_mapping: dict[str, str]
+    preview_summary: dict[str, Any]
+    status: str
+    created_by: str
+    confirmed_by: str | None = None
+    confirmed_at: datetime | None = None
+    created_at: datetime
+    rows: list[OperationImportRowRead] = Field(default_factory=list)
+
+
+class OperationSessionBindingResolve(BaseModel):
+    expected_revision: int = Field(ge=0)
+    content_kind: str = Field(
+        pattern="^(live_room_plan|rendered_video_plan|content_project_revision)$"
+    )
+    content_code: str = Field(min_length=1, max_length=128)
+    content_revision: int | None = Field(default=None, ge=1)
+    evidence_note: str = Field(min_length=1, max_length=4000)
+    actor: str = Field(default="functional-operator", min_length=1, max_length=128)
+
+    @model_validator(mode="after")
+    def validate_exact_revision(self) -> "OperationSessionBindingResolve":
+        if self.content_kind == "content_project_revision" and self.content_revision is None:
+            raise ValueError("content_project_revision requires content_revision")
+        return self
+
+
+class OperationSessionBindingRead(BaseModel):
+    binding_code: str
+    session_code: str
+    revision_number: int
+    status: str
+    resolution_status: str
+    content_kind: str | None = None
+    content_code: str | None = None
+    content_revision: int | None = None
+    candidates: list[OperationBindingCandidate] = Field(default_factory=list)
+    source_import_batch_code: str | None = None
+    evidence_note: str
+    actor: str
+    created_at: datetime
+
+
+class PendingOperationBindingRead(BaseModel):
+    session_code: str
+    title: str
+    platform: str
+    external_session_id: str | None = None
+    started_at: datetime
+    ended_at: datetime
+    binding_code: str
+    revision_number: int
+    content_kind: str | None = None
+    content_code: str | None = None
+    content_revision: int | None = None
+    candidates: list[OperationBindingCandidate] = Field(default_factory=list)
+    evidence_note: str
+    created_at: datetime
 
 
 class SessionMetricSnapshotCreate(BaseModel):
@@ -157,6 +260,11 @@ class ContentExposureRead(ContentExposureCreate):
     supersedes_exposure_code: str | None = None
     superseded_by_exposure_code: str | None = None
     correction_reason: str | None = None
+    content_kind: str = "live_room_plan"
+    content_code: str | None = None
+    content_revision: int | None = None
+    scope_type: str = "maitu_scene"
+    scope_code: str | None = None
     created_at: datetime
 
 

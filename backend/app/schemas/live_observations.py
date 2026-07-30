@@ -379,6 +379,21 @@ class CaptureSessionRead(CaptureSessionSummary):
     timeline: list[TimelineSpanRead] = Field(default_factory=list)
 
 
+class CaptureRecordingUploadRead(BaseModel):
+    session_code: str
+    target_code: str
+    source_room_id: str
+    source_room_title: str
+    file_name: str
+    file_size: int
+    checksum_sha256: str
+    duration_seconds: float
+    upload_status: Literal["stored"] = "stored"
+    analysis_status: Literal["queued"] = "queued"
+    queued_analysis_types: list[str] = Field(default_factory=list)
+    created_at: datetime
+
+
 class ClipJobCreate(StrictModel):
     title: str | None = Field(default=None, max_length=255)
     requested_start_seconds: float = Field(..., ge=0)
@@ -582,6 +597,10 @@ class AnalysisRetryRequest(StrictModel):
     reason: str = Field(..., min_length=1, max_length=1000)
 
 
+class OperatorAnalysisRetryRequest(StrictModel):
+    reason: str = Field(default="运营人员从模板工坊重试", min_length=1, max_length=1000)
+
+
 class NormalizedBox(StrictModel):
     x: float = Field(..., ge=0, le=1)
     y: float = Field(..., ge=0, le=1)
@@ -776,8 +795,13 @@ class RoomTemplateSummary(BaseModel):
     status: TemplateStatus
     published_revision_number: int | None = None
     latest_revision_number: int | None = None
+    content_readiness: Literal["blocked", "review_required", "ready"] = "review_required"
+    layout_fidelity: Literal["none", "approximate", "verified_layout"] = "approximate"
+    buildability: Literal["reference_only", "executable"] = "reference_only"
     projection_ready: bool = False
     manual_review_required: bool = True
+    archived_at: datetime | None = None
+    archive_reason: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -791,6 +815,10 @@ class RoomTemplatePublicationRequest(StrictModel):
     review_notes: str = Field(..., min_length=1, max_length=4000)
     published_by: str = Field(..., min_length=1, max_length=128)
     publication_reason: str | None = Field(default=None, max_length=4000)
+
+
+class RoomTemplateArchiveRequest(StrictModel):
+    reason: str = Field(..., min_length=1, max_length=1000)
 
 
 class RoomTemplateProjectionRead(BaseModel):

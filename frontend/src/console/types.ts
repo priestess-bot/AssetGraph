@@ -4,7 +4,7 @@ import type { OperationalState, ProblemEvidence } from "../workbench/api";
 export interface ConsoleSession {
   operatorId: string;
   roles: string[];
-  authScheme: "bearer_memory";
+  authScheme: "bearer_memory" | "local_workspace";
 }
 
 export interface ConsoleSearchResult {
@@ -44,6 +44,22 @@ export interface ConsoleNotification {
   occurrenceCount: number;
   occurredAt: string;
   status: string;
+}
+
+export interface ConsoleBusinessOverview {
+  fromDate: string;
+  toDate: string;
+  metrics: Array<{
+    key: "projects" | "live_rooms" | "videos" | "sessions";
+    label: string;
+    value: number;
+    previousValue: number;
+    unit: string;
+  }>;
+  trend: Array<{ date: string; projects: number; liveRooms: number; videos: number; sessions: number }>;
+  rankings: Array<{ projectCode: string; title: string; sessionCount: number; lastSessionAt?: string }>;
+  coverage: { readyAssets: number; publishedTemplates: number; approvedFacts: number; boundSessions: number; totalSessions: number };
+  recentProjects: Array<{ projectCode: string; title: string; status: string; hasLiveRoom: boolean; hasVideo: boolean; sessionCount: number; updatedAt: string }>;
 }
 
 export interface ConsoleEntityRevision {

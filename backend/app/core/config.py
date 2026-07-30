@@ -245,6 +245,14 @@ class Settings(BaseSettings):
         default=Path("/DATA/Downloads/AssetGraph/live-research"),
         validation_alias=AliasChoices("ASSETGRAPH_LIVE_RESEARCH_ROOT", "LIVE_RESEARCH_ROOT"),
     )
+    live_research_upload_max_bytes: int = Field(
+        default=8 * 1024 * 1024 * 1024,
+        ge=1024 * 1024,
+        validation_alias=AliasChoices(
+            "ASSETGRAPH_LIVE_RESEARCH_UPLOAD_MAX_BYTES",
+            "LIVE_RESEARCH_UPLOAD_MAX_BYTES",
+        ),
+    )
 
     minio_endpoint: str = "localhost:9000"
     minio_access_key: str = "assetgraph"

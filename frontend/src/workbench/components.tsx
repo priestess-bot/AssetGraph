@@ -12,6 +12,7 @@ import {
   X,
 } from "lucide-react";
 import type { OperationalState, WorkbenchProblem } from "./api";
+import { problemPresentation, productLabel } from "./productLanguage";
 
 export type Tone = "neutral" | "info" | "success" | "warning" | "danger";
 
@@ -86,7 +87,7 @@ export function WorkbenchShell({ eyebrow, title, status, children, navItems = DE
 }
 
 export function StatusBadge({ label, tone = "neutral" }: { label: string; tone?: Tone }) {
-  return <span className={`wb-status wb-status-${tone}`}><span aria-hidden="true" />{label}</span>;
+  return <span className={`wb-status wb-status-${tone}`}><span aria-hidden="true" />{productLabel(label)}</span>;
 }
 
 export function SectionHeader({ kicker, title, actions }: { kicker?: string; title: string; actions?: ReactNode }) {
@@ -115,15 +116,15 @@ export function operationalTone(state: OperationalState): Tone {
 }
 
 export function ProblemNotice({ problem }: { problem: WorkbenchProblem }) {
+  const copy = problemPresentation(problem);
   return (
     <div className={`wb-problem wb-notice wb-notice-${operationalTone(problem.state)}`} role={problem.state === "error" ? "alert" : "status"}>
       <AlertTriangle size={17} aria-hidden="true" />
       <div>
-        <div className="wb-problem-heading"><strong>{problem.message}</strong><code>{problem.code}</code></div>
+        <div className="wb-problem-heading"><strong>{copy.title}</strong></div>
         <dl>
-          <div><dt>影响</dt><dd>{problem.impact}</dd></div>
-          <div><dt>下一步</dt><dd>{problem.nextStep}</dd></div>
-          {problem.evidence.length ? <div><dt>证据</dt><dd>{problem.evidence.map((item) => <code key={`${item.kind}:${item.ref}`}>{item.kind}:{item.ref}</code>)}</dd></div> : null}
+          <div><dt>影响</dt><dd>{copy.impact}</dd></div>
+          <div><dt>下一步</dt><dd>{copy.nextStep}</dd></div>
         </dl>
       </div>
     </div>

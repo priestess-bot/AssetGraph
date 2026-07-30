@@ -331,3 +331,19 @@ class KnowledgeGraphProjectionRead(BaseModel):
     is_stale: bool
     nodes: list[KnowledgeGraphNodeRead] = Field(default_factory=list)
     edges: list[KnowledgeGraphEdgeRead] = Field(default_factory=list)
+
+
+class KnowledgeGraphLineageResultRead(BaseModel):
+    match: KnowledgeGraphNodeRead
+    nodes: list[KnowledgeGraphNodeRead] = Field(default_factory=list)
+    edges: list[KnowledgeGraphEdgeRead] = Field(default_factory=list)
+    truncated: bool = False
+
+
+class KnowledgeGraphSearchRead(BaseModel):
+    query: str
+    scope: str
+    projection_code: str | None = None
+    projection_revision: int | None = None
+    is_stale: bool = False
+    results: list[KnowledgeGraphLineageResultRead] = Field(default_factory=list)

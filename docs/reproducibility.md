@@ -137,8 +137,9 @@ cd workers/browser-use
 uv run python -m browser_use_worker --probe-maitu
 ```
 
-真实生产工作台使用稳定 Console 路由 `/production/live-rooms`；旧
-`/maitu/` 入口只做保留深链参数的迁移重定向。在线生成必须先登记有效的
+真实生产工作台从统一 `/console/` 的内容项目进入，也支持稳定深链
+`/production/live-rooms`。旧 `/maitu/` 浏览器入口已经退役，不再构建、挂载或
+提供迁移重定向；领域 API 和 Worker 不受影响。在线生成必须先登记有效的
 外部处理方条款与 secret-reference 凭据，并配置 `DEEPSEEK_API_KEY`、已批准的
 `DEEPSEEK_PROCESSING_REGION` 和可写的版本化 evidence 对象存储；缺少任一项时
 生成策略 fail closed。完成这些部署配置后再启动后端和队列 Worker：

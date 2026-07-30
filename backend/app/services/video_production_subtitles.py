@@ -302,10 +302,18 @@ def _subtitle_style(value: Any) -> dict[str, Any]:
 
 
 def _caption_chunks(text: str, *, maximum: int) -> list[str]:
-    sentences = [part.strip() for part in re.findall(r"[^。！？!?；;]+[。！？!?；;]?", text) if part.strip()]
+    sentences = [
+        part.strip()
+        for part in re.findall(r".+?(?:[。！？!?；;]+|$)", text, flags=re.DOTALL)
+        if part.strip()
+    ]
     chunks: list[str] = []
     for sentence in sentences or [text]:
-        clauses = [part for part in re.findall(r"[^，、：]+[，、：]?", sentence) if part]
+        clauses = [
+            part
+            for part in re.findall(r".+?(?:[，、：]+|$)", sentence, flags=re.DOTALL)
+            if part
+        ]
         current = ""
         for clause in clauses or [sentence]:
             if current and len(current) + len(clause) > maximum:

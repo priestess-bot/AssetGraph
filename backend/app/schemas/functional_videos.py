@@ -185,15 +185,19 @@ class FunctionalVideoPlanRead(BaseModel):
     production_timeline: dict[str, Any]
     timeline_revision: int
     render_profile: dict[str, Any]
+    material_snapshot_ref: dict[str, Any] = Field(default_factory=dict)
+    constraint_snapshot_ref: dict[str, Any] = Field(default_factory=dict)
     material_selection_decision_code: str | None = None
     job_status: str
     current_stage: str | None = None
     progress_percent: int
+    error_code: str | None = None
     error_message: str | None = None
     final_asset_id: str | None = None
     quality_report: dict[str, Any] = Field(default_factory=dict)
     workflow_stages: list[dict[str, Any]] = Field(default_factory=list)
     artifacts: list[dict[str, Any]] = Field(default_factory=list)
+    reproducibility: dict[str, Any] = Field(default_factory=dict)
     timeline_segments: list[FunctionalVideoTimelineSegmentRead] = Field(default_factory=list)
     release_code: str | None = None
     release_snapshot_artifact_code: str | None = None

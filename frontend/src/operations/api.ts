@@ -21,6 +21,11 @@ export interface OperationSession {
   sourceEvidence: Record<string, unknown>;
   projectCode?: string;
   liveRoomPlanCode?: string;
+  videoPlanCode?: string;
+  boundContentKind?: string;
+  boundContentCode?: string;
+  boundContentRevision?: number;
+  bindingStatus: string;
   variantCode?: string;
   releaseCode?: string;
   startedAt: string;
@@ -28,6 +33,67 @@ export interface OperationSession {
   metrics: Record<string, number>;
   metricDefinitionRefs: MetricDefinitionRef[];
   sourceKind: string;
+}
+
+export interface OperationImportFinding {
+  field: string;
+  code: string;
+  message: string;
+}
+
+export interface OperationBindingCandidate {
+  contentKind: string;
+  contentCode: string;
+  contentRevision?: number;
+  title?: string;
+}
+
+export interface OperationImportRow {
+  rowNumber: number;
+  rowFingerprintSha256: string;
+  rawValues: Record<string, string>;
+  normalizedPayload: Record<string, unknown>;
+  validationErrors: OperationImportFinding[];
+  validationWarnings: OperationImportFinding[];
+  duplicateKind?: string;
+  duplicateOfSessionCode?: string;
+  bindingStatus: string;
+  bindingCandidates: OperationBindingCandidate[];
+  importStatus: string;
+  importedSessionCode?: string;
+  createdAt: string;
+}
+
+export interface OperationImportBatch {
+  batchCode: string;
+  originalFilename: string;
+  fileKind: string;
+  sourceChecksumSha256: string;
+  fieldMapping: Record<string, string>;
+  previewSummary: Record<string, number>;
+  status: string;
+  createdBy: string;
+  confirmedBy?: string;
+  confirmedAt?: string;
+  createdAt: string;
+  rows: OperationImportRow[];
+}
+
+export interface PendingOperationBinding {
+  sessionCode: string;
+  title: string;
+  platform: string;
+  externalSessionId?: string;
+  startedAt: string;
+  endedAt: string;
+  bindingCode: string;
+  revisionNumber: number;
+  contentKind?: string;
+  contentCode?: string;
+  contentRevision?: number;
+  candidates: OperationBindingCandidate[];
+  evidenceNote: string;
+  createdAt: string;
 }
 
 export interface MetricDefinitionRef {
@@ -62,6 +128,11 @@ export interface ContentExposure {
   supersedesExposureCode?: string;
   supersededByExposureCode?: string;
   correctionReason?: string;
+  contentKind: string;
+  contentCode?: string;
+  contentRevision?: number;
+  scopeType: string;
+  scopeCode?: string;
 }
 
 export interface ContentProjection {
@@ -188,6 +259,22 @@ export interface AttributionGroup {
   limitations: string[];
 }
 
+export interface AttributionDimensionGroup {
+  dimensionType: string;
+  dimensionCode: string;
+  displayLabel: string;
+  metricKey: string;
+  descriptiveValueTotal: number;
+  averagePerSession: number;
+  sampleSize: number;
+  sessionCodes: string[];
+  exposureCodes: string[];
+  observedDurationSeconds: number;
+  evidenceLevel: string;
+  effectSignalEligible: boolean;
+  limitations: string[];
+}
+
 export interface AttributionReport {
   reportCode: string;
   metricKey: string;
@@ -224,6 +311,7 @@ export interface AttributionReport {
     }>;
   };
   groups: AttributionGroup[];
+  dimensionGroups: AttributionDimensionGroup[];
   sceneAllocations: Array<{
     scopeType: string;
     planCode: string;
@@ -330,6 +418,14 @@ function session(value: unknown): OperationSession {
     sourceEvidence: isRecord(value.source_evidence) ? value.source_evidence : {},
     projectCode: asOptionalString(value.content_project_code),
     liveRoomPlanCode: asOptionalString(value.live_room_plan_code),
+    videoPlanCode: asOptionalString(value.video_plan_code),
+    boundContentKind: asOptionalString(value.bound_content_kind),
+    boundContentCode: asOptionalString(value.bound_content_code),
+    boundContentRevision:
+      typeof value.bound_content_revision === "number"
+        ? value.bound_content_revision
+        : undefined,
+    bindingStatus: asString(value.binding_status, "pending"),
     variantCode: asOptionalString(value.variant_code),
     releaseCode: asOptionalString(value.release_code),
     startedAt: asString(value.started_at),
@@ -352,6 +448,124 @@ function session(value: unknown): OperationSession {
   };
 }
 
+function importFinding(value: unknown): OperationImportFinding | undefined {
+  if (!isRecord(value)) return undefined;
+  const field = asString(value.field);
+  const code = asString(value.code);
+  const message = asString(value.message);
+  return field && code && message ? { field, code, message } : undefined;
+}
+
+function bindingCandidate(value: unknown): OperationBindingCandidate | undefined {
+  if (!isRecord(value)) return undefined;
+  const contentKind = asString(value.content_kind);
+  const contentCode = asString(value.content_code);
+  if (!contentKind || !contentCode) return undefined;
+  return {
+    contentKind,
+    contentCode,
+    contentRevision:
+      typeof value.content_revision === "number"
+        ? value.content_revision
+        : undefined,
+    title: asOptionalString(value.title),
+  };
+}
+
+function importBatch(value: unknown): OperationImportBatch {
+  if (!isRecord(value)) throw new Error("运营导入批次响应无效");
+  return {
+    batchCode: asString(value.batch_code),
+    originalFilename: asString(value.original_filename),
+    fileKind: asString(value.file_kind),
+    sourceChecksumSha256: asString(value.source_checksum_sha256),
+    fieldMapping: isRecord(value.field_mapping)
+      ? Object.fromEntries(
+          Object.entries(value.field_mapping).flatMap(([key, item]) =>
+            typeof item === "string" ? [[key, item]] : [],
+          ),
+        )
+      : {},
+    previewSummary: isRecord(value.preview_summary)
+      ? Object.fromEntries(
+          Object.entries(value.preview_summary).flatMap(([key, item]) =>
+            typeof item === "number" ? [[key, item]] : [],
+          ),
+        )
+      : {},
+    status: asString(value.status),
+    createdBy: asString(value.created_by),
+    confirmedBy: asOptionalString(value.confirmed_by),
+    confirmedAt: asOptionalString(value.confirmed_at),
+    createdAt: asString(value.created_at),
+    rows: asArray(value.rows).flatMap((row) => {
+      if (!isRecord(row)) return [];
+      return [
+        {
+          rowNumber: asNumber(row.row_number),
+          rowFingerprintSha256: asString(row.row_fingerprint_sha256),
+          rawValues: isRecord(row.raw_values)
+            ? Object.fromEntries(
+                Object.entries(row.raw_values).flatMap(([key, item]) =>
+                  typeof item === "string" ? [[key, item]] : [],
+                ),
+              )
+            : {},
+          normalizedPayload: isRecord(row.normalized_payload)
+            ? row.normalized_payload
+            : {},
+          validationErrors: asArray(row.validation_errors).flatMap((item) => {
+            const parsed = importFinding(item);
+            return parsed ? [parsed] : [];
+          }),
+          validationWarnings: asArray(row.validation_warnings).flatMap((item) => {
+            const parsed = importFinding(item);
+            return parsed ? [parsed] : [];
+          }),
+          duplicateKind: asOptionalString(row.duplicate_kind),
+          duplicateOfSessionCode: asOptionalString(
+            row.duplicate_of_session_code,
+          ),
+          bindingStatus: asString(row.binding_status),
+          bindingCandidates: asArray(row.binding_candidates).flatMap((item) => {
+            const parsed = bindingCandidate(item);
+            return parsed ? [parsed] : [];
+          }),
+          importStatus: asString(row.import_status),
+          importedSessionCode: asOptionalString(row.imported_session_code),
+          createdAt: asString(row.created_at),
+        },
+      ];
+    }),
+  };
+}
+
+function pendingBinding(value: unknown): PendingOperationBinding {
+  if (!isRecord(value)) throw new Error("待处理内容绑定响应无效");
+  return {
+    sessionCode: asString(value.session_code),
+    title: asString(value.title),
+    platform: asString(value.platform),
+    externalSessionId: asOptionalString(value.external_session_id),
+    startedAt: asString(value.started_at),
+    endedAt: asString(value.ended_at),
+    bindingCode: asString(value.binding_code),
+    revisionNumber: asNumber(value.revision_number),
+    contentKind: asOptionalString(value.content_kind),
+    contentCode: asOptionalString(value.content_code),
+    contentRevision:
+      typeof value.content_revision === "number"
+        ? value.content_revision
+        : undefined,
+    candidates: asArray(value.candidates).flatMap((item) => {
+      const parsed = bindingCandidate(item);
+      return parsed ? [parsed] : [];
+    }),
+    evidenceNote: asString(value.evidence_note),
+    createdAt: asString(value.created_at),
+  };
+}
+
 function exposure(value: unknown): ContentExposure {
   if (!isRecord(value)) throw new Error("内容曝光响应无效");
   return {
@@ -370,6 +584,14 @@ function exposure(value: unknown): ContentExposure {
     supersedesExposureCode: asOptionalString(value.supersedes_exposure_code),
     supersededByExposureCode: asOptionalString(value.superseded_by_exposure_code),
     correctionReason: asOptionalString(value.correction_reason),
+    contentKind: asString(value.content_kind, "live_room_plan"),
+    contentCode: asOptionalString(value.content_code),
+    contentRevision:
+      typeof value.content_revision === "number"
+        ? value.content_revision
+        : undefined,
+    scopeType: asString(value.scope_type, "maitu_scene"),
+    scopeCode: asOptionalString(value.scope_code),
   };
 }
 
@@ -647,6 +869,27 @@ function report(value: unknown): AttributionReport {
         },
       ];
     }),
+    dimensionGroups: asArray(raw.dimension_groups).flatMap((item) => {
+      if (!isRecord(item)) return [];
+      const dimensionType = asString(item.dimension_type);
+      const dimensionCode = asString(item.dimension_code);
+      if (!dimensionType || !dimensionCode) return [];
+      return [{
+        dimensionType,
+        dimensionCode,
+        displayLabel: asString(item.display_label, dimensionCode),
+        metricKey: asString(item.metric_key, asString(value.metric_key)),
+        descriptiveValueTotal: asNumber(item.descriptive_value_total),
+        averagePerSession: asNumber(item.average_per_session),
+        sampleSize: asNumber(item.sample_size),
+        sessionCodes: strings(item.session_codes),
+        exposureCodes: strings(item.exposure_codes),
+        observedDurationSeconds: asNumber(item.observed_duration_seconds),
+        evidenceLevel: asString(item.evidence_level, "descriptive"),
+        effectSignalEligible: item.effect_signal_eligible === true,
+        limitations: strings(item.limitations),
+      }];
+    }),
     sceneAllocations: asArray(raw.scene_allocations).flatMap((item) => {
       if (!isRecord(item)) return [];
       const planCode = asString(item.plan_code);
@@ -744,6 +987,40 @@ function schedule(value: unknown): SchedulePlan {
 }
 
 export const operationsApi = {
+  importTemplateUrl: (format: "csv" | "xlsx") =>
+    `${ROOT}/import-template?format=${format}`,
+  importSourceUrl: (batchCode: string) =>
+    `${ROOT}/import-batches/${encodeURIComponent(batchCode)}/source`,
+  previewImport: (file: File) => {
+    const form = new FormData();
+    form.set("file", file);
+    form.set("actor", "functional-operator");
+    return requestJson<unknown>(`${ROOT}/import-batches/preview`, {
+      method: "POST",
+      body: form,
+    }).then(importBatch);
+  },
+  listImportBatches: () =>
+    requestJson<unknown[]>(`${ROOT}/import-batches`).then((rows) =>
+      rows.map(importBatch),
+    ),
+  confirmImportBatch: (batchCode: string) =>
+    postJson<unknown>(
+      `${ROOT}/import-batches/${encodeURIComponent(batchCode)}/confirm`,
+      { actor: "functional-operator" },
+    ).then(importBatch),
+  listPendingBindings: () =>
+    requestJson<unknown[]>(`${ROOT}/pending-bindings`).then((rows) =>
+      rows.map(pendingBinding),
+    ),
+  resolveSessionBinding: (
+    sessionCode: string,
+    payload: Record<string, unknown>,
+  ) =>
+    postJson<unknown>(
+      `${ROOT}/sessions/${encodeURIComponent(sessionCode)}/binding`,
+      payload,
+    ),
   listSessions: () => requestJson<unknown[]>(`${ROOT}/sessions`).then((rows) => rows.map(session)),
   createSession: (payload: Record<string, unknown>) => postJson<unknown>(`${ROOT}/sessions`, payload).then(session),
   listSessionMetricSnapshots: (sessionCode: string) => requestJson<unknown[]>(`${ROOT}/sessions/${encodeURIComponent(sessionCode)}/metric-snapshots`).then((rows) => rows.map(sessionMetricSnapshot)),

@@ -11,6 +11,31 @@ export interface ContentProjectSummary {
   updatedAt: string;
 }
 
+export interface ProjectWorkspaceSummary {
+  projectCode: string;
+  title: string;
+  status: string;
+  revisionNumber: number;
+  generationGoal: string;
+  brief: ProjectWorkspaceOutput;
+  script: ProjectWorkspaceOutput;
+  liveRoom: ProjectWorkspaceOutput;
+  video: ProjectWorkspaceOutput;
+  delivery: ProjectWorkspaceOutput;
+  operations: ProjectWorkspaceOutput;
+  activity: Array<{ kind: string; title: string; detail: string; status: string; occurredAt: string }>;
+  updatedAt: string;
+}
+
+export interface ProjectWorkspaceOutput {
+  available: boolean;
+  status: string;
+  updatedAt?: string;
+  title?: string;
+  progressPercent?: number;
+  referenceCode?: string;
+}
+
 export interface ContentProgramSegment {
   segment_code: string;
   semantic_goal: string;
@@ -84,6 +109,21 @@ function summary(value: unknown): ContentProjectSummary | undefined {
   return { projectCode, title: asString(value.title, projectCode), revisionNumber: asNumber(value.revision_number, 1), status: asString(value.status, "draft"), generationGoal: asString(value.generation_goal), updatedAt: asString(value.updated_at) };
 }
 
+function workspaceOutput(value: unknown): ProjectWorkspaceOutput {
+  const item = isRecord(value) ? value : {};
+  return { available: item.available === true, status: asString(item.status, "pending"), updatedAt: asOptionalString(item.updated_at), title: asOptionalString(item.title), progressPercent: typeof item.progress_percent === "number" ? asNumber(item.progress_percent) : undefined, referenceCode: asOptionalString(item.reference_code) };
+}
+
+function workspaceSummary(value: unknown): ProjectWorkspaceSummary {
+  if (!isRecord(value)) throw new Error("项目工作区响应无效");
+  return {
+    projectCode: asString(value.project_code), title: asString(value.title), status: asString(value.status), revisionNumber: asNumber(value.revision_number), generationGoal: asString(value.generation_goal),
+    brief: workspaceOutput(value.brief), script: workspaceOutput(value.script), liveRoom: workspaceOutput(value.live_room), video: workspaceOutput(value.video), delivery: workspaceOutput(value.delivery), operations: workspaceOutput(value.operations),
+    activity: asArray(value.activity).flatMap((item) => isRecord(item) ? [{ kind: asString(item.kind), title: asString(item.title), detail: asString(item.detail), status: asString(item.status), occurredAt: asString(item.occurred_at) }] : []),
+    updatedAt: asString(value.updated_at),
+  };
+}
+
 function strings(value: unknown): string[] { return asArray(value).flatMap((item) => typeof item === "string" ? [item] : []); }
 function records(value: unknown): Record<string, unknown>[] { return asArray(value).flatMap((item) => isRecord(item) ? [item] : []); }
 
@@ -128,6 +168,7 @@ function chainRevision(value: unknown): ContentChainRevision {
 export const contentProjectsApi = {
   list: () => requestJson<unknown[]>(ROOT).then((rows) => rows.flatMap((row) => summary(row) ?? [])),
   get: (projectCode: string) => requestJson<unknown>(`${ROOT}/${projectCode}`).then(detail),
+  workspaceSummary: (projectCode: string) => requestJson<unknown>(`${ROOT}/${projectCode}/workspace-summary`).then(workspaceSummary),
   listChainRevisions: (projectCode: string) => requestJson<unknown[]>(`${ROOT}/${projectCode}/content-chain-revisions`).then((rows) => rows.map(chainRevision)),
   create: (payload: Record<string, unknown>) => postJson<unknown>(ROOT, payload).then((value) => {
     const result = summary(value);

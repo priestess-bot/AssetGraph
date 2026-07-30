@@ -1,0 +1,118 @@
+{
+  "generatedAt": "2026-07-28T18:12:39.709Z",
+  "appOrigin": "http://127.0.0.1:5190",
+  "apiOrigin": "http://127.0.0.1:8000",
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "database": "assetgraph_v1_acceptance_20260726",
+  "counts": {
+    "total": 18,
+    "passed": 17,
+    "blocked": 1,
+    "failed": 0
+  },
+  "results": [
+    {
+      "name": "概览 / 页面加载",
+      "status": "passed",
+      "detail": "2178ms"
+    },
+    {
+      "name": "概览 / 时间范围与下钻",
+      "status": "passed",
+      "detail": "5207ms"
+    },
+    {
+      "name": "素材库 / 搜索筛选与视图切换",
+      "status": "passed",
+      "detail": "1755ms"
+    },
+    {
+      "name": "素材库 / 详情、约束和保存",
+      "status": "passed",
+      "detail": "1881ms"
+    },
+    {
+      "name": "素材库 / 创建分组、素材包和缺口",
+      "status": "passed",
+      "detail": "6329ms"
+    },
+    {
+      "name": "素材库 / 导入素材与批量选材",
+      "status": "passed",
+      "detail": "11696ms"
+    },
+    {
+      "name": "模板 / 模板库筛选、详情和录屏查看",
+      "status": "passed",
+      "detail": "2581ms"
+    },
+    {
+      "name": "模板 / 录屏上传、解析、清洗、审核",
+      "status": "passed",
+      "detail": "2028ms"
+    },
+    {
+      "name": "知识库 / 事实、来源和详情",
+      "status": "passed",
+      "detail": "3771ms"
+    },
+    {
+      "name": "内容项目 / 四步创建与实体选择",
+      "status": "passed",
+      "detail": "5458ms"
+    },
+    {
+      "name": "内容项目 / 简报整理与生成入口",
+      "status": "passed",
+      "detail": "4830ms"
+    },
+    {
+      "name": "直播间方案 / 麦兔写入门禁",
+      "status": "blocked",
+      "detail": "当前验收环境未启用麦兔写入，页面保留人工操作清单"
+    },
+    {
+      "name": "直播间方案 / 场景、图层和保存",
+      "status": "passed",
+      "detail": "3559ms"
+    },
+    {
+      "name": "成片 / 时间轴、编辑副本和保存",
+      "status": "passed",
+      "detail": "4809ms"
+    },
+    {
+      "name": "运营分析 / 导入、检查和入库",
+      "status": "passed",
+      "detail": "3537ms"
+    },
+    {
+      "name": "运营分析 / 待关联、四维分析和指标设置",
+      "status": "passed",
+      "detail": "37873ms"
+    },
+    {
+      "name": "效果学习 / 规律库和项目建议",
+      "status": "passed",
+      "detail": "4659ms"
+    },
+    {
+      "name": "交付 / 检查、批准、交付包和撤回入口",
+      "status": "passed",
+      "detail": "1974ms"
+    }
+  ],
+  "browserErrors": [],
+  "requestFailures": [],
+  "expectedRequestAborts": [
+    "GET http://127.0.0.1:5190/api/assets/AG-VID-20260725-000003/preview net::ERR_ABORTED",
+    "GET http://127.0.0.1:5190/api/assets/AG-VID-20260725-000002/preview net::ERR_ABORTED",
+    "GET http://127.0.0.1:5190/api/live-research/capture-sessions/LR-CAP-20260728-000003/chunks/LR-CHUNK-20260728-000003/media net::ERR_ABORTED",
+    "GET http://127.0.0.1:5190/api/video-productions/AG-VJOB-20260728-000016/artifacts/video net::ERR_ABORTED"
+  ],
+  "finalPageVisibleInternalTokens": [],
+  "screenshots": "docs/evidence/frontend-product-workflows-2026-07-28T18-10-54-511Z"
+}

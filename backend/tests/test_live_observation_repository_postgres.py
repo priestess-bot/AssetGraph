@@ -80,6 +80,7 @@ def test_postgres_analysis_dag_work_heartbeat_retention_reclaim_and_stale_captur
             "025_maitu_material_analysis.sql",
             "043_provider_neutral_producer_contracts.sql",
             "058_content_strategy_template_contract.sql",
+            "100_live_room_template_archival_reason.sql",
         )
     ]
     try:
@@ -421,6 +422,22 @@ def test_postgres_analysis_dag_work_heartbeat_retention_reclaim_and_stale_captur
             assert republished is not None
             assert republished["status"] == "published"
             assert republished["published_revision_number"] == 2
+            archived = repository.archive_room_template(
+                template["template_code"], "integration lifecycle test"
+            )
+            assert archived is not None
+            assert archived["status"] == "archived"
+            assert archived["archive_reason"] == "integration lifecycle test"
+            assert archived["published_revision_number"] == 2
+            assert not any(
+                item["template_code"] == template["template_code"]
+                for item in repository.list_room_templates(limit=100, offset=0)
+            )
+            archived_projection = repository.get_room_template_projection(
+                template["template_code"]
+            )
+            assert archived_projection is not None
+            assert archived_projection["revision_number"] == 2
 
             with connection.cursor() as cursor:
                 cursor.execute(

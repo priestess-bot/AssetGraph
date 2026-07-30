@@ -62,12 +62,71 @@ describe("live research api", () => {
     expect(template).toMatchObject({ latest_revision: 2, published_revision: 1, status: "draft" });
   });
 
+  it("preserves archived lifecycle state and publication capability fields", () => {
+    const template = normalizeTemplate({
+      template_code: "DY-TPL-ARCHIVED",
+      name: "停用模板",
+      status: "archived",
+      published_revision_number: 1,
+      published_content_readiness: "ready",
+      published_layout_fidelity: "none",
+      published_buildability: "reference_only",
+      archived_at: "2026-07-26T10:00:00Z",
+      revisions: [{ revision_number: 2, status: "draft" }],
+    });
+
+    expect(template).toMatchObject({
+      status: "archived",
+      contentReadiness: "ready",
+      layout_fidelity: "none",
+      buildability: "reference_only",
+      archived_at: "2026-07-26T10:00:00Z",
+    });
+  });
+
+  it("archives a template with an explicit operator reason", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response({
+      template_code: "DY-TPL-001", name: "模板", status: "archived",
+      archived_at: "2026-07-26T10:00:00Z", revisions: [],
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const archived = await liveResearchApi.archiveTemplate("DY-TPL-001");
+
+    expect(archived.status).toBe("archived");
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/live-research/room-templates/DY-TPL-001/archive");
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({ reason: "运营人员从模板工坊停用" });
+  });
+
   it("creates exact-reencode clips with backend field names", async () => {
     const fetchMock = vi.fn().mockResolvedValue(response({ clip_job_code: "CLIP-JOB-001", session_code: "DY-CAP-001", requested_start_seconds: 12.5, requested_end_seconds: 44, status: "queued" }, 202));
     vi.stubGlobal("fetch", fetchMock);
     await liveResearchApi.createClip("DY-CAP-001", { title: "产品讲解", in_seconds: 12.5, out_seconds: 44 });
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
     expect(body).toEqual({ title: "产品讲解", requested_start_seconds: 12.5, requested_end_seconds: 44, cut_mode: "exact_reencode" });
+  });
+
+  it("surfaces a failed analysis step and retries only that run", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response([
+        { analysis_run_code: "ANL-ASR", session_code: "CAP-1", analysis_type: "asr", status: "succeeded", attempt_count: 1, max_attempts: 3 },
+        { analysis_run_code: "ANL-OCR", session_code: "CAP-1", analysis_type: "ocr", status: "failed", error_message: "OCR provider unavailable", attempt_count: 1, max_attempts: 3 },
+      ]))
+      .mockResolvedValueOnce(response({
+        analysis_run_code: "ANL-OCR", session_code: "CAP-1", analysis_type: "ocr", status: "queued",
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const runs = await liveResearchApi.listAnalysisRuns();
+    expect(runs[0]?.failed_steps).toEqual([{
+      analysis_run_code: "ANL-OCR",
+      analysis_type: "ocr",
+      error_message: "OCR provider unavailable",
+      can_retry: true,
+    }]);
+    await liveResearchApi.retryAnalysisRun("ANL-OCR");
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/live-research/analysis-runs/ANL-OCR/retry");
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({ reason: "运营人员从模板工坊重试" });
   });
 
   it("publishes an inferred revision with reference-safe component claims", async () => {
@@ -134,6 +193,7 @@ describe("live research api", () => {
     const analyses = [
       { analysis_type: "asr", chunk_code: "CHUNK-2", output_payload: { transcript: { segments: [{ start: 2, end: 4, text: "第二分片口播" }] } } },
       { analysis_type: "frame_sampling", chunk_code: "CHUNK-2", output_payload: { frames: [{ frame_index: 1, timeline_seconds: 5, relative_path: "private/frame.jpg" }] } },
+      { analysis_type: "ocr", chunk_code: "CHUNK-2", parameters: { sample_times_seconds: [0, 5, 15] }, output_payload: { summary: "画面文字", observations: [{ kind: "text", label: "促销贴片", text: "今日推荐" }] } },
       { analysis_type: "layout_inference", chunk_code: "CHUNK-2", parameters: { sample_times_seconds: [0, 5, 15] }, output_payload: { summary: "主播位于画面中部", observations: [{ kind: "host", label: "主播", bbox: { x: .1, y: .1, width: .8, height: .8 }, confidence: .9, text: null }] } },
     ];
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
@@ -151,6 +211,7 @@ describe("live research api", () => {
     expect(timeline.keyframes[0]?.at_seconds).toBe(605);
     expect(timeline.visual_segments).toEqual(expect.arrayContaining([
       expect.objectContaining({ start_seconds: 600, end_seconds: 615, label: "主播位于画面中部" }),
+      expect.objectContaining({ start_seconds: 600, end_seconds: 615, label: "画面文字", composition: "今日推荐" }),
     ]));
   });
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Iterator
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response, status
@@ -22,6 +23,7 @@ from app.repositories.console_drafts import ConsoleDraftRepository
 from app.repositories.console_entities import ConsoleEntityRepository
 from app.schemas.console import (
     ConsoleAuthorizationIssue,
+    ConsoleBusinessOverviewRead,
     ConsoleCommandRead,
     ConsoleContentProjectConfirm,
     ConsoleDraftEntityType,
@@ -114,6 +116,22 @@ def list_console_notifications(
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
 ) -> list[dict]:
     return repository.list_notifications(limit=limit)
+
+
+@router.get("/business-overview", response_model=ConsoleBusinessOverviewRead)
+def get_business_overview(
+    _operator_id: Annotated[str, Depends(require_control_plane_operator)],
+    repository: Annotated[ConsoleRepository, Depends(get_console_repository)],
+    from_at: Annotated[datetime | None, Query(alias="from")] = None,
+    to_at: Annotated[datetime | None, Query(alias="to")] = None,
+) -> dict:
+    end = to_at or datetime.now(UTC)
+    start = from_at or end - timedelta(days=29)
+    if start >= end:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="开始时间必须早于结束时间")
+    if end - start > timedelta(days=366):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="单次最多查看一年数据")
+    return repository.business_overview(from_at=start, to_at=end)
 
 
 @router.get("/entities/{entity_type}/{entity_code}", response_model=ConsoleEntityDetailRead)

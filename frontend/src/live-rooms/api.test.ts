@@ -8,6 +8,48 @@ function response(body: unknown): Response {
 describe("functional live room api", () => {
   afterEach(() => vi.unstubAllGlobals());
 
+  it("reads the conservative Maitu capability contract", async () => {
+    const fetch = vi.fn().mockResolvedValue(response({
+      schema_version: "maitu-capability-matrix.v1",
+      adapter_contract: "maitu-web-working-room.internal.v1",
+      contract_fingerprint: "a".repeat(64),
+      source: "repository_evidence",
+      can_execute_draft: false,
+      manual_handoff_available: true,
+      unverified_required_capabilities: ["create_scene"],
+      capabilities: [{
+        key: "create_scene",
+        title: "创建场景",
+        status: "manual_only",
+        required_for_draft: true,
+        last_verified_at: null,
+        evidence_level: "repository_contract_only",
+        evidence_refs: ["workers/browser-use/src/browser_use_worker/browser_cli_session.py"],
+        customer_message: "等待真实账号验证。",
+      }],
+    }));
+    vi.stubGlobal("fetch", fetch);
+
+    const matrix = await functionalLiveRoomsApi.maituCapabilities();
+
+    expect(matrix).toMatchObject({
+      canExecuteDraft: false,
+      manualHandoffAvailable: true,
+      unverifiedRequiredCapabilities: ["create_scene"],
+    });
+    expect(matrix.capabilities[0]).toMatchObject({
+      key: "create_scene",
+      status: "manual_only",
+      requiredForDraft: true,
+    });
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/functional-live-room-plans/maitu-capabilities",
+      expect.objectContaining({
+        headers: expect.objectContaining({ Accept: "application/json" }),
+      }),
+    );
+  });
+
   it("reads persisted material-role selection decisions", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({
       plan_code: "LIVEPLAN-001", project_code: "CONTENT-001", variant_code: "VARIANT-001", configuration_code: "CONFIG-001", target_live_room_id: "room-001", expected_title: "素材选择", selected_asset_codes: [], selected_group_codes: [], selected_material_pack_codes: [],
@@ -93,6 +135,82 @@ describe("functional live room api", () => {
     expect(fetch).toHaveBeenCalledWith(
       "/api/functional-live-room-plans/LIVEPLAN-003/sync-execution",
       expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("saves a blueprint revision with normalized layer geometry", async () => {
+    const fetch = vi.fn().mockResolvedValue(response({
+      plan_code: "LIVEPLAN-REV-002",
+      project_code: "CONTENT-001",
+      variant_code: "VARIANT-002",
+      configuration_code: "CONFIG-002",
+      target_live_room_id: "room-001",
+      expected_title: "场景调整",
+      selected_asset_codes: ["AG-IMG-002"],
+      selected_group_codes: [],
+      selected_material_pack_codes: [],
+      revised_from_plan_code: "LIVEPLAN-REV-001",
+      revision_context: { changed_shot_codes: ["SHOT-001"] },
+      blueprint: {
+        schema_version: "maitu-scene-blueprint.functional.v2",
+        scenes: [{
+          scene_code: "MSB-002",
+          shot_code: "SHOT-001",
+          title: "调整后的开场",
+          script: "调整后的话术",
+          layers: [{
+            material_role: "background",
+            asset_code: "AG-IMG-002",
+            asset_binding_ref: { execution_capability: "maitu_bound" },
+            normalized_geometry: { x: 0.1, y: 0.2, width: 0.8, height: 0.6 },
+            z_order: 12,
+          }],
+        }],
+      },
+      build_plan: { inventory_snapshot: {}, operations: [], go_live: false },
+      gate_results: [],
+      quality_report: {},
+      status: "ready",
+      blocked_reasons: [],
+      execution_status: "not_requested",
+      execution_evidence: {},
+      clone_context: {},
+      updated_at: "2026-07-26T00:00:00Z",
+    }));
+    vi.stubGlobal("fetch", fetch);
+
+    const revised = await functionalLiveRoomsApi.reviseBlueprint(
+      "LIVEPLAN-REV-001",
+      {
+        scenes: [{
+          shot_code: "SHOT-001",
+          sort_order: 0,
+          title: "调整后的开场",
+          script: "调整后的话术",
+          layers: [{
+            role: "background",
+            asset_code: "AG-IMG-002",
+            geometry: { x: 0.1, y: 0.2, width: 0.8, height: 0.6 },
+            z_order: 12,
+          }],
+        }],
+      },
+    );
+
+    expect(revised.revisedFromPlanCode).toBe("LIVEPLAN-REV-001");
+    expect(revised.revisionContext).toEqual({ changed_shot_codes: ["SHOT-001"] });
+    expect(revised.blueprint.scenes[0]?.layers[0]?.normalized_geometry).toEqual({
+      x: 0.1,
+      y: 0.2,
+      width: 0.8,
+      height: 0.6,
+    });
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/functional-live-room-plans/LIVEPLAN-REV-001/blueprint-revisions",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining('"asset_code":"AG-IMG-002"'),
+      }),
     );
   });
 });

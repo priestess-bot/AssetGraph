@@ -154,6 +154,30 @@ def test_functional_video_plan_seeds_content_stages_and_queues_renderer() -> Non
             branch["material_selection_decision_code"]
             != plan["material_selection_decision_code"]
         )
+        branch_job = VideoProductionRepository(connection).get_by_code(branch["video_job_code"])
+        assert branch_job is not None
+        assert branch_job["edit_locked"] is True
+        assert VideoProductionRepository(connection).claim_next(
+            "timeline-edit-worker", 60, job_code=branch["video_job_code"]
+        ) is None
+        branch_clips = branch["production_timeline"]["tracks"][0]["clips"]
+        edited_branch = FunctionalVideoService(connection).update_timeline(
+            branch["plan_code"],
+            {
+                "expected_revision": 1,
+                "video_clips": [
+                    {
+                        "clip_code": clip["clip_code"],
+                        "duration_ms": clip["timeline_range"]["duration_ms"],
+                        "transition": clip.get("transition", "cut"),
+                    }
+                    for clip in branch_clips
+                ],
+            },
+            actor_id="test-operator",
+        )
+        assert edited_branch is not None
+        assert VideoProductionRepository(connection).get_by_code(branch["video_job_code"])["edit_locked"] is False
 
         with connection.cursor() as cursor:
             cursor.execute(
@@ -222,7 +246,9 @@ def test_functional_video_timeline_segments_link_registered_voice_and_subtitle_a
             actor_id="test-operator",
         )
         repository = VideoProductionRepository(connection)
-        claimed = repository.claim_next("timeline-artifact-worker", 60)
+        claimed = repository.claim_next(
+            "timeline-artifact-worker", 60, job_code=plan["video_job_code"]
+        )
         assert claimed is not None
         assert claimed["job_code"] == plan["video_job_code"]
         lease_token = claimed["lease_token"]
@@ -634,6 +660,7 @@ def test_functional_video_plan_freezes_local_video_group_and_published_pack_expa
             "asset_code": sticker_asset["asset_code"],
             "relative_path": f"image/product-{suffix}.png",
             "checksum_sha256": "e" * 64,
+            "constraint_profile": None,
         }
         assert plan["render_profile"]["brand_logo"] == {
             "asset_code": logo_asset["asset_code"],
@@ -643,6 +670,7 @@ def test_functional_video_plan_freezes_local_video_group_and_published_pack_expa
             "asset_code": logo_asset["asset_code"],
             "relative_path": f"image/brand-{suffix}.png",
             "checksum_sha256": "f" * 64,
+            "constraint_profile": None,
         }
         assert plan["material_snapshot_ref"]["asset_codes"][-4:] == [
             music_asset["asset_code"],
@@ -656,11 +684,19 @@ def test_functional_video_plan_freezes_local_video_group_and_published_pack_expa
         audio_track = next(
             track for track in plan["production_timeline"]["tracks"] if track["track_kind"] == "audio"
         )
-        assert audio_track["clips"][-1] == {
+        bgm_clip = audio_track["clips"][-1]
+        assert {
+            key: bgm_clip[key]
+            for key in ("clip_code", "timeline_range", "asset_code", "gain_db")
+        } == {
             "clip_code": "BGM-01",
             "timeline_range": {"start_ms": 0, "duration_ms": 55_000},
             "asset_code": music_asset["asset_code"],
             "gain_db": -20.0,
+        }
+        assert bgm_clip["timeline_time_range"] == {
+            "start_time": {"value": 0, "rate": 1_000},
+            "duration": {"value": 55_000, "rate": 1_000},
         }
 
         library.replace_group_members(group["group_code"], [direct_asset["asset_code"]])
@@ -676,7 +712,7 @@ def test_functional_video_plan_can_use_the_fixed_content_chain_of_a_live_room_pl
         generated = _generated_project(connection, suffix)
         assets = AssetRepository(connection)
         selected = [
-            assets.create({"asset_type": "IMG", "title": f"{role} {suffix}", "original_filename": f"{role}-{suffix}.png", "media_kind": "image", "material_roles": [role], "execution_capability": "maitu_bound"})
+            assets.create({"asset_type": "IMG", "title": f"{role} {suffix}", "original_filename": f"{role}-{suffix}.png", "media_kind": "image", "material_roles": [role], "execution_capability": "maitu_bound", "rights_status": "approved", "rights_note": "Test-owned fixture"})
             for role in ("digital_human", "background", "promotion_text")
         ]
         live_room = FunctionalLiveRoomService(connection).create_plan(
@@ -698,6 +734,15 @@ def test_functional_video_plan_can_use_the_fixed_content_chain_of_a_live_room_pl
         assert video["project_code"] == generated["project_code"]
         assert video["job_status"] == "queued"
         assert video["render_profile"]["source_live_room_plan_code"] == live_room["plan_code"]
+        inherited = video["material_snapshot_ref"]["inherited_live_room_material_snapshot"]
+        assert inherited["live_room_plan_code"] == live_room["plan_code"]
+        assert inherited["production_variant_code"] == live_room["variant_code"]
+        assert inherited["production_variant_revision"] == 1
+        assert inherited["asset_codes"] == live_room["build_plan"]["inventory_snapshot"]["asset_codes"]
+        assert inherited["snapshot"] == live_room["build_plan"]["inventory_snapshot"]
+        assert video["render_profile"]["inherited_live_room_material_snapshot"] == {
+            key: value for key, value in inherited.items() if key != "snapshot"
+        }
 
 
 def test_functional_video_release_candidate_freezes_a_qc_passed_plan() -> None:

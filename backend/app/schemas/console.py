@@ -51,6 +51,57 @@ class ConsoleNotificationRead(BaseModel):
     status: str
 
 
+class ConsoleOverviewMetricRead(BaseModel):
+    key: Literal["projects", "live_rooms", "videos", "sessions"]
+    label: str
+    value: int
+    previous_value: int
+    unit: str
+
+
+class ConsoleOverviewTrendRead(BaseModel):
+    date: datetime
+    projects: int
+    live_rooms: int
+    videos: int
+    sessions: int
+
+
+class ConsoleOverviewRankingRead(BaseModel):
+    project_code: str
+    title: str
+    session_count: int
+    last_session_at: datetime | None = None
+
+
+class ConsoleOverviewCoverageRead(BaseModel):
+    ready_assets: int
+    published_templates: int
+    approved_facts: int
+    bound_sessions: int
+    total_sessions: int
+
+
+class ConsoleOverviewProjectRead(BaseModel):
+    project_code: str
+    title: str
+    status: str
+    has_live_room: bool
+    has_video: bool
+    session_count: int
+    updated_at: datetime
+
+
+class ConsoleBusinessOverviewRead(BaseModel):
+    from_date: datetime
+    to_date: datetime
+    metrics: list[ConsoleOverviewMetricRead]
+    trend: list[ConsoleOverviewTrendRead]
+    rankings: list[ConsoleOverviewRankingRead]
+    coverage: ConsoleOverviewCoverageRead
+    recent_projects: list[ConsoleOverviewProjectRead]
+
+
 class ConsoleEntityRevisionRead(BaseModel):
     revision: int
     status: str

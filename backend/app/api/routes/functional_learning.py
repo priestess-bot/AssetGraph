@@ -17,6 +17,7 @@ from app.schemas.functional_learning import (
     ExperimentAssignmentRead,
     ExperimentCreate,
     ExperimentRead,
+    LearningRecommendationRead,
     OutcomeCreate,
 )
 from app.services.functional_learning import FunctionalLearningService
@@ -64,6 +65,20 @@ def list_effect_estimates(
     s: Annotated[FunctionalLearningService, Depends(service)]
 ) -> list[dict]:
     return s.list_effect_estimates()
+
+
+@router.get(
+    "/recommendations/{project_code}",
+    response_model=LearningRecommendationRead,
+)
+def get_recommendations(
+    project_code: str,
+    s: Annotated[FunctionalLearningService, Depends(service)],
+) -> dict:
+    result = s.recommendations(project_code)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Content project not found")
+    return result
 
 
 @router.post("/effects/{effect_code}/approve", response_model=EffectEstimateRead)

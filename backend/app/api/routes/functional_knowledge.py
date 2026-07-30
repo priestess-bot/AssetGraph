@@ -20,6 +20,7 @@ from app.schemas.functional_knowledge import (
     FactRead,
     KnowledgeGraphProjectionRead,
     KnowledgeGraphProjectionRebuild,
+    KnowledgeGraphSearchRead,
     KnowledgeSearchHitRead,
     SourceEvidenceApprove,
     SourceEvidenceCreate,
@@ -95,6 +96,18 @@ def current_graph_projection(
     service: Annotated[FunctionalKnowledgeGraphProjectionService, Depends(graph_svc)],
 ) -> dict | None:
     return service.current()
+
+
+@router.get("/graph-search", response_model=KnowledgeGraphSearchRead)
+def search_graph_lineage(
+    service: Annotated[FunctionalKnowledgeGraphProjectionService, Depends(graph_svc)],
+    q: Annotated[str, Query(min_length=1, max_length=200)],
+    scope: Annotated[
+        str,
+        Query(pattern="^(all|product|topic|template|material)$"),
+    ] = "all",
+) -> dict:
+    return service.search_lineage(q, scope)
 
 
 @router.post("/graph-projections/rebuild", response_model=KnowledgeGraphProjectionRead, status_code=201)

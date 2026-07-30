@@ -198,6 +198,30 @@ def test_ass_subtitles_honor_the_frozen_preset_and_safe_bottom_margin() -> None:
     assert manifest["safe_margins"]["bottom"] == 240
 
 
+def test_ass_subtitles_preserve_leading_punctuation_as_complete_text() -> None:
+    shot_list = {
+        "shots": [
+            {
+                "shot_index": 0,
+                "start_seconds": 0.0,
+                "end_seconds": 5.0,
+                "narration": "，目标是保留开头标点；并完整生成字幕。",
+            }
+        ]
+    }
+
+    _, manifest = build_ass_subtitles(shot_list)
+
+    captions = [
+        event["source_text"]
+        for event in manifest["events"]
+        if event["kind"] == "caption"
+    ]
+    assert "".join(captions) == "，目标是保留开头标点；并完整生成字幕。"
+    assert manifest["text_complete"] is True
+    assert manifest["incomplete_shot_indices"] == []
+
+
 def test_subtitle_quality_requires_safe_readable_events_and_source_block_coverage() -> None:
     shot_list = {
         "shots": [

@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { contentProjectsApi } from "./api";
-import { findFactCardConflicts, recommendContentTemplates } from "./ContentProjectsPage";
+import { contentRecoveryStep, findFactCardConflicts, recommendContentTemplates } from "./selectionRules";
 import type { RoomTemplate } from "../live-research/types";
 import type { ProductFactCard } from "../knowledge/api";
+import { WorkbenchApiError } from "../workbench/api";
 
 function response(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -10,6 +11,14 @@ function response(body: unknown): Response {
 
 describe("content projects api", () => {
   beforeEach(() => vi.restoreAllMocks());
+
+  it("gives an actionable recovery step for stale or unapproved facts", () => {
+    const error = new WorkbenchApiError("Fact card is unavailable", 422, {
+      detail: { code: "FACT_CARD_NOT_APPROVED", message: "Fact card is unavailable", details: {} },
+    });
+
+    expect(contentRecoveryStep(error)).toContain("知识库批准新的事实版本");
+  });
 
   it("creates an expected-revision input patch instead of mutating a project in place", async () => {
     const fetchMock = vi.fn().mockResolvedValue(response({

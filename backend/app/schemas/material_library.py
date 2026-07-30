@@ -38,6 +38,13 @@ class ExecutionCapability(StrEnum):
     UNCLASSIFIED = "unclassified"
 
 
+class RightsStatus(StrEnum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    RESTRICTED = "restricted"
+    REVOKED = "revoked"
+
+
 class ConstraintKind(StrEnum):
     ALLOWED_REGION = "allowed_region"
     FORBIDDEN_REGION = "forbidden_region"
@@ -85,6 +92,11 @@ class AssetClassificationBatchUpdate(AssetClassificationUpdate):
         return codes
 
 
+class AssetRightsUpdate(BaseModel):
+    status: RightsStatus
+    note: str = Field(min_length=3, max_length=1_000)
+
+
 class AssetGroupCreate(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     description: str | None = None
@@ -93,6 +105,11 @@ class AssetGroupCreate(BaseModel):
 
 class AssetGroupMembersReplace(BaseModel):
     asset_codes: list[str] = Field(default_factory=list)
+
+
+class AssetGroupUpdate(BaseModel):
+    title: str = Field(min_length=1, max_length=255)
+    description: str | None = None
 
 
 class AssetGroupRead(BaseModel):

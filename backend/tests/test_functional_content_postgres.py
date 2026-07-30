@@ -279,6 +279,8 @@ def test_content_project_pins_source_backed_fact_claim_and_cites_it() -> None:
                 "claim": "The product has a 12-month warranty.",
                 "citation_excerpt": "The product has a verified 12-month warranty.",
                 "fingerprint_sha256": approved_claim["fingerprint_sha256"],
+                "citation_start_offset": 0,
+                "citation_end_offset": 45,
             }
         ]
         service.confirm_project(project["project_code"], expected_revision=1, actor_id="test-operator")

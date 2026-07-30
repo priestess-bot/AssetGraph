@@ -8,6 +8,7 @@ from psycopg import Connection
 from app.core.database import get_db
 from app.domain.errors import DomainValidationError
 from app.schemas.functional_live_rooms import (
+    FunctionalLiveRoomBlueprintRevision,
     FunctionalLiveRoomExecutionConfirm,
     FunctionalLiveRoomExecutionHandoffRead,
     FunctionalLiveRoomMaterialGapPreviewRead,
@@ -16,8 +17,10 @@ from app.schemas.functional_live_rooms import (
     FunctionalLiveRoomPlanClone,
     FunctionalLiveRoomPlanRead,
     FunctionalLiveRoomTraceRead,
+    MaituCapabilityMatrixRead,
 )
 from app.services.functional_live_rooms import FunctionalLiveRoomService
+from app.services.maitu_capabilities import maitu_capability_matrix
 
 
 router = APIRouter(prefix="/functional-live-room-plans", tags=["functional-live-rooms"])
@@ -56,6 +59,11 @@ def preview_live_room_material_gaps(
 @router.get("", response_model=list[FunctionalLiveRoomPlanRead])
 def list_live_room_plans(service: Annotated[FunctionalLiveRoomService, Depends(get_service)]) -> list[dict]:
     return service.list_plans()
+
+
+@router.get("/maitu-capabilities", response_model=MaituCapabilityMatrixRead)
+def get_maitu_capabilities() -> dict:
+    return maitu_capability_matrix()
 
 
 @router.get("/{plan_code}", response_model=FunctionalLiveRoomPlanRead)
@@ -145,3 +153,25 @@ def clone_live_room_plan(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Live-room plan not found") from exc
     except DomainValidationError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=exc.message) from exc
+
+
+@router.post(
+    "/{plan_code}/blueprint-revisions",
+    response_model=FunctionalLiveRoomPlanRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def revise_live_room_blueprint(
+    plan_code: str,
+    payload: FunctionalLiveRoomBlueprintRevision,
+    service: Annotated[FunctionalLiveRoomService, Depends(get_service)],
+) -> dict:
+    try:
+        return service.revise_blueprint(
+            plan_code,
+            payload.model_dump(mode="json"),
+            actor_id="functional-operator",
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Live-room plan not found") from exc
+    except DomainValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=exc.as_dict()) from exc

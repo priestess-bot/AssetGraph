@@ -36,6 +36,29 @@ def _timeline() -> dict[str, object]:
     }
 
 
+def test_live_room_derived_video_freezes_the_exact_source_material_snapshot() -> None:
+    detail = {
+        "source_live_room_plan_code": "LIVEPLAN-001",
+        "source_live_room_variant_code": "VARIANT-001",
+        "source_live_room_variant_revision": 3,
+        "source_live_room_material_snapshot": {
+            "asset_codes": ["ASSET-001", "ASSET-002"],
+            "assets": [{"asset_code": "ASSET-001", "checksum_sha256": "a" * 64}],
+        },
+    }
+
+    inherited = FunctionalVideoService._source_live_room_material_snapshot(detail)
+    detail["source_live_room_material_snapshot"]["asset_codes"].append("MUTATED")
+
+    assert inherited is not None
+    assert inherited["live_room_plan_code"] == "LIVEPLAN-001"
+    assert inherited["production_variant_code"] == "VARIANT-001"
+    assert inherited["production_variant_revision"] == 3
+    assert inherited["asset_codes"] == ["ASSET-001", "ASSET-002"]
+    assert inherited["snapshot"]["asset_codes"] == ["ASSET-001", "ASSET-002"]
+    assert len(inherited["fingerprint_sha256"]) == 64
+
+
 def test_timeline_update_preserves_requested_clip_order_across_tracks_and_shots() -> None:
     updated = FunctionalVideoService._apply_timeline_update(
         _timeline(),

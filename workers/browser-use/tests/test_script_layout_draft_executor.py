@@ -13,6 +13,7 @@ class FakeScriptLayoutDraftSession:
         self.calls: list[tuple[str, object]] = []
         self.room = {
             "id": "47000002",
+            "name": "新品空白草稿",
             "is_live": False,
             "_assetgraph_read_environment": "working",
             "topics": [
@@ -728,6 +729,35 @@ def test_script_layout_draft_runner_rejects_active_live_room_before_mutation() -
     assert result.failure_count == 1
     assert "currently live" in result.actions[0].summary.lower()
     assert not any(call[0] == "rename_clip" for call in session.calls)
+
+
+def test_script_layout_draft_runner_rejects_authoritative_room_title_mismatch_before_mutation() -> None:
+    session = FakeScriptLayoutDraftSession()
+    plan = {
+        "status": "ready",
+        "target_live_room_id": "47000002",
+        "operations": [
+            {
+                "operation_type": "preflight_content_build_plan",
+                "status": "ready",
+                "target_live_room_id": "47000002",
+                "expected_live_room_title": "另一份空白草稿",
+            },
+            {
+                "operation_type": "fill_default_scene",
+                "status": "ready",
+                "scene_index": 0,
+                "scene_name": "不得执行",
+            },
+        ],
+    }
+
+    result = ScriptLayoutDraftRunner(session=session).run(plan)
+
+    assert result.status == "failed"
+    assert result.failure_count == 1
+    assert "room title" in result.actions[0].summary.lower()
+    assert session.calls == [("read_live_room", "47000002")]
 
 
 @pytest.mark.parametrize("room_status", [None, "mystery"])

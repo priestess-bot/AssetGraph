@@ -23,6 +23,8 @@ def _create_asset(repository: AssetRepository, suffix: str, *, title: str) -> di
             "media_kind": "image",
             "material_roles": ["background"],
             "execution_capability": "local_only",
+            "rights_status": "approved",
+            "rights_note": "Test-owned fixture",
         }
     )
 
@@ -86,11 +88,14 @@ def test_material_library_groups_constraints_packs_and_gaps() -> None:
         assert published["status"] == "published"
         refs, resolved_asset_codes = library.resolve_published_packs([pack["pack_code"]])
         assert resolved_asset_codes == published["resolved_asset_codes"]
-        assert refs == [{
-            "pack_code": pack["pack_code"], "revision_number": 1,
-            "fingerprint_sha256": published["fingerprint_sha256"], "role": "background",
-            "entries": published["entries"], "resolved_asset_codes": published["resolved_asset_codes"],
-        }]
+        assert len(refs) == 1
+        assert refs[0]["pack_code"] == pack["pack_code"]
+        assert refs[0]["revision_number"] == 1
+        assert refs[0]["fingerprint_sha256"] == published["fingerprint_sha256"]
+        assert refs[0]["pack_kind"] == "total"
+        assert refs[0]["revision_status"] == "published"
+        assert refs[0]["entries"] == published["entries"]
+        assert refs[0]["resolved_asset_codes"] == published["resolved_asset_codes"]
 
         revised = library.create_pack_revision(
             pack["pack_code"],
@@ -99,6 +104,7 @@ def test_material_library_groups_constraints_packs_and_gaps() -> None:
                 {
                     "selection_kind": "asset",
                     "selection_code": product["asset_code"],
+                    "material_role": "background",
                     "mode": "required",
                     "min_occurrences": 1,
                 }
@@ -118,6 +124,7 @@ def test_material_library_groups_constraints_packs_and_gaps() -> None:
                     {
                         "selection_kind": "asset",
                         "selection_code": background["asset_code"],
+                        "material_role": "background",
                         "mode": "optional",
                         "min_occurrences": 0,
                     }
@@ -167,7 +174,7 @@ def test_material_library_groups_constraints_packs_and_gaps() -> None:
         product_candidate = next(item for item in preview["candidates"] if item["asset_code"] == product["asset_code"])
         assert product_candidate["score_parts"]["role_match"] == 60
         assert any(item["asset_code"] == background["asset_code"] and "ROLE_MISMATCH" in item["exclusion_codes"] for item in preview["excluded"])
-        assert preview["unverified_gates"] == ["RIGHTS_GRANT_NOT_IMPLEMENTED", "CONSTRAINT_SOLVER_NOT_RUN"]
+        assert preview["unverified_gates"] == ["CONSTRAINT_SOLVER_NOT_RUN"]
 
 
 def test_material_library_rejects_unknown_group_members_and_pack_targets() -> None:

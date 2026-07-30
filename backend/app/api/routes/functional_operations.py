@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import Annotated
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
 from psycopg import Connection
 from app.core.database import get_db
 from app.domain.errors import DomainValidationError
@@ -14,6 +14,11 @@ from app.schemas.functional_operations import (
     ContentTimelineRead,
     OperationSessionCreate,
     OperationSessionRead,
+    OperationImportBatchRead,
+    OperationImportConfirm,
+    OperationSessionBindingRead,
+    OperationSessionBindingResolve,
+    PendingOperationBindingRead,
     SessionMetricSnapshotCreate,
     SessionMetricSnapshotRead,
     SchedulePlanCreate,
@@ -22,6 +27,7 @@ from app.schemas.functional_operations import (
     TimeMappingRead,
 )
 from app.services.functional_operations import FunctionalOperationsService
+from app.services.functional_operation_imports import FunctionalOperationImportService
 
 router = APIRouter(prefix="/functional-operations", tags=["functional-operations"])
 
@@ -32,11 +38,112 @@ def service(
     return FunctionalOperationsService(connection)
 
 
+def import_service(
+    connection: Annotated[Connection, Depends(get_db)],
+) -> FunctionalOperationImportService:
+    return FunctionalOperationImportService(connection)
+
+
 def call(fn, *args):
     try:
         return fn(*args)
     except DomainValidationError as exc:
         raise HTTPException(status_code=422, detail=exc.message) from exc
+
+
+@router.get("/import-template")
+def download_import_template(
+    file_format: Annotated[str, Query(alias="format", pattern="^(csv|xlsx)$")] = "xlsx",
+) -> Response:
+    try:
+        content, media_type, filename = FunctionalOperationImportService.template(file_format)
+    except DomainValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.message) from exc
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post(
+    "/import-batches/preview",
+    response_model=OperationImportBatchRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def preview_import_batch(
+    instance: Annotated[FunctionalOperationImportService, Depends(import_service)],
+    file: Annotated[UploadFile, File(...)],
+    actor: Annotated[str, Form(min_length=1, max_length=128)] = "functional-operator",
+) -> dict:
+    content = await file.read()
+    return call(instance.preview, file.filename or "operation-data", content, actor)
+
+
+@router.get("/import-batches", response_model=list[OperationImportBatchRead])
+def list_import_batches(
+    instance: Annotated[FunctionalOperationImportService, Depends(import_service)],
+) -> list[dict]:
+    return instance.list()
+
+
+@router.get("/import-batches/{batch_code}", response_model=OperationImportBatchRead)
+def get_import_batch(
+    batch_code: str,
+    instance: Annotated[FunctionalOperationImportService, Depends(import_service)],
+) -> dict:
+    result = instance.get(batch_code)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Operation import batch not found")
+    return result
+
+
+@router.get("/import-batches/{batch_code}/source")
+def download_import_source(
+    batch_code: str,
+    instance: Annotated[FunctionalOperationImportService, Depends(import_service)],
+) -> Response:
+    result = instance.source_file(batch_code)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Operation import batch not found")
+    content, media_type, filename = result
+    safe_filename = filename.replace('"', "")
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{safe_filename}"'},
+    )
+
+
+@router.post(
+    "/import-batches/{batch_code}/confirm",
+    response_model=OperationImportBatchRead,
+)
+def confirm_import_batch(
+    batch_code: str,
+    payload: OperationImportConfirm,
+    instance: Annotated[FunctionalOperationImportService, Depends(import_service)],
+) -> dict:
+    return call(instance.confirm, batch_code, payload.actor)
+
+
+@router.get("/pending-bindings", response_model=list[PendingOperationBindingRead])
+def list_pending_bindings(
+    instance: Annotated[FunctionalOperationImportService, Depends(import_service)],
+) -> list[dict]:
+    return instance.pending_bindings()
+
+
+@router.post(
+    "/sessions/{session_code}/binding",
+    response_model=OperationSessionBindingRead,
+)
+def resolve_session_binding(
+    session_code: str,
+    payload: OperationSessionBindingResolve,
+    instance: Annotated[FunctionalOperationImportService, Depends(import_service)],
+) -> dict:
+    return call(instance.resolve_session_binding, session_code, payload.model_dump())
 
 
 @router.post(

@@ -20,6 +20,7 @@ from app.schemas.live_observations import (
     RawEventBatchRegistration,
     RetentionClaimRequest,
     RoomTemplateCreate,
+    RoomTemplateArchiveRequest,
     RoomTemplatePublicationRequest,
     RoomTemplateRevisionCreate,
     SchedulerClaimRequest,
@@ -400,6 +401,12 @@ class LiveObservationService:
     def create_capture_session(self, payload: CaptureSessionCreate) -> dict[str, Any]:
         return self.repository.create_capture_session(payload.model_dump(mode="json"))
 
+    def import_recording(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.repository.import_recording(
+            payload,
+            analysis_specs=default_chunk_analysis_specs(),
+        )
+
     def finish_capture_session(
         self, session_code: str, payload: CaptureSessionFinish
     ) -> dict[str, Any]:
@@ -617,6 +624,18 @@ class LiveObservationService:
             )
         return row
 
+    def retry_analysis_run_as_operator(self, run_code: str, reason: str) -> dict[str, Any]:
+        row = self.repository.retry_analysis_run(
+            run_code,
+            "trusted-operator-ui",
+            reason,
+        )
+        if row is None:
+            raise LiveObservationConflictError(
+                "analysis run is not failed or has exhausted its bounded attempts"
+            )
+        return row
+
     def heartbeat_clip_job(
         self, job_code: str, payload: WorkHeartbeatRequest
     ) -> dict[str, Any]:
@@ -651,6 +670,14 @@ class LiveObservationService:
 
     def get_room_template(self, template_code: str) -> dict[str, Any]:
         row = self.repository.get_room_template(template_code, include_revisions=True)
+        if row is None:
+            raise LiveObservationNotFoundError("Room template not found")
+        return row
+
+    def archive_room_template(
+        self, template_code: str, payload: RoomTemplateArchiveRequest
+    ) -> dict[str, Any]:
+        row = self.repository.archive_room_template(template_code, payload.reason)
         if row is None:
             raise LiveObservationNotFoundError("Room template not found")
         return row

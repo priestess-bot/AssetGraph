@@ -8,7 +8,24 @@
     <title>AssetGraph Console</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <main id="console-boot-fallback" style="box-sizing:border-box;min-height:100vh;display:grid;place-content:center;gap:12px;padding:24px;background:#f2f5f3;color:#17221c;font-family:system-ui,-apple-system,'Segoe UI',sans-serif;text-align:center">
+        <strong style="font-size:20px">正在载入直播内容工作台</strong>
+        <span style="color:#68766e;font-size:13px">页面准备中，请稍候</span>
+        <button id="console-boot-reload" type="button" style="display:none;width:max-content;margin:4px auto 0;padding:9px 14px;border:0;border-radius:5px;background:#176b4f;color:#fff;font-size:13px;cursor:pointer">重新载入</button>
+      </main>
+    </div>
+    <script>
+      window.setTimeout(function () {
+        var button = document.getElementById("console-boot-reload");
+        var hint = document.querySelector("#console-boot-fallback span");
+        if (button && hint && document.getElementById("console-boot-fallback")) {
+          hint.textContent = "页面加载时间较长，可以重新载入";
+          button.style.display = "inline-block";
+          button.onclick = function () { window.location.reload(); };
+        }
+      }, 8000);
+    </script>
     <script type="module" src="./src/main.tsx"></script>
   </body>
 </html>

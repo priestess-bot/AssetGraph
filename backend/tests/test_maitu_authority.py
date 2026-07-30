@@ -52,6 +52,7 @@ def test_reconciliation_attests_confirmed_not_applied_when_effect_is_absent(monk
         {
             "/live_rooms/47000002?env=working&include_qa_clips=true": {
                 "id": 47000002,
+                "name": "新品空白草稿",
                 "environment": "working",
                 "is_live": False,
                 "topics": [{"clips": [{"id": 1, "name": "默认场景", "clip_materials": []}]}],
@@ -96,6 +97,7 @@ def test_completion_attestation_validates_at_repository_boundary(monkeypatch) ->
         {
             "/live_rooms/47000002?env=working&include_qa_clips=true": {
                 "id": 47000002,
+                "name": "新品空白草稿",
                 "environment": "working",
                 "is_live": False,
                 "topics": [{"clips": [{"id": 1, "name": "默认场景", "clip_materials": []}]}],
@@ -105,7 +107,10 @@ def test_completion_attestation_validates_at_repository_boundary(monkeypatch) ->
     checkpoint = {
         "operation_fingerprint": "b" * 64,
         "operation_type": "preflight_content_build_plan",
-        "intent_snapshot": {"operation_type": "preflight_content_build_plan"},
+        "intent_snapshot": {
+            "operation_type": "preflight_content_build_plan",
+            "expected_live_room_title": "新品空白草稿",
+        },
     }
     payload = {
         "operation_fingerprint": "b" * 64,
@@ -137,6 +142,36 @@ def test_completion_attestation_validates_at_repository_boundary(monkeypatch) ->
         checkpoint=checkpoint,
         payload=result,
     )
+
+
+def test_completion_attestation_rejects_preflight_room_title_mismatch(monkeypatch) -> None:
+    verifier = verifier_for(
+        monkeypatch,
+        {
+            "/live_rooms/47000002?env=working&include_qa_clips=true": {
+                "id": 47000002,
+                "name": "实际空白草稿",
+                "environment": "working",
+                "is_live": False,
+                "topics": [{"clips": [{"id": 1, "name": "默认场景", "clip_materials": []}]}],
+            }
+        },
+    )
+    checkpoint = {
+        "operation_fingerprint": "b" * 64,
+        "operation_type": "preflight_content_build_plan",
+        "intent_snapshot": {
+            "operation_type": "preflight_content_build_plan",
+            "expected_live_room_title": "计划空白草稿",
+        },
+    }
+    evidence = {
+        "target_live_room_id": "47000002",
+        "default_clip_id": 1,
+    }
+
+    with pytest.raises(MaituAuthorityError, match="room title"):
+        verifier.verify_checkpoint(checkpoint, evidence)
 
 
 def test_completion_attestation_accepts_offline_manual_review_gate(monkeypatch) -> None:

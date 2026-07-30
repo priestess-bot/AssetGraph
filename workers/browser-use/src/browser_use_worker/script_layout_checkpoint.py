@@ -379,6 +379,8 @@ class AssetGraphScriptLayoutCheckpointStore:
             "operation_type": action.operation_type or operation.get("operation_type"),
             "operation_fingerprint": checkpoint["operation_fingerprint"],
             "target_live_room_id": self.target_live_room_id,
+            "expected_live_room_title": nested_result.get("expected_live_room_title"),
+            "authoritative_live_room_title": nested_result.get("authoritative_live_room_title"),
             "scene_index": action.scene_index,
             "scene_name": action.scene_name,
             "clip_id": action.clip_id,

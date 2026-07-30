@@ -34,6 +34,8 @@ def _asset(
             "media_kind": "image",
             "material_roles": [role],
             "execution_capability": capability,
+            "rights_status": "approved",
+            "rights_note": "Test-owned fixture",
         }
     )
 
@@ -126,6 +128,7 @@ def test_functional_live_room_plan_compiles_and_only_requests_maitu_execution() 
             "input_boundary": "pass",
             "structural_references": "pass",
             "execution_constraints": "pass",
+            "material_rights": "pass",
             "branch_quality": "pass",
             "evidence_completeness": "warning",
         }
@@ -375,8 +378,9 @@ def test_functional_live_room_plan_blocks_unbound_required_material() -> None:
         )
 
         assert plan["status"] == "blocked"
+        assert "GATE_MATERIAL_WHITELIST_BLOCKED" in plan["blocked_reasons"]
         assert any(
-            reason.startswith("asset_not_maitu_bound")
+            reason.startswith("missing_role:background")
             for reason in plan["blocked_reasons"]
         )
         blocked = service.confirm_execution(plan["plan_code"], confirmed=True)
@@ -500,16 +504,15 @@ def test_live_room_plan_selects_only_published_material_pack_and_freezes_resolve
         assert plan["selected_material_pack_codes"] == [published_pack["pack_code"]]
         assert plan["selected_asset_codes"] == published_pack["resolved_asset_codes"]
         snapshot = plan["build_plan"]["inventory_snapshot"]
-        assert snapshot["material_pack_refs"] == [
-            {
-                "pack_code": published_pack["pack_code"],
-                "revision_number": 1,
-                "fingerprint_sha256": published_pack["fingerprint_sha256"],
-                "role": "background",
-                "entries": published_pack["entries"],
-                "resolved_asset_codes": published_pack["resolved_asset_codes"],
-            }
-        ]
+        assert len(snapshot["material_pack_refs"]) == 1
+        pack_ref = snapshot["material_pack_refs"][0]
+        assert pack_ref["pack_code"] == published_pack["pack_code"]
+        assert pack_ref["revision_number"] == 1
+        assert pack_ref["fingerprint_sha256"] == published_pack["fingerprint_sha256"]
+        assert pack_ref["pack_kind"] == "total"
+        assert pack_ref["revision_status"] == "published"
+        assert pack_ref["entries"] == published_pack["entries"]
+        assert pack_ref["resolved_asset_codes"] == published_pack["resolved_asset_codes"]
         assert all(
             {"kind": "material_pack", "code": published_pack["pack_code"]}
             in asset["selection_sources"]
@@ -833,7 +836,7 @@ def test_live_room_release_candidate_freezes_plan_and_stays_pending_external_evi
                 "role": "live_room_build_plan_snapshot",
             }
         ]
-        assert manifest["rights_snapshot"]["status"] == "pending_evidence"
+        assert manifest["rights_snapshot"]["status"] == "approved"
         assert any(
             gate["code"] == "GATE_RELEASE_AUTHORIZATION_PENDING" and gate["blocking"]
             for gate in manifest["quality_snapshot"]["gates"]
@@ -934,6 +937,82 @@ def test_live_room_plan_clone_recompiles_business_inputs_for_a_new_target() -> N
                 actor_id="test-operator",
             )
         assert same_target.value.code == "LIVE_ROOM_CLONE_TARGET_MUST_DIFFER"
+
+
+def test_live_room_blueprint_revision_creates_a_new_immutable_plan() -> None:
+    suffix = uuid4().hex
+    with psycopg.connect(DATABASE_URL) as connection:
+        assets = AssetRepository(connection)
+        project = _generated_project(connection, suffix)
+        selected = [
+            _asset(assets, suffix, "digital_human"),
+            _asset(assets, suffix, "background"),
+            _asset(assets, suffix, "promotion_text"),
+        ]
+        service = FunctionalLiveRoomService(connection)
+        source = service.create_plan(
+            {
+                "project_code": project["project_code"],
+                "target_live_room_id": f"revision-draft-{suffix}",
+                "expected_title": "Editable source draft",
+                "asset_codes": [item["asset_code"] for item in selected],
+                "group_codes": [],
+            },
+            actor_id="test-operator",
+        )
+        requested = service.confirm_execution(source["plan_code"], confirmed=True)
+        assert requested is not None and requested["execution_status"] == "requested"
+
+        scene_inputs = []
+        for sort_order, scene in enumerate(reversed(source["blueprint"]["scenes"])):
+            layers = []
+            for layer_index, layer in enumerate(scene["layers"]):
+                geometry = dict(layer["normalized_geometry"])
+                if sort_order == 0 and layer_index == 0:
+                    geometry = {"x": 0.1, "y": 0.1, "width": 0.8, "height": 0.8}
+                layers.append(
+                    {
+                        "role": layer["material_role"],
+                        "asset_code": layer["asset_code"],
+                        "geometry": geometry,
+                        "z_order": int(layer["z_order"]),
+                    }
+                )
+            scene_inputs.append(
+                {
+                    "shot_code": scene["shot_code"],
+                    "sort_order": sort_order,
+                    "title": f"{scene['title']}（已调整）",
+                    "script": f"{scene['script']}\n补充客户可编辑话术。",
+                    "layers": layers,
+                }
+            )
+
+        revised = service.revise_blueprint(
+            source["plan_code"],
+            {"scenes": scene_inputs},
+            actor_id="test-operator",
+        )
+
+        assert revised["plan_code"] != source["plan_code"]
+        assert revised["variant_code"] != source["variant_code"]
+        assert revised["configuration_code"] != source["configuration_code"]
+        assert revised["build_plan"]["build_plan_code"] != source["build_plan"]["build_plan_code"]
+        assert revised["revised_from_plan_code"] == source["plan_code"]
+        assert revised["execution_status"] == "not_requested"
+        assert revised["execution_evidence"] == {}
+        assert revised["release"] is None
+        assert revised["build_plan"]["go_live"] is False
+        assert [scene["shot_code"] for scene in revised["blueprint"]["scenes"]] == [
+            scene["shot_code"] for scene in reversed(source["blueprint"]["scenes"])
+        ]
+        assert revised["revision_context"]["source_plan_code"] == source["plan_code"]
+        assert revised["revision_context"]["changed_shot_codes"]
+
+        unchanged_source = service.get_plan(source["plan_code"])
+        assert unchanged_source is not None
+        assert unchanged_source["blueprint"] == source["blueprint"]
+        assert unchanged_source["execution_status"] == "requested"
 
 
 def test_live_room_plan_rejects_template_not_pinned_by_content_project() -> None:

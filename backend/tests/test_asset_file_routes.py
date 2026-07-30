@@ -54,8 +54,10 @@ class FakeAssetRepository:
 class FakeObjectStorage:
     def __init__(self) -> None:
         self.uploads: list[dict[str, Any]] = []
+        self.objects: dict[tuple[str, str], bytes] = {}
 
     def upload_file(self, *, bucket_name: str, object_key: str, path: Path, content_type: str | None = None) -> None:
+        self.objects[(bucket_name, object_key)] = path.read_bytes()
         self.uploads.append(
             {
                 "bucket_name": bucket_name,
@@ -65,12 +67,19 @@ class FakeObjectStorage:
             }
         )
 
+    def download_file(self, *, bucket_name: str, object_key: str, destination: Path) -> None:
+        destination.write_bytes(self.objects[(bucket_name, object_key)])
+
 
 @pytest.fixture
 def client() -> tuple[TestClient, FakeAssetRepository, FakeObjectStorage]:
     repository = FakeAssetRepository()
     storage = FakeObjectStorage()
     app.dependency_overrides[assets.get_asset_repository] = lambda: repository
+    app.dependency_overrides[assets.get_asset_preview_metadata] = lambda: (
+        repository.get_by_code("AG-VID-20260709-000001"),
+        repository.list_file_records("AG-VID-20260709-000001"),
+    )
     app.dependency_overrides[assets.get_object_storage] = lambda: storage
     with TestClient(app) as test_client:
         yield test_client, repository, storage
@@ -139,3 +148,36 @@ def test_list_asset_files_returns_file_records(client: tuple[TestClient, FakeAss
 
     assert response.status_code == 200
     assert response.json()[0]["object_key"] == "assets/AG-VID-20260709-000001/original/demo.mp4"
+
+
+def test_uploaded_asset_file_is_available_through_the_customer_preview(
+    client: tuple[TestClient, FakeAssetRepository, FakeObjectStorage],
+) -> None:
+    test_client, repository, storage = client
+    repository.assets["AG-VID-20260709-000001"].update(
+        {"media_kind": "video", "execution_capability": "local_only"}
+    )
+    object_key = "assets/AG-VID-20260709-000001/original/demo.mp4"
+    repository.file_rows.append(
+        {
+            "id": "file-id",
+            "asset_id": "asset-id",
+            "asset_code": "AG-VID-20260709-000001",
+            "file_role": "original",
+            "bucket_name": "assetgraph",
+            "object_key": object_key,
+            "mime_type": "video/mp4",
+            "file_size": 11,
+            "checksum_sha256": "a" * 64,
+            "source_relative_path": None,
+            "local_file_code": None,
+            "storage_status": "stored",
+        }
+    )
+    storage.objects[("assetgraph", object_key)] = b"video bytes"
+
+    response = test_client.get("/api/assets/AG-VID-20260709-000001/preview")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "video/mp4"
+    assert response.content == b"video bytes"

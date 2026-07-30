@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -632,6 +633,146 @@ class FunctionalContentService:
             rows = cursor.fetchall()
         return [self._summary(row) for row in rows]
 
+    def get_workspace_summary(self, project_code: str) -> dict[str, Any] | None:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT p.id, p.project_code, p.title, p.status, p.updated_at,
+                       r.revision_number, r.status AS revision_status, r.generation_goal
+                FROM content_projects AS p
+                JOIN content_project_revisions AS r
+                  ON r.project_id = p.id AND r.revision_number = p.current_revision_number
+                WHERE p.project_code = %s AND p.archived_at IS NULL
+                """,
+                (project_code,),
+            )
+            project = cursor.fetchone()
+            if project is None:
+                return None
+            cursor.execute(
+                """
+                SELECT status, created_at AS updated_at
+                FROM functional_design_briefs
+                WHERE project_id = %s ORDER BY revision_number DESC LIMIT 1
+                """,
+                (project["id"],),
+            )
+            brief = cursor.fetchone()
+            cursor.execute(
+                """
+                SELECT script.status, script.title, script.updated_at
+                FROM content_script_revisions AS script
+                WHERE script.project_id = %s ORDER BY script.revision_number DESC LIMIT 1
+                """,
+                (project["id"],),
+            )
+            script = cursor.fetchone()
+            cursor.execute(
+                """
+                SELECT plan_code AS reference_code, status, execution_status, expected_title AS title, updated_at
+                FROM functional_live_room_plans
+                WHERE project_code = %s ORDER BY updated_at DESC LIMIT 1
+                """,
+                (project_code,),
+            )
+            live_room = cursor.fetchone()
+            cursor.execute(
+                """
+                SELECT video.plan_code AS reference_code, video.title, video.updated_at, job.status,
+                       COALESCE(job.progress_percent, 0) AS progress_percent
+                FROM functional_video_plans AS video
+                JOIN video_production_jobs AS job ON job.job_code = video.video_job_code
+                WHERE video.project_code = %s ORDER BY video.updated_at DESC LIMIT 1
+                """,
+                (project_code,),
+            )
+            video = cursor.fetchone()
+            cursor.execute(
+                """
+                SELECT release.release_code AS reference_code, release.status, release.updated_at, release.carrier_kind
+                FROM releases AS release
+                WHERE release.release_code IN (
+                    SELECT release_code FROM functional_live_room_plans WHERE project_code = %s AND release_code IS NOT NULL
+                    UNION
+                    SELECT release_code FROM functional_video_plans WHERE project_code = %s AND release_code IS NOT NULL
+                )
+                ORDER BY release.updated_at DESC LIMIT 1
+                """,
+                (project_code, project_code),
+            )
+            delivery = cursor.fetchone()
+            cursor.execute(
+                """
+                SELECT count(*)::integer AS session_count, max(updated_at) AS updated_at
+                FROM functional_operation_sessions WHERE content_project_code = %s
+                """,
+                (project_code,),
+            )
+            operations = cursor.fetchone()
+            cursor.execute(
+                """
+                SELECT kind, title, detail, status, occurred_at FROM (
+                    SELECT 'project'::varchar AS kind, '项目内容已更新'::varchar AS title,
+                           '生成目标和项目输入已保存'::varchar AS detail,
+                           revision.status::varchar AS status, revision.updated_at AS occurred_at
+                    FROM content_project_revisions AS revision WHERE revision.project_id = %s
+                    UNION ALL
+                    SELECT 'brief', '生成目标已整理', '可以检查主题、故事和约束', brief.status, brief.created_at
+                    FROM functional_design_briefs AS brief WHERE brief.project_id = %s
+                    UNION ALL
+                    SELECT 'script', '剧本内容已更新', '节目段和话术块已有新版本', script.status, script.updated_at
+                    FROM content_script_revisions AS script WHERE script.project_id = %s
+                    UNION ALL
+                    SELECT 'live_room', '直播间方案已生成', '场景和图层方案可以继续编辑', room.status, room.updated_at
+                    FROM functional_live_room_plans AS room WHERE room.project_code = %s
+                    UNION ALL
+                    SELECT 'video', '成片制作已创建', '可以检查时间轴和渲染进度', job.status, video.updated_at
+                    FROM functional_video_plans AS video JOIN video_production_jobs AS job ON job.job_code = video.video_job_code
+                    WHERE video.project_code = %s
+                    UNION ALL
+                    SELECT 'operations', '运营场次已关联', '该场次可以进入运营分析', 'completed', session.updated_at
+                    FROM functional_operation_sessions AS session WHERE session.content_project_code = %s
+                ) AS events ORDER BY occurred_at DESC LIMIT 30
+                """,
+                (project["id"], project["id"], project["id"], project_code, project_code, project_code),
+            )
+            activity = [dict(row) for row in cursor.fetchall()]
+
+        def output(row: Any, *, status_key: str = "status", title: str | None = None) -> dict[str, Any]:
+            if row is None:
+                return {"available": False, "status": "pending", "title": title}
+            value = dict(row)
+            return {
+                "available": True,
+                "status": value.get(status_key) or "ready",
+                "updated_at": value.get("updated_at"),
+                "title": value.get("title") or title,
+                "progress_percent": value.get("progress_percent"),
+                "reference_code": value.get("reference_code"),
+            }
+
+        session_count = int(operations["session_count"]) if operations else 0
+        return {
+            "project_code": project["project_code"],
+            "title": project["title"],
+            "status": project["status"],
+            "revision_number": project["revision_number"],
+            "generation_goal": project["generation_goal"],
+            "brief": output(brief, title="生成简报"),
+            "script": output(script, title="剧本"),
+            "live_room": output(live_room, title="直播间方案"),
+            "video": output(video, title="成片"),
+            "delivery": output(delivery, title="项目交付"),
+            "operations": {
+                "available": session_count > 0,
+                "status": "ready" if session_count > 0 else "pending",
+                "updated_at": operations["updated_at"] if operations else None,
+                "title": f"{session_count} 场运营数据" if session_count else "尚无运营场次",
+            },
+            "activity": activity,
+            "updated_at": project["updated_at"],
+        }
+
     def list_chain_revisions(self, project_code: str) -> list[dict[str, Any]]:
         """Return immutable content-chain revisions with their direct source links."""
         with self.connection.cursor(row_factory=dict_row) as cursor:
@@ -890,14 +1031,15 @@ class FunctionalContentService:
     @staticmethod
     def _document(payload: dict[str, Any], *, include_defaults: bool = True) -> dict[str, Any]:
         fields = (
-            "theme", "story", "detailed_design", "audience", "platform", "persona", "tone",
+            "target_live_room_id", "theme", "story", "detailed_design", "audience", "platform", "persona", "tone",
             "target_duration_seconds", "product_order", "must_include", "must_avoid",
             "interaction_requirements", "conversion_requirements", "staging_requirements",
             "visual_requirements", "audio_requirements", "fact_card_codes", "fact_card_refs",
             "fact_claim_codes", "fact_claim_refs",
             "content_rule_codes", "content_rule_refs",
             "primary_template_code", "secondary_template_codes", "primary_template_ref",
-            "secondary_template_refs", "template_contribution_decisions",
+            "secondary_template_refs", "template_contribution_decisions", "selected_group_codes",
+            "selected_asset_codes",
         )
         document = {field: payload.get(field) for field in fields if include_defaults or field in payload}
         if include_defaults:
@@ -906,7 +1048,8 @@ class FunctionalContentService:
                 "conversion_requirements", "staging_requirements", "visual_requirements",
                 "audio_requirements", "fact_card_codes", "fact_card_refs", "fact_claim_codes",
                 "fact_claim_refs", "content_rule_codes", "content_rule_refs", "secondary_template_codes",
-                "secondary_template_refs", "template_contribution_decisions",
+                "secondary_template_refs", "template_contribution_decisions", "selected_group_codes",
+                "selected_asset_codes",
             ):
                 document[field] = document.get(field) or []
         document["generation_mode"] = "deterministic_demo"
@@ -1712,6 +1855,10 @@ class FunctionalContentService:
             "价格", "优惠", "促销", "库存", "赠品", "功效", "¥", "￥",
             "price", "discount", "inventory", "free gift", "benefit",
         )
+        restriction_markers = (
+            "without", "do not", "don't", "must not", "avoid", "禁止", "不得",
+            "不要", "避免", "不可", "不应", "不能", "未经批准", "未获批准",
+        )
         for block in blocks:
             text = str(block.get("content") or "").lower()
             citations = block.get("fact_citations") or []
@@ -1742,7 +1889,13 @@ class FunctionalContentService:
                         "Fact citation claim spans must stay within the ScriptBlock text",
                         details={"module_type": block.get("module_type"), "fact_card_code": code},
                     )
-            if not any(marker.lower() in text for marker in restricted_markers):
+            restricted_sentences = [
+                sentence
+                for sentence in re.split(r"[。！？!?；;\n]+", text)
+                if any(marker.lower() in sentence for marker in restricted_markers)
+                and not any(marker in sentence for marker in restriction_markers)
+            ]
+            if not restricted_sentences:
                 continue
             cited_codes = {
                 str(citation.get("fact_card_code"))

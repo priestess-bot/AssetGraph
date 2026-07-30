@@ -39,7 +39,7 @@ def test_video_production_repository_persists_checkpoints_leases_and_retry_bound
             assert len(created["stages"]) == 8
             assert created["status"] == "queued"
 
-            claimed = repository.claim_next("video-worker-a", 60)
+            claimed = repository.claim_next("video-worker-a", 60, job_code=job_code)
             assert claimed is not None
             assert claimed["job_code"] == job_code
             lease_token = claimed["lease_token"]
@@ -98,7 +98,7 @@ def test_video_production_repository_persists_checkpoints_leases_and_retry_bound
             assert stages["script_generation"]["status"] == "pending"
             assert stages["script_generation"]["attempt"] == 2
 
-            claimed_again = repository.claim_next("video-worker-b", 60)
+            claimed_again = repository.claim_next("video-worker-b", 60, job_code=job_code)
             assert claimed_again is not None
             assert claimed_again["job_code"] == job_code
             assert repository.renew_lease(
@@ -130,7 +130,7 @@ def test_quality_gate_failure_retries_from_rendering_and_discards_render_artifac
         )
         job_code = created["job_code"]
         try:
-            claimed = repository.claim_next("quality-worker", 60)
+            claimed = repository.claim_next("quality-worker", 60, job_code=job_code)
             assert claimed is not None
             assert claimed["job_code"] == job_code
             lease_token = claimed["lease_token"]
@@ -233,7 +233,7 @@ def test_artifact_registration_requires_current_job_attempt_scope() -> None:
         )
         job_code = created["job_code"]
         try:
-            claimed = repository.claim_next("artifact-worker", 60)
+            claimed = repository.claim_next("artifact-worker", 60, job_code=job_code)
             assert claimed is not None
             assert claimed["job_code"] == job_code
             lease_token = claimed["lease_token"]

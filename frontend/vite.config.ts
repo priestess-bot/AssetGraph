@@ -1,22 +1,24 @@
 import { defineConfig } from "vitest/config";
+import { loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 
 export default defineConfig(({ mode }) => {
-  const entry = mode === "live-research" ? "live-research" : mode === "console" ? "console" : "maitu";
+  const env = loadEnv(mode, ".", "");
+  const apiProxyTarget = env.VITE_API_PROXY_TARGET || "http://127.0.0.1:8000";
 
   return {
-    root: entry,
-    base: `/${entry}/`,
+    root: "console",
+    base: "/console/",
     plugins: [react()],
     build: {
-      outDir: `../dist/${entry}`,
+      outDir: "../dist/console",
       emptyOutDir: true,
     },
     server: {
-      port: entry === "console" ? 5173 : entry === "maitu" ? 5174 : 5175,
+      port: 5173,
       proxy: {
         "/api": {
-          target: "http://127.0.0.1:8000",
+          target: apiProxyTarget,
           changeOrigin: true,
         },
       },

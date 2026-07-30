@@ -96,12 +96,20 @@ export interface FunctionalVideoPlan {
       checksumSha256: string;
       gainDb: number;
     };
+    inheritedLiveRoomMaterialSnapshot?: {
+      liveRoomPlanCode: string;
+      productionVariantCode: string;
+      productionVariantRevision: number;
+      fingerprintSha256: string;
+      assetCodes: string[];
+    };
     target_duration_seconds?: number;
     canvas?: { width: number; height: number; fps: number };
   };
   jobStatus: string;
   currentStage?: string;
   progressPercent: number;
+  errorCode?: string;
   errorMessage?: string;
   finalAssetId?: string;
   qualityReport: {
@@ -150,7 +158,16 @@ export interface FunctionalVideoPlan {
     mime_type?: string;
     file_size?: number;
     checksum_sha256?: string;
+    metadata: Record<string, unknown>;
   }>;
+  reproducibility: {
+    timelineRevision: number;
+    timelineFingerprintSha256: string;
+    manifestCovers: string[];
+    retryDifferenceRecorded: boolean;
+    renderManifest?: VideoReproducibilityArtifact;
+    renderManifestDifference?: VideoReproducibilityArtifact;
+  };
   timelineSegments: Array<{
     segmentCode: string;
     clipCode: string;
@@ -199,6 +216,13 @@ export interface VideoQualitySegment {
   startSeconds: number;
   endSeconds: number;
   durationSeconds: number;
+}
+
+interface VideoReproducibilityArtifact {
+  artifactKey: string;
+  checksumSha256?: string;
+  downloadUrl?: string;
+  metadata: Record<string, unknown>;
 }
 
 function qualitySegments(value: unknown): VideoQualitySegment[] {
@@ -505,8 +529,27 @@ function plan(value: unknown): FunctionalVideoPlan {
   const visualSelection = isRecord(profile.visual_selection)
     ? profile.visual_selection
     : {};
+  const inheritedLiveRoomSnapshot = isRecord(
+    profile.inherited_live_room_material_snapshot,
+  )
+    ? profile.inherited_live_room_material_snapshot
+    : undefined;
   const quality = isRecord(value.quality_report) ? value.quality_report : {};
   const release = isRecord(value.release) ? value.release : undefined;
+  const reproducibility = isRecord(value.reproducibility)
+    ? value.reproducibility
+    : {};
+  const reproducibilityArtifact = (
+    artifact: unknown,
+  ): VideoReproducibilityArtifact | undefined =>
+    isRecord(artifact) && asString(artifact.artifact_key)
+      ? {
+          artifactKey: asString(artifact.artifact_key),
+          checksumSha256: asOptionalString(artifact.checksum_sha256),
+          downloadUrl: asOptionalString(artifact.download_url),
+          metadata: isRecord(artifact.metadata) ? artifact.metadata : {},
+        }
+      : undefined;
   return {
     planCode: code,
     projectCode: asString(value.project_code),
@@ -593,6 +636,28 @@ function plan(value: unknown): FunctionalVideoPlan {
               gainDb: asNumber(profile.sound_effect.gain_db),
             }
           : undefined,
+      inheritedLiveRoomMaterialSnapshot:
+        inheritedLiveRoomSnapshot &&
+        asString(inheritedLiveRoomSnapshot.live_room_plan_code) &&
+        asString(inheritedLiveRoomSnapshot.fingerprint_sha256)
+          ? {
+              liveRoomPlanCode: asString(
+                inheritedLiveRoomSnapshot.live_room_plan_code,
+              ),
+              productionVariantCode: asString(
+                inheritedLiveRoomSnapshot.production_variant_code,
+              ),
+              productionVariantRevision: asNumber(
+                inheritedLiveRoomSnapshot.production_variant_revision,
+              ),
+              fingerprintSha256: asString(
+                inheritedLiveRoomSnapshot.fingerprint_sha256,
+              ),
+              assetCodes: asArray(
+                inheritedLiveRoomSnapshot.asset_codes,
+              ).flatMap((code) => (typeof code === "string" ? [code] : [])),
+            }
+          : undefined,
       target_duration_seconds:
         typeof profile.target_duration_seconds === "number"
           ? profile.target_duration_seconds
@@ -608,6 +673,7 @@ function plan(value: unknown): FunctionalVideoPlan {
     jobStatus: asString(value.job_status),
     currentStage: asOptionalString(value.current_stage),
     progressPercent: asNumber(value.progress_percent),
+    errorCode: asOptionalString(value.error_code),
     errorMessage: asOptionalString(value.error_message),
     finalAssetId: asOptionalString(value.final_asset_id),
     qualityReport: qualityReport(quality),
@@ -638,10 +704,31 @@ function plan(value: unknown): FunctionalVideoPlan {
                   ? artifact.file_size
                   : undefined,
               checksum_sha256: asOptionalString(artifact.checksum_sha256),
+              metadata: isRecord(artifact.metadata) ? artifact.metadata : {},
             },
           ]
           : [],
     ),
+    reproducibility: {
+      timelineRevision: asNumber(
+        reproducibility.timeline_revision,
+        asNumber(value.timeline_revision, 1),
+      ),
+      timelineFingerprintSha256: asString(
+        reproducibility.timeline_fingerprint_sha256,
+      ),
+      manifestCovers: asArray(reproducibility.manifest_covers).flatMap(
+        (item) => (typeof item === "string" ? [item] : []),
+      ),
+      retryDifferenceRecorded:
+        reproducibility.retry_difference_recorded === true,
+      renderManifest: reproducibilityArtifact(
+        reproducibility.render_manifest,
+      ),
+      renderManifestDifference: reproducibilityArtifact(
+        reproducibility.render_manifest_difference,
+      ),
+    },
     timelineSegments: asArray(value.timeline_segments).flatMap((segment) =>
       isRecord(segment) &&
       asString(segment.segment_code) &&

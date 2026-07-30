@@ -6,6 +6,14 @@ AssetGraph 是一个面向麦兔软件与数字人直播业务的多模态视频
 
 ## 当前范围
 
+### 统一产品入口
+
+构建并启动后端后，通过 `/console/` 进入唯一的 AssetGraph 直播内容运营工作台。正式导航包含业务概览、素材库、直播模板、知识库、内容项目、运营分析和效果学习；直播间、成片与交付从内容项目进入，也支持 `/production/live-rooms`、`/production/videos` 和 `/production/releases` 深链。
+
+工作台浏览入口不要求额外登录；需要控制面或麦兔写入权限的操作仍由后端按能力单独门禁，未连接授权时不会阻断素材、模板、知识和内容项目页面的浏览与编辑。
+
+旧 `/maitu/` 与 `/live-research/` 浏览器入口已经退役，不再构建或挂载独立前端。`/api/maitu/*`、`/api/live-research/*` 领域 API、相关 Worker 和本地数据仍继续使用。
+
 - 素材编号：`AG-{TYPE}-{YYYYMMDD}-{SEQ}`
 - 直播编号：`AG-LIVE-{YYYYMMDD}-{SEQ}`
 - 数字人编号：`AG-DH-{YYYYMMDD}-{SEQ}`
@@ -40,9 +48,9 @@ AssetGraph 是一个面向麦兔软件与数字人直播业务的多模态视频
 - 麦兔 BuildPlan 剧本上下文自动选材：`strategy=script_context_best_match` / `auto_select_assets=true` 会按 `script_blocks`、图层角色、`required_category`、`accepted_asset_types` 从素材库选 Top-1，写入 `selected_asset_code`、Browser-use 友好编号、本地文件码、匹配分和原因；模板预览 `MT-TPL-*` 只作为风格/结构索引，不能作为背景/装饰等直接图层素材；仍只进入 dry-run/预检，不真实上传替换
 - 直播剧本生成 Stage 0：`POST /api/maitu/livestream-script-drafts` 从结构化、已核验的商品事实生成24小时循环纯口播、结构化段落与质量报告；不推断直播间商品总数，不使用未核验促销，不为目标时长重复内容
 - 剧本驱动完整自动化：`POST /api/maitu/script-driven-build-pipelines` 一次运行剧本生成/质量门禁 → 场景计划 → 素材需求 → 真实素材选择 → 缺口报告 → 布局 → BuildPlan；质量未过时保留审阅产物但强制 `can_execute=false`，始终不授权正式开播
-- 麦兔主题生产工作台：`/maitu/` 固定已批准事实版本和不可变麦兔资源快照，由 DeepSeek 生成剧本、场景和素材意图，持久化素材需求、人工决策、Replan、preflight 与草稿执行证据；参考房间只读，永不排播或开播
+- 直播内容项目工作台：`/console/projects` 固定已批准事实版本和资源快照，组织简报、剧本、直播间、成片、交付与项目动态；参考房间只读，永不排播或开播
 - 素材多模型分析：视频分析结果绑定 `asset_code` 与内容指纹，支持 OpenAI 视觉结果、Gemini 人工 JSON、冲突检测和人工裁决；当前计划选用素材的未裁决关键冲突会阻断 preflight
-- 抖音直播研究工作台：`/live-research/` 以固定版本 StreamCap/douyinLive 单路采集 720p、600 秒 TS 分片和原始互动事件，支持统一时间轴、IN/OUT 切片、ASR/视觉分析及人工模板发布
+- 直播模板工作台：`/console/templates` 承接固定版本 StreamCap/douyinLive 的录屏、解析、清洗和人工模板发布；采集仍维持单路 720p、600 秒 TS 分片和原始互动事件契约
 - 麦兔模板场景组件索引：导入 LiveRoomBlueprint 时同步物化 `TemplateScene / TemplateComponent` 索引，提供 `/api/maitu/live-room-template-scenes`、`/api/maitu/live-room-template-scenes/{scene_template_code}/components`，并让 `scene-components/by-script` 走正式组件索引返回单场景组件详情，不再依赖临时解析大 JSON
 - 麦兔单场景 BuildPlan dry-run：提供 `POST /api/maitu/live-room-scene-build-plans`，输入剧本查询和目标脚本后先匹配一个 `TemplateScene`，再基于该场景的 `TemplateComponent` 生成 `preflight_scene_build_plan -> create_scene_from_template -> insert_template_component* -> add_script_block -> save_live_room` 的可审阅单场景计划；默认只生成计划，不真实上传/插入/开播
 - 麦兔 BuildPlan 只读 preflight：worker 支持 `--build-plan-code MT-BUILD-* --preflight-build`，拉取 BuildPlan operations 并只读校验登录态、liveRoomId、场景、激活场景图层、直播脚本面板、`save_live_room=manual_review` 与禁开播规则；已支持单场景计划中的 `preflight_scene_build_plan`、`create_scene_from_template`、`insert_template_component`
@@ -128,7 +136,7 @@ uv run --project backend uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 该链路接收一个主题，持久化运行 StoryBrief、商业剧本、六镜头 ShotList、真实素材选择、配音、字幕、FFmpeg 渲染和质量检查，产物通过 `/api/video-productions` 审阅和下载。旧 `/demo/` 页面已移除；链路本身继续保留，且不上传麦兔、不排播、不触发开播。
 
-麦兔工作台与直播研究入口：
+麦兔与直播研究 Worker：
 
 ```bash
 # 真实麦兔同步及草稿任务队列
@@ -146,7 +154,7 @@ uv run --project workers/live-research assetgraph-live-research clip-worker
 uv run --project workers/live-research assetgraph-live-research analysis-worker
 ```
 
-页面分别位于 `/maitu/` 和 `/live-research/`。麦兔运行需要已登录的可见 Chrome、一个人工新建的空白草稿直播间和 `DEEPSEEK_API_KEY`；素材/直播多模态分析另需 `OPENAI_API_KEY`。没有抖音观察目标时采集调度器保持空闲，不会自行录制。
+所有运营页面统一位于 `/console/`，麦兔与录屏解析分别从内容项目、直播模板进入。麦兔运行需要已登录的可见 Chrome、一个人工新建的空白草稿直播间和 `DEEPSEEK_API_KEY`；素材/直播多模态分析另需 `OPENAI_API_KEY`。没有抖音观察目标时采集调度器保持空闲，不会自行录制。
 
 通过后端 API 导入本地麦兔素材 inventory（API-first，不直接写数据库）：
 

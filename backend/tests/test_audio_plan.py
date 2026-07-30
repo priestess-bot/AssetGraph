@@ -61,8 +61,11 @@ def test_build_plan_freezes_fresh_blank_room_preflight() -> None:
             "scenes": [],
         },
         target_live_room_id="47000002",
+        expected_title="新品空白草稿",
     )
 
     preflight = plan["operations"][0]
     assert preflight["require_fresh_blank_room"] is True
+    assert plan["expected_title"] == "新品空白草稿"
+    assert preflight["expected_live_room_title"] == "新品空白草稿"
     assert set(preflight["protected_reference_room_ids"]) == {"38336", "38995"}

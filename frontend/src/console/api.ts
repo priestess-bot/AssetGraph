@@ -8,6 +8,7 @@ import {
   requestJson,
 } from "../workbench/api";
 import type {
+  ConsoleBusinessOverview,
   ConsoleCommandResult,
   ConsoleDraft,
   ConsoleEntityDetail,
@@ -90,6 +91,30 @@ function normalizeNotification(value: unknown): ConsoleNotification | undefined 
     occurrenceCount: asNumber(value.occurrence_count, 1),
     occurredAt: asString(value.occurred_at),
     status: asString(value.status, "open"),
+  };
+}
+
+function normalizeBusinessOverview(value: unknown): ConsoleBusinessOverview {
+  if (!isRecord(value) || !isRecord(value.coverage)) throw new Error("业务概览响应无效");
+  return {
+    fromDate: asString(value.from_date),
+    toDate: asString(value.to_date),
+    metrics: asArray(value.metrics).flatMap((item) => {
+      if (!isRecord(item)) return [];
+      const key = asString(item.key);
+      if (!["projects", "live_rooms", "videos", "sessions"].includes(key)) return [];
+      return [{ key: key as ConsoleBusinessOverview["metrics"][number]["key"], label: asString(item.label), value: asNumber(item.value), previousValue: asNumber(item.previous_value), unit: asString(item.unit) }];
+    }),
+    trend: asArray(value.trend).flatMap((item) => isRecord(item) ? [{ date: asString(item.date), projects: asNumber(item.projects), liveRooms: asNumber(item.live_rooms), videos: asNumber(item.videos), sessions: asNumber(item.sessions) }] : []),
+    rankings: asArray(value.rankings).flatMap((item) => isRecord(item) ? [{ projectCode: asString(item.project_code), title: asString(item.title), sessionCount: asNumber(item.session_count), lastSessionAt: asOptionalString(item.last_session_at) }] : []),
+    coverage: {
+      readyAssets: asNumber(value.coverage.ready_assets),
+      publishedTemplates: asNumber(value.coverage.published_templates),
+      approvedFacts: asNumber(value.coverage.approved_facts),
+      boundSessions: asNumber(value.coverage.bound_sessions),
+      totalSessions: asNumber(value.coverage.total_sessions),
+    },
+    recentProjects: asArray(value.recent_projects).flatMap((item) => isRecord(item) ? [{ projectCode: asString(item.project_code), title: asString(item.title), status: asString(item.status), hasLiveRoom: item.has_live_room === true, hasVideo: item.has_video === true, sessionCount: asNumber(item.session_count), updatedAt: asString(item.updated_at) }] : []),
   };
 }
 
@@ -218,6 +243,7 @@ export const consoleApi = {
   session: (token?: string) => requestJson<unknown>(`${ROOT}/session`, token ? {
     headers: { Authorization: `Bearer ${token}` },
   } : undefined).then(normalizeSession),
+  businessOverview: (from?: string, to?: string) => requestJson<unknown>(`${ROOT}/business-overview${queryString({ from, to })}`).then(normalizeBusinessOverview),
   search: (query: string) => requestJson<unknown>(`${ROOT}/search${queryString({ q: query })}`)
     .then((value) => asArray(value).flatMap((item) => normalizeSearchResult(item) ?? [])),
   tasks: () => requestJson<unknown>(`${ROOT}/tasks`)

@@ -73,7 +73,8 @@ def test_decisions_and_stable_experiment_outcomes() -> None:
             }
         )
         assert effect["status"] == "candidate"
-        assert effect["eligibility_snapshot"]["qualification"] == "descriptive_only"
+        assert effect["eligibility_snapshot"]["qualification"] == "descriptive_hint_only"
+        assert effect["eligibility_snapshot"]["recommendation_eligible"] is False
         approved = s.approve_effect_estimate(effect["effect_code"], "operator")
         assert approved is not None
         assert approved["status"] == "approved"
@@ -88,6 +89,7 @@ def test_decisions_and_stable_experiment_outcomes() -> None:
         assert reproduction["decision_code"].startswith("DEC-")
         assert reproduction["source_project_code"] == source["project_code"]
         assert reproduction["reproduced_project_code"] != source["project_code"]
+        assert reproduction["production_variant_code"].startswith("VARIANT-")
         with c.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
                 "SELECT source_revision_refs FROM content_project_revisions WHERE project_code = %s",
@@ -106,6 +108,19 @@ def test_decisions_and_stable_experiment_outcomes() -> None:
         assert reproduction_decision["decision_payload"]["reproduced_project_code"] == reproduction[
             "reproduced_project_code"
         ]
+        with c.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """SELECT status, branch_target, configuration
+                   FROM production_variant_revisions
+                   WHERE variant_code = %s AND revision_number = %s""",
+                (
+                    reproduction["production_variant_code"],
+                    reproduction["production_variant_revision_number"],
+                ),
+            )
+            reproduction_variant = cursor.fetchone()
+        assert reproduction_variant["status"] == "draft"
+        assert reproduction_variant["branch_target"]["effect_reproduction"] is True
         revoked = s.revoke_effect_estimate(
             effect["effect_code"],
             "operator",
@@ -116,7 +131,10 @@ def test_decisions_and_stable_experiment_outcomes() -> None:
         assert revoked["revoked_by"] == "operator"
         assert revoked["revoked_reason"] == "The supporting metric input was corrected."
         with pytest.raises(DomainValidationError) as revoked_reproduction:
-            s.reproduce_effect(effect["effect_code"], {})
+            s.reproduce_effect(
+                effect["effect_code"],
+                {"change_hypothesis": "This must not run after the effect is revoked."},
+            )
         assert revoked_reproduction.value.code == "EFFECT_ESTIMATE_APPROVAL_REQUIRED"
         repeated_revocation = s.revoke_effect_estimate(
             effect["effect_code"],

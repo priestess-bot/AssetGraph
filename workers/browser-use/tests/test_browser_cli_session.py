@@ -736,6 +736,24 @@ def test_probe_accepts_logged_in_maitu_dashboard_without_opening_home() -> None:
     assert runner.commands == [("uv", "run", "browser-use", "state")]
 
 
+def test_probe_rereads_an_empty_maitu_shell_before_classifying_login() -> None:
+    session, runner = make_session(
+        [
+            '{"title":"MyTwins麦兔直播","href":"https://live2.maituai.com/LiveRoom?liveRoomId=38336","text":""}',
+            '{"title":"MyTwins麦兔直播","href":"https://live2.maituai.com/Login","text":"欢迎，登陆麦兔直播\\n手机号登录"}',
+        ]
+    )
+
+    probe = session.probe_current_page(open_if_needed=True)
+
+    assert probe.logged_in is False
+    assert probe.login_required is True
+    assert runner.commands == [
+        ("uv", "run", "browser-use", "state"),
+        ("uv", "run", "browser-use", "state"),
+    ]
+
+
 def test_readonly_session_blocks_mutating_operations() -> None:
     session, _runner = make_session([])
 
@@ -950,6 +968,17 @@ def test_logged_in_detection_rejects_lookalike_maitu_url() -> None:
             "MyTwins 麦兔",
             "https://maituai.com.evil.test/MyTwins",
             "素材管理 直播间",
+        )
+        is False
+    )
+
+
+def test_logged_in_detection_rejects_unsettled_maitu_shell() -> None:
+    assert (
+        BrowserUseCliSession._looks_like_logged_in(
+            "MyTwins麦兔直播",
+            "https://live2.maituai.com/LiveRoom?liveRoomId=38336",
+            "",
         )
         is False
     )

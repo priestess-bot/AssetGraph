@@ -15,6 +15,25 @@ NOW = datetime(2026, 7, 23, tzinfo=UTC)
 
 
 class FakeConsoleRepository:
+    def business_overview(self, *, from_at: datetime, to_at: datetime) -> dict:
+        assert from_at == datetime(2026, 7, 1, tzinfo=UTC)
+        assert to_at == datetime(2026, 7, 28, tzinfo=UTC)
+        return {
+            "from_date": from_at,
+            "to_date": to_at,
+            "metrics": [
+                {"key": "projects", "label": "新建内容项目", "value": 3, "previous_value": 2, "unit": "个"},
+                {"key": "live_rooms", "label": "直播间方案", "value": 2, "previous_value": 1, "unit": "份"},
+                {"key": "videos", "label": "成片制作", "value": 1, "previous_value": 0, "unit": "条"},
+                {"key": "sessions", "label": "已关联场次", "value": 4, "previous_value": 3, "unit": "场"},
+            ],
+            "trend": [{"date": NOW, "projects": 1, "live_rooms": 1, "videos": 1, "sessions": 2}],
+            "rankings": [{"project_code": "CONTENT-001", "title": "夏日直播", "session_count": 4, "last_session_at": NOW}],
+            "coverage": {"ready_assets": 12, "published_templates": 3, "approved_facts": 8, "bound_sessions": 4, "total_sessions": 5},
+            "recent_projects": [{"project_code": "CONTENT-001", "title": "夏日直播", "status": "active", "has_live_room": True, "has_video": True, "session_count": 4, "updated_at": NOW}],
+            "internal_debug_code": "OVERVIEW-DEBUG-001",
+        }
+
     def search(self, query: str, *, limit: int) -> list[dict]:
         assert query == "CONTENT"
         assert limit == 10
@@ -217,6 +236,20 @@ def test_console_session_search_tasks_and_notifications_are_stable_deep_links(
     assert notifications.status_code == 200
     assert notifications.json()[0]["state"] == "warning"
     assert notifications.json()[0]["evidence"] == {"manifest": "MANIFEST-001"}
+
+
+def test_console_business_overview_returns_only_business_projection(client: TestClient) -> None:
+    response = client.get(
+        "/api/console/business-overview",
+        params={"from": "2026-07-01T00:00:00Z", "to": "2026-07-28T00:00:00Z"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [item["key"] for item in body["metrics"]] == ["projects", "live_rooms", "videos", "sessions"]
+    assert body["coverage"] == {"ready_assets": 12, "published_templates": 3, "approved_facts": 8, "bound_sessions": 4, "total_sessions": 5}
+    assert body["recent_projects"][0]["title"] == "夏日直播"
+    assert "internal_debug_code" not in body
 
 
 def test_console_search_rejects_single_character_query(client: TestClient) -> None:

@@ -99,6 +99,10 @@ function errorMessage(body: unknown, status: number): string {
     const direct = asOptionalString(body.message) ?? asOptionalString(body.error_message);
     if (direct) return direct;
     if (typeof body.detail === "string" && body.detail.trim()) return body.detail;
+    if (isRecord(body.detail)) {
+      const nested = asOptionalString(body.detail.message);
+      if (nested && /[^\x00-\x7F]/.test(nested)) return nested;
+    }
   }
   if (status === 409) return "当前数据已经变化，请刷新后重试";
   if (status === 404) return "请求的对象不存在或尚未创建";
@@ -107,11 +111,15 @@ function errorMessage(body: unknown, status: number): string {
 }
 
 export async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const bodyIsFormData =
+    typeof FormData !== "undefined" && init?.body instanceof FormData;
   const response = await fetch(path, {
     ...init,
     headers: {
       Accept: "application/json",
-      ...(init?.body ? { "Content-Type": "application/json" } : {}),
+      ...(init?.body && !bodyIsFormData
+        ? { "Content-Type": "application/json" }
+        : {}),
       ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       ...init?.headers,
     },

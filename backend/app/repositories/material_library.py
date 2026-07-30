@@ -79,6 +79,28 @@ class MaterialLibraryRepository:
         self.connection.commit()
         return self._stringify(row) if row else None
 
+    def update_asset_rights(
+        self,
+        asset_code: str,
+        *,
+        rights_status: str,
+        rights_note: str,
+        actor: str,
+    ) -> dict[str, Any] | None:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """UPDATE assets
+                   SET rights_status = %s, rights_note = %s,
+                       rights_updated_at = now(), rights_updated_by = %s,
+                       updated_at = now()
+                   WHERE asset_code = %s AND deleted_at IS NULL
+                   RETURNING *""",
+                (rights_status, rights_note, actor, asset_code),
+            )
+            row = cursor.fetchone()
+        self.connection.commit()
+        return self._stringify(row) if row else None
+
     def update_asset_classifications(
         self,
         asset_codes: list[str],
@@ -148,6 +170,7 @@ class MaterialLibraryRepository:
                 FROM asset_groups g
                 LEFT JOIN asset_group_members gm ON gm.group_id = g.id
                 LEFT JOIN assets a ON a.id = gm.asset_id AND a.deleted_at IS NULL
+                WHERE g.archived_at IS NULL
                 GROUP BY g.id ORDER BY g.updated_at DESC, g.group_code
                 """
             )
@@ -173,7 +196,10 @@ class MaterialLibraryRepository:
     def replace_group_members(self, group_code: str, asset_codes: list[str]) -> dict[str, Any] | None:
         codes = self._dedupe_codes(asset_codes)
         with self.connection.cursor(row_factory=dict_row) as cursor:
-            cursor.execute("SELECT id FROM asset_groups WHERE group_code = %s FOR UPDATE", (group_code,))
+            cursor.execute(
+                "SELECT id FROM asset_groups WHERE group_code = %s AND archived_at IS NULL FOR UPDATE",
+                (group_code,),
+            )
             group = cursor.fetchone()
             if group is None:
                 self.connection.rollback()
@@ -183,6 +209,38 @@ class MaterialLibraryRepository:
             cursor.execute("UPDATE asset_groups SET updated_at = now() WHERE id = %s", (group["id"],))
         self.connection.commit()
         return self.get_group(group_code)
+
+    def update_group(
+        self,
+        group_code: str,
+        *,
+        title: str,
+        description: str | None,
+    ) -> dict[str, Any] | None:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """UPDATE asset_groups
+                   SET title = %s, description = %s, updated_at = now()
+                   WHERE group_code = %s AND archived_at IS NULL
+                   RETURNING id""",
+                (title, description, group_code),
+            )
+            row = cursor.fetchone()
+        self.connection.commit()
+        return self.get_group(group_code) if row else None
+
+    def archive_group(self, group_code: str) -> bool:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """UPDATE asset_groups
+                   SET archived_at = now(), archive_reason = 'customer_deleted', updated_at = now()
+                   WHERE group_code = %s AND archived_at IS NULL
+                   RETURNING id""",
+                (group_code,),
+            )
+            row = cursor.fetchone()
+        self.connection.commit()
+        return row is not None
 
     def write_constraint_profile(self, asset_code: str, constraints: list[dict[str, Any]]) -> dict[str, Any] | None:
         canonical = self._canonical(constraints)
@@ -768,6 +826,7 @@ class MaterialLibraryRepository:
             cursor.execute(
                 """SELECT asset.asset_code, COALESCE(asset.title, asset.original_filename) AS title,
                           asset.media_kind, asset.material_roles, asset.execution_capability,
+                          asset.rights_status,
                           profile.profile_code, revision.revision_number, revision.fingerprint_sha256,
                           effect_refs.qualified_effect_refs
                    FROM assets asset
@@ -816,6 +875,8 @@ class MaterialLibraryRepository:
                 exclusion_codes.append("ROLE_MISMATCH")
             if capability in {"unavailable", "unclassified"}:
                 exclusion_codes.append("EXECUTION_CAPABILITY_UNAVAILABLE")
+            if str(row.get("rights_status") or "pending") != "approved":
+                exclusion_codes.append("RIGHTS_NOT_APPROVED")
             if carrier_kind == "live_room" and capability != "maitu_bound":
                 exclusion_codes.append("LIVE_ROOM_MAITU_BINDING_REQUIRED")
             if exclusion_codes:
@@ -835,6 +896,7 @@ class MaterialLibraryRepository:
                     "media_kind": row["media_kind"],
                     "material_roles": roles,
                     "execution_capability": capability,
+                    "rights_status": str(row.get("rights_status") or "pending"),
                     "score": sum(score_parts.values()),
                     "score_parts": score_parts,
                     "selection_reasons": (
@@ -857,7 +919,7 @@ class MaterialLibraryRepository:
             "carrier_kind": carrier_kind,
             "candidates": candidates,
             "excluded": excluded,
-            "unverified_gates": ["RIGHTS_GRANT_NOT_IMPLEMENTED", "CONSTRAINT_SOLVER_NOT_RUN"],
+            "unverified_gates": ["CONSTRAINT_SOLVER_NOT_RUN"],
         }
 
     def update_gap(self, gap_code: str, payload: dict[str, Any]) -> dict[str, Any] | None:

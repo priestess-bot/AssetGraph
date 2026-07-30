@@ -1,10 +1,18 @@
-# AssetGraph 直播内容生产与运营闭环落地 Checklist
+# AssetGraph 直播内容生产与运营闭环 Checklist（生产级归档参考）
 
-> 状态：执行中（Phase 0）
+> 状态：归档参考；2026-07-26 起不再作为客户体验 v1 的完成率分母
 > 日期：2026-07-23
 > 权威设计：[AssetGraph 直播内容生产与运营闭环设计](./2026-07-22-live-content-production-operations-closed-loop-design.md)
 > 最终目标：[AssetGraph 最终目标](../final-goal.md)
 > 适用范围：从当前仓库基线演进到权威设计第 30 节定义的完整系统
+> 当前执行清单：[客户体验优先 v1 落地 Checklist](./2026-07-26-customer-experience-v1-implementation-checklist.md)
+> 范围决策：[ADR-0003](../adr/0003-customer-experience-v1-scope.md)
+
+本文件保留 577 项生产级路线、既有勾选状态与执行证据，供未来生产化继续
+使用。它不是 v1 的客户价值完成率，也不得再用其开放项阻塞 v1 功能验收。
+v1 中每个旧条目的处置以 ADR-0003 和新清单的范围映射为准：`retain` 表示
+直接保留，`simplify` 表示以客户结果简化实现，`defer` 表示推迟到生产化，
+`superseded_by` 表示由新清单中的结果项替代。
 
 ## 0. 使用规则
 

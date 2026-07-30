@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
-from urllib.parse import parse_qs, urlsplit
 
 from app.main import app
 
@@ -33,51 +32,12 @@ def test_console_asset_paths_do_not_fall_back_to_html_when_missing() -> None:
     assert "AssetGraph Console" not in response.text
 
 
-def _redirect(path: str) -> tuple[str, dict[str, list[str]]]:
+def test_retired_frontend_roots_do_not_serve_or_redirect_legacy_apps() -> None:
     with TestClient(app) as client:
-        response = client.get(path, follow_redirects=False)
-    assert response.status_code == 308
-    location = urlsplit(response.headers["location"])
-    return location.path, parse_qs(location.query, keep_blank_values=True)
+        maitu = client.get("/maitu/?run=RUN-001", follow_redirects=False)
+        research = client.get("/live-research/?session=CAP-001", follow_redirects=False)
 
-
-def test_legacy_maitu_frontend_views_redirect_to_stable_routes_with_deep_links() -> None:
-    production_path, production_query = _redirect(
-        "/maitu/?run=RUN-001&reference_template_code=TPL-001&"
-        f"reference_template_revision_number=2&reference_template_projection_fingerprint={'a' * 64}"
-    )
-    assert production_path == "/production/live-rooms"
-    assert production_query == {
-        "run": ["RUN-001"],
-        "reference_template_code": ["TPL-001"],
-        "reference_template_revision_number": ["2"],
-        "reference_template_projection_fingerprint": ["a" * 64],
-    }
-
-    resources_path, resources_query = _redirect("/maitu?view=resources&asset=ASSET-001&tag=a&tag=b")
-    assert resources_path == "/assets/library"
-    assert resources_query == {"asset": ["ASSET-001"], "tag": ["a", "b"]}
-
-    analysis_path, analysis_query = _redirect("/maitu/?view=gemini&run=RUN-002&panel=legacy")
-    assert analysis_path == "/assets/library"
-    assert analysis_query == {"run": ["RUN-002"], "panel": ["analysis"]}
-
-
-def test_legacy_live_research_views_redirect_to_stable_routes_with_deep_links() -> None:
-    watch_path, watch_query = _redirect("/live-research/?source=ROOM-001")
-    assert watch_path == "/research/live-sources"
-    assert watch_query == {"source": ["ROOM-001"]}
-
-    sessions_path, sessions_query = _redirect(
-        "/live-research?view=sessions&session=CAP-001&track=asr&track=visual"
-    )
-    assert sessions_path == "/research/live-sources"
-    assert sessions_query == {"view": ["sessions"], "session": ["CAP-001"], "track": ["asr", "visual"]}
-
-    published_path, published_query = _redirect("/live-research/?view=published&template=TPL-002")
-    assert published_path == "/research/live-sources"
-    assert published_query == {"view": ["published"], "template": ["TPL-002"]}
-
-    invalid_path, invalid_query = _redirect("/live-research/?view=unknown&template=TPL-003")
-    assert invalid_path == "/research/live-sources"
-    assert invalid_query == {"template": ["TPL-003"]}
+    for response in (maitu, research):
+        assert response.status_code == 404
+        assert response.headers["content-type"].startswith("application/json")
+        assert "AssetGraph Console" not in response.text

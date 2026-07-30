@@ -624,6 +624,18 @@ class ScriptLayoutDraftRunner:
                 "read_live_room",
                 f"authoritative room id {authoritative_room_id!r} does not match requested room id {live_room_id!r}",
             )
+        expected_title = self._optional_string(operation.get("expected_live_room_title"))
+        authoritative_title = self._optional_string(room.get("name"))
+        if expected_title is not None and authoritative_title != expected_title:
+            return self._failed_action(
+                index,
+                operation,
+                "read_live_room",
+                (
+                    f"authoritative room title {authoritative_title!r} does not match "
+                    f"expected room title {expected_title!r}"
+                ),
+            )
         if room.get("_assetgraph_read_environment") != "working":
             return self._failed_action(
                 index,
@@ -698,11 +710,15 @@ class ScriptLayoutDraftRunner:
             clip_id=self._optional_int(default_clip.get("id")),
             details={
                 "target_live_room_id": live_room_id,
+                "expected_live_room_title": expected_title,
+                "authoritative_live_room_title": authoritative_title,
                 "default_clip_name": default_clip.get("name"),
                 "preflight_result": {
                     "verified": True,
                     "verification_source": "working_room_readback",
                     "live_room_id": live_room_id,
+                    "expected_live_room_title": expected_title,
+                    "authoritative_live_room_title": authoritative_title,
                     "environment": "working",
                     "not_live": True,
                     "default_clip_id": self._optional_int(default_clip.get("id")),

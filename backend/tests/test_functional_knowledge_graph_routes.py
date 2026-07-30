@@ -17,7 +17,7 @@ def _projection(**overrides: Any) -> dict[str, Any]:
         "projection_code": "GRAPH-001",
         "revision_number": 1,
         "status": "completed",
-        "ontology_version": "knowledge-lineage.v1",
+        "ontology_version": "knowledge-lineage.v2",
         "embedding_version": None,
         "source_watermark": {"source_fingerprint": "a" * 64, "node_count": 2, "edge_count": 1},
         "current_source_watermark": {"source_fingerprint": "a" * 64, "node_count": 2, "edge_count": 1},
@@ -53,6 +53,18 @@ class FakeGraphProjectionService:
     def get(code: str) -> dict[str, Any] | None:
         return _projection(projection_code=code) if code == "GRAPH-001" else None
 
+    @staticmethod
+    def search_lineage(query: str, scope: str) -> dict[str, Any]:
+        node = _projection()["nodes"][0]
+        return {
+            "query": query,
+            "scope": scope,
+            "projection_code": "GRAPH-001",
+            "projection_revision": 1,
+            "is_stale": False,
+            "results": [{"match": node, "nodes": [node], "edges": [], "truncated": False}],
+        }
+
 
 def _client(service: FakeGraphProjectionService) -> TestClient:
     app = FastAPI()
@@ -77,3 +89,13 @@ def test_graph_projection_route_returns_not_found_for_unknown_projection() -> No
     response = _client(FakeGraphProjectionService()).get("/api/functional-knowledge/graph-projections/missing")
 
     assert response.status_code == 404
+
+
+def test_graph_search_returns_scoped_lineage() -> None:
+    response = _client(FakeGraphProjectionService()).get(
+        "/api/functional-knowledge/graph-search?q=Product&scope=product"
+    )
+
+    assert response.status_code == 200
+    assert response.json()["scope"] == "product"
+    assert response.json()["results"][0]["match"]["node_code"] == "EVIDENCE-001"

@@ -360,6 +360,215 @@ class LiveObservationRepository:
             raise
         return self.get_capture_session(session_code, include_children=True)
 
+    def import_recording(
+        self,
+        payload: dict[str, Any],
+        *,
+        analysis_specs: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        target_code = self._next_code("watch_target")
+        session_code = self._next_code("capture_session")
+        chunk_code = self._next_code("capture_chunk")
+        channel_code = self._next_code("capture_channel")
+        audio_channel_code = self._next_code("capture_channel")
+        probe = dict(payload.get("media_probe") or {})
+        video = dict(probe.get("video") or {})
+        audio = next(
+            (dict(item) for item in probe.get("audio") or [] if isinstance(item, dict)),
+            None,
+        )
+        metadata = {
+            "source_type": "uploaded_recording",
+            "title": payload["source_room_title"],
+            "source_room_id": payload["source_room_id"],
+            "original_file_name": payload["file_name"],
+            "upload_content_type": payload["content_type"],
+            "upload_checksum_sha256": payload["checksum_sha256"],
+            "upload_pipeline": "recording-upload.v1",
+        }
+        try:
+            with self.connection.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    """
+                    SELECT * FROM live_watch_targets
+                    WHERE platform = 'douyin' AND canonical_room_id = %s
+                      AND deleted_at IS NULL
+                    FOR UPDATE
+                    """,
+                    (payload["source_room_id"],),
+                )
+                target = cursor.fetchone()
+                if target is None:
+                    cursor.execute(
+                        """
+                        INSERT INTO live_watch_targets (
+                            target_code, platform, room_url, canonical_room_id,
+                            display_name, recorder_engine, preferred_quality,
+                            status, poll_interval_seconds, retention_days, metadata
+                        )
+                        VALUES (%s, 'douyin', %s, %s, %s, 'external', '720p',
+                                'paused', 180, 30, %s)
+                        RETURNING *
+                        """,
+                        (
+                            target_code,
+                            f"https://live.douyin.com/{payload['source_room_id']}",
+                            payload["source_room_id"],
+                            payload["source_room_title"],
+                            Jsonb({"capture_mode": "upload_only"}),
+                        ),
+                    )
+                    target = cursor.fetchone()
+                target_code = str(target["target_code"])
+                cursor.execute(
+                    """
+                    INSERT INTO live_capture_sessions (
+                        session_code, target_id, target_code, platform,
+                        source_live_session_id, recorder_engine, recorder_version,
+                        recorder_build_fingerprint, event_adapter,
+                        event_adapter_version, status, observed_started_at,
+                        observed_ended_at, timeline_origin_at, metadata,
+                        started_at, ended_at
+                    )
+                    VALUES (%s, %s, %s, 'douyin', %s, 'external',
+                            'recording-upload.v1', %s, 'none', 'not-applicable',
+                            'completed', %s, %s, %s, %s, now(), now())
+                    RETURNING *
+                    """,
+                    (
+                        session_code,
+                        target["id"],
+                        target_code,
+                        f"upload:{payload['checksum_sha256'][:24]}",
+                        self._fingerprint(
+                            {
+                                "pipeline": "recording-upload.v1",
+                                "probe_schema": probe.get("schema_version"),
+                            }
+                        ),
+                        payload["observed_started_at"],
+                        payload["observed_ended_at"],
+                        payload["observed_started_at"],
+                        Jsonb(metadata),
+                    ),
+                )
+                session = cursor.fetchone()
+                cursor.execute(
+                    """
+                    INSERT INTO live_capture_channels (
+                        channel_code, session_id, session_code, channel_key,
+                        media_kind, stream_index, codec_name, time_base,
+                        width, height, average_frame_rate, metadata
+                    )
+                    VALUES (%s, %s, %s, 'uploaded-video', 'video', 0,
+                            %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        channel_code,
+                        session["id"],
+                        session_code,
+                        video.get("codec"),
+                        video.get("time_base"),
+                        video.get("width"),
+                        video.get("height"),
+                        video.get("frame_rate"),
+                        Jsonb({"source": "uploaded_recording"}),
+                    ),
+                )
+                if audio is not None:
+                    cursor.execute(
+                        """
+                        INSERT INTO live_capture_channels (
+                            channel_code, session_id, session_code, channel_key,
+                            media_kind, stream_index, codec_name, sample_rate,
+                            channels, language, metadata
+                        )
+                        VALUES (%s, %s, %s, 'uploaded-audio', 'audio', 0,
+                                %s, %s, %s, 'zh', %s)
+                        """,
+                        (
+                            audio_channel_code,
+                            session["id"],
+                            session_code,
+                            audio.get("codec"),
+                            audio.get("sample_rate"),
+                            audio.get("channels"),
+                            Jsonb({"source": "uploaded_recording"}),
+                        ),
+                    )
+                cursor.execute(
+                    """
+                    INSERT INTO live_capture_chunks (
+                        chunk_code, session_id, session_code, part_index,
+                        relative_path, container_format, status, file_size,
+                        checksum_sha256, capture_started_at, capture_ended_at,
+                        finalized_at, retention_expires_at, source_start_seconds,
+                        source_end_seconds, decoded_duration_seconds,
+                        stream_timing, media_probe, discontinuity_kind,
+                        discontinuity_milliseconds, timeline_ready
+                    )
+                    VALUES (%s, %s, %s, 0, %s, %s, 'finalized', %s, %s,
+                            %s, %s, now(), now() + interval '30 days', 0, %s,
+                            %s, %s, %s, 'none', 0, true)
+                    RETURNING *
+                    """,
+                    (
+                        chunk_code,
+                        session["id"],
+                        session_code,
+                        payload["relative_path"],
+                        payload["container_format"],
+                        payload["file_size"],
+                        payload["checksum_sha256"],
+                        payload["observed_started_at"],
+                        payload["observed_ended_at"],
+                        payload["duration_seconds"],
+                        payload["duration_seconds"],
+                        Jsonb({"source": "uploaded_recording", "mapping": "identity"}),
+                        Jsonb(probe),
+                    ),
+                )
+                chunk = cursor.fetchone()
+                cursor.execute(
+                    """
+                    INSERT INTO live_timeline_spans (
+                        session_id, session_code, chunk_id, chunk_code,
+                        span_index, contract_version, global_start_seconds,
+                        global_end_seconds, chunk_start_seconds,
+                        chunk_end_seconds, wall_start_at, wall_end_at,
+                        mapping_slope, confidence, discontinuity_before, mapping
+                    )
+                    VALUES (%s, %s, %s, %s, 0, 'media-timeline.v1', 0, %s,
+                            0, %s, %s, %s, 1, 1, 'none', %s)
+                    """,
+                    (
+                        session["id"],
+                        session_code,
+                        chunk["id"],
+                        chunk_code,
+                        payload["duration_seconds"],
+                        payload["duration_seconds"],
+                        payload["observed_started_at"],
+                        payload["observed_ended_at"],
+                        Jsonb({"source": "uploaded_recording", "mapping": "identity"}),
+                    ),
+                )
+                cursor.execute(
+                    """
+                    UPDATE live_watch_targets
+                    SET last_capture_session_code = %s, last_observed_at = now(),
+                        updated_at = now()
+                    WHERE id = %s
+                    """,
+                    (session_code, target["id"]),
+                )
+                self._enqueue_chunk_analysis_dag(cursor, session, chunk, analysis_specs)
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+        return self.get_capture_session(session_code, include_children=True)
+
     def finish_capture_session(
         self,
         session_code: str,
@@ -1462,7 +1671,7 @@ class LiveObservationRepository:
                   ON revision.id = template.published_revision_id
                 LEFT JOIN live_room_template_publications AS publication
                   ON publication.revision_id = revision.id AND publication.retracted_at IS NULL
-                WHERE template.template_code = %s AND template.archived_at IS NULL
+                WHERE template.template_code = %s
                 """,
                 (template_code,),
             )
@@ -1480,6 +1689,26 @@ class LiveObservationRepository:
                 )
                 result["revisions"] = [self._revision(cursor, item) for item in cursor.fetchall()]
             return result
+
+    def archive_room_template(
+        self, template_code: str, reason: str
+    ) -> dict[str, Any] | None:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                UPDATE live_room_templates
+                SET status = 'archived', archived_at = coalesce(archived_at, now()),
+                    archive_reason = coalesce(archive_reason, %s), updated_at = now()
+                WHERE template_code = %s
+                RETURNING *
+                """,
+                (reason, template_code),
+            )
+            row = cursor.fetchone()
+        self.connection.commit()
+        if row is None:
+            return None
+        return self.get_room_template(template_code, include_revisions=True)
 
     def create_room_template_revision(
         self, template_code: str, payload: dict[str, Any]
@@ -2094,6 +2323,15 @@ class LiveObservationRepository:
     @classmethod
     def _template(cls, row: dict[str, Any]) -> dict[str, Any]:
         converted = cls._row(row)
+        converted["content_readiness"] = converted.pop(
+            "published_content_readiness", None
+        ) or converted.get("content_readiness", "review_required")
+        converted["layout_fidelity"] = converted.pop(
+            "published_layout_fidelity", None
+        ) or converted.get("layout_fidelity", "approximate")
+        converted["buildability"] = converted.pop(
+            "published_buildability", None
+        ) or converted.get("buildability", "reference_only")
         converted["projection_ready"] = bool(converted.get("projection_ready"))
         converted["manual_review_required"] = bool(
             converted.get("manual_review_required", True)

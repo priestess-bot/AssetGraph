@@ -10,6 +10,11 @@ def test_materialize_preserves_recorded_and_descriptive_relationships() -> None:
             "material_roles": ["product"], "execution_capability": "maitu_bound",
             "checksum_sha256": "k" * 64, "status": "ready", "updated_at": None,
         }],
+        "product_fact_cards": [{
+            "fact_card_code": "FACT-CARD-001", "title": "Product facts", "product_code": "SKU-001",
+            "version_number": 1, "status": "approved", "content_sha256": "m" * 64,
+            "content": {"product_name": "Demo product", "verified_facts": ["Recorded fact"]},
+        }],
         "templates": [{
             "template_code": "TEMPLATE-001", "name": "Selling strategy", "revision_number": 1,
             "status": "published", "content_readiness": "ready", "layout_fidelity": "approximate",
@@ -61,6 +66,7 @@ def test_materialize_preserves_recorded_and_descriptive_relationships() -> None:
                 "fingerprint_sha256": "d" * 64,
                 "content": {
                     "fact_claim_refs": [{"claim_code": "CLAIM-001", "fingerprint_sha256": "b" * 64}],
+                    "fact_card_refs": [{"fact_card_code": "FACT-CARD-001", "version_number": 1, "content_sha256": "m" * 64}],
                     "content_rule_refs": [{"rule_code": "RULE-001", "fingerprint_sha256": "c" * 64}],
                     "primary_template_ref": {"template_code": "TEMPLATE-001", "revision": 1, "selection_role": "primary", "contribution": "primary_structure"},
                 },
@@ -87,6 +93,18 @@ def test_materialize_preserves_recorded_and_descriptive_relationships() -> None:
                 "created_at": None, "updated_at": None,
             }
         ],
+        "maitu_scenes": [{
+            "scene_blueprint_code": "SCENE-001", "revision_number": 1, "title": "Opening",
+            "sort_order": 0, "estimated_active_start_ms": 0, "estimated_active_end_ms": 30_000,
+            "fingerprint_sha256": "n" * 64, "variant_code": "VARIANT-001", "variant_revision": 1,
+            "plan_code": "ROOM-PLAN-001", "program_segment_code": "SEGMENT-001", "shot_code": "SHOT-001",
+        }],
+        "layer_blueprints": [{
+            "layer_blueprint_code": "LAYER-001", "revision_number": 1, "asset_code": "ASSET-001",
+            "material_role": "product", "normalized_geometry": {"x": 0.1, "y": 0.2, "width": 0.5, "height": 0.5},
+            "z_order": 20, "source_script_block_codes": ["BLOCK-001"], "fingerprint_sha256": "o" * 64,
+            "scene_blueprint_code": "SCENE-001", "scene_revision": 1,
+        }],
         "video_plans": [],
         "releases": [
             {
@@ -95,6 +113,13 @@ def test_materialize_preserves_recorded_and_descriptive_relationships() -> None:
                 "current_manifest_revision": 1, "release_fingerprint": "g" * 64, "created_at": None, "updated_at": None,
             }
         ],
+        "delivery_attempts": [{
+            "delivery_code": "DELIVERY-001", "release_code": "RELEASE-001", "release_revision": 1,
+            "target_type": "maitu_room", "target_id": "room-001", "adapter_type": "manual_handoff",
+            "status": "succeeded", "external_identity": {"room_id": "room-001"},
+            "readback_evidence": {"matched": True}, "error_code": None,
+            "started_at": None, "completed_at": None,
+        }],
         "operation_sessions": [
             {
                 "session_code": "SESSION-001", "title": "Observed room", "platform": "douyin",
@@ -110,6 +135,7 @@ def test_materialize_preserves_recorded_and_descriptive_relationships() -> None:
                 "scene_code": "SCENE-001", "source_kind": "manual_observation", "confidence": 0.8,
                 "status": "active", "started_at": None, "ended_at": None, "created_at": None,
                 "plan_node_type": "live_room_plan", "plan_node_code": "ROOM-PLAN-001",
+                "scene_blueprint_code": "SCENE-001", "scene_revision": 1,
             }
         ],
         "metric_definitions": [
@@ -154,13 +180,17 @@ def test_materialize_preserves_recorded_and_descriptive_relationships() -> None:
     assert {(node.node_type, node.node_code, node.revision_number) for node in nodes} == {
         ("source_evidence", "EVIDENCE-001", 0),
         ("asset", "ASSET-001", 0),
+        ("product_fact_card", "FACT-CARD-001", 1),
         ("content_strategy_template", "TEMPLATE-001", 1),
         ("fact_claim", "CLAIM-001", 0),
         ("content_rule", "RULE-001", 0),
         ("content_project", "CONTENT-001", 2),
         ("production_variant", "VARIANT-001", 1),
         ("live_room_plan", "ROOM-PLAN-001", 0),
+        ("maitu_scene_blueprint", "SCENE-001", 1),
+        ("layer_blueprint", "LAYER-001", 1),
         ("release", "RELEASE-001", 1),
+        ("delivery_attempt", "DELIVERY-001", 0),
         ("operation_session", "SESSION-001", 1),
         ("content_exposure", "EXPOSURE-001", 0),
         ("metric_definition", "METRIC-CONVERSION", 1),
@@ -172,10 +202,16 @@ def test_materialize_preserves_recorded_and_descriptive_relationships() -> None:
     assert ("SUPPORTS", "recorded_fact", ("source_evidence", "EVIDENCE-001", 0), ("fact_claim", "CLAIM-001", 0)) in edge_types
     assert ("CITES", "recorded_fact", ("content_project", "CONTENT-001", 2), ("content_rule", "RULE-001", 0)) in edge_types
     assert ("CITES", "recorded_fact", ("content_project", "CONTENT-001", 2), ("content_strategy_template", "TEMPLATE-001", 1)) in edge_types
+    assert ("CITES", "recorded_fact", ("content_project", "CONTENT-001", 2), ("product_fact_card", "FACT-CARD-001", 1)) in edge_types
     assert ("DERIVED_FROM", "recorded_fact", ("content_project", "CONTENT-001", 2), ("production_variant", "VARIANT-001", 1)) in edge_types
     assert ("PROJECTED_AS", "recorded_fact", ("production_variant", "VARIANT-001", 1), ("live_room_plan", "ROOM-PLAN-001", 0)) in edge_types
     assert ("RELEASED_AS", "recorded_fact", ("live_room_plan", "ROOM-PLAN-001", 0), ("release", "RELEASE-001", 1)) in edge_types
     assert ("USES_ASSET", "recorded_fact", ("live_room_plan", "ROOM-PLAN-001", 0), ("asset", "ASSET-001", 0)) in edge_types
+    assert ("CONTAINS_SCENE", "recorded_fact", ("live_room_plan", "ROOM-PLAN-001", 0), ("maitu_scene_blueprint", "SCENE-001", 1)) in edge_types
+    assert ("CONTAINS_LAYER", "recorded_fact", ("maitu_scene_blueprint", "SCENE-001", 1), ("layer_blueprint", "LAYER-001", 1)) in edge_types
+    assert ("USES_ASSET", "recorded_fact", ("layer_blueprint", "LAYER-001", 1), ("asset", "ASSET-001", 0)) in edge_types
+    assert ("DELIVERED_BY", "recorded_fact", ("release", "RELEASE-001", 1), ("delivery_attempt", "DELIVERY-001", 0)) in edge_types
+    assert ("OBSERVES_SCENE", "recorded_fact", ("content_exposure", "EXPOSURE-001", 0), ("maitu_scene_blueprint", "SCENE-001", 1)) in edge_types
     assert ("EXPOSED_DURING", "recorded_fact", ("live_room_plan", "ROOM-PLAN-001", 0), ("operation_session", "SESSION-001", 1)) in edge_types
     assert ("MEASURED_BY", "recorded_fact", ("operation_session", "SESSION-001", 1), ("session_metric_snapshot", "METRIC-SNAP-001", 0)) in edge_types
     assert ("USES_METRIC_DEFINITION", "recorded_fact", ("session_metric_snapshot", "METRIC-SNAP-001", 0), ("metric_definition", "METRIC-CONVERSION", 1)) in edge_types
@@ -186,6 +222,7 @@ def test_materialize_preserves_recorded_and_descriptive_relationships() -> None:
 def test_materialize_drops_edges_without_an_authoritative_target() -> None:
     rows = {
         "assets": [],
+        "product_fact_cards": [],
         "templates": [],
         "source_evidences": [],
         "fact_claims": [],
@@ -211,3 +248,38 @@ def test_materialize_drops_edges_without_an_authoritative_target() -> None:
 
     assert len(nodes) == 1
     assert edges == []
+
+
+def test_search_lineage_matches_scope_and_walks_both_edge_directions() -> None:
+    service = object.__new__(FunctionalKnowledgeGraphProjectionService)
+    service.current = lambda: {
+        "projection_code": "GRAPH-001",
+        "revision_number": 2,
+        "is_stale": False,
+        "nodes": [
+            {"node_type": "asset", "node_code": "ASSET-001", "revision_number": 0, "properties": {"title": "红酒主图"}},
+            {"node_type": "layer_blueprint", "node_code": "LAYER-001", "revision_number": 1, "properties": {}},
+            {"node_type": "maitu_scene_blueprint", "node_code": "SCENE-001", "revision_number": 1, "properties": {"title": "商品讲解"}},
+        ],
+        "edges": [
+            {
+                "source_node_type": "layer_blueprint", "source_node_code": "LAYER-001", "source_revision_number": 1,
+                "target_node_type": "asset", "target_node_code": "ASSET-001", "target_revision_number": 0,
+                "relationship_type": "USES_ASSET", "assertion_kind": "recorded_fact",
+            },
+            {
+                "source_node_type": "maitu_scene_blueprint", "source_node_code": "SCENE-001", "source_revision_number": 1,
+                "target_node_type": "layer_blueprint", "target_node_code": "LAYER-001", "target_revision_number": 1,
+                "relationship_type": "CONTAINS_LAYER", "assertion_kind": "recorded_fact",
+            },
+        ],
+    }
+
+    result = service.search_lineage("红酒", "material")
+
+    assert result["projection_code"] == "GRAPH-001"
+    assert result["results"][0]["match"]["node_code"] == "ASSET-001"
+    assert {node["node_code"] for node in result["results"][0]["nodes"]} == {
+        "ASSET-001", "LAYER-001", "SCENE-001"
+    }
+    assert len(result["results"][0]["edges"]) == 2

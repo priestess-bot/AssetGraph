@@ -62,6 +62,13 @@ class FakeFunctionalLearningService:
             "source_project_revision_number": 2,
             "reproduced_project_code": "CONTENT-REPRODUCED",
             "reproduced_project_revision_number": 1,
+            "production_variant_code": "PROD-REPRODUCED",
+            "production_variant_revision_number": 1,
+            "applied_choices": {
+                "template_choices": [],
+                "paragraph_choices": [],
+                "material_choices": [],
+            },
         }
 
     @staticmethod
@@ -163,5 +170,14 @@ def test_reproduction_route_requires_and_forwards_change_hypothesis(
     assert reproduced.status_code == 201
     assert reproduced.json()["decision_code"] == "DEC-001"
     assert service.reproduction_calls == [
-        ("EFFECT-001", {"change_hypothesis": "Preserve the opening and independently evaluate it."})
+        (
+            "EFFECT-001",
+            {
+                "change_hypothesis": "Preserve the opening and independently evaluate it.",
+                "template_choices": [],
+                "paragraph_choices": [],
+                "material_choices": [],
+                "actor": "functional-operator",
+            },
+        )
     ]

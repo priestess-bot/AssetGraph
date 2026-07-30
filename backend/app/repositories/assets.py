@@ -33,6 +33,8 @@ class AssetRepository:
         "media_kind",
         "material_roles",
         "execution_capability",
+        "rights_status",
+        "rights_note",
         "display_code",
         "local_file_code",
         "entity_code",

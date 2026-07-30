@@ -120,6 +120,8 @@ class FunctionalLiveRoomService:
                 {
                     "asset_code": asset["asset_code"], "media_kind": asset["media_kind"],
                     "material_roles": asset["material_roles"], "execution_capability": asset["execution_capability"],
+                    "rights_status": asset["rights_status"],
+                    "rights_note": asset.get("rights_note"),
                     "constraint_profile_ref": asset["constraint_profile_ref"],
                     "qualified_effect_refs": list(asset.get("qualified_effect_refs") or []),
                     "selection_sources": selection_sources.get(asset["asset_code"], []),
@@ -141,6 +143,7 @@ class FunctionalLiveRoomService:
             "material_role_overrides": material_role_overrides,
             "material_role_modes": dict(payload.get("material_role_modes") or {}),
             "room_constraint_overrides": room_constraint_overrides,
+            "scene_overrides": list(payload.get("scene_overrides") or []),
         }
         templates = self._project_template_selection(detail, payload)
         variant = self.production.create_production_variant(
@@ -163,6 +166,7 @@ class FunctionalLiveRoomService:
                 "material_role_overrides": material_role_overrides,
                 "material_role_modes": dict(payload.get("material_role_modes") or {}),
                 "room_constraint_overrides": room_constraint_overrides,
+                "scene_overrides": list(payload.get("scene_overrides") or []),
             },
             material_snapshot_ref=snapshot,
             constraint_snapshot_ref={
@@ -175,6 +179,7 @@ class FunctionalLiveRoomService:
                     for asset in selected_assets
                 ],
                 "room_constraint_overrides": room_constraint_overrides,
+                "scene_overrides": list(payload.get("scene_overrides") or []),
             },
             actor_id=actor_id,
             producer_strategy_revision="functional-live-room.v1",
@@ -206,13 +211,14 @@ class FunctionalLiveRoomService:
                 "material_role_overrides": material_role_overrides,
                 "material_role_modes": dict(payload.get("material_role_modes") or {}),
                 "room_constraint_overrides": room_constraint_overrides,
+                "scene_overrides": list(payload.get("scene_overrides") or []),
             },
             actor_id=actor_id,
         )
         configuration = self.production.confirm_live_room_configuration_revision(
             configuration["configuration_code"], revision_number=int(configuration["revision_number"]), actor_id=actor_id
         )
-        blueprint, _, blocked_reasons = self._compile(
+        blueprint, _, compiler_blocked_reasons = self._compile(
             detail,
             selected_assets,
             payload,
@@ -220,10 +226,16 @@ class FunctionalLiveRoomService:
             material_pack_entry_requirements=material_pack_resolution["entry_requirements"],
             required_loose_asset_codes=required_loose_asset_codes,
         )
+        rights_blocked_reasons = [
+            f"asset_rights_not_approved:{asset['asset_code']}:{asset['rights_status']}"
+            for asset in selected_assets
+            if str(asset.get("rights_status") or "pending") != "approved"
+        ]
         blocked_reasons = list(
             dict.fromkeys(
                 [
-                    *blocked_reasons,
+                    *compiler_blocked_reasons,
+                    *rights_blocked_reasons,
                     *[
                         f"asset_gap_unresolved:{gap['gap_code']}:{gap['status']}"
                         for gap in asset_gap_refs
@@ -254,7 +266,7 @@ class FunctionalLiveRoomService:
             snapshot=snapshot,
             blueprint=blueprint,
             build_plan=build_plan,
-            compiler_blocked_reasons=blocked_reasons,
+            compiler_blocked_reasons=compiler_blocked_reasons,
         )
         gate_blocked_reasons = [str(gate["rule_code"]) for gate in gate_results if gate["status"] == "blocked"]
         plan_blocked_reasons = list(dict.fromkeys([*blocked_reasons, *(build_plan.get("blocked_reasons") or []), *gate_blocked_reasons]))
@@ -568,6 +580,11 @@ class FunctionalLiveRoomService:
         expected_target = str(plan.get("target_live_room_id") or "").strip()
         source_plan_fingerprint = str(operation_plan.get("checkpoint_source_fingerprint") or "").strip()
         operations = [item for item in operation_plan.get("operations") or [] if isinstance(item, dict)]
+        expected_title = str(plan.get("expected_title") or "").strip()
+        frozen_expected_title = str(operation_plan.get("expected_title") or "").strip()
+        preflight_expected_title = str(
+            (operations[0] if operations else {}).get("expected_live_room_title") or ""
+        ).strip()
         if (
             operation_plan.get("status") != "ready"
             or operation_plan.get("can_execute") is not True
@@ -576,6 +593,9 @@ class FunctionalLiveRoomService:
             or target_live_room_id != expected_target
             or len(source_plan_fingerprint) != 64
             or not operations
+            or not expected_title
+            or frozen_expected_title != expected_title
+            or preflight_expected_title != expected_title
         ):
             raise DomainValidationError(
                 "LIVE_ROOM_EXECUTION_HANDOFF_INVALID",
@@ -584,16 +604,21 @@ class FunctionalLiveRoomService:
                     "build_plan_code": build_plan_code,
                     "expected_target_live_room_id": expected_target,
                     "observed_target_live_room_id": target_live_room_id,
+                    "expected_title": expected_title,
+                    "frozen_expected_title": frozen_expected_title,
+                    "preflight_expected_title": preflight_expected_title,
                 },
             )
         return {
             "plan_code": str(plan["plan_code"]),
             "build_plan_code": build_plan_code,
             "target_live_room_id": target_live_room_id,
+            "expected_title": expected_title,
             "checkpoint_contract": "script_layout_checkpoint_v1",
             "source_plan_fingerprint": source_plan_fingerprint,
             "operation_count": len(operations),
             "operation_types": [str(item.get("operation_type") or "") for item in operations],
+            "operations": operations,
         }
 
     @staticmethod
@@ -637,8 +662,13 @@ class FunctionalLiveRoomService:
         def timestamp(value: Any) -> str | None:
             return value.isoformat() if isinstance(value, datetime) else None
 
+        comparison = FunctionalLiveRoomService._execution_readback_comparison(
+            handoff,
+            operation_results,
+        )
+
         return projected_status, {
-            "schema_version": "functional-live-room-execution-readback.v1",
+            "schema_version": "functional-live-room-execution-readback.v2",
             "status": readback_status,
             "message": (
                 "Maitu worker has finalized an empty-draft execution; this does not enable go-live."
@@ -664,15 +694,272 @@ class FunctionalLiveRoomService:
                         for item in operation_results
                     ),
                 },
+                "operation_results": [
+                    {
+                        "operation_index": item.get("operation_index"),
+                        "operation_type": item.get("operation_type"),
+                        "operation_name": item.get("operation_name"),
+                        "scene_index": item.get("scene_index"),
+                        "scene_name": item.get("scene_name"),
+                        "layer_id": item.get("layer_id"),
+                        "asset_code": item.get("asset_code"),
+                        "status": item.get("status"),
+                        "checkpoint_state": item.get("checkpoint_state"),
+                        "summary": (item.get("details") or {}).get("summary"),
+                    }
+                    for item in operation_results
+                ],
+            },
+            "comparison": comparison,
+        }
+
+    @staticmethod
+    def _execution_readback_comparison(
+        handoff: dict[str, Any],
+        operation_results: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        operations = [
+            item for item in handoff.get("operations") or [] if isinstance(item, dict)
+        ]
+        results_by_index = {
+            int(item["operation_index"]): item
+            for item in operation_results
+            if isinstance(item.get("operation_index"), int)
+        }
+
+        def completion_evidence(result: dict[str, Any] | None) -> dict[str, Any]:
+            if not isinstance(result, dict):
+                return {}
+            evidence = result.get("completion_evidence")
+            if isinstance(evidence, dict):
+                return evidence
+            details = result.get("details")
+            nested = details.get("completion_evidence") if isinstance(details, dict) else None
+            return nested if isinstance(nested, dict) else {}
+
+        preflight_index = next(
+            (
+                index
+                for index, operation in enumerate(operations)
+                if operation.get("operation_type") == "preflight_content_build_plan"
+            ),
+            None,
+        )
+        preflight_evidence = completion_evidence(
+            results_by_index.get(preflight_index) if preflight_index is not None else None
+        )
+        expected_room_id = str(handoff.get("target_live_room_id") or "")
+        expected_title = str(handoff.get("expected_title") or "")
+        observed_room_id = str(preflight_evidence.get("target_live_room_id") or "") or None
+        observed_title = (
+            str(preflight_evidence.get("authoritative_live_room_title") or "") or None
+        )
+        room_observed = bool(preflight_evidence)
+        room_matched = (
+            room_observed
+            and observed_room_id == expected_room_id
+            and observed_title == expected_title
+            and preflight_evidence.get("not_live") is True
+        )
+        target_room = {
+            "status": "matched" if room_matched else "mismatch" if room_observed else "pending",
+            "expected": {
+                "live_room_id": expected_room_id,
+                "title": expected_title,
+                "environment": "working",
+                "not_live": True,
+            },
+            "observed": {
+                "live_room_id": observed_room_id,
+                "title": observed_title,
+                "environment": preflight_evidence.get("environment"),
+                "not_live": preflight_evidence.get("not_live"),
             },
         }
+
+        scene_operations = [
+            (index, operation)
+            for index, operation in enumerate(operations)
+            if operation.get("operation_type") in {"fill_default_scene", "create_scene"}
+        ]
+        scenes: list[dict[str, Any]] = []
+        for _scene_operation_index, scene_operation in scene_operations:
+            scene_index = scene_operation.get("scene_index")
+            scene_name = str(scene_operation.get("scene_name") or "")
+            scene_intents = [
+                (index, operation)
+                for index, operation in enumerate(operations)
+                if operation.get("scene_index") == scene_index
+            ]
+            verify_index = next(
+                (
+                    index
+                    for index, operation in scene_intents
+                    if operation.get("operation_type") == "verify_scene"
+                ),
+                None,
+            )
+            verify_evidence = completion_evidence(
+                results_by_index.get(verify_index) if verify_index is not None else None
+            )
+            observed_layers = [
+                item
+                for item in verify_evidence.get("verified_layers") or []
+                if isinstance(item, dict)
+            ]
+            observed_layers_by_id = {
+                str(item.get("layer_id")): item
+                for item in observed_layers
+                if item.get("layer_id")
+            }
+            position_by_layer = {
+                str(operation.get("layer_id")): operation
+                for _index, operation in scene_intents
+                if operation.get("operation_type") == "position_asset_layer"
+                and operation.get("layer_id")
+            }
+            layers: list[dict[str, Any]] = []
+            for _index, operation in scene_intents:
+                if operation.get("operation_type") != "insert_asset_layer":
+                    continue
+                layer_id = str(operation.get("layer_id") or "")
+                position = position_by_layer.get(layer_id, operation)
+                expected_geometry = {
+                    "x": position.get("x"),
+                    "y": position.get("y"),
+                    "width": position.get("width"),
+                    "height": position.get("height"),
+                    "z_index": position.get("z_index"),
+                }
+                observed_layer = observed_layers_by_id.get(layer_id)
+                observed_geometry = {
+                    "x": (observed_layer or {}).get("left"),
+                    "y": (observed_layer or {}).get("top"),
+                    "width": (observed_layer or {}).get("width"),
+                    "height": (observed_layer or {}).get("height"),
+                    "z_index": (observed_layer or {}).get("z_index"),
+                }
+                layer_matched = (
+                    observed_layer is not None
+                    and observed_layer.get("asset_code") == operation.get("asset_code")
+                    and (
+                        operation.get("layer_type") is None
+                        or observed_layer.get("layer_type") == operation.get("layer_type")
+                    )
+                    and all(
+                        FunctionalLiveRoomService._readback_value_matches(
+                            expected_geometry[key], observed_geometry[key]
+                        )
+                        for key in expected_geometry
+                    )
+                )
+                layers.append(
+                    {
+                        "layer_id": layer_id,
+                        "status": (
+                            "matched"
+                            if layer_matched
+                            else "mismatch"
+                            if verify_evidence
+                            else "pending"
+                        ),
+                        "expected": {
+                            "asset_code": operation.get("asset_code"),
+                            "layer_type": operation.get("layer_type"),
+                            "geometry": expected_geometry,
+                        },
+                        "observed": {
+                            "asset_code": (observed_layer or {}).get("asset_code"),
+                            "layer_type": (observed_layer or {}).get("layer_type"),
+                            "material_id": (observed_layer or {}).get("material_id"),
+                            "geometry": observed_geometry,
+                        },
+                    }
+                )
+            script_operation = next(
+                (
+                    operation
+                    for _index, operation in scene_intents
+                    if operation.get("operation_type") == "write_script"
+                ),
+                {},
+            )
+            expected_script = str(script_operation.get("script_text") or "")
+            observed_script_value = verify_evidence.get("verified_script_text")
+            observed_script = (
+                str(observed_script_value) if observed_script_value is not None else None
+            )
+            script_matched = observed_script is not None and observed_script == expected_script
+            scene_matched = (
+                bool(verify_evidence)
+                and verify_evidence.get("scene_name") == scene_name
+                and all(layer["status"] == "matched" for layer in layers)
+                and script_matched
+            )
+            scenes.append(
+                {
+                    "scene_index": scene_index,
+                    "status": (
+                        "matched"
+                        if scene_matched
+                        else "mismatch"
+                        if verify_evidence
+                        else "pending"
+                    ),
+                    "expected_name": scene_name,
+                    "observed_name": verify_evidence.get("scene_name"),
+                    "clip_id": verify_evidence.get("clip_id"),
+                    "layers": layers,
+                    "script": {
+                        "status": (
+                            "matched"
+                            if script_matched
+                            else "mismatch"
+                            if observed_script is not None
+                            else "pending"
+                        ),
+                        "expected_text": expected_script,
+                        "observed_text": observed_script,
+                    },
+                }
+            )
+
+        statuses = [target_room["status"], *(scene["status"] for scene in scenes)]
+        return {
+            "status": (
+                "matched"
+                if statuses and all(status == "matched" for status in statuses)
+                else "mismatch"
+                if "mismatch" in statuses
+                else "pending"
+            ),
+            "target_room": target_room,
+            "scenes": scenes,
+            "summary": {
+                "scene_total": len(scenes),
+                "scene_matched": sum(scene["status"] == "matched" for scene in scenes),
+                "scene_mismatch": sum(scene["status"] == "mismatch" for scene in scenes),
+                "scene_pending": sum(scene["status"] == "pending" for scene in scenes),
+            },
+        }
+
+    @staticmethod
+    def _readback_value_matches(expected: Any, observed: Any) -> bool:
+        if expected is None or observed is None:
+            return expected is observed
+        if isinstance(expected, bool) or isinstance(observed, bool):
+            return expected is observed
+        try:
+            return float(expected) == float(observed)
+        except (TypeError, ValueError):
+            return expected == observed
 
     def create_release_candidate(self, plan_code: str, *, actor_id: str) -> dict[str, Any]:
         """Freeze a reviewable live-room draft candidate without delivery.
 
-        The candidate intentionally records pending rights, authorization and
-        authoritative readback as blocking release gates.  It is therefore a
-        durable review object only, never an implicit approval or write action.
+        The candidate freezes approved asset-rights evidence while keeping
+        authorization and authoritative readback as blocking release gates. It
+        is therefore a durable review object only, never an implicit write action.
         """
         plan = self._releaseable_plan(plan_code)
         if plan is None:
@@ -705,10 +992,18 @@ class FunctionalLiveRoomService:
                 }
             ],
             rights_snapshot={
-                "status": "pending_evidence",
+                "status": "approved",
                 "asset_codes": list(plan["selected_asset_codes"] or []),
+                "assets": [
+                    {
+                        "asset_code": asset.get("asset_code"),
+                        "status": asset.get("rights_status"),
+                        "note": asset.get("rights_note"),
+                    }
+                    for asset in (plan["build_plan"].get("inventory_snapshot") or {}).get("assets", [])
+                ],
                 "template_refs": self._template_refs(plan),
-                "reason": "Asset rights and platform authorization evidence have not been collected.",
+                "reason": "Every selected asset was approved before the BuildPlan became executable.",
             },
             quality_snapshot={
                 "schema_version": "functional-live-room-release-quality.v1",
@@ -809,32 +1104,11 @@ class FunctionalLiveRoomService:
                 },
             )
         cloned = self.create_plan(
-            {
-                "project_code": source["project_code"],
-                "target_live_room_id": target_live_room_id,
-                "expected_title": expected_title,
-                "layout_reference_handoff": dict(
-                    (source["build_plan"] or {}).get("inventory_snapshot", {}).get("layout_reference_handoff") or {}
-                ) or None,
-                "primary_template_code": source["primary_template_code"],
-                "secondary_template_codes": list(source["secondary_template_codes"] or []),
-                "asset_codes": list(source["selected_asset_codes"] or []),
-                "required_loose_asset_codes": list(
-                    (source["build_plan"] or {}).get("inventory_snapshot", {}).get("required_loose_asset_codes") or []
-                ),
-                "group_codes": list(source["selected_group_codes"] or []),
-                "material_pack_codes": list(source["selected_material_pack_codes"] or []),
-                "asset_gap_codes": [
-                    str(gap["gap_code"])
-                    for gap in source["build_plan"].get("inventory_snapshot", {}).get("asset_gap_refs", [])
-                    if isinstance(gap, dict) and gap.get("gap_code")
-                ],
-                "material_role_overrides": dict((source["quality_report"] or {}).get("material_role_overrides") or {}),
-                "material_role_modes": dict((source["quality_report"] or {}).get("material_role_modes") or {}),
-                "room_constraint_overrides": dict(
-                    (source["build_plan"] or {}).get("inventory_snapshot", {}).get("room_constraint_overrides") or {}
-                ),
-            },
+            self._recompile_payload_from_plan(
+                source,
+                target_live_room_id=target_live_room_id,
+                expected_title=expected_title,
+            ),
             actor_id=actor_id,
         )
         clone_context = {
@@ -850,6 +1124,7 @@ class FunctionalLiveRoomService:
                 "selected_group_codes",
                 "selected_material_pack_codes",
                 "selected_asset_gap_codes",
+                "asset_gap_waivers",
                 "material_role_overrides",
                 "material_role_modes",
                 "room_constraint_overrides",
@@ -877,6 +1152,155 @@ class FunctionalLiveRoomService:
             row = cursor.fetchone()
         self.connection.commit()
         return self._with_release(self._serialize(row))
+
+    def revise_blueprint(
+        self,
+        plan_code: str,
+        payload: dict[str, Any],
+        *,
+        actor_id: str,
+    ) -> dict[str, Any]:
+        """Recompile scene edits into a new immutable plan revision."""
+        source = self._releaseable_plan(plan_code)
+        if source is None:
+            raise KeyError(plan_code)
+        current_project = self.content.get_detail(str(source["project_code"]))
+        if current_project is None:
+            raise KeyError(source["project_code"])
+        if int(current_project["revision_number"]) != int(source["project_revision"]):
+            raise DomainValidationError(
+                "LIVE_ROOM_BLUEPRINT_SOURCE_STALE",
+                "The source plan uses an older ContentProject revision; create a plan from the current content before editing scenes",
+                details={
+                    "source_plan_code": plan_code,
+                    "source_project_revision": source["project_revision"],
+                    "current_project_revision": current_project["revision_number"],
+                },
+            )
+        scene_overrides = list(payload.get("scenes") or [])
+        revised = self.create_plan(
+            {
+                **self._recompile_payload_from_plan(
+                    source,
+                    target_live_room_id=str(source["target_live_room_id"]),
+                    expected_title=str(source["expected_title"]),
+                ),
+                "scene_overrides": scene_overrides,
+            },
+            actor_id=actor_id,
+        )
+        source_scenes = {
+            str(scene.get("shot_code")): scene
+            for scene in (source.get("blueprint") or {}).get("scenes") or []
+            if isinstance(scene, dict) and scene.get("shot_code")
+        }
+        changed_shot_codes = []
+        for scene in scene_overrides:
+            source_scene = source_scenes.get(str(scene.get("shot_code")))
+            requested_projection = {
+                "title": scene.get("title"),
+                "script": scene.get("script"),
+                "layers": scene.get("layers") or [],
+            }
+            source_projection = {
+                "title": source_scene.get("title") if source_scene else None,
+                "script": source_scene.get("script") if source_scene else None,
+                "layers": [
+                    {
+                        "role": layer.get("material_role"),
+                        "asset_code": layer.get("asset_code"),
+                        "geometry": layer.get("normalized_geometry"),
+                        "z_order": layer.get("z_order"),
+                    }
+                    for layer in (source_scene or {}).get("layers") or []
+                ],
+            }
+            source_order = next(
+                (
+                    index
+                    for index, value in enumerate((source.get("blueprint") or {}).get("scenes") or [])
+                    if str(value.get("shot_code")) == str(scene.get("shot_code"))
+                ),
+                -1,
+            )
+            if source_order != int(scene.get("sort_order", -1)) or canonical_fingerprint(
+                requested_projection
+            ) != canonical_fingerprint(source_projection):
+                changed_shot_codes.append(str(scene.get("shot_code")))
+        revision_context = {
+            "schema_version": "functional-live-room-blueprint-revision.v1",
+            "source_plan_code": plan_code,
+            "source_project_revision": int(source["project_revision"]),
+            "source_blueprint_fingerprint": canonical_fingerprint(source.get("blueprint") or {}),
+            "requested_blueprint_fingerprint": canonical_fingerprint(scene_overrides),
+            "compiled_blueprint_fingerprint": canonical_fingerprint(revised.get("blueprint") or {}),
+            "changed_shot_codes": changed_shot_codes,
+            "copied_business_inputs": [
+                "content_project_revision",
+                "layout_reference_handoff",
+                "pinned_template_revisions",
+                "selected_asset_codes",
+                "required_loose_asset_codes",
+                "selected_group_codes",
+                "selected_material_pack_codes",
+                "selected_asset_gap_codes",
+                "asset_gap_waivers",
+                "material_role_overrides",
+                "material_role_modes",
+                "room_constraint_overrides",
+            ],
+            "cleared_target_state": [
+                "authorization",
+                "execution_status",
+                "execution_evidence",
+                "release",
+                "delivery",
+                "readback",
+            ],
+        }
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                UPDATE functional_live_room_plans
+                SET revised_from_plan_code = %s, revision_context = %s, updated_at = now()
+                WHERE plan_code = %s
+                RETURNING *
+                """,
+                (plan_code, Jsonb(revision_context), revised["plan_code"]),
+            )
+            row = cursor.fetchone()
+        self.connection.commit()
+        return self._with_release(self._serialize(row))
+
+    @staticmethod
+    def _recompile_payload_from_plan(
+        source: dict[str, Any],
+        *,
+        target_live_room_id: str,
+        expected_title: str,
+    ) -> dict[str, Any]:
+        inventory = dict((source.get("build_plan") or {}).get("inventory_snapshot") or {})
+        return {
+            "project_code": source["project_code"],
+            "target_live_room_id": target_live_room_id,
+            "expected_title": expected_title,
+            "layout_reference_handoff": dict(inventory.get("layout_reference_handoff") or {}) or None,
+            "primary_template_code": source.get("primary_template_code"),
+            "secondary_template_codes": list(source.get("secondary_template_codes") or []),
+            "asset_codes": list(source.get("selected_asset_codes") or []),
+            "required_loose_asset_codes": list(inventory.get("required_loose_asset_codes") or []),
+            "group_codes": list(source.get("selected_group_codes") or []),
+            "material_pack_codes": list(source.get("selected_material_pack_codes") or []),
+            "asset_gap_codes": [
+                str(gap["gap_code"])
+                for gap in inventory.get("asset_gap_refs") or []
+                if isinstance(gap, dict) and gap.get("gap_code")
+            ],
+            "asset_gap_waivers": dict(inventory.get("asset_gap_waivers") or {}),
+            "material_role_overrides": dict((source.get("quality_report") or {}).get("material_role_overrides") or {}),
+            "material_role_modes": dict((source.get("quality_report") or {}).get("material_role_modes") or {}),
+            "room_constraint_overrides": dict(inventory.get("room_constraint_overrides") or {}),
+        }
 
     def get_trace(self, plan_code: str) -> dict[str, Any]:
         """Return an explicit operation-to-content provenance projection."""
@@ -1321,11 +1745,8 @@ class FunctionalLiveRoomService:
                     "blocking": status == "blocked" or gate_name == "evidence_completeness",
                 }
             )
-        gates.extend(
-            [
-                {"code": "GATE_RELEASE_RIGHTS_EVIDENCE_PENDING", "status": "pending", "blocking": True},
-                {"code": "GATE_RELEASE_AUTHORIZATION_PENDING", "status": "pending", "blocking": True},
-            ]
+        gates.append(
+            {"code": "GATE_RELEASE_AUTHORIZATION_PENDING", "status": "pending", "blocking": True}
         )
         return gates
 
@@ -1392,6 +1813,7 @@ class FunctionalLiveRoomService:
                 """
                 SELECT asset.asset_code, COALESCE(asset.title, asset.original_filename) AS title,
                        asset.media_kind, asset.material_roles, asset.execution_capability,
+                       asset.rights_status, asset.rights_note,
                        profile.profile_code, revision.revision_number AS constraint_profile_revision,
                        revision.constraints AS constraint_profile_constraints,
                        revision.fingerprint_sha256 AS constraint_profile_fingerprint,
@@ -1589,6 +2011,7 @@ class FunctionalLiveRoomService:
         build_plan = ScriptLayoutBuildPlanBuilder().build(
             layout_plan,
             target_live_room_id=configuration["target_live_room_id"],
+            expected_title=configuration["expected_title"],
         )
         build_plan.update(plan_inputs)
         build_plan["go_live"] = False
@@ -1625,6 +2048,15 @@ class FunctionalLiveRoomService:
         role_needs = sorted({str(role) for shot in shots for role in shot.get("material_role_requirements") or []})
         selected_roles = sorted({str(role) for asset in snapshot.get("assets") or [] for role in asset.get("material_roles") or []})
         missing_roles = sorted(set(role_needs) - set(selected_roles))
+        rights_by_asset = {
+            str(asset.get("asset_code")): str(asset.get("rights_status") or "pending")
+            for asset in snapshot.get("assets") or []
+        }
+        rights_blocked = {
+            asset_code: rights_status
+            for asset_code, rights_status in rights_by_asset.items()
+            if rights_status != "approved"
+        }
         gates = [
             {
                 "gate": "identity_version",
@@ -1649,6 +2081,14 @@ class FunctionalLiveRoomService:
                 "rule_version": "functional-live-room-gates.v1",
                 "evidence": {"selected_asset_codes": snapshot.get("asset_codes") or [], "missing_roles": missing_roles, "compiler_blocked_reasons": compiler_blocked_reasons},
                 "remediation": "补齐对应角色的 maitu_bound 白名单素材" if compiler_blocked_reasons or missing_roles else None,
+            },
+            {
+                "gate": "material_rights",
+                "status": "blocked" if rights_blocked else "pass",
+                "rule_code": "GATE_ASSET_RIGHTS_BLOCKED" if rights_blocked else "GATE_ASSET_RIGHTS_APPROVED",
+                "rule_version": "functional-live-room-gates.v1",
+                "evidence": {"rights_by_asset": rights_by_asset},
+                "remediation": "在素材库确认每份素材的使用依据" if rights_blocked else None,
             },
             {
                 "gate": "structural_references",
@@ -2179,8 +2619,46 @@ class FunctionalLiveRoomService:
             }
             for asset in assets
         ]
-        shots = detail["shot_list"]["shots"]
+        shots = list(detail["shot_list"]["shots"])
         blocks = detail["script"]["blocks"]
+        shot_source_index = {
+            str(shot["shot_code"]): index for index, shot in enumerate(shots)
+        }
+        scene_overrides = list(payload.get("scene_overrides") or [])
+        scene_overrides_by_shot: dict[str, dict[str, Any]] = {}
+        if scene_overrides:
+            scene_overrides_by_shot = {
+                str(scene.get("shot_code")): scene
+                for scene in scene_overrides
+                if isinstance(scene, dict) and scene.get("shot_code")
+            }
+            expected_shots = {str(shot["shot_code"]) for shot in shots}
+            supplied_shots = set(scene_overrides_by_shot)
+            if expected_shots != supplied_shots or len(scene_overrides_by_shot) != len(scene_overrides):
+                raise DomainValidationError(
+                    "LIVE_ROOM_BLUEPRINT_SCENE_SET_MISMATCH",
+                    "A blueprint revision must contain every source Shot exactly once",
+                    details={
+                        "missing_shot_codes": sorted(expected_shots - supplied_shots),
+                        "unexpected_shot_codes": sorted(supplied_shots - expected_shots),
+                    },
+                )
+            orders = [int(scene.get("sort_order", -1)) for scene in scene_overrides]
+            if sorted(orders) != list(range(len(shots))):
+                raise DomainValidationError(
+                    "LIVE_ROOM_BLUEPRINT_SCENE_ORDER_INVALID",
+                    "Blueprint scene order must be a contiguous zero-based sequence",
+                )
+            shots.sort(
+                key=lambda shot: int(
+                    scene_overrides_by_shot[str(shot["shot_code"])]["sort_order"]
+                )
+            )
+        block_by_code = {
+            str(block["block_code"]): block
+            for block in blocks
+            if isinstance(block, dict) and block.get("block_code")
+        }
         layers_by_role: dict[str, list[dict[str, Any]]] = {}
         for asset in assets:
             for role in asset["material_roles"] or []:
@@ -2197,8 +2675,28 @@ class FunctionalLiveRoomService:
         active_start_ms = 0
         for index, shot in enumerate(shots):
             scene_code = f"MSB-{variant_code}-{index + 1:03d}"
+            scene_override = scene_overrides_by_shot.get(str(shot["shot_code"]))
+            layer_overrides = {
+                str(layer.get("role")): layer
+                for layer in (scene_override or {}).get("layers") or []
+                if isinstance(layer, dict) and layer.get("role")
+            }
+            required_roles = [str(role) for role in shot["material_role_requirements"]]
+            if scene_override and (
+                set(layer_overrides) != set(required_roles)
+                or len(layer_overrides) != len((scene_override or {}).get("layers") or [])
+            ):
+                raise DomainValidationError(
+                    "LIVE_ROOM_BLUEPRINT_LAYER_SET_MISMATCH",
+                    "Each revised scene must contain every required material role exactly once",
+                    details={
+                        "shot_code": shot["shot_code"],
+                        "missing_roles": sorted(set(required_roles) - set(layer_overrides)),
+                        "unexpected_roles": sorted(set(layer_overrides) - set(required_roles)),
+                    },
+                )
             layers: list[dict[str, Any]] = []
-            for role in shot["material_role_requirements"]:
+            for role in required_roles:
                 candidates = FunctionalLiveRoomService._role_candidates_for_shot(
                     assets=layers_by_role.get(role, []),
                     role=str(role),
@@ -2211,8 +2709,12 @@ class FunctionalLiveRoomService:
                     reason = "missing_replacement_role" if material_role_modes.get(str(role)) == "replace" else "missing_role"
                     blocked.append(f"{reason}:{role}:shot:{shot['shot_code']}")
                     continue
+                layer_override = layer_overrides.get(role)
+                selection_overrides = dict(material_role_overrides)
+                if layer_override:
+                    selection_overrides[role] = str(layer_override.get("asset_code") or "")
                 asset, selection_decision = FunctionalLiveRoomService._choose_material_for_role(
-                    role=str(role), candidates=candidates, overrides=material_role_overrides,
+                    role=str(role), candidates=candidates, overrides=selection_overrides,
                     prior_selection_counts=prior_selection_counts,
                     shot_code=str(shot["shot_code"]), scene_code=scene_code,
                     scene_type=str(shot.get("scene_type") or "") or None,
@@ -2227,9 +2729,21 @@ class FunctionalLiveRoomService:
                     "scene_type": shot.get("scene_type"),
                 }
                 material_selection_decisions.append(selection_decision)
+                layer_asset = asset
+                if layer_override:
+                    layer_asset = {
+                        **asset,
+                        "room_constraint_override": {
+                            "schema_version": "functional-live-room-blueprint-layer-override.v1",
+                            "asset_code": asset["asset_code"],
+                            "reason": "scene blueprint revision",
+                            "geometry": dict(layer_override.get("geometry") or {}),
+                            "z_order": int(layer_override.get("z_order", 0)),
+                        },
+                    }
                 geometry, z_order, visual_properties, audio_properties, constraint_evidence, failures = (
                     FunctionalLiveRoomService._resolve_layer_constraints(
-                        asset=asset,
+                        asset=layer_asset,
                         role=str(role),
                         named_regions=named_regions,
                         table_surfaces=table_surfaces,
@@ -2260,11 +2774,22 @@ class FunctionalLiveRoomService:
                 f"{failure}:shot:{shot['shot_code']}"
                 for failure in FunctionalLiveRoomService._resolve_scene_layer_relationships(layers)
             )
+            source_blocks = [
+                block_by_code[code]
+                for code in (shot.get("script_block_codes") or [])
+                if str(code) in block_by_code
+            ]
+            if not source_blocks:
+                original_index = shot_source_index[str(shot["shot_code"])]
+                source_blocks = [blocks[original_index]] if original_index < len(blocks) else []
+            source_script = "\n".join(
+                str(block.get("content") or "") for block in source_blocks
+            ).strip()
             duration_ms = int(shot.get("estimated_duration_ms") or 1)
-            scenes.append({"scene_code": scene_code, "shot_code": shot["shot_code"], "title": shot["shot_goal"], "layers": layers, "script": blocks[index]["content"], "transition_strategy": {"type": "cut" if index else "initial"}, "estimated_active_start_ms": active_start_ms, "estimated_active_end_ms": active_start_ms + duration_ms, "estimated_duration_ms": duration_ms, "constraint_evidence": {"selection_source": "functional_live_room.v1", "required_roles": shot["material_role_requirements"], "named_regions": named_regions}})
+            scenes.append({"scene_code": scene_code, "shot_code": shot["shot_code"], "title": str((scene_override or {}).get("title") or shot["shot_goal"]), "layers": layers, "script": str((scene_override or {}).get("script") or source_script), "transition_strategy": {"type": "cut" if index else "initial"}, "estimated_active_start_ms": active_start_ms, "estimated_active_end_ms": active_start_ms + duration_ms, "estimated_duration_ms": duration_ms, "constraint_evidence": {"selection_source": "functional_live_room.v1", "required_roles": required_roles, "named_regions": named_regions, "blueprint_revision_requested": bool(scene_override)}})
             operations.append({"kind": "create_scene", "scene_code": scene_code, "source_shot": shot["shot_code"]})
             operations.extend({"kind": "insert_bound_asset", "scene_code": scene_code, "asset_code": layer["asset_code"], "role": layer["role"]} for layer in layers)
-            operations.append({"kind": "write_script", "scene_code": scene_code, "script_block_code": blocks[index]["block_code"]})
+            operations.append({"kind": "write_script", "scene_code": scene_code, "script_block_codes": [str(block["block_code"]) for block in source_blocks]})
             active_start_ms += duration_ms
         pack_requirement_evidence, requirement_failures = FunctionalLiveRoomService._evaluate_material_pack_requirements(
             requirements=material_pack_entry_requirements or [],
@@ -2286,6 +2811,7 @@ class FunctionalLiveRoomService:
                 "material_role_overrides": material_role_overrides,
                 "material_role_modes": material_role_modes,
                 "room_constraint_overrides": room_constraint_overrides,
+                "scene_overrides": scene_overrides,
                 "material_selection_decisions": material_selection_decisions,
                 "material_pack_requirement_evidence": pack_requirement_evidence,
                 "required_loose_asset_evidence": loose_requirement_evidence,

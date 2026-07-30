@@ -171,6 +171,24 @@ def selected_items(items: list[dict[str, Any]], options: ImportOptions) -> list[
 
 def item_payload(item: dict[str, Any], *, write_tags: bool) -> dict[str, Any]:
     payload = dict(item.get("asset_create_payload") or {})
+    # Older inventories predate the functional material-library dimensions.
+    # Preserve those inventories while making local files immediately usable in
+    # the workbench: previews and local production need an explicit media kind,
+    # capability, and a useful first-pass role.
+    payload.setdefault("media_kind", item.get("media_kind"))
+    payload.setdefault("execution_capability", "local_only")
+    category_roles = {
+        "background_image": ["background"],
+        "background_video": ["background"],
+        "digital_human_video": ["digital_human"],
+        "product_image": ["product_display"],
+        "product_video": ["supporting_video"],
+        "floating_sticker": ["decoration_foreground"],
+        "voice_audio": ["voice"],
+    }
+    if not payload.get("material_roles"):
+        category = str(payload.get("maitu_category") or item.get("maitu_category") or "")
+        payload["material_roles"] = category_roles.get(category, [])
     if write_tags:
         payload["tags"] = list(item.get("tags") or [])
     return payload

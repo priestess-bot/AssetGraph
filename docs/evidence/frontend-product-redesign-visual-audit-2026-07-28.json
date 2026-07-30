@@ -1,0 +1,412 @@
+{
+  "schemaVersion": "frontend-product-redesign-visual-audit.v1",
+  "completedAt": "2026-07-28T17:55:45.240Z",
+  "baseUrl": "http://127.0.0.1:5190",
+  "viewportCount": 2,
+  "routeCount": 10,
+  "screenshotCount": 20,
+  "status": "passed",
+  "failures": [],
+  "audits": [
+    {
+      "viewport": "1440x900",
+      "route": "overview",
+      "path": "/console/?demo=1",
+      "heading": "业务概览",
+      "textLength": 632,
+      "horizontalOverflowPx": 0,
+      "unreachableControls": [],
+      "siblingControlOverlaps": [],
+      "leakedInternalTokens": [],
+      "runtimeErrors": [],
+      "failures": [],
+      "screenshot": {
+        "path": "docs/evidence/screenshots/frontend-product-redesign-1440x900-overview.png",
+        "width": 1440,
+        "height": 900,
+        "sizeBytes": 172985,
+        "checksumSha256": "d89142e7302596ab1a4da7aebb7459f694f6e8d7ba32e593eb62f13b83078147"
+      }
+    },
+    {
+      "viewport": "1440x900",
+      "route": "assets",
+      "path": "/console/assets?demo=1",
+      "heading": "素材库",
+      "textLength": 309,
+      "horizontalOverflowPx": 0,
+      "unreachableControls": [],
+      "siblingControlOverlaps": [],
+      "leakedInternalTokens": [],
+      "runtimeErrors": [],
+      "failures": [],
+      "screenshot": {
+        "path": "docs/evidence/screenshots/frontend-product-redesign-1440x900-assets.png",
+        "width": 1440,
+        "height": 900,
+        "sizeBytes": 183502,
+        "checksumSha256": "d5562e5dc1a45065045e8a598169c1ee05d00e9f139803f11fae70880e401471"
+      }
+    },
+    {
+      "viewport": "1440x900",
+      "route": "templates",
+      "path": "/console/templates?demo=1",
+      "heading": "直播模板",
+      "textLength": 205,
+      "horizontalOverflowPx": 0,
+      "unreachableControls": [],
+      "siblingControlOverlaps": [],
+      "leakedInternalTokens": [],
+      "runtimeErrors": [],
+      "failures": [],
+      "screenshot": {
+        "path": "docs/evidence/screenshots/frontend-product-redesign-1440x900-templates.png",
+        "width": 1440,
+        "height": 900,
+        "sizeBytes": 86361,
+        "checksumSha256": "a3b01d0c0085cf3c29d9d715a2544d7cc300633b7a28c1a0eb599ade891537de"
+      }
+    },
+    {
+      "viewport": "1440x900",
+      "route": "knowledge",
+      "path": "/console/knowledge?demo=1",
+      "heading": "知识库",
+      "textLength": 234,
+      "horizontalOverflowPx": 0,
+      "unreachableControls": [],
+      "siblingControlOverlaps": [],
+      "leakedInternalTokens": [],
+      "runtimeErrors": [],
+      "failures": [],
+      "screenshot": {
+        "path": "docs/evidence/screenshots/frontend-product-redesign-1440x900-knowledge.png",
+        "width": 1440,
+        "height": 900,
+        "sizeBytes": 86029,
+        "checksumSha256": "17f9286b4731492b11acbcedc399f3a0985ff604143cc07478aedf77dc7a77a9"
+      }
+    },
+    {
+      "viewport": "1440x900",
+      "route": "projects",
+      "path": "/console/projects?demo=1",
+      "heading": "内容项目",
+      "textLength": 262,
+      "horizontalOverflowPx": 0,
+      "unreachableControls": [],
+      "siblingControlOverlaps": [],
+      "leakedInternalTokens": [],
+      "runtimeErrors": [],
+      "failures": [],
+      "screenshot": {
+        "path": "docs/evidence/screenshots/frontend-product-redesign-1440x900-projects.png",
+        "width": 1440,
+        "height": 900,
+        "sizeBytes": 88855,
+        "checksumSha256": "b96870acb460d26c6e107fa6d0d1bb4a0d3318d9b82fefed4c0db01223b450d8"
+      }
+    },
+    {
+      "viewport": "1440x900",
+      "route": "operations-import",
+      "path": "/console/operations?demo=1",
+      "heading": "运营分析",
+      "textLength": 231,
+      "horizontalOverflowPx": 0,
+      "unreachableControls": [],
+      "siblingControlOverlaps": [],
+      "leakedInternalTokens": [],
+      "runtimeErrors": [],
+      "failures": [],
+      "screenshot": {
+        "path": "docs/evidence/screenshots/frontend-product-redesign-1440x900-operations-import.png",
+        "width": 1440,
+        "height": 900,
+        "sizeBytes": 103576,
+        "checksumSha256": "80569c7f3c9c8130194ce5c047d68b32ce13b8b40b80e42b5c5fa1ac4b888ff2"
+      }
+    },
+    {
+      "viewport": "1440x900",
+      "route": "operations-analysis",
+      "path": "/console/operations?view=attribution&demo=1",
+      "heading": "运营分析",
+      "textLength": 298,
+      "horizontalOverflowPx": 0,
+      "unreachableControls": [],
+      "siblingControlOverlaps": [],
+      "leakedInternalTokens": [],
+      "runtimeErrors": [],
+      "failures": [],
+      "screenshot": {
+        "path": "docs/evidence/screenshots/frontend-product-redesign-1440x900-operations-analysis.png",
+        "width": 1440,
+        "height": 900,
+        "sizeBytes": 105053,
+        "checksumSha256": "2bb4f6eedf627e51744293cee601dd2a90016de1091ff79f570e5d189d4d8d18"
+      }
+    },
+    {
+      "viewport": "1440x900",
+      "route": "learning",
+      "path": "/console/learning?demo=1",
+      "heading": "效果学习",
+      "textLength": 348,
+      "horizontalOverflowPx": 0,
+      "unreachableControls": [],
+      "siblingControlOverlaps": [],
+      "leakedInternalTokens": [],
+      "runtimeErrors": [],
+      "failures": [],
+      "screenshot": {
+        "path": "docs/evidence/screenshots/frontend-product-redesign-1440x900-learning.png",
+        "width": 1440,
+        "height": 900,
+        "sizeBytes": 121320,
+        "checksumSha256": "b8485fb3f3833cbd451c9788e78ca8945fbc8ba4c5c7c57bca7c209d831d5183"
+      }
+    },
+    {
+      "viewport": "1440x900",
+      "route": "live-room-editor",
+      "path": "/console/production/live-rooms?run=live-summer&demo=1",
+      "heading": "内容项目",
+      "textLength": 279,
+      "horizontalOverflowPx": 0,
+      "unreachableControls": [],
+      "siblingControlOverlaps": [],
+      "leakedInternalTokens": [],
+      "runtimeErrors": [],
+      "failures": [],
+      "screenshot": {
+        "path": "docs/evidence/screenshots/frontend-product-redesign-1440x900-live-room-editor.png",
+        "width": 1440,
+        "height": 900,
+        "sizeBytes": 214001,
+        "checksumSha256": "47f5d2ece07c1cd870df4183c5979ffee34c14bf4fccaead96f9accc86ce2848"
+      }
+    },
+    {
+      "viewport": "1440x900",
+      "route": "video-editor",
+      "path": "/console/production/videos?plan=video-summer&demo=1",
+      "heading": "内容项目",
+      "textLength": 320,
+      "horizontalOverflowPx": 0,
+      "unreachableControls": [],
+      "siblingControlOverlaps": [],
+      "leakedInternalTokens": [],
+      "runtimeErrors": [],
+      "failures": [],
+      "screenshot": {
+        "path": "docs/evidence/screenshots/frontend-product-redesign-1440x900-video-editor.png",
+        "width": 1440,
+        "height": 900,
+        "sizeBytes": 226418,
+        "checksumSha256": "1ddfb31f43c1e5c27a233a531b5f33a0ae1f02b182faf9001f656da107e34833"
+      }
+    },
+    {
+      "viewport": "1920x1080",
+      "route": "overview",
+      "path": "/console/?demo=1",
+      "heading": "业务概览",
+      "textLength": 667,
+      "horizontalOverflowPx": 0,
+      "unreachableControls": [],
+      "siblingControlOverlaps": [],
+      "leakedInternalTokens": [],
+      "runtimeErrors": [],
+      "failures": [],
+      "screenshot": {
+        "path": "docs/evidence/screenshots/frontend-product-redesign-1920x1080-overview.png",
+        "width": 1920,
+        "height": 1080,
+        "sizeBytes": 200464,
+        "checksumSha256": "1cde6009b7bc55840dcbfb6d2687824a3afab7b08f3d275b39de6b13afa98d84"
+      }
+    },
+    {
+      "viewport": "1920x1080",
+      "route": "assets",
+      "path": "/console/assets?demo=1",
+      "heading": "素材库",
+      "textLength": 309,
+      "horizontalOverflowPx": 0,
+      "unreachableControls": [],
+      "siblingControlOverlaps": [],
+      "leakedInternalTokens": [],
+      "runtimeErrors": [],
+      "failures": [],
+      "screenshot": {
+        "path": "docs/evidence/screenshots/frontend-product-redesign-1920x1080-assets.png",
+        "width": 1920,
+        "height": 1080,
+        "sizeBytes": 155366,
+        "checksumSha256": "ba0aefeac50f751714870f39b8ff4f0a947526b42d6dddd42f289008cd02543b"
+      }
+    },
+    {
+      "viewport": "1920x1080",
+      "route": "templates",
+      "path": "/console/templates?demo=1",
+      "heading": "直播模板",
+      "textLength": 205,
+      "horizontalOverflowPx": 0,
+      "unreachableControls": [],
+      "siblingControlOverlaps": [],
+      "leakedInternalTokens": [],
+      "runtimeErrors": [],
+      "failures": [],
+      "screenshot": {
+        "path": "docs/evidence/screenshots/frontend-product-redesign-1920x1080-templates.png",
+        "width": 1920,
+        "height": 1080,
+        "sizeBytes": 86806,
+        "checksumSha256": "7b3eaf1f4e03f4615dbdbf95136af83b0be49fb6d8da7131b2c9d618a80a0959"
+      }
+    },
+    {
+      "viewport": "1920x1080",
+      "route": "knowledge",
+      "path": "/console/knowledge?demo=1",
+      "heading": "知识库",
+      "textLength": 234,
+      "horizontalOverflowPx": 0,
+      "unreachableControls": [],
+      "siblingControlOverlaps": [],
+      "leakedInternalTokens": [],
+      "runtimeErrors": [],
+      "failures": [],
+      "screenshot": {
+        "path": "docs/evidence/screenshots/frontend-product-redesign-1920x1080-knowledge.png",
+        "width": 1920,
+        "height": 1080,
+        "sizeBytes": 88063,
+        "checksumSha256": "7d208fea88b0aa5f9992cfcec8868f7757b3a3f6a8476bbfc9ea09f07b4574bb"
+      }
+    },
+    {
+      "viewport": "1920x1080",
+      "route": "projects",
+      "path": "/console/projects?demo=1",
+      "heading": "内容项目",
+      "textLength": 262,
+      "horizontalOverflowPx": 0,
+      "unreachableControls": [],
+      "siblingControlOverlaps": [],
+      "leakedInternalTokens": [],
+      "runtimeErrors": [],
+      "failures": [],
+      "screenshot": {
+        "path": "docs/evidence/screenshots/frontend-product-redesign-1920x1080-projects.png",
+        "width": 1920,
+        "height": 1080,
+        "sizeBytes": 92445,
+        "checksumSha256": "6fa8689bf02ddc0683cc35c324209969280ca63e62801a0aaba88fd2a93a1e33"
+      }
+    },
+    {
+      "viewport": "1920x1080",
+      "route": "operations-import",
+      "path": "/console/operations?demo=1",
+      "heading": "运营分析",
+      "textLength": 231,
+      "horizontalOverflowPx": 0,
+      "unreachableControls": [],
+      "siblingControlOverlaps": [],
+      "leakedInternalTokens": [],
+      "runtimeErrors": [],
+      "failures": [],
+      "screenshot": {
+        "path": "docs/evidence/screenshots/frontend-product-redesign-1920x1080-operations-import.png",
+        "width": 1920,
+        "height": 1080,
+        "sizeBytes": 108576,
+        "checksumSha256": "220fec1e5ce00f0dd87e91860e48aa17d27dbd33c8bd89499d59ce8bb7549254"
+      }
+    },
+    {
+      "viewport": "1920x1080",
+      "route": "operations-analysis",
+      "path": "/console/operations?view=attribution&demo=1",
+      "heading": "运营分析",
+      "textLength": 298,
+      "horizontalOverflowPx": 0,
+      "unreachableControls": [],
+      "siblingControlOverlaps": [],
+      "leakedInternalTokens": [],
+      "runtimeErrors": [],
+      "failures": [],
+      "screenshot": {
+        "path": "docs/evidence/screenshots/frontend-product-redesign-1920x1080-operations-analysis.png",
+        "width": 1920,
+        "height": 1080,
+        "sizeBytes": 109027,
+        "checksumSha256": "8da9595e3d2118f52a9b5f584de2cceecf3844455cf8c5b12046b8a20008695a"
+      }
+    },
+    {
+      "viewport": "1920x1080",
+      "route": "learning",
+      "path": "/console/learning?demo=1",
+      "heading": "效果学习",
+      "textLength": 348,
+      "horizontalOverflowPx": 0,
+      "unreachableControls": [],
+      "siblingControlOverlaps": [],
+      "leakedInternalTokens": [],
+      "runtimeErrors": [],
+      "failures": [],
+      "screenshot": {
+        "path": "docs/evidence/screenshots/frontend-product-redesign-1920x1080-learning.png",
+        "width": 1920,
+        "height": 1080,
+        "sizeBytes": 119945,
+        "checksumSha256": "d47ccc9620b750993df4a4d04a7cd4c2f57fa5c674a9dd998bfd5870875bb68c"
+      }
+    },
+    {
+      "viewport": "1920x1080",
+      "route": "live-room-editor",
+      "path": "/console/production/live-rooms?run=live-summer&demo=1",
+      "heading": "内容项目",
+      "textLength": 279,
+      "horizontalOverflowPx": 0,
+      "unreachableControls": [],
+      "siblingControlOverlaps": [],
+      "leakedInternalTokens": [],
+      "runtimeErrors": [],
+      "failures": [],
+      "screenshot": {
+        "path": "docs/evidence/screenshots/frontend-product-redesign-1920x1080-live-room-editor.png",
+        "width": 1920,
+        "height": 1080,
+        "sizeBytes": 281516,
+        "checksumSha256": "4ec31698aaafd8f300cb753e17a34e097957abde9eead7d94b27231fb3b54913"
+      }
+    },
+    {
+      "viewport": "1920x1080",
+      "route": "video-editor",
+      "path": "/console/production/videos?plan=video-summer&demo=1",
+      "heading": "内容项目",
+      "textLength": 320,
+      "horizontalOverflowPx": 0,
+      "unreachableControls": [],
+      "siblingControlOverlaps": [],
+      "leakedInternalTokens": [],
+      "runtimeErrors": [],
+      "failures": [],
+      "screenshot": {
+        "path": "docs/evidence/screenshots/frontend-product-redesign-1920x1080-video-editor.png",
+        "width": 1920,
+        "height": 1080,
+        "sizeBytes": 314472,
+        "checksumSha256": "e926935b130c193865098647920f4fe7798e027387e40851aef02cada767225d"
+      }
+    }
+  ]
+}

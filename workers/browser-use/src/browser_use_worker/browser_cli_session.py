@@ -341,10 +341,16 @@ class BrowserUseCliSession:
     def probe_current_page(self, *, open_if_needed: bool = True) -> MaituPageProbe:
         summary = self.read_page_summary()
         probe = self._probe_from_summary(summary)
+        if self._is_maitu_url(probe.url) and not probe.text.strip() and not probe.login_required:
+            summary = self.read_page_summary()
+            probe = self._probe_from_summary(summary)
         if open_if_needed and not self._is_maitu_url(probe.url):
             self.open_home()
             summary = self.read_page_summary()
             probe = self._probe_from_summary(summary)
+            if not probe.text.strip() and not probe.login_required:
+                summary = self.read_page_summary()
+                probe = self._probe_from_summary(summary)
             probe.opened_home = True
         self.last_probe = probe
         return probe
@@ -1778,17 +1784,16 @@ class BrowserUseCliSession:
 
     @staticmethod
     def _looks_like_logged_in(title: str, url: str, text: str) -> bool:
-        combined = "\n".join([title, url, text])
+        del title
         return BrowserUseCliSession._is_maitu_url(url) and any(
-            marker in combined
+            marker in text
             for marker in (
-                "MyTwins",
-                "麦兔",
                 "首页",
                 "数字分身",
                 "素材管理",
-                "直播间",
+                "直播间设置",
                 "商品库",
+                "退出登录",
             )
         )
 

@@ -53,6 +53,8 @@ export interface FunctionalLiveRoomPlan {
       mediaKind?: string;
       materialRoles: string[];
       executionCapability: string;
+      rightsStatus: string;
+      rightsNote?: string;
       constraintProfile?: {
         profileCode: string;
         revision: number;
@@ -89,6 +91,12 @@ export interface FunctionalLiveRoomPlan {
         role: string;
         asset_code: string;
         execution_capability: string;
+        normalized_geometry: {
+          x: number;
+          y: number;
+          width: number;
+          height: number;
+        };
         z_order: number;
       }>;
       script: string;
@@ -99,13 +107,7 @@ export interface FunctionalLiveRoomPlan {
     build_plan_code?: string;
     target_live_room_id: string;
     go_live: boolean;
-    operations: Array<{
-      kind: string;
-      scene_code?: string;
-      asset_code?: string;
-      role?: string;
-      script_block_code?: string;
-    }>;
+    operations: FunctionalLiveRoomBuildOperation[];
   };
   gateResults: Array<{
     gate: string;
@@ -120,6 +122,8 @@ export interface FunctionalLiveRoomPlan {
   executionEvidence: Record<string, unknown>;
   clonedFromPlanCode?: string;
   cloneContext: Record<string, unknown>;
+  revisedFromPlanCode?: string;
+  revisionContext: Record<string, unknown>;
   releaseCode?: string;
   releaseSnapshotArtifactCode?: string;
   releaseManifestFingerprint?: string;
@@ -137,11 +141,79 @@ export interface FunctionalLiveRoomExecutionHandoff {
   planCode: string;
   buildPlanCode: string;
   targetLiveRoomId: string;
+  expectedTitle: string;
   checkpointContract: string;
   sourcePlanFingerprint: string;
   operationCount: number;
   operationTypes: string[];
+  operations: FunctionalLiveRoomBuildOperation[];
 }
+
+export interface FunctionalLiveRoomBuildOperation {
+  kind: string;
+  operationName: string;
+  status: string;
+  instruction: string;
+  targetLiveRoomId?: string;
+  expectedLiveRoomTitle?: string;
+  sceneCode?: string;
+  sceneIndex?: number;
+  layerId?: string;
+  layerType?: string;
+  assetCode?: string;
+  assetDisplayCode?: string;
+  assetOriginalFilename?: string;
+  assetLocalRelativePath?: string;
+  materialId?: number;
+  sourceMaterialType?: string;
+  speakerId?: number;
+  digitalHumanImageId?: number;
+  role?: string;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  zIndex?: number;
+  scriptBlockCode?: string;
+  scriptText?: string;
+  raw: Record<string, unknown>;
+}
+
+export type MaituCapabilityStatus =
+  | "verified"
+  | "manual_only"
+  | "unsupported";
+
+export interface MaituCapabilityMatrix {
+  schemaVersion: "maitu-capability-matrix.v1";
+  adapterContract: string;
+  contractFingerprint: string;
+  source: string;
+  canExecuteDraft: boolean;
+  manualHandoffAvailable: boolean;
+  unverifiedRequiredCapabilities: string[];
+  capabilities: Array<{
+    key: string;
+    title: string;
+    status: MaituCapabilityStatus;
+    requiredForDraft: boolean;
+    lastVerifiedAt?: string;
+    evidenceLevel: string;
+    evidenceRefs: string[];
+    customerMessage: string;
+  }>;
+}
+
+export const conservativeMaituCapabilityFallback: MaituCapabilityMatrix = {
+  schemaVersion: "maitu-capability-matrix.v1",
+  adapterContract: "unavailable",
+  contractFingerprint: "",
+  source: "client_fail_closed",
+  canExecuteDraft: false,
+  manualHandoffAvailable: true,
+  unverifiedRequiredCapabilities: ["capability_matrix_unavailable"],
+  capabilities: [],
+};
 
 export interface RoomConstraintOverride {
   reason: string;
@@ -170,6 +242,21 @@ export interface FunctionalLiveRoomPlanInput {
   material_role_overrides: Record<string, string>;
   material_role_modes?: Record<string, "inherit" | "append" | "replace">;
   room_constraint_overrides: Record<string, RoomConstraintOverride>;
+}
+
+export interface FunctionalLiveRoomBlueprintRevisionInput {
+  scenes: Array<{
+    shot_code: string;
+    sort_order: number;
+    title: string;
+    script: string;
+    layers: Array<{
+      role: string;
+      asset_code: string;
+      geometry: { x: number; y: number; width: number; height: number };
+      z_order: number;
+    }>;
+  }>;
 }
 
 export interface FunctionalLiveRoomMaterialGapPreview {
@@ -225,6 +312,79 @@ function strings(value: unknown): string[] {
   );
 }
 
+function optionalNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
+}
+
+function buildOperations(value: unknown): FunctionalLiveRoomBuildOperation[] {
+  return asArray(value).flatMap((operation) => {
+    if (!isRecord(operation)) return [];
+    const kind = asString(
+      operation.operation_type,
+      asString(operation.kind),
+    );
+    if (!kind) return [];
+    return [
+      {
+        kind,
+        operationName: asString(operation.operation_name, kind),
+        status: asString(operation.status, "planned"),
+        instruction: asString(operation.instruction),
+        targetLiveRoomId: asOptionalString(operation.target_live_room_id),
+        expectedLiveRoomTitle: asOptionalString(
+          operation.expected_live_room_title,
+        ),
+        sceneCode:
+          asOptionalString(operation.scene_code) ??
+          asOptionalString(operation.scene_name),
+        sceneIndex: optionalNumber(operation.scene_index),
+        layerId:
+          asOptionalString(operation.layer_id) ??
+          asOptionalString(operation.layer_name),
+        layerType:
+          asOptionalString(operation.layer_type) ??
+          asOptionalString(operation.layer_role),
+        assetCode:
+          asOptionalString(operation.asset_code) ??
+          asOptionalString(operation.selected_asset_code),
+        assetDisplayCode:
+          asOptionalString(operation.asset_display_code) ??
+          asOptionalString(operation.selected_asset_display_code),
+        assetOriginalFilename:
+          asOptionalString(operation.asset_original_filename) ??
+          asOptionalString(operation.selected_asset_original_filename),
+        assetLocalRelativePath:
+          asOptionalString(operation.asset_local_relative_path) ??
+          asOptionalString(operation.selected_asset_local_relative_path),
+        materialId:
+          optionalNumber(operation.material_id) ??
+          optionalNumber(operation.maitu_material_id),
+        sourceMaterialType: asOptionalString(operation.source_material_type),
+        speakerId: optionalNumber(operation.speaker_id),
+        digitalHumanImageId: optionalNumber(
+          operation.digital_human_image_id,
+        ),
+        role:
+          asOptionalString(operation.role) ??
+          asOptionalString(operation.layer_type) ??
+          asOptionalString(operation.layer_role),
+        x: optionalNumber(operation.x),
+        y: optionalNumber(operation.y),
+        width: optionalNumber(operation.width),
+        height: optionalNumber(operation.height),
+        zIndex: optionalNumber(operation.z_index),
+        scriptBlockCode: asOptionalString(operation.script_block_code),
+        scriptText:
+          asOptionalString(operation.script_text) ??
+          asOptionalString(operation.script_block_content),
+        raw: { ...operation },
+      },
+    ];
+  });
+}
+
 function roomConstraintOverrides(
   value: unknown,
 ): Record<string, RoomConstraintOverride> {
@@ -263,6 +423,34 @@ function roomConstraintOverrides(
       ];
     }),
   );
+}
+
+function defaultLayerGeometry(role: string) {
+  const defaults: Record<
+    string,
+    { x: number; y: number; width: number; height: number }
+  > = {
+    background: { x: 0, y: 0, width: 1, height: 1 },
+    digital_human: { x: 0.08, y: 0.18, width: 0.36, height: 0.64 },
+    product_display: { x: 0.52, y: 0.28, width: 0.4, height: 0.4 },
+    product_image: { x: 0.52, y: 0.28, width: 0.4, height: 0.4 },
+    promotion_text: { x: 0.08, y: 0.78, width: 0.84, height: 0.14 },
+  };
+  return { ...(defaults[role] ?? { x: 0.1, y: 0.1, width: 0.3, height: 0.3 }) };
+}
+
+function layerGeometry(value: unknown, role: string) {
+  if (!isRecord(value)) return defaultLayerGeometry(role);
+  const values = [value.x, value.y, value.width, value.height];
+  if (!values.every((item) => typeof item === "number" && Number.isFinite(item))) {
+    return defaultLayerGeometry(role);
+  }
+  return {
+    x: asNumber(value.x),
+    y: asNumber(value.y),
+    width: asNumber(value.width),
+    height: asNumber(value.height),
+  };
 }
 
 function plan(value: unknown): FunctionalLiveRoomPlan {
@@ -396,6 +584,8 @@ function plan(value: unknown): FunctionalLiveRoomPlan {
                 mediaKind: asOptionalString(asset.media_kind),
                 materialRoles: strings(asset.material_roles),
                 executionCapability: asString(asset.execution_capability),
+                rightsStatus: asString(asset.rights_status, "pending"),
+                rightsNote: asOptionalString(asset.rights_note),
                 constraintProfile:
                   isRecord(asset.constraint_profile_ref) &&
                   asString(asset.constraint_profile_ref.profile_code)
@@ -476,12 +666,14 @@ function plan(value: unknown): FunctionalLiveRoomPlan {
                 script: asString(scene.script),
                 layers: asArray(scene.layers).flatMap((layer) =>
                   isRecord(layer)
-                    ? [
-                        {
-                          role: asString(
-                            layer.role,
-                            asString(layer.material_role),
-                          ),
+                    ? (() => {
+                        const role = asString(
+                          layer.role,
+                          asString(layer.material_role),
+                        );
+                        return [
+                          {
+                            role,
                           asset_code: asString(layer.asset_code),
                           execution_capability: asString(
                             layer.execution_capability,
@@ -491,12 +683,17 @@ function plan(value: unknown): FunctionalLiveRoomPlan {
                                 )
                               : "",
                           ),
+                          normalized_geometry: layerGeometry(
+                            layer.normalized_geometry,
+                            role,
+                          ),
                           z_order:
                             typeof layer.z_order === "number"
                               ? layer.z_order
                               : 0,
-                        },
-                      ]
+                          },
+                        ];
+                      })()
                     : [],
                 ),
               },
@@ -509,28 +706,7 @@ function plan(value: unknown): FunctionalLiveRoomPlan {
       build_plan_code: asOptionalString(buildPlan.build_plan_code),
       target_live_room_id: asString(buildPlan.target_live_room_id),
       go_live: buildPlan.go_live === true,
-      operations: asArray(buildPlan.operations).flatMap((operation) =>
-        isRecord(operation)
-          ? [
-              {
-                kind: asString(
-                  operation.operation_type,
-                  asString(operation.kind),
-                ),
-                scene_code:
-                  asOptionalString(operation.scene_code) ??
-                  asOptionalString(operation.scene_name),
-                asset_code: asOptionalString(operation.asset_code),
-                role:
-                  asOptionalString(operation.role) ??
-                  asOptionalString(operation.layer_type),
-                script_block_code: asOptionalString(
-                  operation.script_block_code,
-                ),
-              },
-            ]
-          : [],
-      ),
+      operations: buildOperations(buildPlan.operations),
     },
     gateResults: asArray(value.gate_results).flatMap((gate) =>
       isRecord(gate) && asString(gate.gate)
@@ -553,6 +729,10 @@ function plan(value: unknown): FunctionalLiveRoomPlan {
       : {},
     clonedFromPlanCode: asOptionalString(value.cloned_from_plan_code),
     cloneContext: isRecord(value.clone_context) ? value.clone_context : {},
+    revisedFromPlanCode: asOptionalString(value.revised_from_plan_code),
+    revisionContext: isRecord(value.revision_context)
+      ? value.revision_context
+      : {},
     releaseCode: asOptionalString(value.release_code),
     releaseSnapshotArtifactCode: asOptionalString(
       value.release_snapshot_artifact_code,
@@ -588,10 +768,12 @@ function executionHandoff(value: unknown): FunctionalLiveRoomExecutionHandoff {
     planCode,
     buildPlanCode,
     targetLiveRoomId: asString(value.target_live_room_id),
+    expectedTitle: asString(value.expected_title),
     checkpointContract: asString(value.checkpoint_contract),
     sourcePlanFingerprint,
     operationCount: asNumber(value.operation_count),
     operationTypes: strings(value.operation_types),
+    operations: buildOperations(value.operations),
   };
 }
 
@@ -633,6 +815,52 @@ function materialGapPreview(value: unknown): FunctionalLiveRoomMaterialGapPrevie
             impact_summary: asString(createPayload.impact_summary),
             alternative_asset_codes: strings(createPayload.alternative_asset_codes),
           },
+        },
+      ];
+    }),
+  };
+}
+
+function maituCapabilityMatrix(value: unknown): MaituCapabilityMatrix {
+  if (!isRecord(value)) throw new Error("麦兔能力响应无效");
+  if (value.schema_version !== "maitu-capability-matrix.v1") {
+    throw new Error("麦兔能力契约版本不受支持");
+  }
+  const contractFingerprint = asString(value.contract_fingerprint);
+  if (!/^[0-9a-f]{64}$/.test(contractFingerprint)) {
+    throw new Error("麦兔能力契约缺少有效指纹");
+  }
+  return {
+    schemaVersion: value.schema_version,
+    adapterContract: asString(value.adapter_contract),
+    contractFingerprint,
+    source: asString(value.source),
+    canExecuteDraft: value.can_execute_draft === true,
+    manualHandoffAvailable: value.manual_handoff_available === true,
+    unverifiedRequiredCapabilities: strings(
+      value.unverified_required_capabilities,
+    ),
+    capabilities: asArray(value.capabilities).flatMap((item) => {
+      if (!isRecord(item)) return [];
+      const key = asString(item.key);
+      const title = asString(item.title);
+      const status = asString(item.status);
+      if (
+        !key ||
+        !title ||
+        !["verified", "manual_only", "unsupported"].includes(status)
+      )
+        return [];
+      return [
+        {
+          key,
+          title,
+          status: status as MaituCapabilityStatus,
+          requiredForDraft: item.required_for_draft === true,
+          lastVerifiedAt: asOptionalString(item.last_verified_at),
+          evidenceLevel: asString(item.evidence_level),
+          evidenceRefs: strings(item.evidence_refs),
+          customerMessage: asString(item.customer_message),
         },
       ];
     }),
@@ -697,6 +925,10 @@ function trace(value: unknown): FunctionalLiveRoomTrace {
 
 export const functionalLiveRoomsApi = {
   list: () => requestJson<unknown[]>(ROOT).then((rows) => rows.map(plan)),
+  maituCapabilities: () =>
+    requestJson<unknown>(`${ROOT}/maitu-capabilities`).then(
+      maituCapabilityMatrix,
+    ),
   get: (planCode: string) =>
     requestJson<unknown>(`${ROOT}/${planCode}`).then(plan),
   getTrace: (planCode: string) =>
@@ -743,4 +975,12 @@ export const functionalLiveRoomsApi = {
     planCode: string,
     payload: { target_live_room_id: string; expected_title: string },
   ) => postJson<unknown>(`${ROOT}/${planCode}/clone`, payload).then(plan),
+  reviseBlueprint: (
+    planCode: string,
+    payload: FunctionalLiveRoomBlueprintRevisionInput,
+  ) =>
+    postJson<unknown>(
+      `${ROOT}/${planCode}/blueprint-revisions`,
+      payload,
+    ).then(plan),
 };

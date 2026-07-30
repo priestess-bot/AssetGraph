@@ -43,6 +43,7 @@ class TemplateContributionDecisionInput(BaseModel):
 
 class ContentProjectCreate(BaseModel):
     title: str = Field(min_length=1, max_length=255)
+    target_live_room_id: str | None = Field(default=None, min_length=1, max_length=128)
     generation_goal: str = Field(min_length=1, max_length=4000)
     theme: str | None = Field(default=None, max_length=1000)
     story: str | None = Field(default=None, max_length=4000)
@@ -70,6 +71,8 @@ class ContentProjectCreate(BaseModel):
     # Secondary templates are narrowed by the context compiler, not by a UI
     # cardinality cap. The project must retain the complete selected set.
     secondary_template_codes: list[str] = Field(default_factory=list)
+    selected_group_codes: list[str] = Field(default_factory=list)
+    selected_asset_codes: list[str] = Field(default_factory=list)
     template_contribution_decisions: list[TemplateContributionDecisionInput] = Field(default_factory=list, max_length=50)
 
     @field_validator("secondary_template_codes")
@@ -102,6 +105,7 @@ class ContentProjectCreate(BaseModel):
 class ContentProjectUpdate(BaseModel):
     expected_revision: int = Field(ge=1)
     title: str | None = Field(default=None, min_length=1, max_length=255)
+    target_live_room_id: str | None = Field(default=None, min_length=1, max_length=128)
     generation_goal: str | None = Field(default=None, min_length=1, max_length=4000)
     theme: str | None = Field(default=None, max_length=1000)
     story: str | None = Field(default=None, max_length=4000)
@@ -127,6 +131,8 @@ class ContentProjectUpdate(BaseModel):
     content_rule_refs: list[ContentRuleReference] | None = None
     primary_template_code: str | None = Field(default=None, max_length=80)
     secondary_template_codes: list[str] | None = None
+    selected_group_codes: list[str] | None = None
+    selected_asset_codes: list[str] | None = None
     template_contribution_decisions: list[TemplateContributionDecisionInput] | None = Field(default=None, max_length=50)
 
     @model_validator(mode="after")
@@ -302,6 +308,39 @@ class ContentProjectDetail(ContentProjectSummary):
     script: dict[str, Any] | None = None
     program: dict[str, Any] | None = None
     shot_list: dict[str, Any] | None = None
+
+
+class ProjectWorkspaceOutput(BaseModel):
+    available: bool = False
+    status: str = "pending"
+    updated_at: datetime | None = None
+    title: str | None = None
+    progress_percent: int | None = None
+    reference_code: str | None = None
+
+
+class ProjectWorkspaceActivity(BaseModel):
+    kind: str
+    title: str
+    detail: str
+    status: str
+    occurred_at: datetime
+
+
+class ProjectWorkspaceSummary(BaseModel):
+    project_code: str
+    title: str
+    status: str
+    revision_number: int
+    generation_goal: str
+    brief: ProjectWorkspaceOutput
+    script: ProjectWorkspaceOutput
+    live_room: ProjectWorkspaceOutput
+    video: ProjectWorkspaceOutput
+    delivery: ProjectWorkspaceOutput
+    operations: ProjectWorkspaceOutput
+    activity: list[ProjectWorkspaceActivity] = Field(default_factory=list)
+    updated_at: datetime
 
 
 class ContentChainRevisionRead(BaseModel):

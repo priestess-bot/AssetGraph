@@ -351,6 +351,7 @@ def create_script_layout_build_plan(payload: MaituScriptLayoutBuildPlanCreate) -
     return ScriptLayoutBuildPlanBuilder().build(
         payload.layout_plan.model_dump(),
         target_live_room_id=payload.target_live_room_id,
+        expected_title=payload.expected_title,
     )
 
 

@@ -160,4 +160,18 @@ describe("knowledge api", () => {
     expect(fetch).toHaveBeenNthCalledWith(1, "/api/functional-knowledge/graph-projections/current", expect.any(Object));
     expect(fetch).toHaveBeenNthCalledWith(2, "/api/functional-knowledge/graph-projections/rebuild", expect.objectContaining({ method: "POST", body: JSON.stringify({ actor: "graph_operator" }) }));
   });
+
+  it("maps a scoped graph lineage search", async () => {
+    const asset = { node_type: "asset", node_code: "ASSET-001", revision_number: 0, status: "ready", properties: { title: "Product image" }, source_fingerprint_sha256: "a".repeat(64) };
+    const fetch = vi.fn().mockResolvedValue(response({
+      query: "Product", scope: "material", projection_code: "GRAPH-001", projection_revision: 2, is_stale: false,
+      results: [{ match: asset, nodes: [asset], edges: [], truncated: false }],
+    }));
+    vi.stubGlobal("fetch", fetch);
+
+    const result = await knowledgeApi.searchGraphLineage("Product", "material");
+
+    expect(result).toMatchObject({ projectionCode: "GRAPH-001", scope: "material", results: [{ match: { nodeCode: "ASSET-001" }, truncated: false }] });
+    expect(fetch).toHaveBeenCalledWith("/api/functional-knowledge/graph-search?q=Product&scope=material", expect.any(Object));
+  });
 });

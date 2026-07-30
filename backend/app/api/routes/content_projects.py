@@ -12,6 +12,7 @@ from app.schemas.content_projects import (
     ContentProjectCreate,
     ContentProjectDetail,
     ContentProjectSummary,
+    ProjectWorkspaceSummary,
     ContentProjectUpdate,
     ContentChainRevisionRead,
     DesignBriefConfirm,
@@ -49,6 +50,17 @@ def get_content_project(project_code: str, service: Annotated[FunctionalContentS
     if detail is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Content project not found")
     return detail
+
+
+@router.get("/{project_code}/workspace-summary", response_model=ProjectWorkspaceSummary)
+def get_project_workspace_summary(
+    project_code: str,
+    service: Annotated[FunctionalContentService, Depends(get_service)],
+) -> dict:
+    summary = service.get_workspace_summary(project_code)
+    if summary is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Content project not found")
+    return summary
 
 
 @router.get("/{project_code}/content-chain-revisions", response_model=list[ContentChainRevisionRead])
@@ -212,5 +224,5 @@ def generate_content_chain(project_code: str, service: Annotated[FunctionalConte
     except KeyError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Content project not found") from exc
     except (DomainConflictError, DomainValidationError) as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=exc.message) from exc
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=exc.as_dict()) from exc
     return detail

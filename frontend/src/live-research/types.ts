@@ -4,6 +4,7 @@ export type WatchTargetStatus = "enabled" | "paused" | "blocked" | "deleted";
 export type CaptureSessionStatus = "starting" | "recording" | "finalizing" | "completed" | "failed" | "abandoned";
 export type JobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
 export type TemplateRevisionStatus = "draft" | "published" | "superseded" | "rejected";
+export type TemplateStatus = "draft" | "published" | "archived";
 export type LayoutFidelity = "none" | "approximate" | "verified_layout";
 export type Buildability = "reference_only" | "executable";
 export type ContentReadiness = "blocked" | "review_required" | "ready";
@@ -53,6 +54,8 @@ export interface CaptureSession {
   interaction_event_count: number;
   analysis_status?: JobStatus;
   template_code?: string;
+  source_type?: "uploaded_recording" | "platform_capture";
+  analysis_status_counts?: Record<string, number>;
   media_chunks?: Array<{
     chunk_code: string;
     media_url: string;
@@ -60,6 +63,21 @@ export interface CaptureSession {
     global_end_seconds: number;
     chunk_start_seconds: number;
   }>;
+}
+
+export interface RecordingUploadReceipt {
+  session_code: string;
+  target_code: string;
+  source_room_id: string;
+  source_room_title: string;
+  file_name: string;
+  file_size: number;
+  checksum_sha256: string;
+  duration_seconds: number;
+  upload_status: "stored";
+  analysis_status: "queued";
+  queued_analysis_types: string[];
+  created_at: string;
 }
 
 export interface AsrSegment {
@@ -126,6 +144,12 @@ export interface AnalysisRun {
   structure_status: JobStatus;
   result_template_code?: string;
   error_message?: string;
+  failed_steps?: Array<{
+    analysis_run_code: string;
+    analysis_type: string;
+    error_message: string;
+    can_retry: boolean;
+  }>;
   updated_at?: string;
 }
 
@@ -154,7 +178,7 @@ export interface TemplateScene {
 
 export interface TemplateRevision {
   revision: number;
-  status: TemplateRevisionStatus;
+  status: TemplateStatus;
   layout_fidelity: LayoutFidelity;
   buildability: Buildability;
   contentReadiness: ContentReadiness;
@@ -205,7 +229,7 @@ export interface RoomTemplate {
   sourceTargetCode?: string;
   latest_revision: number;
   published_revision?: number;
-  status: TemplateRevisionStatus;
+  status: TemplateStatus;
   layout_fidelity: LayoutFidelity;
   buildability: Buildability;
   contentReadiness: ContentReadiness;
@@ -213,6 +237,8 @@ export interface RoomTemplate {
   scenes: TemplateScene[];
   source_playback_url?: string;
   published_version_code?: string;
+  archived_at?: string;
+  archive_reason?: string;
   updated_at?: string;
 }
 

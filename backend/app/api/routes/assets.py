@@ -9,6 +9,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
 from psycopg import Connection
+from starlette.background import BackgroundTask
 
 from app.core.config import settings
 from app.api.auth import reject_maitu_durable_secret, require_maitu_script_layout_worker
@@ -40,6 +41,8 @@ from app.schemas.material_library import (
     AssetGroupCreate,
     AssetGroupMembersReplace,
     AssetGroupRead,
+    AssetGroupUpdate,
+    AssetRightsUpdate,
     ExecutionCapability,
     MaterialPackCreate,
     MaterialPackRead,
@@ -51,6 +54,7 @@ from app.schemas.material_library import (
     MediaKind,
 )
 from app.services.asset_candidates import AssetRetrievalIndex
+from app.services.asset_preview import AssetPreviewError, cached_preview_path, ensure_image_thumbnail, ensure_video_preview
 from app.services.maitu_authority import (
     MaituAuthorityConfigurationError,
     MaituAuthorityError,
@@ -58,7 +62,15 @@ from app.services.maitu_authority import (
     MaituAuthorityVerifier,
     get_maitu_authority_verifier,
 )
-from app.services.object_storage import MinioObjectStorage, ObjectStorage, build_asset_object_key, content_type_for_path
+from app.services.object_storage import (
+    LocalObjectStorage,
+    MinioObjectStorage,
+    ObjectStorage,
+    ObjectStorageError,
+    ResilientObjectStorage,
+    build_asset_object_key,
+    content_type_for_path,
+)
 from app.services.qwen3_client import Qwen3Client, Qwen3ClientError
 
 router = APIRouter(prefix="/assets", tags=["assets"])
@@ -74,12 +86,17 @@ def get_material_library_repository(connection: Annotated[Connection, Depends(ge
 
 
 def get_object_storage() -> ObjectStorage:
-    return MinioObjectStorage(
-        endpoint=settings.minio_endpoint,
-        access_key=settings.minio_access_key,
-        secret_key=settings.minio_secret_key,
-        secure=settings.minio_secure,
-    )
+    fallback = LocalObjectStorage(settings.asset_materials_root / ".object-store")
+    try:
+        primary = MinioObjectStorage(
+            endpoint=settings.minio_endpoint,
+            access_key=settings.minio_access_key,
+            secret_key=settings.minio_secret_key,
+            secure=settings.minio_secure,
+        )
+    except ObjectStorageError:
+        return fallback
+    return ResilientObjectStorage(primary, fallback)
 
 
 def get_asset_retrieval_index() -> AssetRetrievalIndex:
@@ -215,6 +232,23 @@ def update_asset_classification(
     return row
 
 
+@router.patch("/{asset_code}/rights", response_model=AssetRead)
+def update_asset_rights(
+    asset_code: str,
+    payload: AssetRightsUpdate,
+    repository: Annotated[MaterialLibraryRepository, Depends(get_material_library_repository)],
+) -> dict:
+    row = repository.update_asset_rights(
+        asset_code,
+        rights_status=payload.status,
+        rights_note=payload.note,
+        actor="functional-operator",
+    )
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found")
+    return row
+
+
 @router.patch("/batch-classification", response_model=list[AssetRead])
 def update_asset_classifications(
     payload: AssetClassificationBatchUpdate,
@@ -247,6 +281,31 @@ def list_asset_groups(
     repository: Annotated[MaterialLibraryRepository, Depends(get_material_library_repository)],
 ) -> list[dict]:
     return repository.list_groups()
+
+
+@router.patch("/groups/{group_code}", response_model=AssetGroupRead)
+def update_asset_group(
+    group_code: str,
+    payload: AssetGroupUpdate,
+    repository: Annotated[MaterialLibraryRepository, Depends(get_material_library_repository)],
+) -> dict:
+    row = repository.update_group(
+        group_code,
+        title=payload.title,
+        description=payload.description,
+    )
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset group not found")
+    return row
+
+
+@router.delete("/groups/{group_code}", status_code=status.HTTP_204_NO_CONTENT)
+def archive_asset_group(
+    group_code: str,
+    repository: Annotated[MaterialLibraryRepository, Depends(get_material_library_repository)],
+) -> None:
+    if not repository.archive_group(group_code):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset group not found")
 
 
 @router.put("/groups/{group_code}/members", response_model=AssetGroupRead)
@@ -537,26 +596,188 @@ def asset_candidates(
     }
 
 
+def get_asset_preview_metadata(
+    asset_code: str,
+    connection: Annotated[Connection, Depends(get_db, scope="function")],
+) -> tuple[dict | None, list[dict]]:
+    repository = AssetRepository(connection)
+    asset = repository.get_by_code(asset_code)
+    if asset is None:
+        return None, []
+    return asset, repository.list_file_records(asset_code)
+
+
 @router.get("/{asset_code}/preview")
 def get_asset_preview(
     asset_code: str,
-    repository: Annotated[AssetRepository, Depends(get_asset_repository)],
+    preview_metadata: Annotated[
+        tuple[dict | None, list[dict]],
+        Depends(get_asset_preview_metadata),
+    ],
+    storage: Annotated[ObjectStorage, Depends(get_object_storage)],
+    variant: str = Query("original", pattern="^(original|poster|hover|thumbnail)$"),
 ) -> FileResponse:
-    asset = repository.get_by_code(asset_code)
+    asset, files = preview_metadata
     if asset is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset preview not found")
 
     root = settings.asset_materials_root.expanduser().resolve()
-    candidate = _local_preview_path(asset, root=root)
-    media_type = (
-        str(asset.get("mime_type") or "").strip()
-        or mimetypes.guess_type(candidate.name)[0]
-        or "application/octet-stream"
+    if str(asset.get("local_relative_path") or "").strip():
+        candidate = _local_preview_path(asset, root=root)
+        media_kind = str(asset.get("media_kind") or "")
+        if variant == "thumbnail" and media_kind in {"image", "video"}:
+            try:
+                candidate = ensure_image_thumbnail(
+                    candidate,
+                    root,
+                    asset_code=asset_code,
+                    checksum=str(asset.get("checksum_sha256") or "") or None,
+                )
+            except AssetPreviewError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Asset preview is temporarily unavailable",
+                ) from exc
+            return FileResponse(
+                candidate,
+                media_type="image/webp",
+                headers={"Cache-Control": "private, max-age=86400"},
+            )
+        if variant != "original" and media_kind == "video":
+            try:
+                candidate = ensure_video_preview(
+                    candidate,
+                    root,
+                    asset_code=asset_code,
+                    checksum=str(asset.get("checksum_sha256") or "") or None,
+                    variant=variant,
+                )
+            except AssetPreviewError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Asset preview is temporarily unavailable",
+                ) from exc
+            return FileResponse(
+                candidate,
+                media_type="image/jpeg" if variant == "poster" else "video/mp4",
+                headers={"Cache-Control": "private, max-age=86400"},
+            )
+        media_type = (
+            str(asset.get("mime_type") or "").strip()
+            or mimetypes.guess_type(candidate.name)[0]
+            or "application/octet-stream"
+        )
+        return FileResponse(
+            candidate,
+            media_type=media_type,
+            headers={"Cache-Control": "private, no-store"},
+        )
+
+    stored = next(
+        (
+            item
+            for item in files
+            if item.get("storage_status") == "stored"
+            and str(item.get("mime_type") or "").split("/", 1)[0]
+            in _PREVIEWABLE_MEDIA_KINDS
+        ),
+        None,
     )
+    if stored is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset preview not found")
+
+    media_kind = str(asset.get("media_kind") or "")
+    if variant == "thumbnail" and media_kind in {"image", "video"}:
+        cached = cached_preview_path(
+            root,
+            asset_code=asset_code,
+            checksum=str(stored.get("checksum_sha256") or "") or None,
+            variant=variant,
+        )
+        if not cached.is_file():
+            with tempfile.NamedTemporaryFile(delete=False, suffix=Path(str(stored.get("object_key") or ".bin")).suffix) as source_file:
+                source_path = Path(source_file.name)
+            try:
+                storage.download_file(
+                    bucket_name=str(stored["bucket_name"]),
+                    object_key=str(stored["object_key"]),
+                    destination=source_path,
+                )
+                ensure_image_thumbnail(
+                    source_path,
+                    root,
+                    asset_code=asset_code,
+                    checksum=str(stored.get("checksum_sha256") or "") or None,
+                )
+            except (AssetPreviewError, ObjectStorageError) as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Asset preview is temporarily unavailable",
+                ) from exc
+            finally:
+                source_path.unlink(missing_ok=True)
+        return FileResponse(
+            cached,
+            media_type="image/webp",
+            headers={"Cache-Control": "private, max-age=86400"},
+        )
+
+    if variant != "original" and media_kind == "video":
+        cached = cached_preview_path(
+            root,
+            asset_code=asset_code,
+            checksum=str(stored.get("checksum_sha256") or "") or None,
+            variant=variant,
+        )
+        if not cached.is_file():
+            with tempfile.NamedTemporaryFile(delete=False, suffix=Path(str(stored.get("object_key") or ".mp4")).suffix) as source_file:
+                source_path = Path(source_file.name)
+            try:
+                storage.download_file(
+                    bucket_name=str(stored["bucket_name"]),
+                    object_key=str(stored["object_key"]),
+                    destination=source_path,
+                )
+                ensure_video_preview(
+                    source_path,
+                    root,
+                    asset_code=asset_code,
+                    checksum=str(stored.get("checksum_sha256") or "") or None,
+                    variant=variant,
+                )
+            except AssetPreviewError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Asset preview is temporarily unavailable",
+                ) from exc
+            finally:
+                source_path.unlink(missing_ok=True)
+        return FileResponse(
+            cached,
+            media_type="image/jpeg" if variant == "poster" else "video/mp4",
+            headers={"Cache-Control": "private, max-age=86400"},
+        )
+
+    suffix = Path(str(stored.get("object_key") or "preview.bin")).suffix
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
+        candidate = Path(temp_file.name)
+    try:
+        storage.download_file(
+            bucket_name=str(stored["bucket_name"]),
+            object_key=str(stored["object_key"]),
+            destination=candidate,
+        )
+    except ObjectStorageError as exc:
+        candidate.unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Asset preview storage is unavailable",
+        ) from exc
     return FileResponse(
         candidate,
-        media_type=media_type,
+        media_type=str(stored.get("mime_type") or "application/octet-stream"),
         headers={"Cache-Control": "private, no-store"},
+        background=BackgroundTask(candidate.unlink, missing_ok=True),
     )
 
 

@@ -3,7 +3,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.schemas.material_library import ExecutionCapability, MaterialRole, MediaKind
+from app.schemas.material_library import ExecutionCapability, MaterialRole, MediaKind, RightsStatus
 
 
 class MaituAssetCategory(StrEnum):
@@ -54,6 +54,8 @@ class AssetCreate(BaseModel):
     media_kind: MediaKind | None = None
     material_roles: list[MaterialRole] = Field(default_factory=list)
     execution_capability: ExecutionCapability = ExecutionCapability.UNCLASSIFIED
+    rights_status: RightsStatus = RightsStatus.PENDING
+    rights_note: str | None = Field(default=None, max_length=1_000)
 
     # Source-side identity mapping. AssetGraph keeps a stable global
     # asset_code, while preserving Maitu / local Browser-use-friendly codes
@@ -170,3 +172,5 @@ class AssetRead(AssetCreate):
     maitu_binding_verification_source: str | None = None
     maitu_binding_verified_at: datetime | None = None
     maitu_binding_scope: str | None = None
+    rights_updated_at: datetime | None = None
+    rights_updated_by: str | None = None

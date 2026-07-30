@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
+from app.repositories.live_observations import LiveObservationRepository
 from app.schemas.live_observations import (
     AnalysisRunCompletion,
     AnalysisRunCreate,
@@ -211,6 +212,35 @@ def test_content_strategy_contract_requires_clean_single_room_reference_semantic
         RoomTemplateRevisionCreate(**{key: value for key, value in common.items() if key != "source_session_codes"})
     with pytest.raises(ValidationError, match="reference_only"):
         RoomTemplateRevisionCreate(**{**common, "buildability": "executable"})
+
+
+def test_content_strategy_repository_rejects_capture_sessions_from_multiple_rooms() -> None:
+    class SessionCursor:
+        def execute(self, _statement: str, _parameters: object) -> None:
+            return None
+
+        def fetchall(self) -> list[dict[str, object]]:
+            return [
+                {
+                    "id": "session-1", "session_code": "CAP-1", "target_id": "target-1",
+                    "target_code": "ROOM-1", "status": "completed", "timeline_duration_seconds": 30,
+                },
+                {
+                    "id": "session-2", "session_code": "CAP-2", "target_id": "target-2",
+                    "target_code": "ROOM-2", "status": "completed", "timeline_duration_seconds": 30,
+                },
+            ]
+
+    repository = LiveObservationRepository(None)  # type: ignore[arg-type]
+    with pytest.raises(LiveObservationConflictError, match="CONTENT_STRATEGY_CROSS_ROOM_SOURCE"):
+        repository._resolve_template_source_sessions(
+            SessionCursor(),
+            {"id": "template-1", "source_target_code": "ROOM-1"},
+            {
+                "contract_version": "content-strategy.v2",
+                "source_session_codes": ["CAP-1", "CAP-2"],
+            },
+        )
 
 
 def test_unknown_template_audio_cannot_be_unmuted() -> None:

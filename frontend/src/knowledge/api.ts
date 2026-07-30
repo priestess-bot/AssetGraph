@@ -1,4 +1,5 @@
 import { asArray, asNumber, asOptionalString, asString, isRecord, postJson, requestJson } from "../workbench/api";
+import { knowledgeTitle } from "./presentation";
 
 const ROOT = "/api/maitu/workbench/product-fact-cards";
 const FUNCTIONAL_ROOT = "/api/functional-knowledge";
@@ -301,13 +302,31 @@ export interface KnowledgeGraphProjection {
   edges: KnowledgeGraphEdge[];
 }
 
+export type KnowledgeGraphSearchScope = "all" | "product" | "topic" | "template" | "material";
+
+export interface KnowledgeGraphLineageResult {
+  match: KnowledgeGraphNode;
+  nodes: KnowledgeGraphNode[];
+  edges: KnowledgeGraphEdge[];
+  truncated: boolean;
+}
+
+export interface KnowledgeGraphSearchResult {
+  query: string;
+  scope: KnowledgeGraphSearchScope;
+  projectionCode?: string;
+  projectionRevision?: number;
+  isStale: boolean;
+  results: KnowledgeGraphLineageResult[];
+}
+
 function card(value: unknown): ProductFactCard {
   if (!isRecord(value)) throw new Error("事实卡响应无效");
   const factCardCode = asString(value.fact_card_code);
   if (!factCardCode) throw new Error("事实卡缺少编码");
   return {
     factCardCode,
-    title: asString(value.title, factCardCode),
+    title: knowledgeTitle(asString(value.title, factCardCode), "未命名事实卡"),
     productCode: asOptionalString(value.product_code),
     status: asString(value.status),
     currentApprovedVersion: typeof value.current_approved_version === "number" ? value.current_approved_version : undefined,
@@ -350,7 +369,7 @@ function sourceEvidence(value: unknown): SourceEvidence {
   return {
     evidenceCode,
     sourceType: asString(value.source_type),
-    title: asString(value.title),
+    title: knowledgeTitle(asString(value.title), "未命名来源"),
     sourceUrl: asOptionalString(value.source_url),
     excerpt: asString(value.excerpt),
     contentChecksum: asString(value.content_sha256),
@@ -516,6 +535,27 @@ function factClaimLineage(value: unknown): FactClaimLineage {
   };
 }
 
+function graphNode(value: unknown): KnowledgeGraphNode | undefined {
+  if (!isRecord(value) || !asString(value.node_type) || !asString(value.node_code)) return undefined;
+  return {
+    nodeType: asString(value.node_type), nodeCode: asString(value.node_code), revisionNumber: asNumber(value.revision_number),
+    status: asOptionalString(value.status), properties: isRecord(value.properties) ? value.properties : {},
+    sourceFingerprint: asString(value.source_fingerprint_sha256), createdAt: asOptionalString(value.created_at),
+  };
+}
+
+function graphEdge(value: unknown): KnowledgeGraphEdge | undefined {
+  if (!isRecord(value) || !asString(value.source_node_code) || !asString(value.target_node_code)) return undefined;
+  return {
+    sourceNodeType: asString(value.source_node_type), sourceNodeCode: asString(value.source_node_code), sourceRevisionNumber: asNumber(value.source_revision_number),
+    targetNodeType: asString(value.target_node_type), targetNodeCode: asString(value.target_node_code), targetRevisionNumber: asNumber(value.target_revision_number),
+    relationshipType: asString(value.relationship_type), assertionKind: asString(value.assertion_kind),
+    confidence: typeof value.confidence === "number" ? value.confidence : undefined,
+    validFrom: asOptionalString(value.valid_from), validUntil: asOptionalString(value.valid_until),
+    evidence: isRecord(value.evidence) ? value.evidence : {}, createdAt: asOptionalString(value.created_at),
+  };
+}
+
 function graphProjection(value: unknown): KnowledgeGraphProjection {
   if (!isRecord(value)) throw new Error("知识图谱投影响应无效");
   const projectionCode = asString(value.projection_code);
@@ -534,23 +574,28 @@ function graphProjection(value: unknown): KnowledgeGraphProjection {
     createdBy: asOptionalString(value.created_by),
     createdAt: asOptionalString(value.created_at),
     isStale: value.is_stale === true,
-    nodes: asArray(value.nodes).flatMap((item) => {
-      if (!isRecord(item) || !asString(item.node_type) || !asString(item.node_code)) return [];
+    nodes: asArray(value.nodes).flatMap((item) => graphNode(item) ?? []),
+    edges: asArray(value.edges).flatMap((item) => graphEdge(item) ?? []),
+  };
+}
+
+function graphSearchResult(value: unknown): KnowledgeGraphSearchResult {
+  if (!isRecord(value)) throw new Error("知识来源链检索响应无效");
+  return {
+    query: asString(value.query),
+    scope: asString(value.scope, "all") as KnowledgeGraphSearchScope,
+    projectionCode: asOptionalString(value.projection_code),
+    projectionRevision: typeof value.projection_revision === "number" ? value.projection_revision : undefined,
+    isStale: value.is_stale === true,
+    results: asArray(value.results).flatMap((item) => {
+      if (!isRecord(item)) return [];
+      const match = graphNode(item.match);
+      if (!match) return [];
       return [{
-        nodeType: asString(item.node_type), nodeCode: asString(item.node_code), revisionNumber: asNumber(item.revision_number),
-        status: asOptionalString(item.status), properties: isRecord(item.properties) ? item.properties : {},
-        sourceFingerprint: asString(item.source_fingerprint_sha256), createdAt: asOptionalString(item.created_at),
-      }];
-    }),
-    edges: asArray(value.edges).flatMap((item) => {
-      if (!isRecord(item) || !asString(item.source_node_code) || !asString(item.target_node_code)) return [];
-      return [{
-        sourceNodeType: asString(item.source_node_type), sourceNodeCode: asString(item.source_node_code), sourceRevisionNumber: asNumber(item.source_revision_number),
-        targetNodeType: asString(item.target_node_type), targetNodeCode: asString(item.target_node_code), targetRevisionNumber: asNumber(item.target_revision_number),
-        relationshipType: asString(item.relationship_type), assertionKind: asString(item.assertion_kind),
-        confidence: typeof item.confidence === "number" ? item.confidence : undefined,
-        validFrom: asOptionalString(item.valid_from), validUntil: asOptionalString(item.valid_until),
-        evidence: isRecord(item.evidence) ? item.evidence : {}, createdAt: asOptionalString(item.created_at),
+        match,
+        nodes: asArray(item.nodes).flatMap((node) => graphNode(node) ?? []),
+        edges: asArray(item.edges).flatMap((edge) => graphEdge(edge) ?? []),
+        truncated: item.truncated === true,
       }];
     }),
   };
@@ -585,6 +630,10 @@ export const knowledgeApi = {
   searchFactClaims: (query: string) => requestJson<unknown[]>(`${FUNCTIONAL_ROOT}/fact-claims?q=${encodeURIComponent(query.trim())}`).then((items) => items.map(factClaim)),
   getFactClaimLineage: (claimCode: string) => requestJson<unknown>(`${FUNCTIONAL_ROOT}/fact-claims/${encodeURIComponent(claimCode)}/lineage`).then(factClaimLineage),
   currentGraphProjection: () => requestJson<unknown>(`${FUNCTIONAL_ROOT}/graph-projections/current`).then((value) => value === null ? null : graphProjection(value)),
+  searchGraphLineage: (query: string, scope: KnowledgeGraphSearchScope = "all") => {
+    const params = new URLSearchParams({ q: query.trim(), scope });
+    return requestJson<unknown>(`${FUNCTIONAL_ROOT}/graph-search?${params}`).then(graphSearchResult);
+  },
   getGraphProjection: (projectionCode: string) => requestJson<unknown>(`${FUNCTIONAL_ROOT}/graph-projections/${encodeURIComponent(projectionCode)}`).then(graphProjection),
   rebuildGraphProjection: (actor = "console_operator") => postJson<unknown>(`${FUNCTIONAL_ROOT}/graph-projections/rebuild`, { actor }).then(graphProjection),
   createFactClaim: (payload: FactClaimCreateInput) => postJson<unknown>(`${FUNCTIONAL_ROOT}/fact-claims`, payload).then(factClaim),

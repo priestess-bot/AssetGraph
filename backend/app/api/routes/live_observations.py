@@ -4,10 +4,11 @@ import hashlib
 import mimetypes
 import re
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from pathlib import Path, PurePosixPath
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Response, UploadFile, status
 from fastapi.responses import StreamingResponse
 from psycopg import Connection, IntegrityError
 
@@ -32,6 +33,7 @@ from app.schemas.live_observations import (
     CaptureChannelRead,
     CaptureChunkFinalize,
     CaptureChunkRead,
+    CaptureRecordingUploadRead,
     CaptureSessionCreate,
     CaptureSessionFinish,
     CaptureSessionRead,
@@ -44,6 +46,7 @@ from app.schemas.live_observations import (
     ClipJobRead,
     InteractionSummary,
     LiveResearchOverview,
+    OperatorAnalysisRetryRequest,
     ProviderEvidenceArtifactRead,
     ProviderStrategyAuthorizationRead,
     ProviderStrategyAuthorizationRequest,
@@ -53,6 +56,7 @@ from app.schemas.live_observations import (
     RetentionClaimRequest,
     RetentionCompleteRequest,
     RoomTemplateCreate,
+    RoomTemplateArchiveRequest,
     RoomTemplatePublicationRequest,
     RoomTemplateProjectionRead,
     RoomTemplateRead,
@@ -82,6 +86,7 @@ from app.services.live_observations import (
 )
 from app.services.object_storage import MinioObjectStorage
 from app.services.processor_credentials import ExternalProcessorService
+from app.services.recording_upload import RecordingUploadError, store_recording_upload
 from app.services.providers import (
     ArtifactProviderEvidenceSink,
     ModelCapability,
@@ -224,6 +229,65 @@ def list_capture_sessions(
     )
 
 
+@router.post(
+    "/capture-sessions/uploads",
+    response_model=CaptureRecordingUploadRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def upload_capture_recording(
+    service: Service,
+    source_room_id: Annotated[
+        str,
+        Form(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$"),
+    ],
+    source_room_title: Annotated[str, Form(min_length=1, max_length=255)],
+    file: Annotated[UploadFile, File(...)],
+) -> dict[str, Any]:
+    try:
+        stored = store_recording_upload(
+            file.file,
+            filename=file.filename or "recording.mp4",
+            content_type=file.content_type,
+            root=settings.live_research_root,
+            max_bytes=settings.live_research_upload_max_bytes,
+        )
+    except RecordingUploadError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    observed_ended_at = datetime.now(UTC)
+    observed_started_at = observed_ended_at - timedelta(seconds=stored.duration_seconds)
+    session = _call(
+        service.import_recording,
+        {
+            "source_room_id": source_room_id,
+            "source_room_title": source_room_title,
+            "file_name": stored.original_name,
+            "relative_path": stored.relative_path,
+            "file_size": stored.file_size,
+            "checksum_sha256": stored.checksum_sha256,
+            "content_type": stored.content_type,
+            "container_format": stored.container_format,
+            "duration_seconds": stored.duration_seconds,
+            "media_probe": stored.media_probe,
+            "observed_started_at": observed_started_at,
+            "observed_ended_at": observed_ended_at,
+        },
+    )
+    return {
+        "session_code": session["session_code"],
+        "target_code": session["target_code"],
+        "source_room_id": source_room_id,
+        "source_room_title": source_room_title,
+        "file_name": stored.original_name,
+        "file_size": stored.file_size,
+        "checksum_sha256": stored.checksum_sha256,
+        "duration_seconds": stored.duration_seconds,
+        "upload_status": "stored",
+        "analysis_status": "queued",
+        "queued_analysis_types": ["frame_sampling", "asr", "ocr", "layout_inference"],
+        "created_at": session["created_at"],
+    }
+
+
 @router.get("/capture-sessions/{session_code}", response_model=CaptureSessionRead)
 def get_capture_session(session_code: str, service: Service) -> dict[str, Any]:
     return _add_session_media_urls(_call(service.get_capture_session, session_code))
@@ -355,6 +419,15 @@ def list_analysis_runs(
     )
 
 
+@router.post("/analysis-runs/{run_code}/retry", response_model=AnalysisRunRead)
+def retry_analysis_run_as_operator(
+    run_code: str,
+    payload: OperatorAnalysisRetryRequest,
+    service: Service,
+) -> dict[str, Any]:
+    return _call(service.retry_analysis_run_as_operator, run_code, payload.reason)
+
+
 @router.post(
     "/room-templates", response_model=RoomTemplateRead, status_code=status.HTTP_201_CREATED
 )
@@ -374,6 +447,15 @@ def list_room_templates(
 @router.get("/room-templates/{template_code}", response_model=RoomTemplateRead)
 def get_room_template(template_code: str, service: Service) -> dict[str, Any]:
     return _call(service.get_room_template, template_code)
+
+
+@router.post("/room-templates/{template_code}/archive", response_model=RoomTemplateRead)
+def archive_room_template(
+    template_code: str,
+    payload: RoomTemplateArchiveRequest,
+    service: Service,
+) -> dict[str, Any]:
+    return _call(service.archive_room_template, template_code, payload)
 
 
 @router.post(
@@ -754,9 +836,15 @@ def _require_worker_match(authenticated_worker_id: str, payload_worker_id: str) 
 
 def _add_session_media_urls(session: dict[str, Any]) -> dict[str, Any]:
     result = dict(session)
+    def project(item: dict[str, Any], model: Any) -> dict[str, Any]:
+        return {field_name: item[field_name] for field_name in model.model_fields if field_name in item}
+
+    result["channels"] = [
+        project(dict(item), CaptureChannelRead) for item in session.get("channels") or []
+    ]
     result["chunks"] = []
     for chunk in session.get("chunks") or []:
-        item = dict(chunk)
+        item = project(dict(chunk), CaptureChunkRead)
         if item.get("status") in {"finalized", "delete_candidate"}:
             item["media_url"] = (
                 f"{settings.api_prefix}/live-research/capture-sessions/{session['session_code']}"
@@ -769,6 +857,13 @@ def _add_session_media_urls(session: dict[str, Any]) -> dict[str, Any]:
         (item["media_url"] for item in result["chunks"] if item.get("media_url")),
         None,
     )
+    result["raw_event_batches"] = [
+        project(dict(item), RawEventBatchRead)
+        for item in session.get("raw_event_batches") or []
+    ]
+    result["timeline"] = [
+        project(dict(item), TimelineSpanRead) for item in session.get("timeline") or []
+    ]
     return result
 
 

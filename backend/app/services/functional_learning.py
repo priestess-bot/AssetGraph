@@ -1,5 +1,7 @@
 from __future__ import annotations
 import hashlib
+import json
+import re
 from datetime import UTC, datetime
 from typing import Any
 from psycopg import Connection
@@ -8,6 +10,12 @@ from psycopg.types.json import Jsonb
 from app.domain.contracts import canonical_fingerprint
 from app.domain.errors import DomainValidationError
 from app.repositories.content_core import ContentCoreRepository
+from app.repositories.content_production import ContentProductionRepository
+from app.services.functional_content import FunctionalContentService
+
+
+RECOMMENDATION_STRATEGY_VERSION = "effect-aware-advisory.v1"
+MINIMUM_EFFECT_SESSION_COUNT = 3
 
 
 class FunctionalLearningService:
@@ -46,15 +54,54 @@ class FunctionalLearningService:
                 report_results = report["results"] or {}
                 groups = report_results.get("groups") or {}
                 metadata = report_results.get("metadata") or {}
+                quality = report.get("quality_snapshot") or {}
+                selected_session_count = int(
+                    metadata.get("selected_session_count")
+                    or quality.get("selected_session_count")
+                    or len(report.get("session_codes") or [])
+                )
+                observed_session_count = int(
+                    metadata.get("observed_session_count")
+                    or quality.get("observed_session_count")
+                    or 0
+                )
+                metric_definition_state = str(
+                    metadata.get("metric_definition_state")
+                    or quality.get("metric_definition_state")
+                    or "metric_unpinned"
+                )
+                requested_level = str(p.get("evidence_level") or "descriptive")
+                association_blockers: list[str] = []
+                if report["status"] != "published_descriptive":
+                    association_blockers.append("REPORT_NOT_PUBLISHED_DESCRIPTIVE")
+                if selected_session_count < MINIMUM_EFFECT_SESSION_COUNT:
+                    association_blockers.append("EFFECT_SAMPLE_SIZE_BELOW_MINIMUM")
+                if observed_session_count < MINIMUM_EFFECT_SESSION_COUNT:
+                    association_blockers.append("OBSERVED_SAMPLE_SIZE_BELOW_MINIMUM")
+                if metric_definition_state != "metric_pinned":
+                    association_blockers.append("METRIC_DEFINITION_NOT_PINNED")
+                if requested_level == "associational" and association_blockers:
+                    raise DomainValidationError(
+                        "EFFECT_ASSOCIATIONAL_EVIDENCE_INELIGIBLE",
+                        "The selected report is not eligible for an associational effect signal",
+                        details={"blockers": association_blockers},
+                    )
                 eligibility = {
                     "report_code": report["report_code"],
                     "report_created_at": report["created_at"].isoformat(),
-                    "evidence_level": report["evidence_level"],
-                    "selected_session_count": metadata.get("selected_session_count", 0),
-                    "observed_session_count": metadata.get("observed_session_count", 0),
-                    "metric_definition_state": metadata.get("metric_definition_state", "metric_unpinned"),
+                    "evidence_level": requested_level,
+                    "selected_session_count": selected_session_count,
+                    "observed_session_count": observed_session_count,
+                    "metric_definition_state": metric_definition_state,
                     "has_groups": bool(groups),
-                    "qualification": "descriptive_only",
+                    "minimum_recommendation_session_count": MINIMUM_EFFECT_SESSION_COUNT,
+                    "association_blockers": association_blockers,
+                    "recommendation_eligible": requested_level == "associational" and not association_blockers,
+                    "qualification": (
+                        "associational_advisory"
+                        if requested_level == "associational"
+                        else "descriptive_hint_only"
+                    ),
                 }
                 payload = {
                     "report_groups": groups,
@@ -82,7 +129,7 @@ class FunctionalLearningService:
                        (effect_code,revision_number,attribution_report_code,subject_type,subject_code,
                         metric_key,evidence_level,status,context,effect_payload,eligibility_snapshot,
                         note,fingerprint_sha256)
-                       VALUES (%s,1,%s,%s,%s,%s,'descriptive','candidate',%s,%s,%s,%s,%s)
+                       VALUES (%s,1,%s,%s,%s,%s,%s,'candidate',%s,%s,%s,%s,%s)
                        RETURNING *""",
                     (
                         effect_code,
@@ -90,6 +137,7 @@ class FunctionalLearningService:
                         p["subject_type"],
                         p["subject_code"],
                         report["metric_key"],
+                        requested_level,
                         Jsonb(p["context"]),
                         Jsonb(payload),
                         Jsonb(eligibility),
@@ -110,6 +158,103 @@ class FunctionalLearningService:
                 "SELECT * FROM functional_effect_estimates ORDER BY created_at DESC, effect_code"
             )
             return [dict(row) for row in c.fetchall()]
+
+    def recommendations(self, project_code: str) -> dict[str, Any] | None:
+        with self.connection.cursor(row_factory=dict_row) as c:
+            c.execute(
+                """SELECT revision.project_code, revision.revision_number,
+                          revision.content, revision.generation_goal,
+                          revision.fingerprint_sha256, project.title
+                   FROM content_projects AS project
+                   JOIN content_project_revisions AS revision
+                     ON revision.project_id = project.id
+                    AND revision.revision_number = project.current_revision_number
+                   WHERE project.project_code = %s""",
+                (project_code,),
+            )
+            project = c.fetchone()
+            if project is None:
+                return None
+            c.execute(
+                """SELECT template.template_code, template.name, template.description,
+                          revision.revision_number, revision.content_readiness,
+                          revision.buildability, revision.content_strategy,
+                          revision.confidence
+                   FROM live_room_templates AS template
+                   JOIN live_room_template_revisions AS revision
+                     ON revision.id = template.published_revision_id
+                   WHERE template.archived_at IS NULL
+                     AND template.template_kind = 'content_strategy'
+                     AND revision.status = 'published'
+                   ORDER BY template.template_code"""
+            )
+            templates = [dict(row) for row in c.fetchall()]
+            c.execute(
+                """SELECT asset_code, title, description, subject, usage, media_kind,
+                          material_roles, execution_capability, rights_status, status
+                   FROM assets
+                   WHERE deleted_at IS NULL AND archived_at IS NULL
+                   ORDER BY asset_code"""
+            )
+            assets = [dict(row) for row in c.fetchall()]
+            subject_refs = [
+                *(('content_strategy_template', row["template_code"]) for row in templates),
+                *(('asset', row["asset_code"]) for row in assets),
+                ("content_project", project_code),
+            ]
+            subject_types = [item[0] for item in subject_refs]
+            subject_codes = [item[1] for item in subject_refs]
+            c.execute(
+                """SELECT effect_code, revision_number, subject_type, subject_code,
+                          evidence_level, status, context, eligibility_snapshot
+                   FROM functional_effect_estimates
+                   WHERE subject_type = ANY(%s) AND subject_code = ANY(%s)
+                   ORDER BY created_at DESC, effect_code DESC""",
+                (subject_types, subject_codes),
+            )
+            effect_rows = [dict(row) for row in c.fetchall()]
+
+        project_text = self._project_search_text(dict(project))
+        effects_by_subject: dict[tuple[str, str], list[dict[str, Any]]] = {}
+        for row in effect_rows:
+            effects_by_subject.setdefault(
+                (str(row["subject_type"]), str(row["subject_code"])), []
+            ).append(row)
+        candidates = [
+            self._template_recommendation(
+                row,
+                project_text,
+                effects_by_subject.get(("content_strategy_template", row["template_code"]), [])
+                or effects_by_subject.get(("template", row["template_code"]), []),
+            )
+            for row in templates
+        ]
+        candidates.extend(
+            self._material_recommendation(
+                row,
+                project_text,
+                effects_by_subject.get(("asset", row["asset_code"]), []),
+            )
+            for row in assets
+        )
+        candidates.sort(
+            key=lambda item: (
+                not item["constraint_eligible"],
+                -item["total_score"],
+                item["candidate_code"],
+            )
+        )
+        return {
+            "project_code": project_code,
+            "project_revision_number": int(project["revision_number"]),
+            "project_fingerprint_sha256": project["fingerprint_sha256"],
+            "strategy_version": RECOMMENDATION_STRATEGY_VERSION,
+            "recommendation_mode": "advisory_only",
+            "candidates": candidates[:20],
+            "project_effect_hints": self._effect_evidence(
+                effects_by_subject.get(("content_project", project_code), [])
+            ),
+        }
 
     def approve_effect_estimate(self, effect_code: str, actor: str) -> dict[str, Any] | None:
         try:
@@ -187,7 +332,7 @@ class FunctionalLearningService:
         return result
 
     def reproduce_effect(self, effect_code: str, p: dict[str, Any]) -> dict[str, Any] | None:
-        """Create a fresh draft from the immutable content-project snapshot on an approved effect."""
+        """Create a new content chain and non-executable production revision from an approved effect."""
         change_hypothesis = str(p.get("change_hypothesis") or "").strip()
         if not change_hypothesis:
             raise DomainValidationError(
@@ -223,6 +368,9 @@ class FunctionalLearningService:
                         "The effect estimate does not contain a reproducible content-project snapshot",
                         details={"effect_code": effect_code},
                     )
+                content, applied_choices, source_variant, selected_assets = (
+                    self._apply_reproduction_choices(c, snapshot, p)
+                )
                 source_refs = list(snapshot.get("source_revision_refs") or [])
                 decision_code = self._next(c, "DEC", "functional_decision_log")
                 source_refs.extend(
@@ -250,14 +398,90 @@ class FunctionalLearningService:
                 )
                 title = str(p.get("title") or f"{snapshot['title']} reproduction")
                 generation_goal = str(p.get("generation_goal") or snapshot["generation_goal"])
+                actor = str(p.get("actor") or "functional-operator").strip()
             created = ContentCoreRepository(self.connection).create_project(
                 title=title,
                 generation_goal=generation_goal,
-                content=dict(snapshot["content"]),
-                actor_id="functional-operator",
-                producer_strategy_revision="effect-reproduction.v1",
+                content=content,
+                actor_id=actor,
+                producer_strategy_revision="effect-reproduction.v2",
                 source_revision_refs=source_refs,
                 commit=False,
+            )
+            content_service = FunctionalContentService(self.connection)
+            content_service.confirm_project(
+                created["project_code"],
+                expected_revision=int(created["revision_number"]),
+                actor_id=actor,
+            )
+            content_service.parse_design_brief(
+                created["project_code"],
+                expected_revision=int(created["revision_number"]),
+                raw_input=(
+                    f"基于效果 {effect['effect_code']} 再生成。变更假设：{change_hypothesis}。"
+                    f"人工保留/替换选择：{json.dumps(applied_choices, ensure_ascii=False, sort_keys=True)}"
+                ),
+                actor_id=actor,
+            )
+            content_service.confirm_design_brief(
+                created["project_code"],
+                expected_revision=int(created["revision_number"]),
+                actor_id=actor,
+            )
+            generated = content_service.generate_chain(
+                created["project_code"], actor_id=actor
+            )
+            generated = self._apply_generated_script_choices(
+                content_service,
+                generated,
+                snapshot,
+                list(p.get("paragraph_choices") or []),
+                actor,
+            )
+            reproduced_project = ContentCoreRepository(self.connection).get_project(
+                created["project_code"]
+            )
+            if reproduced_project is None:
+                raise DomainValidationError(
+                    "EFFECT_REPRODUCTION_PROJECT_MISSING",
+                    "The reproduced content-project revision could not be reloaded",
+                    details={"project_code": created["project_code"]},
+                )
+            carrier_kind = str((source_variant or {}).get("carrier_kind") or "live_room")
+            variant = ContentProductionRepository(self.connection).create_production_variant(
+                project_code=created["project_code"],
+                project_revision=int(generated["revision_number"]),
+                story_brief_code=generated["story_brief"]["story_brief_code"],
+                story_brief_revision=int(generated["story_brief"]["revision_number"]),
+                script_revision_code=generated["script"]["script_revision_code"],
+                shot_list_revision_code=generated["shot_list"]["shot_list_revision_code"],
+                carrier_kind=carrier_kind,
+                branch_target={
+                    "effect_reproduction": True,
+                    "source_effect_code": effect["effect_code"],
+                    "source_variant_code": (source_variant or {}).get("variant_code"),
+                },
+                configuration={
+                    **dict((source_variant or {}).get("configuration") or {}),
+                    "effect_reproduction": {
+                        "effect_code": effect["effect_code"],
+                        "change_hypothesis": change_hypothesis,
+                        "applied_choices": applied_choices,
+                    },
+                },
+                material_snapshot_ref={
+                    "schema_version": "effect-reproduction-materials.v1",
+                    "source_variant_code": (source_variant or {}).get("variant_code"),
+                    "asset_codes": [item["asset_code"] for item in selected_assets],
+                    "assets": selected_assets,
+                },
+                constraint_snapshot_ref={
+                    "schema_version": "effect-reproduction-constraints.v1",
+                    "source_variant_code": (source_variant or {}).get("variant_code"),
+                    "recompute_required": True,
+                },
+                actor_id=actor,
+                producer_strategy_revision="effect-reproduction.v2",
             )
             with self.connection.cursor(row_factory=dict_row) as c:
                 decision = self._insert_decision(
@@ -276,9 +500,17 @@ class FunctionalLearningService:
                             "effect_code": effect["effect_code"],
                             "effect_revision_number": int(effect["revision_number"]),
                             "effect_fingerprint_sha256": effect["fingerprint_sha256"],
+                            "applied_choices": applied_choices,
                             "reproduced_project_code": created["project_code"],
-                            "reproduced_project_revision_number": int(created["revision_number"]),
-                            "reproduced_project_fingerprint_sha256": created["fingerprint_sha256"],
+                            "reproduced_project_revision_number": int(
+                                reproduced_project["revision_number"]
+                            ),
+                            "reproduced_project_fingerprint_sha256": reproduced_project[
+                                "fingerprint_sha256"
+                            ],
+                            "production_variant_code": variant["variant_code"],
+                            "production_variant_revision_number": int(variant["revision_number"]),
+                            "production_variant_fingerprint_sha256": variant["fingerprint_sha256"],
                         },
                         "source_revision_refs": [
                             {
@@ -298,8 +530,15 @@ class FunctionalLearningService:
                             {
                                 "object_type": "content_project",
                                 "project_code": created["project_code"],
-                                "revision": int(created["revision_number"]),
-                                "fingerprint_sha256": created["fingerprint_sha256"],
+                                "revision": int(reproduced_project["revision_number"]),
+                                "fingerprint_sha256": reproduced_project["fingerprint_sha256"],
+                                "relation_type": "reproduction_result",
+                            },
+                            {
+                                "object_type": "production_variant",
+                                "variant_code": variant["variant_code"],
+                                "revision": int(variant["revision_number"]),
+                                "fingerprint_sha256": variant["fingerprint_sha256"],
                                 "relation_type": "reproduction_result",
                             },
                         ],
@@ -316,7 +555,10 @@ class FunctionalLearningService:
             "source_project_code": snapshot["project_code"],
             "source_project_revision_number": int(snapshot["revision_number"]),
             "reproduced_project_code": created["project_code"],
-            "reproduced_project_revision_number": int(created["revision_number"]),
+            "reproduced_project_revision_number": int(reproduced_project["revision_number"]),
+            "production_variant_code": variant["variant_code"],
+            "production_variant_revision_number": int(variant["revision_number"]),
+            "applied_choices": applied_choices,
         }
 
     def create_experiment(self, p: dict[str, Any]) -> dict[str, Any]:
@@ -456,6 +698,436 @@ class FunctionalLearningService:
             c.execute("SELECT * FROM functional_experiments ORDER BY created_at DESC")
             return [self._experiment(dict(x)) for x in c.fetchall()]
 
+    @staticmethod
+    def _project_search_text(project: dict[str, Any]) -> str:
+        content = project.get("content") or {}
+        return " ".join(
+            [
+                str(project.get("title") or ""),
+                str(project.get("generation_goal") or ""),
+                json.dumps(content, ensure_ascii=False, sort_keys=True),
+            ]
+        )
+
+    @staticmethod
+    def _search_units(value: str) -> set[str]:
+        normalized = value.casefold()
+        words = set(re.findall(r"[a-z0-9]+", normalized))
+        chinese = re.findall(r"[\u3400-\u9fff]", normalized)
+        words.update(chinese)
+        words.update("".join(chinese[index : index + 2]) for index in range(len(chinese) - 1))
+        return {item for item in words if item}
+
+    @classmethod
+    def _content_match(cls, project_text: str, candidate_text: str) -> tuple[float, list[str]]:
+        project_units = cls._search_units(project_text)
+        candidate_units = cls._search_units(candidate_text)
+        overlap = sorted(project_units & candidate_units)
+        if not project_units or not candidate_units:
+            return 0.0, ["没有可比较的内容关键词"]
+        score = min(1.0, len(overlap) / max(4, min(len(candidate_units), 16)))
+        reasons = (
+            [f"匹配关键词：{'、'.join(overlap[:8])}"]
+            if overlap
+            else ["未发现直接内容关键词重合"]
+        )
+        return round(score, 4), reasons
+
+    @staticmethod
+    def _effect_evidence(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        evidence: list[dict[str, Any]] = []
+        for row in rows:
+            eligibility = row.get("eligibility_snapshot") or {}
+            selected_count = max(0, int(eligibility.get("selected_session_count") or 0))
+            blockers = list(eligibility.get("association_blockers") or [])
+            if row.get("status") != "approved":
+                blockers.append("EFFECT_NOT_APPROVED")
+            if row.get("evidence_level") != "associational":
+                blockers.append("EFFECT_EVIDENCE_NOT_ASSOCIATIONAL")
+            if selected_count < MINIMUM_EFFECT_SESSION_COUNT:
+                blockers.append("EFFECT_SAMPLE_SIZE_BELOW_MINIMUM")
+            blockers = list(dict.fromkeys(str(item) for item in blockers))
+            eligible = not blockers and bool(
+                eligibility.get("recommendation_eligible", True)
+            )
+            raw_score = (row.get("context") or {}).get("recommendation_score", 0.5)
+            try:
+                contribution = max(0.0, min(1.0, float(raw_score))) if eligible else 0.0
+            except (TypeError, ValueError):
+                contribution = 0.5 if eligible else 0.0
+            evidence.append(
+                {
+                    "effect_code": row["effect_code"],
+                    "revision_number": int(row["revision_number"]),
+                    "evidence_level": row["evidence_level"],
+                    "status": row["status"],
+                    "selected_session_count": selected_count,
+                    "eligible": eligible,
+                    "blockers": blockers,
+                    "contribution": round(contribution, 4),
+                }
+            )
+        return evidence
+
+    @classmethod
+    def _template_recommendation(
+        cls,
+        row: dict[str, Any],
+        project_text: str,
+        effects: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        constraint_score = 0.0
+        constraint_reasons: list[str] = []
+        if row["content_readiness"] == "ready":
+            constraint_score += 0.5
+            constraint_reasons.append("模板内容已就绪")
+        else:
+            constraint_reasons.append(f"内容状态：{row['content_readiness']}")
+        if row["buildability"] == "executable":
+            constraint_score += 0.25
+            constraint_reasons.append("模板可直接构建")
+        else:
+            constraint_score += 0.1
+            constraint_reasons.append("模板仅作内容参考")
+        constraint_score += 0.25 * float(row.get("confidence") or 0)
+        content_score, content_reasons = cls._content_match(
+            project_text,
+            " ".join(
+                [
+                    str(row.get("name") or ""),
+                    str(row.get("description") or ""),
+                    json.dumps(row.get("content_strategy") or {}, ensure_ascii=False),
+                ]
+            ),
+        )
+        effect_evidence = cls._effect_evidence(effects)
+        effect_score = max(
+            (item["contribution"] for item in effect_evidence if item["eligible"]),
+            default=0.0,
+        )
+        effect_reasons = (
+            ["合格关联效果信号已计入建议分"]
+            if effect_score
+            else ["无合格关联效果信号；效果分不计入"]
+        )
+        return {
+            "candidate_type": "template",
+            "candidate_code": row["template_code"],
+            "revision_number": int(row["revision_number"]),
+            "title": row["name"],
+            "constraint_score": round(constraint_score, 4),
+            "content_score": content_score,
+            "effect_score": effect_score,
+            "total_score": round(
+                0.45 * constraint_score + 0.4 * content_score + 0.15 * effect_score,
+                4,
+            ),
+            "constraint_reasons": constraint_reasons,
+            "content_reasons": content_reasons,
+            "effect_reasons": effect_reasons,
+            "effect_evidence": effect_evidence,
+            "constraint_eligible": row["content_readiness"] == "ready",
+            "effect_signal_used": effect_score > 0,
+            "recommendation_mode": "advisory_only",
+        }
+
+    @classmethod
+    def _material_recommendation(
+        cls,
+        row: dict[str, Any],
+        project_text: str,
+        effects: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        constraint_score = 0.0
+        constraint_reasons: list[str] = []
+        rights_ok = row["rights_status"] == "approved"
+        capability_ok = row["execution_capability"] not in {
+            "unavailable",
+            "unclassified",
+        }
+        roles = list(row.get("material_roles") or [])
+        if rights_ok:
+            constraint_score += 0.45
+            constraint_reasons.append("素材使用状态已批准")
+        else:
+            constraint_reasons.append(f"素材使用状态：{row['rights_status']}")
+        if capability_ok:
+            constraint_score += 0.35
+            constraint_reasons.append(f"执行能力：{row['execution_capability']}")
+        else:
+            constraint_reasons.append("执行能力未就绪")
+        if roles:
+            constraint_score += 0.2
+            constraint_reasons.append(f"素材角色：{'、'.join(roles)}")
+        else:
+            constraint_reasons.append("素材角色未分类")
+        content_score, content_reasons = cls._content_match(
+            project_text,
+            " ".join(
+                [
+                    str(row.get("title") or ""),
+                    str(row.get("description") or ""),
+                    str(row.get("subject") or ""),
+                    str(row.get("usage") or ""),
+                    " ".join(str(role) for role in roles),
+                ]
+            ),
+        )
+        effect_evidence = cls._effect_evidence(effects)
+        effect_score = max(
+            (item["contribution"] for item in effect_evidence if item["eligible"]),
+            default=0.0,
+        )
+        effect_reasons = (
+            ["合格关联效果信号已计入建议分"]
+            if effect_score
+            else ["低证据或小样本信号仅提示，效果分为 0"]
+        )
+        return {
+            "candidate_type": "material",
+            "candidate_code": row["asset_code"],
+            "revision_number": None,
+            "title": row.get("title") or row["asset_code"],
+            "constraint_score": round(constraint_score, 4),
+            "content_score": content_score,
+            "effect_score": effect_score,
+            "total_score": round(
+                0.45 * constraint_score + 0.4 * content_score + 0.15 * effect_score,
+                4,
+            ),
+            "constraint_reasons": constraint_reasons,
+            "content_reasons": content_reasons,
+            "effect_reasons": effect_reasons,
+            "effect_evidence": effect_evidence,
+            "constraint_eligible": rights_ok and capability_ok and bool(roles),
+            "effect_signal_used": effect_score > 0,
+            "recommendation_mode": "advisory_only",
+        }
+
+    @staticmethod
+    def _template_codes(content: dict[str, Any]) -> list[str]:
+        codes: list[str] = []
+        primary = content.get("primary_template_ref") or {}
+        if isinstance(primary, dict) and primary.get("template_code"):
+            codes.append(str(primary["template_code"]))
+        for item in content.get("secondary_template_refs") or []:
+            if isinstance(item, dict) and item.get("template_code"):
+                codes.append(str(item["template_code"]))
+        return codes
+
+    def _apply_reproduction_choices(
+        self,
+        cursor: Any,
+        snapshot: dict[str, Any],
+        payload: dict[str, Any],
+    ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any] | None, list[dict[str, Any]]]:
+        content = json.loads(json.dumps(snapshot["content"], ensure_ascii=False))
+        template_choices = [dict(item) for item in payload.get("template_choices") or []]
+        paragraph_choices = [dict(item) for item in payload.get("paragraph_choices") or []]
+        material_choices = [dict(item) for item in payload.get("material_choices") or []]
+        source_template_codes = set(self._template_codes(content))
+        applied_templates: list[dict[str, Any]] = []
+        for choice in template_choices:
+            source_code = str(choice["source_template_code"])
+            if source_code not in source_template_codes:
+                raise DomainValidationError(
+                    "EFFECT_REPRODUCTION_TEMPLATE_SOURCE_INVALID",
+                    "A template choice must reference the frozen source project",
+                    details={"source_template_code": source_code},
+                )
+            if choice["action"] == "preserve":
+                applied_templates.append(choice)
+                continue
+            replacement_code = str(choice["replacement_template_code"])
+            cursor.execute(
+                """SELECT template.template_code, revision.revision_number,
+                          revision.content_fingerprint
+                   FROM live_room_templates AS template
+                   JOIN live_room_template_revisions AS revision
+                     ON revision.id = template.published_revision_id
+                   WHERE template.template_code = %s
+                     AND template.archived_at IS NULL
+                     AND revision.status = 'published'""",
+                (replacement_code,),
+            )
+            replacement = cursor.fetchone()
+            if replacement is None or (
+                choice.get("replacement_revision") is not None
+                and int(choice["replacement_revision"]) != int(replacement["revision_number"])
+            ):
+                raise DomainValidationError(
+                    "EFFECT_REPRODUCTION_TEMPLATE_REPLACEMENT_INVALID",
+                    "A replacement template must be the selected published revision",
+                    details={"replacement_template_code": replacement_code},
+                )
+            primary = content.get("primary_template_ref") or {}
+            replacement_ref = {
+                "template_code": replacement_code,
+                "revision": int(replacement["revision_number"]),
+                "fingerprint_sha256": replacement["content_fingerprint"],
+                "selection_role": (
+                    primary.get("selection_role", "primary")
+                    if isinstance(primary, dict) and primary.get("template_code") == source_code
+                    else "secondary"
+                ),
+                "contribution": "effect_reproduction_replacement",
+            }
+            if isinstance(primary, dict) and primary.get("template_code") == source_code:
+                content["primary_template_code"] = replacement_code
+                content["primary_template_ref"] = replacement_ref
+            else:
+                secondary = [
+                    replacement_ref
+                    if isinstance(item, dict) and item.get("template_code") == source_code
+                    else item
+                    for item in content.get("secondary_template_refs") or []
+                ]
+                content["secondary_template_refs"] = secondary
+                content["secondary_template_codes"] = [
+                    str(item["template_code"])
+                    for item in secondary
+                    if isinstance(item, dict) and item.get("template_code")
+                ]
+            applied_templates.append(
+                {**choice, "replacement_revision": int(replacement["revision_number"])}
+            )
+
+        applied_paragraphs: list[dict[str, Any]] = []
+        source_block_codes = {
+            str(item["block_code"])
+            for item in snapshot.get("script_blocks") or []
+            if isinstance(item, dict) and item.get("block_code")
+        }
+        for choice in paragraph_choices:
+            field_key = choice.get("field_key")
+            source_block_code = choice.get("source_block_code")
+            if field_key:
+                if field_key not in {"theme", "story", "detailed_design"}:
+                    raise DomainValidationError(
+                        "EFFECT_REPRODUCTION_PARAGRAPH_SOURCE_INVALID",
+                        "The selected narrative field is not reproducible",
+                    )
+                if choice["action"] == "replace":
+                    content[str(field_key)] = str(choice["replacement_text"])
+            elif str(source_block_code) not in source_block_codes:
+                raise DomainValidationError(
+                    "EFFECT_REPRODUCTION_PARAGRAPH_SOURCE_INVALID",
+                    "A paragraph choice must reference the frozen source script",
+                    details={"source_block_code": source_block_code},
+                )
+            applied_paragraphs.append(choice)
+
+        source_variants = [
+            dict(item) for item in snapshot.get("production_variants") or []
+            if isinstance(item, dict)
+        ]
+        source_variant = source_variants[0] if source_variants else None
+        material_snapshot = dict((source_variant or {}).get("material_snapshot_ref") or {})
+        source_asset_codes = [str(item) for item in material_snapshot.get("asset_codes") or []]
+        choices_by_source = {
+            str(item["source_asset_code"]): item for item in material_choices
+        }
+        unknown_materials = sorted(set(choices_by_source) - set(source_asset_codes))
+        if unknown_materials:
+            raise DomainValidationError(
+                "EFFECT_REPRODUCTION_MATERIAL_SOURCE_INVALID",
+                "A material choice must reference the frozen source production revision",
+                details={"asset_codes": unknown_materials},
+            )
+        selected_asset_codes: list[str] = []
+        applied_materials: list[dict[str, Any]] = []
+        for source_code in source_asset_codes:
+            choice = choices_by_source.get(source_code) or {
+                "source_asset_code": source_code,
+                "action": "preserve",
+                "replacement_asset_code": None,
+            }
+            target_code = (
+                str(choice["replacement_asset_code"])
+                if choice["action"] == "replace"
+                else source_code
+            )
+            if target_code not in selected_asset_codes:
+                selected_asset_codes.append(target_code)
+            applied_materials.append({**choice, "result_asset_code": target_code})
+        selected_assets: list[dict[str, Any]] = []
+        if selected_asset_codes:
+            cursor.execute(
+                """SELECT asset_code, media_kind, material_roles,
+                          execution_capability, rights_status, checksum_sha256
+                   FROM assets
+                   WHERE asset_code = ANY(%s) AND deleted_at IS NULL AND archived_at IS NULL""",
+                (selected_asset_codes,),
+            )
+            assets_by_code = {row["asset_code"]: dict(row) for row in cursor.fetchall()}
+            invalid_assets = [
+                code for code in selected_asset_codes
+                if code not in assets_by_code
+                or assets_by_code[code]["rights_status"] != "approved"
+                or assets_by_code[code]["execution_capability"] in {"unavailable", "unclassified"}
+            ]
+            if invalid_assets:
+                raise DomainValidationError(
+                    "EFFECT_REPRODUCTION_MATERIAL_REPLACEMENT_INVALID",
+                    "Reproduction materials must be active, rights-approved, and executable",
+                    details={"asset_codes": invalid_assets},
+                )
+            selected_assets = [assets_by_code[code] for code in selected_asset_codes]
+
+        applied_choices = {
+            "schema_version": "effect-reproduction-choices.v1",
+            "template_choices": applied_templates,
+            "paragraph_choices": applied_paragraphs,
+            "material_choices": applied_materials,
+        }
+        content["effect_reproduction_selection"] = applied_choices
+        return content, applied_choices, source_variant, selected_assets
+
+    @staticmethod
+    def _apply_generated_script_choices(
+        content_service: FunctionalContentService,
+        generated: dict[str, Any],
+        snapshot: dict[str, Any],
+        paragraph_choices: list[dict[str, Any]],
+        actor: str,
+    ) -> dict[str, Any]:
+        replacements = {
+            str(choice["source_block_code"]): str(choice["replacement_text"])
+            for choice in paragraph_choices
+            if choice.get("source_block_code") and choice.get("action") == "replace"
+        }
+        if not replacements:
+            return generated
+        source_blocks = {
+            str(item["block_code"]): item
+            for item in snapshot.get("script_blocks") or []
+            if isinstance(item, dict) and item.get("block_code")
+        }
+        generated_blocks = [dict(item) for item in generated["script"].get("blocks") or []]
+        by_order = {int(item["sort_order"]): item for item in generated_blocks}
+        for source_code, replacement_text in replacements.items():
+            source = source_blocks[source_code]
+            if source.get("fact_citations"):
+                raise DomainValidationError(
+                    "EFFECT_REPRODUCTION_FACT_PARAGRAPH_LOCKED",
+                    "A paragraph with fact citations cannot be replaced without reviewing its citations",
+                    details={"source_block_code": source_code},
+                )
+            target = by_order.get(int(source["sort_order"]))
+            if target is None or target.get("fact_citations"):
+                raise DomainValidationError(
+                    "EFFECT_REPRODUCTION_PARAGRAPH_TARGET_MISSING",
+                    "The generated script does not have an editable matching paragraph",
+                    details={"source_block_code": source_code},
+                )
+            target["content"] = replacement_text
+        return content_service.revise_script(
+            generated["project_code"],
+            expected_revision=int(generated["revision_number"]),
+            blocks=[by_order[index] for index in sorted(by_order)],
+            actor_id=actor,
+        )
+
     def _experiment(self, row: dict[str, Any]) -> dict[str, Any]:
         with self.connection.cursor(row_factory=dict_row) as c:
             c.execute(
@@ -534,7 +1206,8 @@ class FunctionalLearningService:
             return None
         c.execute(
             """
-            SELECT revision.project_code, revision.revision_number, project.title,
+            SELECT revision.id AS project_revision_id, project.id AS project_id,
+                   revision.project_code, revision.revision_number, project.title,
                    revision.generation_goal, revision.content, revision.source_revision_refs,
                    revision.fingerprint_sha256
             FROM content_projects AS project
@@ -552,7 +1225,40 @@ class FunctionalLearningService:
                 "The selected content project does not exist",
                 details={"subject_type": subject_type, "subject_code": subject_code},
             )
-        return dict(row)
+        snapshot = dict(row)
+        c.execute(
+            """SELECT variant.variant_code, variant.revision_number, variant.status,
+                      variant.carrier_kind, variant.configuration,
+                      variant.material_snapshot_ref, variant.constraint_snapshot_ref,
+                      variant.fingerprint_sha256
+               FROM production_variant_revisions AS variant
+               WHERE variant.source_project_revision_id = %s
+               ORDER BY CASE WHEN variant.carrier_kind = 'live_room' THEN 0 ELSE 1 END,
+                        CASE WHEN variant.status = 'confirmed' THEN 0 ELSE 1 END,
+                        variant.revision_number DESC""",
+            (row["project_revision_id"],),
+        )
+        snapshot["production_variants"] = [dict(item) for item in c.fetchall()]
+        c.execute(
+            """SELECT block.block_code, block.sort_order, block.module_type,
+                      block.content, block.estimated_duration_ms,
+                      block.fact_citations, block.template_sources,
+                      block.content_rule_refs, block.interaction_intent,
+                      block.cta_intent, block.fingerprint_sha256
+               FROM content_script_revisions AS script
+               JOIN content_script_blocks AS block ON block.script_revision_id = script.id
+               WHERE script.id = (
+                   SELECT latest.id FROM content_script_revisions AS latest
+                   WHERE latest.project_id = %s AND latest.status = 'confirmed'
+                   ORDER BY latest.revision_number DESC LIMIT 1
+               )
+               ORDER BY block.sort_order""",
+            (row["project_id"],),
+        )
+        snapshot["script_blocks"] = [dict(item) for item in c.fetchall()]
+        snapshot.pop("project_revision_id", None)
+        snapshot.pop("project_id", None)
+        return snapshot
 
     @staticmethod
     def _next(c: Any, prefix: str, kind: str) -> str:

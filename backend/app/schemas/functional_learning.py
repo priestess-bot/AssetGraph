@@ -1,6 +1,8 @@
 from __future__ import annotations
 from datetime import datetime
-from pydantic import BaseModel, Field
+from typing import Literal
+
+from pydantic import BaseModel, Field, model_validator
 
 
 class DecisionCreate(BaseModel):
@@ -71,6 +73,7 @@ class EffectEstimateCreate(BaseModel):
     subject_code: str = Field(min_length=1, max_length=128)
     context: dict[str, object] = Field(default_factory=dict)
     note: str = Field(min_length=1, max_length=4000)
+    evidence_level: Literal["descriptive", "associational"] = "descriptive"
 
 
 class EffectEstimateApprove(BaseModel):
@@ -82,10 +85,54 @@ class EffectEstimateRevoke(BaseModel):
     reason: str = Field(min_length=1, max_length=4000)
 
 
+class EffectTemplateChoice(BaseModel):
+    source_template_code: str = Field(min_length=1, max_length=128)
+    action: Literal["preserve", "replace"]
+    replacement_template_code: str | None = Field(default=None, min_length=1, max_length=128)
+    replacement_revision: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def validate_replacement(self) -> "EffectTemplateChoice":
+        if self.action == "replace" and not self.replacement_template_code:
+            raise ValueError("replacement_template_code is required for replace")
+        return self
+
+
+class EffectParagraphChoice(BaseModel):
+    field_key: Literal["theme", "story", "detailed_design"] | None = None
+    source_block_code: str | None = Field(default=None, min_length=1, max_length=128)
+    action: Literal["preserve", "replace"]
+    replacement_text: str | None = Field(default=None, min_length=1, max_length=8000)
+
+    @model_validator(mode="after")
+    def validate_replacement(self) -> "EffectParagraphChoice":
+        if bool(self.field_key) == bool(self.source_block_code):
+            raise ValueError("choose exactly one field_key or source_block_code")
+        if self.action == "replace" and not self.replacement_text:
+            raise ValueError("replacement_text is required for replace")
+        return self
+
+
+class EffectMaterialChoice(BaseModel):
+    source_asset_code: str = Field(min_length=1, max_length=128)
+    action: Literal["preserve", "replace"]
+    replacement_asset_code: str | None = Field(default=None, min_length=1, max_length=128)
+
+    @model_validator(mode="after")
+    def validate_replacement(self) -> "EffectMaterialChoice":
+        if self.action == "replace" and not self.replacement_asset_code:
+            raise ValueError("replacement_asset_code is required for replace")
+        return self
+
+
 class EffectReproductionCreate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=255)
     generation_goal: str | None = Field(default=None, min_length=1, max_length=4000)
     change_hypothesis: str = Field(min_length=1, max_length=4000)
+    template_choices: list[EffectTemplateChoice] = Field(default_factory=list, max_length=50)
+    paragraph_choices: list[EffectParagraphChoice] = Field(default_factory=list, max_length=200)
+    material_choices: list[EffectMaterialChoice] = Field(default_factory=list, max_length=200)
+    actor: str = Field(default="functional-operator", min_length=1, max_length=128)
 
 
 class EffectReproductionRead(BaseModel):
@@ -95,6 +142,48 @@ class EffectReproductionRead(BaseModel):
     source_project_revision_number: int
     reproduced_project_code: str
     reproduced_project_revision_number: int
+    production_variant_code: str
+    production_variant_revision_number: int
+    applied_choices: dict[str, object] = Field(default_factory=dict)
+
+
+class RecommendationEffectEvidenceRead(BaseModel):
+    effect_code: str
+    revision_number: int
+    evidence_level: str
+    status: str
+    selected_session_count: int
+    eligible: bool
+    blockers: list[str] = Field(default_factory=list)
+    contribution: float = 0
+
+
+class LearningRecommendationCandidateRead(BaseModel):
+    candidate_type: Literal["template", "material"]
+    candidate_code: str
+    revision_number: int | None = None
+    title: str
+    constraint_score: float
+    content_score: float
+    effect_score: float
+    total_score: float
+    constraint_reasons: list[str] = Field(default_factory=list)
+    content_reasons: list[str] = Field(default_factory=list)
+    effect_reasons: list[str] = Field(default_factory=list)
+    effect_evidence: list[RecommendationEffectEvidenceRead] = Field(default_factory=list)
+    constraint_eligible: bool
+    effect_signal_used: bool
+    recommendation_mode: Literal["advisory_only"] = "advisory_only"
+
+
+class LearningRecommendationRead(BaseModel):
+    project_code: str
+    project_revision_number: int
+    project_fingerprint_sha256: str
+    strategy_version: str
+    recommendation_mode: Literal["advisory_only"] = "advisory_only"
+    candidates: list[LearningRecommendationCandidateRead] = Field(default_factory=list)
+    project_effect_hints: list[RecommendationEffectEvidenceRead] = Field(default_factory=list)
 
 
 class EffectEstimateRead(BaseModel):

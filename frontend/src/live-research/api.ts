@@ -1,4 +1,5 @@
-import { asArray, asBoolean, asNumber, asOptionalString, asString, isRecord, patchJson, postJson, requestJson } from "../workbench/api";
+import { WorkbenchApiError, asArray, asBoolean, asNumber, asOptionalString, asString, isRecord, patchJson, postJson, requestJson } from "../workbench/api";
+import { productTitle } from "../workbench/productLanguage";
 import type {
   AnalysisRun,
   AsrSegment,
@@ -14,6 +15,7 @@ import type {
   Keyframe,
   LayoutFidelity,
   ResearchOverview,
+  RecordingUploadReceipt,
   RoomTemplate,
   TemplateProjection,
   TemplateRevision,
@@ -117,8 +119,66 @@ export function normalizeCaptureSession(value: unknown): CaptureSession {
     interaction_event_count: interactionEventCount,
     analysis_status: asOptionalString(value.analysis_status) as JobStatus | undefined,
     template_code: asOptionalString(value.template_code),
+    source_type: asOptionalString(metadata.source_type) as CaptureSession["source_type"],
+    analysis_status_counts: isRecord(value.analysis_status_counts)
+      ? Object.fromEntries(Object.entries(value.analysis_status_counts).map(([key, count]) => [key, asNumber(count)]))
+      : {},
     media_chunks: mediaChunks,
   };
+}
+
+function normalizeRecordingUploadReceipt(value: unknown): RecordingUploadReceipt {
+  if (!isRecord(value)) throw new Error("Invalid recording upload response");
+  return {
+    session_code: asString(value.session_code),
+    target_code: asString(value.target_code),
+    source_room_id: asString(value.source_room_id),
+    source_room_title: asString(value.source_room_title),
+    file_name: asString(value.file_name),
+    file_size: asNumber(value.file_size),
+    checksum_sha256: asString(value.checksum_sha256),
+    duration_seconds: asNumber(value.duration_seconds),
+    upload_status: "stored",
+    analysis_status: "queued",
+    queued_analysis_types: strings(value.queued_analysis_types),
+    created_at: asString(value.created_at),
+  };
+}
+
+function uploadRecording(
+  payload: { sourceRoomId: string; sourceRoomTitle: string; file: File },
+  onProgress?: (percent: number) => void,
+): Promise<RecordingUploadReceipt> {
+  return new Promise((resolve, reject) => {
+    const body = new FormData();
+    body.set("source_room_id", payload.sourceRoomId);
+    body.set("source_room_title", payload.sourceRoomTitle);
+    body.set("file", payload.file, payload.file.name);
+    const request = new XMLHttpRequest();
+    request.open("POST", `${ROOT}/capture-sessions/uploads`);
+    request.setRequestHeader("Accept", "application/json");
+    request.upload.addEventListener("progress", (event) => {
+      if (event.lengthComputable) onProgress?.(Math.min(100, Math.round(event.loaded / event.total * 100)));
+    });
+    request.addEventListener("error", () => reject(new WorkbenchApiError("录屏上传失败，请检查网络后重试", 0)));
+    request.addEventListener("load", () => {
+      let response: unknown;
+      try {
+        response = request.responseType === "json" ? request.response : JSON.parse(request.responseText);
+      } catch {
+        response = undefined;
+      }
+      if (request.status < 200 || request.status >= 300) {
+        const message = isRecord(response) ? asString(response.detail, "录屏上传未能完成") : "录屏上传未能完成";
+        reject(new WorkbenchApiError(message, request.status, response));
+        return;
+      }
+      onProgress?.(100);
+      resolve(normalizeRecordingUploadReceipt(response));
+    });
+    request.responseType = "json";
+    request.send(body);
+  });
 }
 
 function normalizeAsr(value: unknown): AsrSegment | undefined {
@@ -210,7 +270,7 @@ function mergeAnalysisTracks(timeline: CaptureTimeline, value: unknown, rawTimel
       const sampleTimes = asArray(parameters.sample_times_seconds).filter((item): item is number => typeof item === "number" && Number.isFinite(item));
       const localStart = sampleTimes.length ? Math.min(...sampleTimes) : 0;
       const localEnd = sampleTimes.length ? Math.max(...sampleTimes) : localStart + 1;
-      const labels = observations.map((item) => asString(item.label ?? item.kind)).filter(Boolean);
+      const labels = observations.map((item) => asString(item.text ?? item.label ?? item.kind)).filter(Boolean);
       const local = normalizeVisual({
         start_seconds: localStart,
         end_seconds: localEnd > localStart ? localEnd : localStart + 1,
@@ -330,6 +390,12 @@ function normalizeAnalysisRunList(value: unknown): AnalysisRun[] {
       structure_status: statusFor(items, ["template_aggregation"]),
       result_template_code: asOptionalString(output.template_code ?? output.result_template_code),
       error_message: items.map((item) => asOptionalString(item.error_message)).find(Boolean),
+      failed_steps: items.filter((item) => asString(item.status) === "failed").map((item) => ({
+        analysis_run_code: asString(item.analysis_run_code),
+        analysis_type: asString(item.analysis_type),
+        error_message: asString(item.error_message, "解析步骤失败"),
+        can_retry: asNumber(item.attempt_count) < asNumber(item.max_attempts, 3),
+      })),
       updated_at: items.map((item) => asOptionalString(item.updated_at)).filter((item): item is string => Boolean(item)).sort().at(-1),
     };
   });
@@ -441,23 +507,26 @@ export function normalizeTemplate(value: unknown): RoomTemplate {
   const latest = normalizeRevision(value.latest_revision_payload) ?? [...revisions].sort((left, right) => left.revision - right.revision).at(-1);
   const latestRaw = rawRevisions.filter(isRecord).sort((left, right) => asNumber(left.revision_number) - asNumber(right.revision_number)).at(-1);
   const publishedRevision = asNumber(value.published_revision_number);
+  const declaredStatus = asString(value.status, latest?.status ?? "draft");
   return {
     template_code: asString(value.template_code),
-    title: asString(value.title ?? value.name, "未命名直播模板"),
+    title: productTitle(asString(value.title ?? value.name, "未命名直播模板"), "未命名直播模板"),
     source_session_code: asString(value.source_session_code ?? value.session_code ?? latestRaw?.source_session_code),
     source_type: asString(value.source_type, "external_flat_video") as RoomTemplate["source_type"],
     templateKind: asString(value.template_kind, "layout_hypothesis") as TemplateKind,
     sourceTargetCode: asOptionalString(value.source_target_code),
     latest_revision: asNumber(value.latest_revision ?? value.latest_revision_number ?? latest?.revision ?? value.published_revision_number, 1),
     published_revision: publishedRevision || undefined,
-    status: (latest && latest.revision > publishedRevision ? latest.status : asString(value.status, latest?.status ?? "draft")) as RoomTemplate["status"],
-    layout_fidelity: asString(value.layout_fidelity, latest?.layout_fidelity ?? "approximate") as LayoutFidelity,
-    buildability: asString(value.buildability, latest?.buildability ?? "reference_only") as Buildability,
-    contentReadiness: asString(value.content_readiness, latest?.contentReadiness ?? "review_required") as ContentReadiness,
+    status: (declaredStatus === "archived" ? "archived" : latest && latest.revision > publishedRevision ? latest.status : declaredStatus) as RoomTemplate["status"],
+    layout_fidelity: asString(value.layout_fidelity ?? value.published_layout_fidelity, latest?.layout_fidelity ?? "approximate") as LayoutFidelity,
+    buildability: asString(value.buildability ?? value.published_buildability, latest?.buildability ?? "reference_only") as Buildability,
+    contentReadiness: asString(value.content_readiness ?? value.published_content_readiness, latest?.contentReadiness ?? "review_required") as ContentReadiness,
     contentStrategy: latest?.contentStrategy ?? normalizeContentStrategy(value.content_strategy),
     scenes: asArray(value.scenes ?? latest?.scenes).flatMap((item) => { const result = normalizeScene(item); return result ? [result] : []; }),
     source_playback_url: asOptionalString(value.source_playback_url ?? value.playback_url),
     published_version_code: asOptionalString(value.published_version_code ?? value.template_version_code) ?? (publishedRevision ? `${asString(value.template_code)}@r${publishedRevision}` : undefined),
+    archived_at: asOptionalString(value.archived_at),
+    archive_reason: asOptionalString(value.archive_reason),
     updated_at: asOptionalString(value.updated_at),
   };
 }
@@ -511,6 +580,7 @@ export const liveResearchApi = {
   createWatchTarget: async (payload: { display_name: string; room_url: string }) => normalizeWatchTarget(await postJson(`${ROOT}/watch-targets`, { ...payload, platform: "douyin", recorder_engine: "streamcap", retention_days: 30 })),
   updateWatchTarget: async (targetCode: string, payload: { status: "enabled" | "paused" }) => normalizeWatchTarget(await patchJson(`${ROOT}/watch-targets/${encodeURIComponent(targetCode)}`, payload)),
   listCaptureSessions: async () => asArray(await requestJson<unknown>(`${ROOT}/capture-sessions`)).map(normalizeCaptureSession),
+  uploadRecording,
   getCaptureSession: async (sessionCode: string) => normalizeCaptureSession(await requestJson(`${ROOT}/capture-sessions/${encodeURIComponent(sessionCode)}`)),
   getTimeline: async (sessionCode: string) => {
     const [spans, analyses, session, interactionSummary] = await Promise.all([
@@ -529,8 +599,10 @@ export const liveResearchApi = {
   createClip: async (sessionCode: string, payload: { title: string; in_seconds: number; out_seconds: number }) => normalizeClipJob(await postJson(`${ROOT}/capture-sessions/${encodeURIComponent(sessionCode)}/clips`, { title: payload.title, requested_start_seconds: payload.in_seconds, requested_end_seconds: payload.out_seconds, cut_mode: "exact_reencode" })),
   listClipJobs: async () => asArray(await requestJson<unknown>(`${ROOT}/clip-jobs`)).map(normalizeClipJob),
   listAnalysisRuns: async () => normalizeAnalysisRunList(await requestJson<unknown>(`${ROOT}/analysis-runs`)),
+  retryAnalysisRun: async (runCode: string) => normalizeAnalysisRun(await postJson(`${ROOT}/analysis-runs/${encodeURIComponent(runCode)}/retry`, { reason: "运营人员从模板工坊重试" })),
   listTemplates: async () => asArray(await requestJson<unknown>(`${ROOT}/room-templates`)).map(normalizeTemplate),
   getTemplate: async (templateCode: string) => normalizeTemplate(await requestJson(`${ROOT}/room-templates/${encodeURIComponent(templateCode)}`)),
+  archiveTemplate: async (templateCode: string) => normalizeTemplate(await postJson(`${ROOT}/room-templates/${encodeURIComponent(templateCode)}/archive`, { reason: "运营人员从模板工坊停用" })),
   createTemplate: async (payload: { title: string; source_session_code: string }) => normalizeTemplate(await postJson(`${ROOT}/room-templates`, { name: payload.title, description: `由采集场次 ${payload.source_session_code} 生成的外部平面视频参考模板` })),
   createContentStrategyTemplate: async (payload: {
     title: string;

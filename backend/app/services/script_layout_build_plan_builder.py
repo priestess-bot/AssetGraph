@@ -11,9 +11,16 @@ PROTECTED_REFERENCE_ROOM_IDS = ("38336", "38995")
 class ScriptLayoutBuildPlanBuilder:
     """Convert content-driven layout plans into safe worker-oriented BuildPlan operations."""
 
-    def build(self, layout_plan: dict[str, Any], *, target_live_room_id: str | None = None) -> dict[str, Any]:
+    def build(
+        self,
+        layout_plan: dict[str, Any],
+        *,
+        target_live_room_id: str | None = None,
+        expected_title: str | None = None,
+    ) -> dict[str, Any]:
         build_mode = str(layout_plan.get("build_mode") or "strict")
         status = str(layout_plan.get("status") or "draft")
+        normalized_expected_title = str(expected_title or "").strip() or None
         blocked_reasons: list[str] = []
         if status == "blocked_missing_required_assets" or layout_plan.get("can_generate_layout") is False:
             blocked_reasons.append("layout_plan_blocked")
@@ -23,6 +30,7 @@ class ScriptLayoutBuildPlanBuilder:
                 "source": SOURCE,
                 "status": "blocked_missing_required_assets",
                 "target_live_room_id": target_live_room_id,
+                "expected_title": normalized_expected_title,
                 "build_mode": build_mode,
                 "can_execute": False,
                 "manual_review_required": True,
@@ -39,6 +47,7 @@ class ScriptLayoutBuildPlanBuilder:
                 "source": SOURCE,
                 "status": "blocked_audio_policy",
                 "target_live_room_id": target_live_room_id,
+                "expected_title": normalized_expected_title,
                 "build_mode": build_mode,
                 "can_execute": False,
                 "manual_review_required": True,
@@ -47,7 +56,11 @@ class ScriptLayoutBuildPlanBuilder:
                 "operations": [],
             }
 
-        operations = self._operations_for_layout(normalized_layout, target_live_room_id=target_live_room_id)
+        operations = self._operations_for_layout(
+            normalized_layout,
+            target_live_room_id=target_live_room_id,
+            expected_title=normalized_expected_title,
+        )
         has_manual_operation = any(operation.get("status") in {"manual_required", "manual_review"} for operation in operations)
         can_execute = bool(layout_plan.get("can_generate_executable_build_plan")) and not has_manual_operation
         result_status = "ready" if can_execute else str(layout_plan.get("status") or "manual_review_required")
@@ -55,6 +68,7 @@ class ScriptLayoutBuildPlanBuilder:
             "source": SOURCE,
             "status": result_status,
             "target_live_room_id": target_live_room_id,
+            "expected_title": normalized_expected_title,
             "build_mode": build_mode,
             "can_execute": can_execute,
             "manual_review_required": has_manual_operation or bool(layout_plan.get("manual_review_required")),
@@ -63,7 +77,13 @@ class ScriptLayoutBuildPlanBuilder:
             "operations": operations,
         }
 
-    def _operations_for_layout(self, layout_plan: dict[str, Any], *, target_live_room_id: str | None) -> list[dict[str, Any]]:
+    def _operations_for_layout(
+        self,
+        layout_plan: dict[str, Any],
+        *,
+        target_live_room_id: str | None,
+        expected_title: str | None,
+    ) -> list[dict[str, Any]]:
         operations: list[dict[str, Any]] = []
         sort_order = 1
         operations.append(
@@ -73,6 +93,7 @@ class ScriptLayoutBuildPlanBuilder:
                 "sort_order": sort_order,
                 "status": "ready",
                 "target_live_room_id": target_live_room_id,
+                "expected_live_room_title": expected_title,
                 "require_fresh_blank_room": True,
                 "protected_reference_room_ids": list(PROTECTED_REFERENCE_ROOM_IDS),
                 "instruction": "确认当前麦兔页面、直播间草稿、默认第1场景和禁开播安全边界；不点击正式开播。",

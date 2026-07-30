@@ -7,6 +7,7 @@ from app.schemas.functional_videos import (
     FunctionalVideoPlanCreate,
     FunctionalVideoTimelineClipUpdate,
 )
+from app.services.functional_videos import build_video_reproducibility_evidence
 
 
 def test_video_plan_create_requires_exactly_one_content_source() -> None:
@@ -92,3 +93,37 @@ def test_timeline_product_sticker_layout_requires_all_bounded_values() -> None:
             product_sticker_y=0.8,
             product_sticker_width_ratio=1.1,
         )
+
+
+def test_reproducibility_evidence_projects_stable_timeline_and_render_identities() -> None:
+    timeline = {
+        "schema_version": "timeline.v2",
+        "tracks": [{"track_kind": "video", "clips": [{"clip_code": "SHOT-01"}]}],
+    }
+    evidence = build_video_reproducibility_evidence(
+        timeline_revision=3,
+        production_timeline=timeline,
+        artifacts=[
+            {
+                "artifact_key": "render_manifest",
+                "checksum_sha256": "a" * 64,
+                "download_url": "/api/video-productions/VIDJOB-001/artifacts/render_manifest",
+                "metadata": {"manifest_fingerprint": "b" * 64},
+            },
+            {
+                "artifact_key": "render_manifest_diff",
+                "checksum_sha256": "c" * 64,
+                "download_url": "/api/video-productions/VIDJOB-001/artifacts/render_manifest_diff",
+                "metadata": {"classification": "output_changed_with_fixed_inputs"},
+            },
+        ],
+    )
+
+    assert evidence["timeline_revision"] == 3
+    assert len(evidence["timeline_fingerprint_sha256"]) == 64
+    assert evidence["render_manifest"]["metadata"]["manifest_fingerprint"] == "b" * 64
+    assert evidence["render_manifest_difference"]["metadata"]["classification"] == (
+        "output_changed_with_fixed_inputs"
+    )
+    assert evidence["retry_difference_recorded"] is True
+    assert "ffmpeg_ffprobe_versions" in evidence["manifest_covers"]

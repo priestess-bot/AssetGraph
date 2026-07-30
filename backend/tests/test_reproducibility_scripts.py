@@ -300,6 +300,13 @@ def test_migration_discovery_is_contiguous() -> None:
                 "knowledge_source_extraction_runs.sql",
                 "functional_live_room_execution_readback.sql",
                 "functional_knowledge_graph_projections.sql",
+                "asset_group_archival.sql",
+                "asset_rights_status.sql",
+                "live_room_template_archival_reason.sql",
+                "functional_live_room_blueprint_revisions.sql",
+                "functional_operation_file_imports.sql",
+                "legacy_product_maitu_category.sql",
+                "video_production_edit_hold.sql",
             ],
             start=1,
         )

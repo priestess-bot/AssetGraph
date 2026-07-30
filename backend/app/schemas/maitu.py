@@ -363,12 +363,14 @@ class MaituScriptLayoutPlanRead(BaseModel):
 class MaituScriptLayoutBuildPlanCreate(BaseModel):
     layout_plan: MaituScriptLayoutPlanRead
     target_live_room_id: str | None = Field(default=None, max_length=64)
+    expected_title: str | None = Field(default=None, min_length=1, max_length=255)
 
 
 class MaituScriptLayoutBuildPlanRead(BaseModel):
     source: str
     status: str
     target_live_room_id: str | None = None
+    expected_title: str | None = None
     build_mode: str
     can_execute: bool
     manual_review_required: bool = False

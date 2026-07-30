@@ -42,9 +42,9 @@ class VideoProductionRepository:
             cursor.execute(
                 """
                 INSERT INTO video_production_jobs (
-                    job_code, topic, preset_code, target_duration_seconds, current_stage
+                    job_code, topic, preset_code, target_duration_seconds, current_stage, edit_locked
                 )
-                VALUES (%s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 RETURNING id
                 """,
                 (
@@ -53,6 +53,7 @@ class VideoProductionRepository:
                     payload.get("preset_code", "zhangyu_wine_demo_v1"),
                     payload.get("target_duration_seconds", 55),
                     self.STAGES[0],
+                    bool(payload.get("edit_locked", False)),
                 ),
             )
             job_id = cursor.fetchone()["id"]
@@ -300,7 +301,13 @@ class VideoProductionRepository:
         self.connection.commit()
         return self.get_by_code(job_code)
 
-    def claim_next(self, worker_id: str, lease_seconds: int) -> dict[str, Any] | None:
+    def claim_next(
+        self,
+        worker_id: str,
+        lease_seconds: int,
+        *,
+        job_code: str | None = None,
+    ) -> dict[str, Any] | None:
         if not worker_id or lease_seconds < 1:
             raise ValueError("worker_id and a positive lease_seconds value are required")
         with self.connection.cursor(row_factory=dict_row) as cursor:
@@ -308,12 +315,15 @@ class VideoProductionRepository:
                 """
                 SELECT id, status
                 FROM video_production_jobs
-                WHERE status = 'queued'
-                   OR (status = 'running' AND lease_expires_at < now())
+                WHERE (status = 'queued'
+                   OR (status = 'running' AND lease_expires_at < now()))
+                  AND edit_locked = FALSE
+                  AND (%s::text IS NULL OR job_code = %s)
                 ORDER BY CASE WHEN status = 'running' THEN 0 ELSE 1 END, created_at
                 FOR UPDATE SKIP LOCKED
                 LIMIT 1
-                """
+                """,
+                (job_code, job_code),
             )
             candidate = cursor.fetchone()
             if candidate is None:
