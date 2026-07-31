@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import stat
 import threading
 from types import SimpleNamespace
@@ -92,11 +93,13 @@ def test_representative_frames_are_private_and_immutable(tmp_path: Path) -> None
         technical=technical,
     )
 
-    assert stat.S_IMODE(extractor.root.stat().st_mode) == 0o700
+    if os.name != "nt":
+        assert stat.S_IMODE(extractor.root.stat().st_mode) == 0o700
     for frame in manifest.frames:
         path = extractor.root / frame.relative_path
-        assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
-        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+        if os.name != "nt":
+            assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
+            assert stat.S_IMODE(path.stat().st_mode) == 0o600
 
     extractor._extract_one = (  # type: ignore[method-assign]
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("must reuse immutable frames"))

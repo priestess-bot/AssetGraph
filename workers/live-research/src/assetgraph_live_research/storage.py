@@ -6,12 +6,13 @@ import io
 import json
 import os
 import re
-import stat
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
 from uuid import uuid4
+
+from .permissions import require_private_permissions, restrict_private_permissions
 
 
 class StorageBoundaryError(RuntimeError):
@@ -22,6 +23,7 @@ class SecureStorage:
     def __init__(self, root: Path):
         self.root = root.expanduser().resolve()
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        restrict_private_permissions(self.root, 0o700)
 
     def resolve(self, relative_path: str, *, create_parent: bool = False) -> Path:
         normalized = relative_path.replace("\\", "/")
@@ -64,7 +66,7 @@ class SecureStorage:
                 output.write(content)
                 output.flush()
                 os.fsync(output.fileno())
-            os.chmod(temporary, mode)
+            restrict_private_permissions(temporary, mode)
             try:
                 os.link(temporary, destination)
             except FileExistsError:
@@ -79,12 +81,14 @@ class SecureStorage:
                     "private immutable file was concurrently created with different content"
                 )
             temporary.unlink()
-            os.chmod(destination, mode)
-            directory_fd = os.open(destination.parent, os.O_RDONLY | os.O_DIRECTORY)
-            try:
-                os.fsync(directory_fd)
-            finally:
-                os.close(directory_fd)
+            restrict_private_permissions(destination, mode)
+            directory_flag = getattr(os, "O_DIRECTORY", None)
+            if directory_flag is not None:
+                directory_fd = os.open(destination.parent, os.O_RDONLY | directory_flag)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
         finally:
             temporary.unlink(missing_ok=True)
         self.require_private_file(destination)
@@ -92,9 +96,10 @@ class SecureStorage:
 
     @staticmethod
     def require_private_file(path: Path) -> None:
-        file_mode = stat.S_IMODE(path.stat().st_mode)
-        if file_mode != 0o600:
-            raise StorageBoundaryError(f"private file must have mode 0600: {path}")
+        try:
+            require_private_permissions(path, 0o600)
+        except PermissionError as exc:
+            raise StorageBoundaryError(str(exc)) from exc
 
     @staticmethod
     def require_private_config(path: Path) -> None:
@@ -127,7 +132,7 @@ class SecureStorage:
         while current != self.root.parent and current.is_relative_to(self.root):
             if current.is_symlink():
                 raise StorageBoundaryError("symlinked storage directories are not allowed")
-            os.chmod(current, 0o700)
+            restrict_private_permissions(current, 0o700)
             if current == self.root:
                 break
             current = current.parent
@@ -248,7 +253,7 @@ def initialize_private_config(example: Path, destination: Path) -> None:
         output.write(content)
         output.flush()
         os.fsync(output.fileno())
-    os.chmod(destination, 0o600)
+    restrict_private_permissions(destination, 0o600)
 
 
 def _sha256_file(path: Path) -> str:

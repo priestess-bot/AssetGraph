@@ -111,7 +111,8 @@ def _migration_checksums() -> dict[str, str]:
     result: dict[str, str] = {}
     for path in sorted((REPO_ROOT / "backend" / "migrations").glob("*.sql")):
         if path.name.startswith(required_prefixes):
-            result[path.name] = hashlib.sha256(path.read_bytes()).hexdigest()
+            sql = path.read_text(encoding="utf-8")
+            result[path.name] = hashlib.sha256(sql.encode("utf-8")).hexdigest()
     if len(result) != len(required_prefixes):
         raise CompatibilityAuditError("required compatibility migrations are missing")
     return result

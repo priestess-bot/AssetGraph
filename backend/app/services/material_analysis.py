@@ -250,7 +250,7 @@ class RepresentativeFrameExtractor:
             if output.exists() and (output.is_symlink() or not output.is_file()):
                 raise MaterialAnalysisError("representative frame cache contains an unsafe entry")
             if not output.exists():
-                temporary = output.with_name(f".{output.name}.{uuid4().hex}.part.png")
+                temporary = self.root / f".frame-{uuid4().hex}.part.png"
                 try:
                     self._extract_one(source_path, timestamp, temporary, alpha=alpha)
                     os.chmod(temporary, 0o600)
@@ -270,7 +270,7 @@ class RepresentativeFrameExtractor:
                     requested_seconds=round(timestamp, 3),
                     actual_seconds=round(timestamp, 3),
                     selection_reason=reason,
-                    relative_path=str(output.relative_to(self.root)),
+                    relative_path=output.relative_to(self.root).as_posix(),
                     sha256=sha256_file(output),
                     file_size=output.stat().st_size,
                 )
@@ -425,7 +425,7 @@ class MaterialVisionAnalyzer:
                         "schema_name": "material_profile_observation",
                         "reasoning_effort": "medium",
                     },
-                    runtime_inputs={"image_paths": [str(path) for path in image_paths]},
+                    runtime_inputs={"image_paths": [path.as_posix() for path in image_paths]},
                     output_json_schema=MaterialSemanticObservation.model_json_schema(),
                     data_classification=DataClassification.CONFIDENTIAL,
                     principal_id="material-analysis-worker",

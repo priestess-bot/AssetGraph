@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import os
 import stat
 from datetime import UTC, datetime
 from pathlib import Path
@@ -20,7 +21,8 @@ def test_private_files_are_immutable_and_mode_0600(tmp_path: Path) -> None:
     path = storage.atomic_write("events/session/file.bin", b"first")
 
     assert path.read_bytes() == b"first"
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    if os.name != "nt":
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert storage.atomic_write("events/session/file.bin", b"first") == path
     with pytest.raises(StorageBoundaryError, match="different content"):
         storage.atomic_write("events/session/file.bin", b"second")
@@ -65,7 +67,8 @@ def test_raw_event_batch_is_deterministic_private_gzip(tmp_path: Path) -> None:
     assert first["relative_path"] == "events/capture_000001/events-00000000.jsonl.gz"
     assert first["file_mode"] == 0o600
     path = storage.resolve(first["relative_path"])
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    if os.name != "nt":
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
     with gzip.open(path, "rt", encoding="utf-8") as source:
         row = json.loads(source.readline())
     assert row["event_type"] == "WebcastChatMessage"

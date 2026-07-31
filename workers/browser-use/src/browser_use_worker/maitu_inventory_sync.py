@@ -275,11 +275,13 @@ class MaituInventoryCollector:
                 self._assert_existing_observation(destination, payload)
             else:
                 os.chmod(destination, 0o600)
-                directory_fd = os.open(destination.parent, os.O_RDONLY | os.O_DIRECTORY)
-                try:
-                    os.fsync(directory_fd)
-                finally:
-                    os.close(directory_fd)
+                directory_flag = getattr(os, "O_DIRECTORY", None)
+                if directory_flag is not None:
+                    directory_fd = os.open(destination.parent, os.O_RDONLY | directory_flag)
+                    try:
+                        os.fsync(directory_fd)
+                    finally:
+                        os.close(directory_fd)
         finally:
             temporary.unlink(missing_ok=True)
         return destination
@@ -295,7 +297,7 @@ class MaituInventoryCollector:
         immutable_fields = ("schema_version", "source_revision", "quality_status", "summary", "items")
         if any(existing.get(field) != cls._json_value(payload.get(field)) for field in immutable_fields):
             raise MaituInventorySyncError("inventory observation revision already has different content")
-        if (path.stat().st_mode & 0o777) != 0o600:
+        if os.name != "nt" and (path.stat().st_mode & 0o777) != 0o600:
             raise MaituInventorySyncError("existing inventory observation must have mode 0600")
 
     @staticmethod

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 import wave
 from hashlib import sha256
 from pathlib import Path
@@ -42,12 +43,15 @@ def test_artifact_store_writes_atomically_and_blocks_path_escape(tmp_path: Path)
 
 def test_subprocess_runner_uses_argument_array_and_reports_failure() -> None:
     runner = SubprocessRunner()
-    result = runner.run(["/bin/sh", "-c", "printf ok"])
+    success_command = [sys.executable, "-c", "print('ok', end='')"]
+    failure_command = [sys.executable, "-c", "raise SystemExit(7)"]
+
+    result = runner.run(success_command)
     assert result.stdout == "ok"
-    assert runner.records[0]["args"] == ["/bin/sh", "-c", "printf ok"]
+    assert runner.records[0]["args"] == success_command
 
     with pytest.raises(VideoProductionError) as error:
-        runner.run(["/bin/sh", "-c", "exit 7"], error_code="EXPECTED_FAILURE")
+        runner.run(failure_command, error_code="EXPECTED_FAILURE")
     assert error.value.error_code == "EXPECTED_FAILURE"
 
 

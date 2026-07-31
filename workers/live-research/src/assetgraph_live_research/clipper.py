@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from .permissions import restrict_private_permissions
 from .storage import SecureStorage
 from .streamcap import CommandRunner, SubprocessCommandRunner
 
@@ -124,9 +125,9 @@ class FFmpegClipper:
             self.runner.run(arguments, timeout_seconds=1800)
             if not temporary.is_file() or temporary.stat().st_size <= 0:
                 raise RuntimeError("ffmpeg did not produce a clip")
-            os.chmod(temporary, 0o600)
+            restrict_private_permissions(temporary, 0o600)
             os.replace(temporary, output)
-            os.chmod(output, 0o600)
+            restrict_private_permissions(output, 0o600)
         finally:
             temporary.unlink(missing_ok=True)
         probe = self._probe(output)

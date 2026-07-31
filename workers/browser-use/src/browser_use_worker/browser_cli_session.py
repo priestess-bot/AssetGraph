@@ -1699,6 +1699,8 @@ class BrowserUseCliSession:
         env = dict(os.environ)
         for key in ("PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV"):
             env.pop(key, None)
+        env["PYTHONUTF8"] = "1"
+        env["PYTHONIOENCODING"] = "utf-8"
         if cwd:
             env["UV_PROJECT_ENVIRONMENT"] = os.path.join(cwd, ".venv")
         existing: list[str] = []

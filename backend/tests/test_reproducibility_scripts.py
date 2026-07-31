@@ -103,6 +103,68 @@ def test_bootstrap_fills_blank_secrets_in_existing_env(tmp_path: Path) -> None:
     assert len({values[key] for key in bootstrap.SECRET_KEYS}) == 4
 
 
+def test_bootstrap_replaces_only_linux_defaults_on_windows(tmp_path: Path) -> None:
+    bootstrap = load_script("scripts/bootstrap_reproducible.py", "assetgraph_bootstrap_windows_env")
+    (tmp_path / ".env.example").write_text(
+        "ASSETGRAPH_MAITU_MIRROR_ROOT=/DATA/Downloads/AssetGraph/maitu-mirror\n"
+        "ASSETGRAPH_MATERIAL_ANALYSIS_ROOT=D:/custom/material-analysis\n"
+        "ASSETGRAPH_STREAMCAP_PYTHON=.external/streamcap-venv/bin/python\n"
+        "ASSETGRAPH_DOUYINLIVE_BINARY=.external/bin/douyinLive\n"
+        "BROWSER_USE_SESSION_NAME=assetgraph-maitu-vnc\n",
+        encoding="utf-8",
+    )
+
+    env_path = bootstrap.ensure_environment(tmp_path, platform_name="nt")
+    values = dict(
+        line.split("=", 1)
+        for line in env_path.read_text(encoding="utf-8").splitlines()
+        if "=" in line
+    )
+
+    assert values["ASSETGRAPH_MAITU_MIRROR_ROOT"] == (tmp_path / "data" / "maitu-mirror").resolve().as_posix()
+    assert values["ASSETGRAPH_MATERIAL_ANALYSIS_ROOT"] == "D:/custom/material-analysis"
+    assert values["ASSETGRAPH_STREAMCAP_PYTHON"] == (
+        tmp_path / ".external" / "streamcap-venv" / "Scripts" / "python.exe"
+    ).resolve().as_posix()
+    assert values["ASSETGRAPH_DOUYINLIVE_BINARY"] == (
+        tmp_path / ".external" / "bin" / "douyinLive.exe"
+    ).resolve().as_posix()
+    assert values["BROWSER_USE_SESSION_NAME"] == "assetgraph-maitu-windows"
+
+
+@pytest.mark.parametrize("has_lock", [False, True])
+def test_browser_use_bootstrap_only_uses_frozen_with_upstream_lock(
+    monkeypatch,
+    tmp_path: Path,
+    has_lock: bool,
+) -> None:
+    bootstrap = load_script("scripts/bootstrap_reproducible.py", f"assetgraph_browser_use_lock_{has_lock}")
+    target = tmp_path / ".external" / "browser-use"
+    target.mkdir(parents=True)
+    if has_lock:
+        (target / "uv.lock").write_text("version = 1\n", encoding="utf-8")
+    calls: list[tuple[list[str], Path]] = []
+    monkeypatch.setattr(bootstrap, "_run", lambda command, *, cwd: calls.append((command, cwd)))
+    monkeypatch.setattr(
+        bootstrap,
+        "_load_manifest",
+        lambda _root: {
+            "browser_use": {
+                "repository": "https://example/browser-use.git",
+                "commit": "a" * 40,
+                "default_path": ".external/browser-use",
+            }
+        },
+    )
+
+    assert bootstrap.install_browser_use(tmp_path) == target
+
+    expected_sync = ["uv", "sync", "--extra", "cli", "--extra", "core"]
+    if has_lock:
+        expected_sync.append("--frozen")
+    assert calls[-1] == (expected_sync, target)
+
+
 def test_install_skill_rejects_incomplete_existing_copy(monkeypatch, tmp_path: Path) -> None:
     bootstrap = load_script("scripts/bootstrap_reproducible.py", "assetgraph_bootstrap_skill_integrity")
     hermes_home = tmp_path / "hermes"

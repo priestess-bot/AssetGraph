@@ -1374,6 +1374,8 @@ def test_subprocess_runner_scrubs_parent_python_environment(monkeypatch) -> None
     assert "PYTHONPATH" not in env
     assert "PYTHONHOME" not in env
     assert "VIRTUAL_ENV" not in env
+    assert env["PYTHONUTF8"] == "1"
+    assert env["PYTHONIOENCODING"] == "utf-8"
     assert env["UV_PROJECT_ENVIRONMENT"] == os.path.join("D:/browser-use", ".venv")
     assert env["NO_PROXY"] == "example.com,127.0.0.1,localhost"
     assert env["no_proxy"] == "example.com,127.0.0.1,localhost"

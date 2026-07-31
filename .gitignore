@@ -31,6 +31,7 @@ Thumbs.db
 data/
 logs/
 outputs/
+.run/
 
 # Local media assets are managed outside Git. Keep metadata/manifest files under docs/ tracked.
 素材/

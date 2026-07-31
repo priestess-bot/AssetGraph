@@ -40,7 +40,9 @@ def test_work_heartbeat_renews_long_running_analysis() -> None:
         lease_seconds=30,
         interval_seconds=0.005,
     ):
-        time.sleep(0.02)
+        deadline = time.monotonic() + 0.5
+        while len(api.calls) < 2 and time.monotonic() < deadline:
+            time.sleep(0.005)
 
     assert len(api.calls) >= 2
     assert all(call[2]["worker_id"] == "worker-1" for call in api.calls)

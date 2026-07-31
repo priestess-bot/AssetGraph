@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import stat
 from pathlib import Path
 
@@ -77,7 +78,8 @@ def test_collector_deduplicates_downloads_and_adds_reference_template(tmp_path: 
     assert template["metadata"]["reconstruction_fidelity"] == "approximate"
     observation = Path(result.observation_path)
     assert observation.is_file()
-    assert stat.S_IMODE(observation.stat().st_mode) == 0o600
+    if os.name != "nt":
+        assert stat.S_IMODE(observation.stat().st_mode) == 0o600
 
 
 def test_existing_catalog_material_is_reused_without_download(tmp_path: Path) -> None:

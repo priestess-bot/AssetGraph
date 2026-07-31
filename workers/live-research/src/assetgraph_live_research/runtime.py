@@ -13,6 +13,7 @@ from typing import Any, Protocol
 from urllib.parse import urlsplit
 from uuid import uuid4
 
+from .permissions import restrict_private_permissions
 from .sidecars import InstalledSidecars
 from .storage import SecureStorage, StorageBoundaryError
 
@@ -101,7 +102,7 @@ class LocalSidecarRuntime:
         SecureStorage.require_private_config(self.douyinlive_config)
         staging = self.storage_root.expanduser().resolve() / "staging"
         staging.mkdir(parents=True, exist_ok=True, mode=0o700)
-        os.chmod(staging, 0o700)
+        restrict_private_permissions(staging, 0o700)
         settings = json.loads(self.settings_template.read_text(encoding="utf-8"))
         if not isinstance(settings, dict):
             raise RuntimeError("StreamCap settings template must be a JSON object")
@@ -111,7 +112,7 @@ class LocalSidecarRuntime:
 
         log_root = self.storage_root.expanduser().resolve() / "logs/sidecars"
         log_root.mkdir(parents=True, exist_ok=True, mode=0o700)
-        os.chmod(log_root, 0o700)
+        restrict_private_permissions(log_root, 0o700)
         self._start(
             [
                 str(self.installed.streamcap_python),
@@ -148,7 +149,10 @@ class LocalSidecarRuntime:
         for process in reversed(self._processes):
             if process.poll() is None:
                 try:
-                    os.killpg(process.pid, signal.SIGTERM)
+                    if os.name == "nt":
+                        process.terminate()
+                    else:
+                        os.killpg(process.pid, signal.SIGTERM)
                 except ProcessLookupError:
                     continue
         deadline = time.monotonic() + 10
@@ -158,7 +162,10 @@ class LocalSidecarRuntime:
                 process.wait(timeout=remaining)
             except subprocess.TimeoutExpired:
                 try:
-                    os.killpg(process.pid, signal.SIGKILL)
+                    if os.name == "nt":
+                        process.kill()
+                    else:
+                        os.killpg(process.pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
                 process.wait(timeout=5)
@@ -176,7 +183,7 @@ class LocalSidecarRuntime:
         environment: dict[str, str],
     ) -> None:
         descriptor = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
-        os.chmod(log_path, 0o600)
+        restrict_private_permissions(log_path, 0o600)
         log_file = os.fdopen(descriptor, "ab", buffering=0)
         self._logs.append(log_file)
         process_environment = os.environ.copy()
@@ -189,7 +196,12 @@ class LocalSidecarRuntime:
                 stdin=subprocess.DEVNULL,
                 stdout=log_file,
                 stderr=subprocess.STDOUT,
-                start_new_session=True,
+                start_new_session=os.name != "nt",
+                creationflags=(
+                    getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+                    if os.name == "nt"
+                    else 0
+                ),
             )
         )
 
@@ -236,8 +248,8 @@ class ComposeSidecarRuntime:
         environment = os.environ.copy()
         environment.update(
             {
-                "LIVE_RESEARCH_UID": str(os.getuid()),
-                "LIVE_RESEARCH_GID": str(os.getgid()),
+                "LIVE_RESEARCH_UID": str(getattr(os, "getuid", lambda: 1000)()),
+                "LIVE_RESEARCH_GID": str(getattr(os, "getgid", lambda: 1000)()),
                 "ASSETGRAPH_LIVE_RESEARCH_ROOT": str(self.storage_root.expanduser().resolve()),
                 "STREAMCAP_RECORDINGS_CONFIG": str(self.recordings_config.expanduser().resolve()),
                 "DOUYINLIVE_CONFIG_FILE": str(self.douyinlive_config.expanduser().resolve()),
@@ -274,9 +286,9 @@ def _write_private_json(destination: Path, value: dict[str, Any]) -> None:
             output.write(content)
             output.flush()
             os.fsync(output.fileno())
-        os.chmod(temporary, 0o600)
+        restrict_private_permissions(temporary, 0o600)
         os.replace(temporary, destination)
-        os.chmod(destination, 0o600)
+        restrict_private_permissions(destination, 0o600)
     finally:
         temporary.unlink(missing_ok=True)
 

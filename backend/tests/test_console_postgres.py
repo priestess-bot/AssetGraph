@@ -73,12 +73,12 @@ def test_console_read_models_search_and_deep_link_real_control_plane_data() -> N
             repository = ConsoleRepository(connection)
             search = repository.search(suffix, limit=20)
             asset = next(row for row in search if row["entity_code"] == asset_code)
-            assert asset["href"] == f"/assets/library?asset={asset_code}"
+            assert asset["href"] == f"/assets?asset={asset_code}"
 
             tasks = repository.list_tasks("operator-a")
             task = next(row for row in tasks if row["item_code"] == task_code)
             assert task["item_type"] == "human_task"
-            assert task["href"] == f"/governance/runs?run={run_code}&task={task_code}"
+            assert task["href"] == "/projects?view=activity"
             assert all(row["item_code"] != run_code for row in tasks)
 
             notifications = repository.list_notifications()

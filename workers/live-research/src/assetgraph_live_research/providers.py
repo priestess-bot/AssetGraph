@@ -4,7 +4,6 @@ import base64
 import hashlib
 import json
 import mimetypes
-import os
 import tempfile
 import time
 from dataclasses import dataclass
@@ -14,6 +13,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from .permissions import restrict_private_permissions
 from .storage import SecureStorage
 from .streamcap import CommandRunner, SubprocessCommandRunner
 
@@ -156,7 +156,7 @@ class OpenAIVisionProvider:
         started = time.monotonic()
         with tempfile.TemporaryDirectory(prefix="vision-", dir=frame_root) as temporary_name:
             temporary = Path(temporary_name)
-            os.chmod(temporary, 0o700)
+            restrict_private_permissions(temporary, 0o700)
             frames = self._extract_frames(source_path, temporary, sample_times)
             content: list[dict[str, Any]] = [
                 {
@@ -272,7 +272,7 @@ class OpenAIVisionProvider:
                 timeout_seconds=120,
             )
             if output.is_file() and not output.is_symlink() and output.stat().st_size > 0:
-                os.chmod(output, 0o600)
+                restrict_private_permissions(output, 0o600)
                 frames.append(output)
         if not frames:
             raise ModelProviderError("vision sampling produced no frames")

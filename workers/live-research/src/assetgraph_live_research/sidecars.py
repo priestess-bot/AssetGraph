@@ -9,6 +9,7 @@ from typing import Any
 from uuid import NAMESPACE_URL, uuid5
 
 from .pins import DOUYINLIVE_COMMIT, DOUYINLIVE_VERSION, STREAMCAP_COMMIT, STREAMCAP_VERSION
+from .permissions import restrict_private_permissions
 
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -91,9 +92,9 @@ class StreamCapTargetConfig:
                 output.write(content)
                 output.flush()
                 os.fsync(output.fileno())
-            os.chmod(temporary, 0o600)
+            restrict_private_permissions(temporary, 0o600)
             os.replace(temporary, self.recordings_path)
-            os.chmod(self.recordings_path, 0o600)
+            restrict_private_permissions(self.recordings_path, 0o600)
         finally:
             temporary.unlink(missing_ok=True)
 

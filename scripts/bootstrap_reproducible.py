@@ -24,6 +24,37 @@ SECRET_KEYS = {
     "ASSETGRAPH_MAITU_READBACK_ATTESTATION_KEY",
 }
 
+WINDOWS_ENV_DEFAULTS = {
+    "ASSETGRAPH_MAITU_MIRROR_ROOT": (
+        "/DATA/Downloads/AssetGraph/maitu-mirror",
+        "data/maitu-mirror",
+    ),
+    "ASSETGRAPH_MATERIAL_ANALYSIS_ROOT": (
+        "/DATA/Downloads/AssetGraph/material-analysis",
+        "data/material-analysis",
+    ),
+    "ASSETGRAPH_LIVE_RESEARCH_ROOT": (
+        "/DATA/Downloads/AssetGraph/live-research",
+        "data/live-research",
+    ),
+    "ASSETGRAPH_VIDEO_PRODUCTION_ROOT": (
+        "/DATA/Downloads/AssetGraph/video-productions",
+        "data/video-productions",
+    ),
+    "ASSETGRAPH_STREAMCAP_CHECKOUT": (
+        ".external/StreamCap",
+        ".external/StreamCap",
+    ),
+    "ASSETGRAPH_STREAMCAP_PYTHON": (
+        ".external/streamcap-venv/bin/python",
+        ".external/streamcap-venv/Scripts/python.exe",
+    ),
+    "ASSETGRAPH_DOUYINLIVE_BINARY": (
+        ".external/bin/douyinLive",
+        ".external/bin/douyinLive.exe",
+    ),
+}
+
 
 def _load_manifest(root: Path) -> dict[str, Any]:
     return json.loads((root / "reproducibility.lock.json").read_text(encoding="utf-8"))
@@ -66,7 +97,17 @@ def _write_private_text(path: Path, content: str) -> None:
         raise
 
 
-def ensure_environment(root: Path) -> Path:
+def _windows_environment_value(root: Path, key: str, value: str) -> str:
+    if key == "BROWSER_USE_SESSION_NAME" and value == "assetgraph-maitu-vnc":
+        return "assetgraph-maitu-windows"
+    default = WINDOWS_ENV_DEFAULTS.get(key)
+    if default is None or value != default[0]:
+        return value
+    return (root / default[1]).resolve().as_posix()
+
+
+def ensure_environment(root: Path, *, platform_name: str | None = None) -> Path:
+    platform_name = platform_name or os.name
     example = root / ".env.example"
     target = root / ".env"
     source = target if target.exists() else example
@@ -78,6 +119,8 @@ def ensure_environment(root: Path) -> Path:
             seen_keys.add(key)
             if key in SECRET_KEYS and not value.strip():
                 value = secrets.token_urlsafe(48)
+            if platform_name == "nt":
+                value = _windows_environment_value(root, key, value)
             line = f"{key}={value}"
         lines.append(line)
     for key in sorted(SECRET_KEYS - seen_keys):
@@ -167,7 +210,10 @@ def install_browser_use(root: Path) -> Path:
         _run(["git", "clone", manifest["repository"], str(target)], cwd=root)
     _run(["git", "fetch", "origin", manifest["commit"]], cwd=target)
     _run(["git", "checkout", "--detach", manifest["commit"]], cwd=target)
-    _run(["uv", "sync", "--extra", "cli", "--extra", "core", "--frozen"], cwd=target)
+    sync_command = ["uv", "sync", "--extra", "cli", "--extra", "core"]
+    if (target / "uv.lock").is_file():
+        sync_command.append("--frozen")
+    _run(sync_command, cwd=target)
     return target
 
 

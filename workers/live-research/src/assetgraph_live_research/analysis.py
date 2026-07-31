@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 from typing import Any, Protocol
 
+from .permissions import restrict_private_permissions
 from .providers import ProviderResult
 from .storage import SecureStorage
 from .streamcap import CommandRunner, SubprocessCommandRunner
@@ -115,7 +116,7 @@ class LiveMediaAnalysisExecutor:
         for index, path in enumerate(sorted(frames_directory.glob("frame-*.jpg"))):
             if path.is_symlink() or not path.is_file():
                 raise RuntimeError("frame sampler produced an unsafe path")
-            os.chmod(path, 0o600)
+            restrict_private_permissions(path, 0o600)
             relative = str(path.relative_to(self.storage.root))
             frames.append(
                 {
@@ -170,9 +171,9 @@ class LiveMediaAnalysisExecutor:
             )
             if not temporary.is_file() or temporary.stat().st_size <= 44:
                 raise RuntimeError("audio extraction produced no usable samples")
-            os.chmod(temporary, 0o600)
+            restrict_private_permissions(temporary, 0o600)
             os.replace(temporary, audio)
-            os.chmod(audio, 0o600)
+            restrict_private_permissions(audio, 0o600)
         finally:
             temporary.unlink(missing_ok=True)
         invocation = self.asr_provider.transcribe(

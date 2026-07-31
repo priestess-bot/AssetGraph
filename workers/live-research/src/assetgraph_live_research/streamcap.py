@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Protocol
 from uuid import uuid4
 
+from .permissions import restrict_private_permissions
 from .pins import STREAMCAP_COMMIT, STREAMCAP_VERSION
 from .storage import SecureStorage, StorageBoundaryError
 
@@ -275,13 +276,13 @@ class StreamCapChunkAdapter:
                 shutil.copyfileobj(input_file, output_file, length=1024 * 1024)
                 output_file.flush()
                 os.fsync(output_file.fileno())
-            os.chmod(temporary, 0o600)
+            restrict_private_permissions(temporary, 0o600)
             try:
                 os.link(temporary, destination)
             except FileExistsError as exc:
                 raise RuntimeError("immutable capture destination already exists") from exc
             temporary.unlink()
-            os.chmod(destination, 0o600)
+            restrict_private_permissions(destination, 0o600)
         finally:
             temporary.unlink(missing_ok=True)
 

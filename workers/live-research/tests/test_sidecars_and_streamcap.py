@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import stat
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -62,7 +63,8 @@ def test_streamcap_target_config_is_exact_single_720p_ts_target(tmp_path: Path) 
     assert rows[0]["record_format"] == "TS"
     assert rows[0]["segment_record"] is True
     assert rows[0]["segment_time"] == "600"
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    if os.name != "nt":
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
 
 
 def test_streamcap_adapter_accepts_uppercase_ts_and_enforces_720p(tmp_path: Path) -> None:
@@ -141,5 +143,6 @@ def test_streamcap_adapter_quarantines_preexisting_part_without_ingesting_it(
     assert not source.exists()
     quarantined = storage.resolve(manifest["quarantine_relative_path"])
     assert quarantined.read_bytes() == b"old-room-fragment"
-    assert stat.S_IMODE(quarantined.stat().st_mode) == 0o600
+    if os.name != "nt":
+        assert stat.S_IMODE(quarantined.stat().st_mode) == 0o600
     assert manifest["reason"] == "preexisting_staging_part"

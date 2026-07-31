@@ -110,6 +110,17 @@ cd backend
 uv run uvicorn app.main:app --reload
 ```
 
+Windows 原生开发不需要 VNC、Xvfb 或 Linux 虚拟桌面。初始化脚本会配置本机
+PostgreSQL、固定版本 MinIO、Windows 数据目录和可见 Chrome/Edge 会话：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\windows\Setup-AssetGraph.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\windows\Start-AssetGraph.ps1
+```
+
+默认开发入口为 `http://127.0.0.1:5173/console/`。完整说明、停止命令和麦兔可见浏览器
+接入见 [`docs/windows-development.md`](docs/windows-development.md)。
+
 安装固定 revision 的 Browser-use 或下载固定 revision 的 Qwen3 模型：
 
 ```bash
