@@ -78,3 +78,6 @@ uv run --project workers/browser-use python -m browser_use_worker --probe-maitu
 
 真实在线生成和素材分析仍需要在 `.env` 中配置相应 API key、处理区域和授权策略。
 私有素材需要单独设置 `ASSETGRAPH_ASSETS_ROOT`，不属于核心应用启动前置条件。
+
+模型、字体、录制 sidecar、当前 63 份产品素材以及旧 131 份历史语料的分阶段下载和迁移步骤，
+见 [Windows 模型与素材部署指南](windows-model-and-material-provisioning.md)。
