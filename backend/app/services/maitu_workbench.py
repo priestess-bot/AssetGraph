@@ -59,6 +59,7 @@ ALLOWED_DRAFT_OPERATION_TYPES = {
     "position_asset_layer",
     "write_script",
     "verify_scene",
+    "verify_draft_persisted",
     "save_draft",
 }
 FORBIDDEN_OPERATION_TYPES = {
@@ -1154,6 +1155,33 @@ class MaituWorkbenchService:
         assert_draft_only(payload.get("result") or {})
         if payload.get("ready_for_go_live") is not False:
             raise WorkbenchDraftSafetyError("Workbench execution can only save a draft")
+        job = self.repository.get_draft_execution_job(execution_job_code)
+        if job is None:
+            raise KeyError(execution_job_code)
+        if job.get("source_kind") == "functional_live_room_plan":
+            result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
+            verification = result.get("verification") if isinstance(result.get("verification"), dict) else {}
+            layer_validation = (
+                result.get("layer_order_validation")
+                if isinstance(result.get("layer_order_validation"), dict)
+                else {}
+            )
+            worker_result = (
+                result.get("worker_result") if isinstance(result.get("worker_result"), dict) else {}
+            )
+            if (
+                result.get("ready_for_go_live") is not False
+                or result.get("go_live_clicked") is not False
+                or result.get("non_releasable") is not True
+                or verification.get("matched") is not True
+                or layer_validation.get("passed") is not True
+                or not isinstance(result.get("final_readback"), dict)
+                or worker_result.get("status") != "completed"
+                or int(worker_result.get("failure_count") or 0) != 0
+            ):
+                raise WorkbenchDraftSafetyError(
+                    "Functional draft completion requires a matching final room and layer-order readback"
+                )
         return self.repository.complete_draft_execution_job(
             execution_job_code,
             worker_id,

@@ -138,6 +138,7 @@ _PROTOCOL_ID_FIELDS = {
     # are still compared against the complete payload before these exclusions.
     "source_plan_fingerprint",
     "operation_fingerprint",
+    "fingerprint",
     "inventory_snapshot_sha256",
     "script_sha256",
     "expected_script_sha256",
@@ -813,14 +814,29 @@ def complete_script_layout_execution_operation(
         durable_payload,
         require_worker_fence=True,
     )
+    worker_observed_test_context = repository.get_functional_worker_readback_completion_context(
+        build_plan_code=build_plan_code,
+        execution_code=execution_code,
+        worker_id=worker_id,
+    )
     try:
-        durable_payload = authority.attest_completion(
-            build_plan_code=build_plan_code,
-            execution_code=execution_code,
-            operation_index=operation_index,
-            checkpoint=checkpoint,
-            payload=durable_payload,
-        )
+        if worker_observed_test_context is not None:
+            durable_payload = authority.attest_functional_worker_observed_completion(
+                build_plan_code=build_plan_code,
+                execution_code=execution_code,
+                operation_index=operation_index,
+                checkpoint=checkpoint,
+                payload=durable_payload,
+                context=worker_observed_test_context,
+            )
+        else:
+            durable_payload = authority.attest_completion(
+                build_plan_code=build_plan_code,
+                execution_code=execution_code,
+                operation_index=operation_index,
+                checkpoint=checkpoint,
+                payload=durable_payload,
+            )
     except MaituAuthorityError as exc:
         status_code = (
             status.HTTP_503_SERVICE_UNAVAILABLE

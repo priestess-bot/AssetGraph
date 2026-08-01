@@ -74,7 +74,7 @@ v1 冻结现有鉴权与审计基础，不新增复杂 RBAC、对象 ACL、双�
 16. ContentProject 必须有生成目标和适用的已批准事实；只有创建 live_room variant 时，直播间标题和目标 `liveRoomId` 才是必填项。
 17. 目标时长是大致指导值，不要求秒级精确；偏离约 50% 时产生质量警告。
 18. 无硬阻断时默认自动执行只读 preflight 并写入草稿，不再增加人工确认门。
-19. 自动写入后的方案修改通过复制配置并绑定新的空白房间完成；第一版不对非空房间做增量重建。
+19. 自动写入后的普通房间方案修改通过复制配置并绑定新的空白房间完成；第一版不对普通非空房间做增量重建。客户体验 v1 允许仅对白名单离线测试房执行显式确认、现场指纹绑定的整房清空重建，首期仅为 `41172`，该例外不得扩展到生产房间。
 20. 素材和效果缺口只有在确定破坏完整性或安全性时才阻断，一般效果提升需求只告警。
 21. `DesignBrief` 是工作台交互模型；确认后必须投影为不可变 `StoryBriefRevision`，后续剧本、ProgramSegment、Shot、麦兔草稿和成片共用该内容源。
 22. 每个事实句、剧本块、Shot、载体投影、素材选择和执行结果必须保留可机读来源边，支持从结果反查目标、模板、事实和证据。
@@ -110,7 +110,7 @@ v1 冻结现有鉴权与审计基础，不新增复杂 RBAC、对象 ACL、双�
 ### 3.2 当前阶段明确不做
 
 - 不点击“正式开播”，所有结果保持 `ready_for_go_live=false`。
-- 不在第一版支持非空房间增量更新、差异回滚或破坏性清空。
+- 不在第一版支持普通非空房间增量更新、差异回滚或破坏性清空；仅保留 ADR-0003 定义的白名单离线测试房整房重建例外。
 - 不把外部直播平面录屏推断成真实麦兔图层、material ID 或精确 z-index。
 - 不做素材文件的双向上传、改名和删除管理；需要新增媒体时先在麦兔处理，再同步 AssetGraph。
 - 不做交互式非线性视频剪辑器或手工拖拽式直播画布编辑器；系统生成并允许表单化调整确定性时间轴与剪辑决策。
@@ -264,6 +264,7 @@ image / video / audio / digital_human / text / template_preview / document
 
 ```text
 background
+set_surface
 product_display
 digital_human
 brand_title
@@ -275,7 +276,7 @@ background_music
 sound_effect
 ```
 
-业务角色回答“它在直播间里做什么”。素材包排他、房间分类选择、约束关系和生成器需求都以业务角色为边界，不直接使用文件扩展名或麦兔页签作为业务含义。
+业务角色回答“它在直播间里做什么”。`set_surface` 专门表示背景之上的底图、桌面和承托面，不能借用 `background` 或 `decoration_foreground`，否则会破坏桌面商品的层级关系。素材包排他、房间分类选择、约束关系和生成器需求都以业务角色为边界，不直接使用文件扩展名或麦兔页签作为业务含义。
 
 ### 5.3 执行能力 `execution_capability`
 
@@ -362,8 +363,9 @@ RightsGrant 状态为 `draft -> active -> expired|revoked|superseded`。只有 `
 - `scale_range`：统一缩放倍数范围。
 - `crop_policy`：禁止裁剪、允许 cover、允许 contain 或人工处理。
 - `rotation_policy`：禁止旋转或限制角度集合。
-- `pin_layer_top` / `pin_layer_bottom`：必须处于可执行图层的顶层或底层。
-- `above_role` / `below_role`：相对某类素材的图层关系。
+- `pin_layer_top` / `pin_layer_bottom`：定义不可穿越的硬层级带。置顶素材必须高于所有非置顶素材，置底素材必须低于所有非置底素材；同一素材同时硬置顶和硬置底直接判为冲突。多个同带素材可按同带内的相对规则和稳定次序排列，但不能离开该层级带。
+- `forbid_layer_top`：素材不得成为场景最高图层；若场景没有可合法位于其上的素材则布局无解，不能把该规则降级为偏好。
+- `above_role` / `below_role`：相对当前场景中某类素材的图层关系。关系作用于实际选中的全部匹配图层，并与置顶/置底规则共同编译，不能靠数组顺序或最后一次赋值覆盖。
 - `avoid_overlap`：不得遮挡指定角色或命名区域，可设置允许遮挡比例。
 - `align_anchor`：左右、上下、中心或基线对齐。
 - `distance_range`：两个素材锚点之间的最小/最大距离。
@@ -406,6 +408,10 @@ optimal / feasible / infeasible / unknown / invalid_model
 ```
 
 `feasible` 可以继续但记录最优差距；`unknown` 不得被当作无解，也不能自动执行硬约束未证实的布局；`infeasible` 必须返回最小或近似冲突约束集合、来源实体和可执行修复建议。软约束使用分层目标，不得以总分抵消任何硬约束。
+
+图层关系先编译为从低到高的偏序图：`lower -> upper`。硬置底为所有非置底图层的前驱，硬置顶为所有非置顶图层的后继，`above_role / below_role` 增加角色关系边。无条件硬关系引用缺失角色、硬规则产生环、同一素材进入两个硬层级带或顺序无法满足时，场景必须阻断并返回冲突规则和素材来源。对“目标角色出现时必须遵守，但不要求每场都出现目标角色”的关系使用 `parameters.when_present=true`；目标存在时它仍生成硬边，目标不存在时记录为不适用证据。软关系只有在不破坏硬图时才采用，否则记录偏离证据。该确定性拓扑编译是 ConstraintProblem 的预处理，不替代几何和选材 solver。
+
+求解成功后必须稳定压缩成唯一、连续、从底到顶的 `1..N` 平台层级，并同时生成层级策略版本、每层所在层级带、硬前驱和软偏离证据。模板原始 z-index、素材数组顺序和人工输入的裸数值只可作为同一可行层级带内的排序偏好；它们不是执行真值，也不得把置底素材抬到普通/置顶素材之上，或把置顶素材压到普通/置底素材之下。
 
 ## 7. 素材分组与素材模板包
 
@@ -779,13 +785,15 @@ BuildPlan 可以包含 `rename_live_room`、填充默认场景、创建后续场
 
 ### 10.6 写入后的修订
 
-成功写入后，原配置修订和运行只读。需要修改时使用“复制到新空白房间”：
+成功写入后，原配置修订和运行只读。普通房间需要修改时使用“复制到新空白房间”：
 
 1. 复制 DesignBrief、事实卡引用、模板选择、素材选择和覆盖。
 2. 清除原执行状态和目标现场指纹。
 3. 要求填写新的空白 `liveRoomId` 和期望标题。
 4. 重新解析最新素材包并创建新配置修订。
 5. 重新生成和执行，不修改旧房间。
+
+ADR-0003 的白名单测试房是独立例外：用户必须先看到当前场景清单并确认整房替换，执行确认绑定现场指纹；Worker 先完成全部素材解析，再保留平台要求的首个场景、清空并删除其余已确认场景，随后执行新 BuildPlan。该模式永久保持测试、不可发布且不可开播。
 
 ### 10.7 `StoryBrief -> Script -> ProgramSegment -> Shot` 内容链
 
@@ -805,12 +813,15 @@ BuildPlan 可以包含 `rename_live_room`、填充默认场景、创建后续场
 
 `LiveRoomBlueprint` 是 live_room variant 的目标状态，包含有序 `MaituSceneBlueprint`；每个场景包含有序 `LayerBlueprint`。麦兔场景保存来源 ProgramSegment/Shot、触发/切换策略和预计活跃区间。图层至少保存 `layer_code`、业务角色、`asset_code`、麦兔绑定修订、归一化几何、z-order、裁剪/循环/静音/音量、约束求解证据和来源 Shot/ScriptBlock。背景、商品、数字人、标题和音频均通过稳定图层身份关联，不能用显示名称或列表序号代替。
 
+Blueprint 中的 z-order 是第 6.5 节层序编译后的结果，不是模板层序的直拷贝。每个场景必须满足：平台层级唯一且连续，数值越大越靠近视觉顶层；硬置底层低于全部非置底层，硬置顶层高于全部非置顶层，角色相对关系全部成立。任何模板、参考直播间或生成模型给出的顺序与素材硬约束冲突时，约束优先；无解时阻断，禁止“忠实复制参考模板”绕过素材规则。
+
 `BuildPlan` 只由确定性编译器从已通过门禁的 Blueprint 生成，至少固定：
 
 ```text
 build_plan_code / revision / schema_version / content_fingerprint
 production_variant_revision / story_brief_revision / script_revision / shot_list_revision
 inventory_snapshot / resolved_material_snapshot / constraint_snapshot
+resolved_layer_order[] / layer_order_policy_version / layer_constraint_evidence[]
 target_live_room_id / expected_site_fingerprint
 ordered_operations[] / operation_preconditions[] / postconditions[]
 required_capabilities[] / policy_bundle_version
@@ -819,13 +830,17 @@ ready_for_go_live=false
 
 允许的操作类型仅为改草稿标题、使用默认空场景、创建场景、插入白名单素材、写入脚本块、调整受控属性、保存和只读验证。编译器拒绝未知操作、任意选择器、任意 URL、白名单外素材、创建/清空非目标房间和开播动作。正式执行还必须取得第 25.4 节定义的、绑定 plan hash 与目标房间的短期 ExecutionAuthorization。
 
+执行器只能消费 `resolved_layer_order` 产生的最终 `z_index`，不得重新采用参考模板顺序、调用顺序或本地列表序号。写入完成后必须逐层回读平台层级并校验其与 Blueprint 完全一致；仅素材身份和几何相同、层级不同不能判为成功。
+
+白名单测试房的清空动作不写入静态内容 BuildPlan，因为待删除场景和素材身份只能来自执行时现场快照。Draft Job 必须另存带指纹的 runtime reset plan：先解析全部素材，再复核房间，保留平台要求的最后一个可用场景并清空，删除其余已确认场景，然后才执行原 BuildPlan。静态 BuildPlan 仍禁止清空操作，普通房间仍必须为空白。
+
 ### 10.9 草稿执行与回读证据
 
 执行采用现有 `lease -> checkpoint -> reconcile -> finalize` 协议：
 
 1. Worker 获取有期限 lease，校验 plan 指纹、目标房间和登录主体。
 2. 每个有副作用操作先验证前置条件，再记录幂等键、尝试号、开始/结束时间和结构化结果。
-3. 操作后回读房间、场景、图层和脚本的现场身份与属性，保存截图/DOM 摘要/必要网络证据及校验和。
+3. 操作后回读房间、场景、图层和脚本的现场身份与属性；图层回读至少包含平台图层 ID、素材身份、几何、`layer_n/zIndex` 和从底到顶的完整顺序，并保存截图/DOM 摘要/必要网络证据及校验和。
 4. 超时或响应不确定时进入 `reconcile_required`，先观察现场再决定完成、重试或人工处理。
 5. finalize 比较实际房间快照与 Blueprint，输出逐场景/逐图层偏差、证据完整率和最终现场指纹。
 
@@ -1307,10 +1322,10 @@ Console、任务中心、全局搜索和各一级工作区随对应 Phase 增量
 - 生成器不会使用白名单外素材，不会使用未批准商品事实。
 - 必用素材缺失或硬约束无解时阻断；普通效果素材不足时继续并生成需求单。
 - 目标时长偏差超过约 50% 时显示警告，不因单一时长偏差停止。
-- 空白草稿 preflight 通过后自动写入期望标题、场景、素材和脚本。
-- 非空、已开播或现场指纹变化的房间拒绝执行。
+- 普通空白草稿 preflight 通过后自动写入期望标题、场景、素材和脚本。
+- 普通非空、已开播或现场指纹变化的房间拒绝执行；ADR-0003 白名单测试房仅在离线、显式确认且现场指纹未变化时允许整房重建。
 - BuildPlan 和 Worker 永远不产生或点击正式开播动作。
-- 完成后修改必须复制配置并绑定新的空白房间，旧运行证据保持不变。
+- 普通房间完成后修改必须复制配置并绑定新的空白房间，旧运行证据保持不变；测试覆盖每次都产生独立 Job、reset plan、BuildPlan 和回读证据。
 - 内容确认后产生不可变 StoryBrief/Script/ProgramSegment/ShotList 修订；每个事实句、Shot、MaituScene、Layer 和操作都能沿来源边回溯。
 - 不确定写操作先 reconcile；workflow succeeded 不能替代现场回读、`ReleaseManifest(kind=live_room_draft)` 和证据完整率门禁。
 

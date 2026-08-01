@@ -5,6 +5,7 @@ from typing import Any
 
 from browser_use_worker.script_layout_checkpoint import (
     AssetGraphScriptLayoutCheckpointStore,
+    _durable_execution_value,
     script_layout_operation_fingerprint,
     script_layout_plan_fingerprint,
 )
@@ -35,7 +36,8 @@ class RecordingCheckpointClient:
                     "operation_fingerprint": "b" * 64,
                     "effect_class": (
                         "read_only"
-                        if item["intent"]["operation_type"] == "preflight_content_build_plan"
+                        if item["intent"]["operation_type"]
+                        in {"preflight_content_build_plan", "verify_draft_persisted"}
                         else "mutating"
                     ),
                     "intent_snapshot": item["intent"],
@@ -177,6 +179,53 @@ def test_fingerprints_ignore_resolution_process_status_but_bind_material_target(
     )
 
 
+def test_durable_material_identity_ignores_runtime_url_query_and_fragment() -> None:
+    first = {
+        "operation_type": "insert_asset_layer",
+        "material_id": 40999,
+        "source_material_url": "https://cdn.example/item.png?x-oss-process=style/a#runtime",
+        "verified_layers": [
+            {"source_material_url": "https://cdn.example/item.png?signature=one"}
+        ],
+    }
+    second = {
+        **first,
+        "source_material_url": "https://cdn.example/item.png?x-oss-process=style/b",
+        "verified_layers": [
+            {"source_material_url": "https://cdn.example/item.png?signature=two"}
+        ],
+    }
+
+    assert script_layout_operation_fingerprint("MT-BUILD-1", 1, first) == (
+        script_layout_operation_fingerprint("MT-BUILD-1", 1, second)
+    )
+    durable = _durable_execution_value(first)
+    assert durable["source_material_url"] == "https://cdn.example/item.png"
+    assert durable["verified_layers"][0]["source_material_url"] == (
+        "https://cdn.example/item.png"
+    )
+
+
+def test_checkpoint_start_persists_only_stable_material_url() -> None:
+    client = RecordingCheckpointClient()
+    plan = operation_plan()
+    plan["operations"][1]["source_material_url"] = (
+        "https://cdn.example/item.png?x-oss-process=style/max_width_1080"
+    )
+
+    AssetGraphScriptLayoutCheckpointStore.start(
+        client=client,
+        operation_plan=plan,
+        target_live_room_id="47000002",
+    )
+
+    start_payload = next(call[1][1] for call in client.calls if call[0] == "start")
+    assert start_payload["operations"][1]["intent"]["source_material_url"] == (
+        "https://cdn.example/item.png"
+    )
+    assert "x-oss-process" not in str(start_payload)
+
+
 def test_checkpoint_store_reuses_attempt_and_completion_ids_for_idempotent_retries() -> None:
     client = RecordingCheckpointClient()
     plan = operation_plan()
@@ -227,6 +276,90 @@ def test_checkpoint_store_reuses_attempt_and_completion_ids_for_idempotent_retri
     }
 
 
+def test_checkpoint_store_persists_verified_auto_saved_draft_evidence() -> None:
+    client = RecordingCheckpointClient()
+    plan = operation_plan()
+    operation = {
+        "operation_type": "verify_draft_persisted",
+        "status": "ready",
+        "target_live_room_id": "47000002",
+        "expected_scene_names": ["开场", "促单"],
+    }
+    plan["operations"].append(operation)
+    store = AssetGraphScriptLayoutCheckpointStore.start(
+        client=client,
+        operation_plan=plan,
+        target_live_room_id="47000002",
+    )
+    action = ScriptLayoutDraftActionResult(
+        operation_index=2,
+        operation_type="verify_draft_persisted",
+        operation_name="确认直播间草稿已自动保存",
+        action_type="verify_draft_persisted",
+        status="completed",
+        summary="draft persisted",
+        details={
+            "draft_result": {
+                "verified": True,
+                "verification_source": "working_room_readback",
+                "environment": "working",
+                "not_live": True,
+                "expected_scene_names": ["开场", "促单"],
+                "actual_scene_names": ["开场", "促单"],
+                "go_live_clicked": False,
+            }
+        },
+    )
+
+    store.complete_operation(2, operation, action)
+
+    payload = [call[1][3] for call in client.calls if call[0] == "complete"][-1]
+    assert payload["evidence"]["verified"] is True
+    assert payload["evidence"]["operation_applied"] is False
+    assert payload["evidence"]["no_side_effect"] is True
+    assert payload["evidence"]["verification_source"] == "working_room_readback"
+    assert payload["evidence"]["environment"] == "working"
+    assert payload["evidence"]["not_live"] is True
+    assert payload["evidence"]["expected_scene_names"] == ["开场", "促单"]
+    assert payload["evidence"]["actual_scene_names"] == ["开场", "促单"]
+
+
+def test_failed_finalization_persists_only_stable_structured_error() -> None:
+    client = RecordingCheckpointClient()
+    store = AssetGraphScriptLayoutCheckpointStore.start(
+        client=client,
+        operation_plan=operation_plan(),
+        target_live_room_id="47000002",
+    )
+    secret_like_failure = ScriptLayoutDraftResult(
+        status="failed",
+        target_live_room_id="47000002",
+        ready_for_go_live=False,
+        manual_review_required=True,
+        summary="POST https://api.example/path?access_token=do-not-persist failed 503",
+        operation_count=2,
+        executed_action_count=0,
+        skipped_action_count=0,
+        placeholder_count=0,
+        failure_count=1,
+        actions=[],
+    )
+
+    store.finalize(secret_like_failure)
+
+    payload = next(call[1][2] for call in client.calls if call[0] == "finalize")
+    assert payload["execution_status"] == "failed"
+    assert payload["result_summary"] == "草稿生成未完成，执行检查点已安全关闭。"
+    assert payload["error_message"] == "草稿生成未完成，请确认测试房间现场状态后重试。"
+    assert payload["details"] == {
+        "error_code": "SCRIPT_LAYOUT_DRAFT_EXECUTION_FAILED",
+        "failure_stage": "script_layout_draft_execution",
+        "go_live_clicked": False,
+    }
+    assert "access_token" not in str(payload)
+    assert "api.example" not in str(payload)
+
+
 def test_checkpoint_store_does_not_persist_raw_provider_mutation_response() -> None:
     client = RecordingCheckpointClient()
     plan = operation_plan()
@@ -264,7 +397,7 @@ def test_checkpoint_store_does_not_persist_raw_provider_mutation_response() -> N
     store.complete_operation(1, operation, action)
 
     payload = next(call[1][3] for call in client.calls if call[0] == "complete")
-    assert payload["evidence"]["source_material_url"] == public_url
+    assert payload["evidence"]["source_material_url"] == public_url.split("?", 1)[0]
     assert "response" not in str(payload)
     assert "provider_metadata" not in str(payload)
 

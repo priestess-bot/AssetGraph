@@ -192,6 +192,142 @@ def test_cdp_attached_open_does_not_start_a_second_headed_browser() -> None:
     assert runner.commands[3][-2:] == ("open", "https://live2.maituai.com/")
 
 
+def test_maitu_api_eval_switches_from_unrelated_active_tab_to_unique_trusted_tab() -> None:
+    room_payload = {
+        "id": 41172,
+        "name": "asser测试",
+        "status": "offline",
+        "topics": [],
+    }
+    running = _running_cdp_session(name="assetgraph-maitu-tabs")
+    listing = json.dumps(
+        {
+            "success": True,
+            "data": {
+                "_raw_text": (
+                    "TAB  URL\n"
+                    "0    https://easychuan.cn/\n"
+                    "1    https://live2.maituai.com.evil.example/LiveRoom\n"
+                    "2    https://live2.maituai.com/LiveRoom?liveRoomId=41172"
+                )
+            },
+        }
+    )
+    runner = FakeRunner(
+        [
+            '{"sessions": []}',
+            "attached",
+            running,
+            listing,
+            running,
+            "switched: 2",
+            running,
+            'result: {"origin":"https://live2.maituai.com","href":"https://live2.maituai.com/LiveRoom?liveRoomId=41172"}',
+            running,
+            "result: " + json.dumps(room_payload, ensure_ascii=False),
+        ]
+    )
+    session = BrowserUseCliSession(
+        BrowserUseCliSessionConfig(
+            browser_use_repo="D:/browser-use",
+            session_name="assetgraph-maitu-tabs",
+            cdp_url="http://127.0.0.1:9222",
+        ),
+        runner=runner,
+    )
+
+    assert session.read_live_room("41172") == room_payload
+    assert runner.commands[3][-3:] == ("--json", "tab", "list")
+    assert runner.commands[5][-3:] == ("tab", "switch", "2")
+    assert runner.commands[7][-2:] == ("eval", BrowserUseCliSession.MAITU_TAB_PROBE_SCRIPT)
+    assert "live_rooms/41172" in runner.commands[9][-1]
+
+
+def test_maitu_api_tab_retries_transient_post_switch_origin_mismatch(monkeypatch) -> None:
+    running = _running_cdp_session(name="assetgraph-maitu-tabs")
+    listing = json.dumps(
+        {
+            "success": True,
+            "data": {
+                "_raw_text": (
+                    "TAB  URL\n"
+                    "0    https://easychuan.cn/\n"
+                    "1    https://live2.maituai.com/LiveRoom?liveRoomId=41172"
+                )
+            },
+        }
+    )
+    runner = FakeRunner(
+        [
+            '{"sessions": []}',
+            "attached",
+            running,
+            listing,
+            running,
+            "switched: 1",
+            running,
+            'result: {"origin":"https://easychuan.cn","href":"https://easychuan.cn/"}',
+            running,
+            listing,
+            running,
+            "switched: 1",
+            running,
+            'result: {"origin":"https://live2.maituai.com","href":"https://live2.maituai.com/LiveRoom?liveRoomId=41172"}',
+        ]
+    )
+    session = BrowserUseCliSession(
+        BrowserUseCliSessionConfig(
+            browser_use_repo="D:/browser-use",
+            session_name="assetgraph-maitu-tabs",
+            cdp_url="http://127.0.0.1:9222",
+        ),
+        runner=runner,
+    )
+    monkeypatch.setattr("browser_use_worker.browser_cli_session.time.sleep", lambda _seconds: None)
+
+    session._ensure_maitu_api_tab()
+
+    switch_commands = [command for command in runner.commands if command[-3:-1] == ("tab", "switch")]
+    probe_commands = [
+        command
+        for command in runner.commands
+        if command[-2:] == ("eval", BrowserUseCliSession.MAITU_TAB_PROBE_SCRIPT)
+    ]
+    assert len(switch_commands) == 2
+    assert len(probe_commands) == 2
+
+
+def test_maitu_api_eval_fails_closed_when_multiple_trusted_tabs_exist() -> None:
+    running = _running_cdp_session(name="assetgraph-maitu-ambiguous-tabs")
+    listing = json.dumps(
+        {
+            "success": True,
+            "data": {
+                "_raw_text": (
+                    "TAB  URL\n"
+                    "0    https://live2.maituai.com/MaterialManage\n"
+                    "1    https://live2.maituai.com/LiveRoom?liveRoomId=41172"
+                )
+            },
+        }
+    )
+    runner = FakeRunner(['{"sessions": []}', "attached", running, listing])
+    session = BrowserUseCliSession(
+        BrowserUseCliSessionConfig(
+            browser_use_repo="D:/browser-use",
+            session_name="assetgraph-maitu-ambiguous-tabs",
+            cdp_url="http://127.0.0.1:9222",
+        ),
+        runner=runner,
+    )
+
+    with pytest.raises(MaituBrowserExecutionError, match="exactly one trusted Maitu tab"):
+        session.read_live_room("41172")
+
+    assert not any(command[-3:-1] == ("tab", "switch") for command in runner.commands)
+    assert len(runner.commands) == 4
+
+
 def test_existing_named_session_is_discovered_before_cdp_attach() -> None:
     commands: list[tuple[str, ...]] = []
 
@@ -869,6 +1005,8 @@ def test_live_scene_fill_api_methods_use_browser_use_eval() -> None:
     assert '\"liveRoomId\": \"40173\"' in runner.commands[1][4]
     assert runner.commands[1][4].index("rename target clip not found") < runner.commands[1][4].index("xhr('PUT'")
     assert "replace_clip_materials" in runner.commands[2][4]
+    assert runner.commands[2][4].count("replace_clip_materials") == 1
+    assert "cumulative" not in runner.commands[2][4]
     assert "const count = args.componentOperations.length;" in runner.commands[2][4]
     assert "|| visualMaterials.length" not in runner.commands[2][4]
     assert "localStorage.getItem('token')" in runner.commands[2][4]
@@ -876,6 +1014,152 @@ def test_live_scene_fill_api_methods_use_browser_use_eval() -> None:
     assert "xhr('PUT', 'clip_materials/'" in runner.commands[2][4]
     assert "matchingTexts.length !== 1" in runner.commands[2][4]
     assert "go_live_clicked: false" in runner.commands[2][4]
+
+
+def test_test_room_reset_api_methods_are_target_bound_never_live_and_authoritatively_verified() -> None:
+    delete_payload = {
+        "status": "deleted",
+        "live_room_id": "41172",
+        "clip_id": 7002,
+        "verified": True,
+        "go_live_clicked": False,
+    }
+    clear_payload = {
+        "status": "cleared",
+        "live_room_id": "41172",
+        "clip_id": 7001,
+        "deleted_material_ids": [8001, 8002],
+        "remaining_material_count": 0,
+        "verified": True,
+        "go_live_clicked": False,
+    }
+    session, runner = make_session(
+        [
+            "result: " + json.dumps(delete_payload, ensure_ascii=False),
+            "result: " + json.dumps(clear_payload, ensure_ascii=False),
+        ]
+    )
+
+    assert session.delete_clip(
+        live_room_id="41172",
+        clip_id=7002,
+        expected_live_room_title="张裕品酒大师PRO测试直播间",
+    ) == delete_payload
+    assert session.clear_clip_materials(
+        live_room_id="41172",
+        clip_id=7001,
+        expected_live_room_title="张裕品酒大师PRO测试直播间",
+    ) == clear_payload
+
+    delete_script = runner.commands[0][4]
+    clear_script = runner.commands[1][4]
+    for script in (delete_script, clear_script):
+        assert "live_rooms/' + args.liveRoomId + '?env=working&include_qa_clips=true'" in script
+        assert "room.name !== args.expectedLiveRoomTitle" in script
+        assert "room.live_session_id" in script
+        assert "room.latest_live_time" in script
+        assert "flatMap" in script
+        assert "location.origin !== 'https://live2.maituai.com'" in script
+        assert "missing authenticated Maitu token" in script
+        assert "verification_source:'working_room_readback'" in script
+        assert "go_live_clicked:false" in script
+        assert "go_live" not in script.replace("go_live_clicked", "")
+    assert "refusing to delete the final clip" in delete_script
+    assert "xhr('DELETE', 'clips/' + args.clipId" in delete_script
+    assert delete_script.index("requires explicit authoritative never-live evidence") < delete_script.index(
+        "xhr('DELETE', 'clips/'"
+    )
+    assert "xhr('DELETE', 'clip_materials/' + materialId" in clear_script
+    assert "assertTargetRoom(beforeDelete, 'before deleting material ' + materialId)" in clear_script
+    assert "assertTargetRoom(afterDelete, 'after deleting material ' + materialId)" in clear_script
+    assert clear_script.index("assertTargetRoom(beforeDelete") < clear_script.index(
+        "xhr('DELETE', 'clip_materials/' + materialId"
+    )
+    assert clear_script.index("xhr('DELETE', 'clip_materials/' + materialId") < clear_script.index(
+        "assertTargetRoom(afterDelete"
+    )
+    assert "deleted material remains after per-mutation authoritative readback" in clear_script
+    assert "verifiedClip.clip_materials.length !== 0" in clear_script
+
+
+def test_template_fill_and_scene_creation_search_all_topics_and_can_bind_keeper_topic() -> None:
+    fill_payload = {"target_clip_id": 7001, "visual_count": 9, "text_count": 0, "go_live_clicked": False}
+    create_payload = {"clip_id": 9001, "name": "产品讲解", "verified": True, "go_live_clicked": False}
+    rename_payload = {"clip_id": 7001, "name": "开场介绍", "verified": True, "go_live_clicked": False}
+    script_payload = {"clip_id": 7001, "script_content_verified": True, "verified": True, "go_live_clicked": False}
+    session, runner = make_session(
+        [
+            "result: " + json.dumps(fill_payload, ensure_ascii=False),
+            "result: " + json.dumps(create_payload, ensure_ascii=False),
+            "result: " + json.dumps(rename_payload, ensure_ascii=False),
+            "result: " + json.dumps(script_payload, ensure_ascii=False),
+        ]
+    )
+
+    session.fill_clip_from_template(
+        live_room_id="41172",
+        target_clip_id=7001,
+        reference_room_id="38336",
+        reference_clip_id="390069",
+        scene_name="产品讲解",
+        component_operations=[{"operation_type": "insert_template_component"} for _ in range(9)],
+        script_content=None,
+        expected_live_room_title="张裕品酒大师PRO测试直播间",
+    )
+    session.create_scene(
+        live_room_id="41172",
+        scene_name="产品讲解",
+        scene_index=1,
+        topic_id=102,
+        expected_live_room_title="张裕品酒大师PRO测试直播间",
+    )
+    session.rename_clip(
+        live_room_id="41172",
+        clip_id=7001,
+        name="开场介绍",
+        expected_live_room_title="张裕品酒大师PRO测试直播间",
+    )
+    session.write_script(
+        live_room_id="41172",
+        clip_id=7001,
+        scene_name="开场介绍",
+        script_text="欢迎来到直播间。",
+        expected_live_room_title="张裕品酒大师PRO测试直播间",
+    )
+
+    fill_script = runner.commands[0][4]
+    create_script = runner.commands[1][4]
+    rename_script = runner.commands[2][4]
+    write_script = runner.commands[3][4]
+    assert "arr(refRoom.topics).flatMap" in fill_script
+    assert "arr(targetBeforeText.topics).flatMap" in fill_script
+    assert "arr(verifiedRoom.topics).flatMap" in fill_script
+    assert "JSON.parse(m.style_front" in fill_script
+    assert fill_script.count("replace_clip_materials") == 1
+    assert "view_clip_materials: selectedVisuals" in fill_script
+    assert "cumulative" not in fill_script
+    assert '"topicId": 102' in create_script
+    assert "topics.find((item) => String(item && item.id) === String(args.topicId))" in create_script
+    assert "arr(verifyRoom.topics).flatMap" in create_script
+    for script in (fill_script, create_script, rename_script, write_script):
+        assert "expectedLiveRoomTitle" in script
+        assert "latest_live_time" in script
+        assert "live_session_id" in script
+        assert "never-live evidence" in script
+    assert "(room.topics || []).flatMap" in rename_script
+    assert "arr(room.topics).flatMap" in write_script
+    assert "readTargetClip('before primary text write')" in write_script
+    assert "readTargetClip('after primary text write')" in write_script
+    assert "readTargetClip('before duplicate text delete ' + duplicate.id)" in write_script
+    assert "readTargetClip('after duplicate text delete ' + duplicate.id)" in write_script
+    assert write_script.index("readTargetClip('before duplicate text delete '") < write_script.index(
+        "xhr('DELETE', 'clip_materials/' + duplicate.id"
+    )
+    assert write_script.index("xhr('DELETE', 'clip_materials/' + duplicate.id") < write_script.index(
+        "readTargetClip('after duplicate text delete '"
+    )
+    assert "readTargetClip('before text create')" in write_script
+    assert "readTargetClip('after text create')" in write_script
 
 
 def test_script_layout_draft_api_methods_use_browser_use_eval() -> None:
@@ -944,6 +1228,110 @@ def test_script_layout_draft_api_methods_use_browser_use_eval() -> None:
     assert all("go_live_clicked" in command[4] for command in runner.commands)
 
 
+def test_digital_human_insert_uses_source_record_but_verifies_composite_identity() -> None:
+    inserted = {
+        "status": "inserted",
+        "material_id": 88001,
+        "source_material_id": 37200,
+        "source_material_type": "digital_human",
+        "source_material_url": "https://static.example/digital-human/7717.png",
+        "speaker_id": 3760,
+        "digital_human_image_id": 7717,
+        "verified": True,
+        "go_live_clicked": False,
+    }
+    session, runner = make_session(["result: " + json.dumps(inserted, ensure_ascii=False)])
+
+    assert session.insert_asset_layer(
+        live_room_id="41172",
+        clip_id=7001,
+        operation={
+            "layer_id": "scene-00-digital-human",
+            "layer_type": "digital_human",
+            "source_material_type": "digital_human",
+            "maitu_material_id": None,
+            "maitu_source_material_id": 37200,
+            "source_material_url": None,
+            "source_cover_url": "https://static.example/digital-human/7717.png",
+            "speaker_id": 3760,
+            "digital_human_image_id": 7717,
+            "expected_live_room_title": "asser测试",
+            "require_offline_working_room": True,
+        },
+    ) == inserted
+
+    script = runner.commands[0][4]
+    assert '"maitu_source_material_id": 37200' in script
+    assert "op.maitu_source_material_id || null" in script
+    assert "const verifiedSourceMatches = verifiedMaterial && isDigitalHuman" in script
+    assert "String(verifiedMaterial.digital_human_image_id || '') === String(digitalHumanImageId || '')" in script
+    assert "String(verifiedMaterial.speaker_id || '') === String(speakerId || '')" in script
+    assert "source_material_id: verifiedMaterial.material_id || materialId" in script
+    assert "source_material_url: verifiedMaterial.url || sourceUrl" in script
+
+
+def test_verify_scene_uses_render_style_geometry_and_canonical_source_url() -> None:
+    verify_payload = {
+        "status": "verified",
+        "clip_id": 7001,
+        "verified": True,
+        "verification_source": "working_room_readback",
+        "go_live_clicked": False,
+    }
+    session, runner = make_session(["result: " + json.dumps(verify_payload, ensure_ascii=False)])
+
+    assert session.verify_scene(
+        live_room_id="41172",
+        clip_id=7001,
+        scene_name="产品讲解",
+        operation={
+            "scene_index": 1,
+            "expected_visual_count": 1,
+            "expected_text_count": 1,
+            "expected_script_text": "介绍张裕品酒大师PRO。",
+            "expected_layers": [
+                {
+                    "material_id": 80001,
+                    "layer_id": "商品主视觉",
+                    "source_material_type": "image",
+                    "source_material_id": 50001,
+                    "source_material_url": "https://cdn.example.test/product.png",
+                    "left": 10,
+                    "top": 20,
+                    "width": 1080,
+                    "height": 1920,
+                    "z_index": 3,
+                    "style_front": {
+                        "left": 43.196,
+                        "top": 187.533,
+                        "width": 440,
+                        "height": 782,
+                        "zIndex": 3,
+                        "transform": {"scale": 1, "rotation": 0},
+                    },
+                }
+            ],
+        },
+    ) == verify_payload
+
+    script = runner.commands[0][4]
+    assert "left: style.left ?? material.left" in script
+    assert "top: style.top ?? material.top" in script
+    assert "width: style.width ?? material.width" in script
+    assert "height: style.height ?? material.height" in script
+    assert "zIndex: style.zIndex ?? material.layer_n" in script
+    assert "const canonicalSourceUrl = (value)" in script
+    assert "canonicalSourceUrl(material.url) === canonicalSourceUrl(expected.source_material_url)" in script
+    assert "Object.keys(value).sort()" in script
+    assert "Object.prototype.hasOwnProperty.call(expected, 'style_front')" in script
+    assert "normalizeJson(expected.style_front)" in script
+    assert "normalizeJson(expected.style_front || {})" not in script
+    assert "verify scene style_front snapshot mismatch" in script
+    assert "exactNumber(geometry.width, expected.width)" in script
+    assert "exactNumber(geometry.height, expected.height)" in script
+    assert "exactNumber(geometry.zIndex, expected.z_index)" in script
+
+
 @pytest.mark.parametrize(
     ("url", "expected"),
     [
@@ -991,8 +1379,20 @@ def test_logged_in_detection_rejects_unsettled_maitu_shell() -> None:
         ("product_video", "decorative_video", "video"),
         ("supporting_visual", "image", "image"),
         ("supporting_visual", "video", "video"),
+        ("background", "image", "image"),
+        ("background", "decorative_video", "video"),
+        ("set_surface", "image", "image"),
+        ("product_display", "image", "image"),
+        ("product_display", "decorative_video", "video"),
+        ("brand_title", "image", "image"),
+        ("promotion_text", "image", "image"),
+        ("decoration_foreground", "decorative_video", "video"),
+        ("supporting_video", "decorative_video", "video"),
         ("digital_human", "digital_human", "digital_human"),
         ("product_image", "decorative_video", None),
+        ("set_surface", "decorative_video", None),
+        ("supporting_video", "image", None),
+        ("voice", "video", None),
     ],
 )
 def test_resolved_operation_material_type_is_layer_and_source_type_safe(
@@ -1033,7 +1433,28 @@ def test_insert_asset_layer_uses_resolved_source_type_for_polymorphic_and_strict
     assert len(runner.commands) == 2
     assert all('"materialType": "video"' in command[4] for command in runner.commands)
     assert all("type: materialType" in command[4] for command in runner.commands)
+    assert all("normalizeMaterialType(verifiedMaterial.type)" in command[4] for command in runner.commands)
     assert all("sound_enabled: op.sound_enabled === true" in command[4] for command in runner.commands)
+
+
+def test_functional_plan_business_roles_map_to_explicit_maitu_payload_types() -> None:
+    operations = [
+        ("background", "image", "image"),
+        ("set_surface", "image", "image"),
+        ("product_display", "decorative_video", "video"),
+        ("digital_human", "digital_human", "digital_human"),
+        ("brand_title", "image", "image"),
+        ("promotion_text", "image", "image"),
+        ("decoration_foreground", "image", "image"),
+        ("supporting_video", "decorative_video", "video"),
+    ]
+
+    assert [
+        BrowserUseCliSession._resolved_operation_material_type(
+            {"layer_type": role, "source_material_type": source_type}
+        )
+        for role, source_type, _expected in operations
+    ] == [expected for _role, _source_type, expected in operations]
 
 
 @pytest.mark.parametrize("layer_type", ["background_image", "product_image", "product_video"])

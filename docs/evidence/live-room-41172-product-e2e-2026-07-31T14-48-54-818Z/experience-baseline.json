@@ -1,0 +1,62 @@
+{
+  "schema_version": "assetgraph-product-e2e-experience-baseline.v1",
+  "evidence_level": "product_e2e",
+  "task": "从 Console 输入张裕品酒大师PRO主题并清空重建 41172 离线测试草稿",
+  "status": "passed",
+  "elapsed_ms": 556743,
+  "elapsed_display": "9分16.743秒",
+  "click_count": 16,
+  "console_triggered_mutation_count": 9,
+  "direct_mutation_api_count": 0,
+  "browser_error_count": 0,
+  "ignored_favicon_404_count": 1,
+  "manual_intervention_count": 0,
+  "workflow_durations_ms": {
+    "load_and_fill": 13087,
+    "create_content_and_plan": 2220,
+    "inspect_canvas": 597,
+    "inspect_room_and_confirm_reset": 6345,
+    "execute_and_readback": 531508,
+    "final_read_only_evidence": 87,
+    "console_refresh_verification": 2310
+  },
+  "customer_visible_language": {
+    "stage_messages_are_chinese": true,
+    "failure_reason_and_next_step_are_chinese": true,
+    "reconcile_action_is_customer_readable": true
+  },
+  "observed_strengths": [
+    "房间、内容目标、模板和素材在同一入口完成。",
+    "清空前展示实际房间标题、离线状态和待删除场景并要求显式确认。",
+    "准备素材、清空、搭建、写话术和回读均在页面展示真实状态。",
+    "成功后刷新页面仍显示三场景和执行成功。"
+  ],
+  "next_customer_experience_improvements": [
+    {
+      "priority": "P0",
+      "issue": "真实执行约占总耗时的95%，三场景完成需约9分钟。",
+      "next_step": "复用已验证素材解析结果，并评估按场景批量写入和减少重复整房回读。"
+    },
+    {
+      "priority": "P0",
+      "issue": "每个场景执行时页面阶段会从刷新核对回到搭建场景，看起来像进度倒退。",
+      "next_step": "改为单调递增的全局进度，并显示当前场景 1/3、2/3、3/3。"
+    },
+    {
+      "priority": "P1",
+      "issue": "麦兔原生数字人等没有本地预览的素材在 Console 画布使用占位呈现。",
+      "next_step": "为已绑定的麦兔原生素材生成低清本地代理预览，并明确标注代理来源。"
+    },
+    {
+      "priority": "P2",
+      "issue": "Console 仍会请求不存在的 favicon。",
+      "next_step": "补齐 favicon，保持浏览器控制台无噪声。"
+    }
+  ],
+  "source_evidence": [
+    "run-report.json",
+    "summary.md",
+    "07-product-e2e-success.png",
+    "08-console-after-refresh.png"
+  ]
+}

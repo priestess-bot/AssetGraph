@@ -14,6 +14,27 @@ DATABASE_URL = os.getenv("ASSETGRAPH_TEST_DATABASE_URL")
 pytestmark = pytest.mark.skipif(not DATABASE_URL, reason="ASSETGRAPH_TEST_DATABASE_URL is not configured")
 
 
+def test_content_project_creation_idempotency_returns_original_and_rejects_drift() -> None:
+    with psycopg.connect(DATABASE_URL) as connection:
+        repository = ContentCoreRepository(connection)
+        key = f"live-room-entry-{uuid4().hex}"
+        payload = {
+            "title": "统一入口项目",
+            "generation_goal": "生成三段直播内容",
+            "content": {"theme": "介绍张裕品酒大师PRO"},
+            "actor_id": "test-operator",
+            "idempotency_key": key,
+        }
+
+        first = repository.create_project(**payload)
+        repeated = repository.create_project(**payload)
+
+        assert repeated["project_code"] == first["project_code"]
+        with pytest.raises(DomainConflictError) as error:
+            repository.create_project(**{**payload, "title": "不同输入"})
+        assert error.value.code == "CONTENT_PROJECT_IDEMPOTENCY_CONFLICT"
+
+
 def test_content_revision_optimistic_concurrency_confirmation_and_immutability() -> None:
     suffix = uuid4().hex
     with psycopg.connect(DATABASE_URL) as connection:

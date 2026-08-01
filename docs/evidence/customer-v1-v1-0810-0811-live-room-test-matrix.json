@@ -1,0 +1,45 @@
+{
+  "schema_version": "customer-v1-live-room-test-matrix.v1",
+  "recorded_at": "2026-07-31T15:10:00Z",
+  "backend_focused": {
+    "result": "43 passed, 1 skipped, 0 failed",
+    "skip_reason": "ASSETGRAPH_TEST_DATABASE_URL is not configured",
+    "files": [
+      "backend/tests/test_material_constraint_schema.py",
+      "backend/tests/test_layer_stacking.py",
+      "backend/tests/test_functional_live_room_constraints.py",
+      "backend/tests/test_script_layout_constraints.py",
+      "backend/tests/test_functional_live_room_reconciliation.py",
+      "backend/tests/test_functional_live_room_execution.py",
+      "backend/tests/test_functional_live_room_test_rights.py",
+      "backend/tests/test_script_layout_checkpoint_contract.py",
+      "backend/tests/test_script_layout_checkpoint_e2e_postgres.py"
+    ]
+  },
+  "worker_focused": {
+    "result": "131 passed, 0 skipped, 0 failed",
+    "files": [
+      "workers/browser-use/tests/test_functional_test_draft.py",
+      "workers/browser-use/tests/test_main.py",
+      "workers/browser-use/tests/test_script_layout_draft_executor.py",
+      "workers/browser-use/tests/test_script_layout_checkpoint.py",
+      "workers/browser-use/tests/test_maitu_material_resolver.py"
+    ]
+  },
+  "coverage": {
+    "material_constraint_schema": true,
+    "relative_layer_cycle": true,
+    "hard_top_and_bottom_bands": true,
+    "forbid_video_top": true,
+    "deterministic_contiguous_build_plan": true,
+    "room_override_cannot_bypass_hard_constraints": true,
+    "all_materials_resolve_before_reset": true,
+    "offline_allowlist_and_exact_title": true,
+    "stale_fingerprint_zero_mutation": true,
+    "lease_loss_fences_completion": true,
+    "uncertain_side_effect_stops_execution": true,
+    "destructive_failure_requires_reconciliation": true,
+    "scene_layer_script_or_geometry_mismatch_cannot_succeed": true,
+    "successful_final_readback": "docs/evidence/live-room-41172-product-e2e-2026-07-31T14-48-54-818Z/final-validation.json"
+  }
+}

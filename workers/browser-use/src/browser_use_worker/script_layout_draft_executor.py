@@ -2,17 +2,36 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
+from urllib.parse import urlsplit
+
+from .maitu_layer_contract import normalize_maitu_material_type
+from .maitu_executor import MaituBrowserExecutionError
+from .room_inspection import inspect_working_room
 
 
 class MaituScriptLayoutDraftSession(Protocol):
     def read_live_room(self, live_room_id: str) -> dict[str, Any]:
         """Read the target Maitu live room draft."""
 
-    def rename_clip(self, *, live_room_id: str, clip_id: int, name: str) -> dict[str, Any]:
+    def rename_clip(
+        self,
+        *,
+        live_room_id: str,
+        clip_id: int,
+        name: str,
+        expected_live_room_title: str | None = None,
+    ) -> dict[str, Any]:
         """Rename an existing clip/scene without clicking go-live."""
 
-    def create_scene(self, *, live_room_id: str, scene_name: str, scene_index: int) -> dict[str, Any]:
+    def create_scene(
+        self,
+        *,
+        live_room_id: str,
+        scene_name: str,
+        scene_index: int,
+        expected_live_room_title: str | None = None,
+    ) -> dict[str, Any]:
         """Create a new draft scene/clip after the default first scene."""
 
     def insert_asset_layer(self, *, live_room_id: str, clip_id: int, operation: dict[str, Any]) -> dict[str, Any]:
@@ -31,7 +50,15 @@ class MaituScriptLayoutDraftSession(Protocol):
     def position_asset_layer(self, *, live_room_id: str, clip_id: int, operation: dict[str, Any]) -> dict[str, Any]:
         """Apply the planned geometry for a previously inserted layer."""
 
-    def write_script(self, *, live_room_id: str, clip_id: int, scene_name: str, script_text: str) -> dict[str, Any]:
+    def write_script(
+        self,
+        *,
+        live_room_id: str,
+        clip_id: int,
+        scene_name: str,
+        script_text: str,
+        expected_live_room_title: str | None = None,
+    ) -> dict[str, Any]:
         """Write the scene script into the target draft clip."""
 
     def verify_scene(self, *, live_room_id: str, clip_id: int, scene_name: str, operation: dict[str, Any]) -> dict[str, Any]:
@@ -113,7 +140,17 @@ class ScriptLayoutDraftRunner:
             "placeholder_required",
             "write_script",
             "verify_scene",
+            "verify_draft_persisted",
             "save_draft",
+        }
+    )
+    MUTATING_OPERATION_TYPES = frozenset(
+        {
+            "fill_default_scene",
+            "create_scene",
+            "insert_asset_layer",
+            "position_asset_layer",
+            "write_script",
         }
     )
 
@@ -122,15 +159,19 @@ class ScriptLayoutDraftRunner:
         *,
         session: MaituScriptLayoutDraftSession,
         checkpoint_store: ScriptLayoutDraftCheckpointStore | None = None,
+        progress_callback: Callable[[int, int, str], None] | None = None,
     ) -> None:
         self.session = session
         self.checkpoint_store = checkpoint_store
+        self.progress_callback = progress_callback
         self._room_cache: dict[str, Any] | None = None
         self._clip_ids_by_scene: dict[int, int] = {}
         self._material_ids_by_layer: dict[tuple[int | None, str], int] = {}
+        self._expected_live_room_title: str | None = None
 
     def run(self, operation_plan: dict[str, Any], *, target_live_room_id: str | None = None) -> ScriptLayoutDraftResult:
         self._room_cache = None
+        self._expected_live_room_title = None
         self._clip_ids_by_scene.clear()
         self._material_ids_by_layer.clear()
         plan_status = self._optional_string(operation_plan.get("status"))
@@ -246,6 +287,8 @@ class ScriptLayoutDraftRunner:
                     )
                 )
                 break
+            if self.progress_callback is not None:
+                self.progress_callback(index, len(operations), str(operation.get("operation_type") or ""))
             checkpoint: dict[str, Any] | None = None
             if self.checkpoint_store is not None:
                 try:
@@ -274,7 +317,21 @@ class ScriptLayoutDraftRunner:
                         )
                     )
                     break
-                operation = frozen_intent
+                try:
+                    operation = self._with_runtime_material_urls(
+                        frozen_intent,
+                        runtime_operation=operation,
+                    )
+                except ValueError as exc:
+                    actions.append(
+                        self._failed_action(
+                            index,
+                            operation,
+                            "checkpoint_manifest",
+                            str(exc),
+                        )
+                    )
+                    break
                 if decision == "reconcile":
                     actions.append(
                         self._failed_action(
@@ -285,7 +342,35 @@ class ScriptLayoutDraftRunner:
                         )
                     )
                     break
-                if decision == "skip" and operation.get("operation_type") != "verify_scene":
+                if decision == "skip" and operation.get("operation_type") not in {
+                    "verify_scene",
+                    "verify_draft_persisted",
+                }:
+                    if operation.get("operation_type") == "preflight_content_build_plan":
+                        evidence = checkpoint.get("completion_evidence")
+                        evidence = evidence if isinstance(evidence, dict) else {}
+                        self._expected_live_room_title = self._optional_string(
+                            operation.get("expected_live_room_title")
+                        ) or self._optional_string(
+                            evidence.get("authoritative_live_room_title")
+                        )
+                        try:
+                            if self._expected_live_room_title is None:
+                                fresh_room = self.session.read_live_room(live_room_id)
+                                self._expected_live_room_title = self._optional_string(
+                                    fresh_room.get("name")
+                                )
+                            self._assert_authoritative_offline_room(live_room_id)
+                        except Exception as exc:
+                            actions.append(
+                                self._failed_action(
+                                    index,
+                                    operation,
+                                    "checkpoint_preflight_room_state_guard",
+                                    str(exc),
+                                )
+                            )
+                            break
                     if checkpoint.get("effect_class") == "mutating" and not self._checkpoint_evidence_matches_room(
                         live_room_id,
                         operation,
@@ -489,9 +574,9 @@ class ScriptLayoutDraftRunner:
             if expected_layer and self._optional_string(material.get("name")) != expected_layer:
                 return False
             expected_source_id = self._optional_int(operation.get("material_id") or operation.get("maitu_material_id"))
-            expected_source_type = self._optional_string(operation.get("source_material_type"))
-            if expected_source_type == "decorative_video":
-                expected_source_type = "video"
+            expected_source_type = normalize_maitu_material_type(
+                operation.get("source_material_type")
+            )
             if expected_source_type == "digital_human":
                 source_matches = (
                     self._optional_int(material.get("speaker_id")) == self._optional_int(operation.get("speaker_id"))
@@ -504,7 +589,10 @@ class ScriptLayoutDraftRunner:
                     and self._optional_string(material.get("url"))
                     == self._optional_string(operation.get("source_material_url"))
                 )
-            if self._optional_string(material.get("type")) != expected_source_type or not source_matches:
+            if (
+                normalize_maitu_material_type(material.get("type")) != expected_source_type
+                or not source_matches
+            ):
                 return False
             if "sound_enabled" in operation and bool(material.get("sound_enabled")) is not bool(
                 operation.get("sound_enabled")
@@ -526,9 +614,22 @@ class ScriptLayoutDraftRunner:
                 "height": operation.get("height"),
                 "zIndex": operation.get("z_index"),
             }
-            return all(
+            geometry_matches = all(
                 expected is None or self._optional_float(style.get(key)) == self._optional_float(expected)
                 for key, expected in expected_values.items()
+            )
+            transform = style.get("transform") if isinstance(style.get("transform"), dict) else {}
+            return (
+                geometry_matches
+                and (
+                    "fit" not in operation
+                    or str(style.get("fit") or "") == str(operation.get("fit") or "contain")
+                )
+                and (
+                    "rotation" not in operation
+                    or self._optional_float(transform.get("rotation"))
+                    == self._optional_float(operation.get("rotation"))
+                )
             )
         if operation_type == "write_script":
             script_text = self._optional_string(operation.get("script_text"))
@@ -575,6 +676,7 @@ class ScriptLayoutDraftRunner:
             "position_asset_layer",
             "write_script",
             "verify_scene",
+            "verify_draft_persisted",
         } and operation_status != "ready":
             return self._failed_action(
                 index,
@@ -582,34 +684,99 @@ class ScriptLayoutDraftRunner:
                 "operation_status_gate",
                 f"operation status must be ready before execution, got {operation_status!r}",
             )
+        is_mutating = operation_type in self.MUTATING_OPERATION_TYPES
+        if is_mutating:
+            operation = {
+                **operation,
+                "expected_live_room_id": live_room_id,
+                "expected_live_room_title": self._expected_live_room_title,
+                "require_offline_working_room": True,
+            }
+            try:
+                self._assert_authoritative_offline_room(live_room_id)
+            except Exception as exc:
+                return self._failed_action(
+                    index,
+                    operation,
+                    "room_state_guard_before_mutation",
+                    str(exc),
+                )
         if operation_type == "preflight_content_build_plan":
-            return self._preflight(index, operation, live_room_id)
-        if operation_type == "fill_default_scene":
-            return self._fill_default_scene(index, operation, live_room_id)
-        if operation_type == "create_scene":
-            return self._create_scene(index, operation, live_room_id)
-        if operation_type == "insert_asset_layer":
-            return self._insert_asset_layer(index, operation, live_room_id)
-        if operation_type == "position_asset_layer":
-            return self._position_asset_layer(index, operation, live_room_id)
+            action = self._preflight(index, operation, live_room_id)
+        elif operation_type == "fill_default_scene":
+            action = self._fill_default_scene(index, operation, live_room_id)
+        elif operation_type == "create_scene":
+            action = self._create_scene(index, operation, live_room_id)
+        elif operation_type == "insert_asset_layer":
+            action = self._insert_asset_layer(index, operation, live_room_id)
+        elif operation_type == "position_asset_layer":
+            action = self._position_asset_layer(index, operation, live_room_id)
         if operation_type == "placeholder_required":
-            return self._placeholder_required(index, operation)
-        if operation_type == "write_script":
-            return self._write_script(index, operation, live_room_id)
-        if operation_type == "verify_scene":
-            return self._verify_scene(index, operation, live_room_id)
-        if operation_type == "save_draft":
-            return self._save_draft(index, operation)
-        return ScriptLayoutDraftActionResult(
-            operation_index=index,
-            operation_type=operation_type,
-            operation_name=self._optional_string(operation.get("operation_name")),
-            action_type="unsupported_operation",
-            status="failed",
-            summary=f"Unsupported script-layout draft operation: {operation_type}",
-            scene_index=self._optional_int(operation.get("scene_index")),
-            scene_name=self._optional_string(operation.get("scene_name")),
-        )
+            action = self._placeholder_required(index, operation)
+        elif operation_type == "write_script":
+            action = self._write_script(index, operation, live_room_id)
+        elif operation_type == "verify_scene":
+            action = self._verify_scene(index, operation, live_room_id)
+        elif operation_type == "verify_draft_persisted":
+            action = self._verify_draft_persisted(index, operation, live_room_id)
+        elif operation_type == "save_draft":
+            action = self._save_draft(index, operation)
+        elif operation_type not in {
+            "preflight_content_build_plan",
+            "fill_default_scene",
+            "create_scene",
+            "insert_asset_layer",
+            "position_asset_layer",
+        }:
+            action = ScriptLayoutDraftActionResult(
+                operation_index=index,
+                operation_type=operation_type,
+                operation_name=self._optional_string(operation.get("operation_name")),
+                action_type="unsupported_operation",
+                status="failed",
+                summary=f"Unsupported script-layout draft operation: {operation_type}",
+                scene_index=self._optional_int(operation.get("scene_index")),
+                scene_name=self._optional_string(operation.get("scene_name")),
+            )
+        if is_mutating and action.status == "completed":
+            try:
+                self._assert_authoritative_offline_room(live_room_id)
+            except Exception as exc:
+                return self._failed_action(
+                    index,
+                    operation,
+                    "room_state_guard_after_mutation",
+                    str(exc),
+                )
+        return action
+
+    @classmethod
+    def _with_runtime_material_urls(
+        cls,
+        frozen_intent: dict[str, Any],
+        *,
+        runtime_operation: dict[str, Any],
+    ) -> dict[str, Any]:
+        operation = dict(frozen_intent)
+        for field_name in ("source_material_url", "source_cover_url"):
+            runtime_url = runtime_operation.get(field_name)
+            if not isinstance(runtime_url, str) or not urlsplit(runtime_url).query:
+                continue
+            if cls._stable_material_url(runtime_url) != cls._stable_material_url(
+                frozen_intent.get(field_name)
+            ):
+                raise ValueError(
+                    f"runtime {field_name} differs from the backend-frozen material identity"
+                )
+            operation[field_name] = runtime_url
+        return operation
+
+    @staticmethod
+    def _stable_material_url(value: Any) -> str:
+        parsed = urlsplit(str(value or "").strip())
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            return ""
+        return parsed._replace(query="", fragment="").geturl()
 
     def _preflight(self, index: int, operation: dict[str, Any], live_room_id: str) -> ScriptLayoutDraftActionResult:
         try:
@@ -657,6 +824,21 @@ class ScriptLayoutDraftRunner:
                 "read_live_room",
                 "target room has no explicit authoritative evidence that it is not live",
             )
+        if self._room_has_live_trace(room):
+            return self._failed_action(
+                index,
+                operation,
+                "read_live_room",
+                "target room has a live-session trace; refusing to mutate it",
+            )
+        if authoritative_title is None:
+            return self._failed_action(
+                index,
+                operation,
+                "read_live_room",
+                "target room has no authoritative title to freeze",
+            )
+        self._expected_live_room_title = expected_title or authoritative_title
         protected_room_ids = {
             str(value).strip()
             for value in (operation.get("protected_reference_room_ids") or [])
@@ -736,7 +918,12 @@ class ScriptLayoutDraftRunner:
             if default_clip is None:
                 raise RuntimeError("target room has no default clip")
             clip_id = int(default_clip["id"])
-            result = self.session.rename_clip(live_room_id=live_room_id, clip_id=clip_id, name=scene_name)
+            result = self.session.rename_clip(
+                live_room_id=live_room_id,
+                clip_id=clip_id,
+                name=scene_name,
+                expected_live_room_title=self._expected_live_room_title,
+            )
             self._clip_ids_by_scene[scene_index] = clip_id
         except Exception as exc:  # pragma: no cover - runtime boundary
             return self._failed_action(index, operation, "map_default_clip", str(exc), scene_index=scene_index, scene_name=scene_name)
@@ -759,7 +946,12 @@ class ScriptLayoutDraftRunner:
         if scene_index is None:
             return self._failed_action(index, operation, "create_scene", "missing scene_index", scene_name=scene_name)
         try:
-            result = self.session.create_scene(live_room_id=live_room_id, scene_name=scene_name, scene_index=scene_index)
+            result = self.session.create_scene(
+                live_room_id=live_room_id,
+                scene_name=scene_name,
+                scene_index=scene_index,
+                expected_live_room_title=self._expected_live_room_title,
+            )
             clip_id = self._optional_int(result.get("clip_id") or result.get("id"))
             if clip_id is None:
                 raise RuntimeError("create_scene returned no clip_id")
@@ -909,6 +1101,31 @@ class ScriptLayoutDraftRunner:
                 clip_id=clip_id,
                 operation=positioned_operation,
             )
+        except MaituBrowserExecutionError as exc:
+            if not exc.retryable:
+                return self._failed_action(
+                    index,
+                    operation,
+                    "position_asset_layer",
+                    str(exc),
+                    scene_index=scene_index,
+                )
+            try:
+                # Positioning is an idempotent set operation. Keep the same
+                # dispatched checkpoint while a dropped local CDP reconnects.
+                result = self.session.position_asset_layer(
+                    live_room_id=live_room_id,
+                    clip_id=clip_id,
+                    operation=positioned_operation,
+                )
+            except Exception as retry_exc:  # pragma: no cover - runtime boundary
+                return self._failed_action(
+                    index,
+                    operation,
+                    "position_asset_layer",
+                    str(retry_exc),
+                    scene_index=scene_index,
+                )
         except Exception as exc:  # pragma: no cover - runtime boundary
             return self._failed_action(index, operation, "position_asset_layer", str(exc), scene_index=scene_index)
         if self._optional_string(result.get("status")) in {"manual_required", "skipped"}:
@@ -974,7 +1191,13 @@ class ScriptLayoutDraftRunner:
         if clip_id is None:
             return self._failed_action(index, operation, "write_script", "scene has no mapped clip_id", scene_index=scene_index, scene_name=scene_name)
         try:
-            result = self.session.write_script(live_room_id=live_room_id, clip_id=clip_id, scene_name=scene_name, script_text=script_text)
+            result = self.session.write_script(
+                live_room_id=live_room_id,
+                clip_id=clip_id,
+                scene_name=scene_name,
+                script_text=script_text,
+                expected_live_room_title=self._expected_live_room_title,
+            )
         except Exception as exc:  # pragma: no cover - runtime boundary
             return self._failed_action(index, operation, "write_script", str(exc), scene_index=scene_index, scene_name=scene_name)
         return ScriptLayoutDraftActionResult(
@@ -1050,10 +1273,107 @@ class ScriptLayoutDraftRunner:
             details={"operation_status": operation.get("status"), "go_live_clicked": False},
         )
 
+    def _verify_draft_persisted(
+        self,
+        index: int,
+        operation: dict[str, Any],
+        live_room_id: str,
+    ) -> ScriptLayoutDraftActionResult:
+        operation_room_id = self._optional_string(operation.get("target_live_room_id"))
+        if operation_room_id is not None and operation_room_id != live_room_id:
+            return self._failed_action(
+                index,
+                operation,
+                "verify_draft_persisted",
+                "draft persistence target does not match the BuildPlan room",
+            )
+        raw_expected_scene_names = operation.get("expected_scene_names")
+        if (
+            not isinstance(raw_expected_scene_names, list)
+            or not raw_expected_scene_names
+            or any(
+                not isinstance(name, str) or not name or name != name.strip()
+                for name in raw_expected_scene_names
+            )
+        ):
+            return self._failed_action(
+                index,
+                operation,
+                "verify_draft_persisted",
+                "draft persistence verification requires an exact non-empty scene-name manifest",
+            )
+        expected_scene_names = list(raw_expected_scene_names)
+        try:
+            inspection = inspect_working_room(
+                self.session,
+                target_live_room_id=live_room_id,
+                expected_title=self._expected_live_room_title,
+            )
+        except Exception as exc:  # pragma: no cover - runtime boundary
+            return self._failed_action(
+                index,
+                operation,
+                "verify_draft_persisted",
+                str(exc),
+            )
+        actual_scene_names = [str(scene.get("name") or "") for scene in inspection["scenes"]]
+        if (
+            inspection.get("read_environment") != "working"
+            or inspection.get("is_live") is not False
+            or inspection.get("has_live_trace") is not False
+            or inspection.get("title_matches") is not True
+            or actual_scene_names != expected_scene_names
+        ):
+            return self._failed_action(
+                index,
+                operation,
+                "verify_draft_persisted",
+                "working-room readback does not exactly match the persisted draft manifest",
+            )
+        draft_result = {
+            "verified": True,
+            "verification_source": "working_room_readback",
+            "environment": "working",
+            "not_live": True,
+            "target_live_room_id": live_room_id,
+            "expected_scene_names": expected_scene_names,
+            "actual_scene_names": actual_scene_names,
+            "scene_count": len(actual_scene_names),
+            "save_clicked": False,
+            "go_live_clicked": False,
+        }
+        return ScriptLayoutDraftActionResult(
+            operation_index=index,
+            operation_type="verify_draft_persisted",
+            operation_name=self._optional_string(operation.get("operation_name")),
+            action_type="verify_draft_persisted",
+            status="completed",
+            summary="Verified that the exact offline working-room draft was automatically persisted.",
+            details={"draft_result": draft_result, "go_live_clicked": False},
+        )
+
     def _read_room(self, live_room_id: str) -> dict[str, Any]:
         if self._room_cache is None:
             self._room_cache = self.session.read_live_room(live_room_id)
         return self._room_cache
+
+    def _assert_authoritative_offline_room(self, live_room_id: str) -> dict[str, Any]:
+        room = self.session.read_live_room(live_room_id)
+        self._room_cache = room
+        if self._optional_string(room.get("id")) != live_room_id:
+            raise RuntimeError("authoritative working-room id changed before draft mutation")
+        if room.get("_assetgraph_read_environment") != "working":
+            raise RuntimeError("draft mutation requires an authoritative working-room readback")
+        if (
+            self._room_is_active_live(room)
+            or not self._room_is_confirmed_not_live(room)
+            or self._room_has_live_trace(room)
+        ):
+            raise RuntimeError("target room is live or has a live-session trace")
+        title = self._optional_string(room.get("name"))
+        if self._expected_live_room_title is None or title != self._expected_live_room_title:
+            raise RuntimeError("authoritative working-room title changed after preflight")
+        return room
 
     def _clip_id_for_scene(self, scene_index: int | None) -> int | None:
         if scene_index is None:
@@ -1212,6 +1532,19 @@ class ScriptLayoutDraftRunner:
         )
 
     @staticmethod
+    def _room_has_live_trace(room: dict[str, Any]) -> bool:
+        return any(
+            value is not None and str(value).strip() not in {"", "0"}
+            for key in (
+                "live_session_id",
+                "latest_live_time",
+                "live_started_at",
+                "live_start_time",
+            )
+            if (value := room.get(key)) is not None
+        )
+
+    @staticmethod
     def _optional_string(value: Any) -> str | None:
         if value is None:
             return None
@@ -1244,6 +1577,7 @@ class InMemoryScriptLayoutDraftSession:
         self.live_room_id = live_room_id
         self.room: dict[str, Any] = {
             "id": live_room_id,
+            "name": "Dry run room",
             "is_live": False,
             "_assetgraph_read_environment": "working",
             "topics": [{"id": 1, "clips": [{"id": 1, "name": "未命名", "order_num": 0, "clip_materials": []}]}],
@@ -1254,7 +1588,15 @@ class InMemoryScriptLayoutDraftSession:
     def read_live_room(self, live_room_id: str) -> dict[str, Any]:
         return self.room
 
-    def rename_clip(self, *, live_room_id: str, clip_id: int, name: str) -> dict[str, Any]:
+    def rename_clip(
+        self,
+        *,
+        live_room_id: str,
+        clip_id: int,
+        name: str,
+        expected_live_room_title: str | None = None,
+    ) -> dict[str, Any]:
+        del expected_live_room_title
         if str(live_room_id) != str(self.live_room_id):
             raise RuntimeError(f"live room mismatch: expected {self.live_room_id}, got {live_room_id}")
         clip = self._find_clip(clip_id)
@@ -1264,7 +1606,15 @@ class InMemoryScriptLayoutDraftSession:
         clip["name"] = name
         return {"clip_id": clip_id, "previous_name": previous, "name": name, "verified": True, "dry_run": True}
 
-    def create_scene(self, *, live_room_id: str, scene_name: str, scene_index: int) -> dict[str, Any]:
+    def create_scene(
+        self,
+        *,
+        live_room_id: str,
+        scene_name: str,
+        scene_index: int,
+        expected_live_room_title: str | None = None,
+    ) -> dict[str, Any]:
+        del expected_live_room_title
         clip = {"id": self._next_clip_id, "name": scene_name, "order_num": scene_index, "clip_materials": []}
         self._next_clip_id += 1
         self.room["topics"][0]["clips"].append(clip)
@@ -1338,7 +1688,16 @@ class InMemoryScriptLayoutDraftSession:
                 return {"clip_id": clip_id, "layer_id": layer_id, "verified": True, "dry_run": True}
         raise RuntimeError(f"layer not found for positioning: {layer_id}")
 
-    def write_script(self, *, live_room_id: str, clip_id: int, scene_name: str, script_text: str) -> dict[str, Any]:
+    def write_script(
+        self,
+        *,
+        live_room_id: str,
+        clip_id: int,
+        scene_name: str,
+        script_text: str,
+        expected_live_room_title: str | None = None,
+    ) -> dict[str, Any]:
+        del expected_live_room_title
         self._required_clip(clip_id)
         self._scripts_by_clip[clip_id] = script_text
         return {"clip_id": clip_id, "script_length": len(script_text), "verified": True, "dry_run": True}

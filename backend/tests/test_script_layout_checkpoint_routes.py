@@ -21,6 +21,8 @@ LEASE_TOKEN = "55555555-5555-4555-8555-555555555555"
 
 
 class CheckpointAuthorityVerifier:
+    calls: list[str] = []
+
     @staticmethod
     def _attest(payload: dict[str, Any]) -> dict[str, Any]:
         evidence = {
@@ -32,6 +34,11 @@ class CheckpointAuthorityVerifier:
         return {**payload, "evidence": evidence}
 
     def attest_completion(self, **kwargs: Any) -> dict[str, Any]:
+        self.calls.append("external")
+        return self._attest(kwargs["payload"])
+
+    def attest_functional_worker_observed_completion(self, **kwargs: Any) -> dict[str, Any]:
+        self.calls.append("worker_observed_test_only")
         return self._attest(kwargs["payload"])
 
     def attest_reconciliation(self, **kwargs: Any) -> dict[str, Any]:
@@ -41,6 +48,7 @@ class CheckpointAuthorityVerifier:
 class CheckpointRouteRepository:
     def __init__(self) -> None:
         self.calls: list[tuple[str, tuple[Any, ...]]] = []
+        self.worker_observed_test_context: dict[str, Any] | None = None
 
     @staticmethod
     def checkpoint(state: str, decision: str) -> dict[str, Any]:
@@ -156,6 +164,9 @@ class CheckpointRouteRepository:
     def get_live_room_build_plan_execution_result_by_code(self, *_args) -> dict[str, Any]:
         return self.execution()
 
+    def get_functional_worker_readback_completion_context(self, **_kwargs: Any) -> dict[str, Any] | None:
+        return self.worker_observed_test_context
+
 
 def checkpoint_client() -> tuple[TestClient, CheckpointRouteRepository]:
     repository = CheckpointRouteRepository()
@@ -168,12 +179,96 @@ def checkpoint_client() -> tuple[TestClient, CheckpointRouteRepository]:
     return TestClient(app), repository
 
 
+def test_completion_authority_is_selected_before_verification_without_failure_fallback() -> None:
+    client, repository = checkpoint_client()
+    CheckpointAuthorityVerifier.calls.clear()
+    repository.worker_observed_test_context = {
+        "execution_job_code": "MT-WB-EXEC-20260731-000006",
+        "worker_id": "checkpoint-route-worker",
+        "target_live_room_id": "41172",
+        "expected_title": "asser测试",
+        "source_plan_fingerprint": "d" * 64,
+    }
+    base = (
+        "/api/maitu/live-room-build-plans/MT-BUILD-20260712-000001/"
+        "script-layout-executions/MT-EXEC-20260712-000001/operations/0/complete"
+    )
+    response = client.post(
+        base,
+        json={
+            "operation_fingerprint": "b" * 64,
+            "attempt_id": RUN_ATTEMPT,
+            "lease_token": LEASE_TOKEN,
+            "lease_version": 1,
+            "completion_id": "66666666-6666-4666-8666-666666666666",
+            "result_summary": "scene created and read back",
+            "evidence": {
+                "verified": True,
+                "operation_applied": True,
+                "operation_index": 0,
+                "operation_type": "create_scene",
+                "operation_fingerprint": "b" * 64,
+                "target_live_room_id": "47000002",
+                "clip_id": 416426,
+            },
+            "operation_result": {
+                "operation_index": 0,
+                "operation_type": "create_scene",
+                "status": "completed",
+                "clip_id": 416426,
+            },
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert CheckpointAuthorityVerifier.calls == ["worker_observed_test_only"]
+
+
+def test_regular_completion_never_uses_worker_observed_test_authority() -> None:
+    client, _repository = checkpoint_client()
+    CheckpointAuthorityVerifier.calls.clear()
+    base = (
+        "/api/maitu/live-room-build-plans/MT-BUILD-20260712-000001/"
+        "script-layout-executions/MT-EXEC-20260712-000001/operations/0/complete"
+    )
+    response = client.post(
+        base,
+        json={
+            "operation_fingerprint": "b" * 64,
+            "attempt_id": RUN_ATTEMPT,
+            "lease_token": LEASE_TOKEN,
+            "lease_version": 1,
+            "completion_id": "66666666-6666-4666-8666-666666666666",
+            "result_summary": "scene created and read back",
+            "evidence": {
+                "verified": True,
+                "operation_applied": True,
+                "operation_index": 0,
+                "operation_type": "create_scene",
+                "operation_fingerprint": "b" * 64,
+                "target_live_room_id": "47000002",
+                "clip_id": 416426,
+            },
+            "operation_result": {
+                "operation_index": 0,
+                "operation_type": "create_scene",
+                "status": "completed",
+                "clip_id": 416426,
+            },
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert CheckpointAuthorityVerifier.calls == ["external"]
+
+
 def test_script_layout_route_secret_filter_accepts_public_script_hashes_only() -> None:
     reject_script_layout_worker_secret(
         {
             "evidence": {
                 "script_sha256": "a" * 64,
                 "expected_script_sha256": "a" * 64,
+                "constraint_profile_ref": {"fingerprint": "b" * 64},
             }
         }
     )

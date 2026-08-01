@@ -74,7 +74,8 @@ from app.services.object_storage import (
 from app.services.qwen3_client import Qwen3Client, Qwen3ClientError
 
 router = APIRouter(prefix="/assets", tags=["assets"])
-_PREVIEWABLE_MEDIA_KINDS = frozenset({"audio", "image", "video"})
+_PREVIEWABLE_MEDIA_KINDS = frozenset({"audio", "image", "template_preview", "video"})
+_IMAGE_PREVIEW_MEDIA_KINDS = frozenset({"image", "template_preview"})
 
 
 def get_asset_repository(connection: Annotated[Connection, Depends(get_db)]) -> AssetRepository:
@@ -132,10 +133,7 @@ def sha256_file(path: Path) -> str:
 
 
 def _local_preview_path(asset: dict, *, root: Path) -> Path:
-    if (
-        str(asset.get("execution_capability") or "") != ExecutionCapability.LOCAL_ONLY.value
-        or str(asset.get("media_kind") or "") not in _PREVIEWABLE_MEDIA_KINDS
-    ):
+    if str(asset.get("media_kind") or "") not in _PREVIEWABLE_MEDIA_KINDS:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset preview not found")
 
     relative_path = PurePosixPath(str(asset.get("local_relative_path") or "").replace("\\", "/"))
@@ -161,6 +159,11 @@ def create_asset(
     payload: AssetCreate,
     repository: Annotated[AssetRepository, Depends(get_asset_repository)],
 ) -> dict:
+    if payload.execution_capability == ExecutionCapability.MAITU_BOUND:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="maitu_bound is derived from a verified Maitu inventory binding",
+        )
     return repository.create(payload.model_dump(exclude_none=True))
 
 
@@ -221,12 +224,18 @@ def update_asset_classification(
     payload: AssetClassificationUpdate,
     repository: Annotated[MaterialLibraryRepository, Depends(get_material_library_repository)],
 ) -> dict:
-    row = repository.update_asset_classification(
-        asset_code,
-        media_kind=payload.media_kind,
-        material_roles=list(payload.material_roles),
-        execution_capability=payload.execution_capability,
-    )
+    try:
+        row = repository.update_asset_classification(
+            asset_code,
+            media_kind=payload.media_kind,
+            material_roles=list(payload.material_roles),
+            execution_capability=payload.execution_capability,
+            classification_review_status=payload.classification_review_status,
+            classification_confidence=payload.classification_confidence,
+            classification_evidence=payload.classification_evidence,
+        )
+    except MaterialLibraryValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found")
     return row
@@ -260,6 +269,9 @@ def update_asset_classifications(
             media_kind=payload.media_kind,
             material_roles=list(payload.material_roles),
             execution_capability=payload.execution_capability,
+            classification_review_status=payload.classification_review_status,
+            classification_confidence=payload.classification_confidence,
+            classification_evidence=payload.classification_evidence,
         )
     except MaterialLibraryValidationError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
@@ -625,7 +637,7 @@ def get_asset_preview(
     if str(asset.get("local_relative_path") or "").strip():
         candidate = _local_preview_path(asset, root=root)
         media_kind = str(asset.get("media_kind") or "")
-        if variant == "thumbnail" and media_kind in {"image", "video"}:
+        if variant == "thumbnail" and media_kind in _IMAGE_PREVIEW_MEDIA_KINDS | {"video"}:
             try:
                 candidate = ensure_image_thumbnail(
                     candidate,
@@ -687,7 +699,7 @@ def get_asset_preview(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset preview not found")
 
     media_kind = str(asset.get("media_kind") or "")
-    if variant == "thumbnail" and media_kind in {"image", "video"}:
+    if variant == "thumbnail" and media_kind in _IMAGE_PREVIEW_MEDIA_KINDS | {"video"}:
         cached = cached_preview_path(
             root,
             asset_code=asset_code,
@@ -832,6 +844,12 @@ def update_asset_maitu_material_binding(
         "maitu_binding_inventory_fingerprint": attested_binding["inventory_snapshot_sha256"],
         "maitu_binding_readback_nonce": attested_binding["readback_nonce"],
         "maitu_binding_attestation": attested_binding["readback_attestation"],
+        "maitu_source_material_id": attested_binding.get("maitu_source_material_id")
+        or attested_binding.get("maitu_material_id"),
+        "maitu_binding_evidence": {
+            "source": "backend_maitu_inventory_readback",
+            "inventory_snapshot_sha256": attested_binding["inventory_snapshot_sha256"],
+        },
     }
     try:
         row = repository.update_maitu_material_binding(asset_code, durable_payload)

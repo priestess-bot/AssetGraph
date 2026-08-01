@@ -1,0 +1,61 @@
+{
+  "schema_version": "assetgraph-product-e2e-test-gates.v1",
+  "evidence_level": "product_e2e",
+  "product_e2e": {
+    "status": "passed",
+    "plan_code": "LIVEPLAN-20260731-000018",
+    "execution_job_code": "MT-WB-EXEC-20260731-000015",
+    "scene_count": 3,
+    "console_refresh_scene_count": 3,
+    "selected_assets_equal_projected_assets": true,
+    "scripts_match": true,
+    "continuous_layers_from_one": true,
+    "video_never_highest": true,
+    "exact_expected_layer_order": true,
+    "exact_geometry_and_source": true,
+    "go_live_clicked": false,
+    "ready_for_go_live": false,
+    "non_releasable": true,
+    "browser_error_count": 0,
+    "manual_intervention_count": 0
+  },
+  "test_runs": {
+    "backend_full": {
+      "passed": 832,
+      "skipped": 141,
+      "failed": 0
+    },
+    "browser_worker_full": {
+      "passed": 460,
+      "skipped": 0,
+      "failed": 0
+    },
+    "frontend_full": {
+      "passed": 108,
+      "skipped": 0,
+      "failed": 0
+    },
+    "backend_constraint_and_failure_focused": {
+      "passed": 43,
+      "skipped": 1,
+      "failed": 0,
+      "skip_reason": "ASSETGRAPH_TEST_DATABASE_URL is not configured; the actual product E2E used the running PostgreSQL database."
+    },
+    "browser_worker_reset_and_readback_focused": {
+      "passed": 131,
+      "skipped": 0,
+      "failed": 0
+    },
+    "typescript": "passed",
+    "production_build": "passed",
+    "ruff": "passed",
+    "git_diff_check": "passed"
+  },
+  "source_evidence": [
+    "run-report.json",
+    "final-validation.json",
+    "final-execution.json",
+    "final-maitu-readback.json",
+    "console-refresh-verification.json"
+  ]
+}

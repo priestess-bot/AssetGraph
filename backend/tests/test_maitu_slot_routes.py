@@ -2501,7 +2501,8 @@ def test_create_script_layout_plan_placeholder_mode_adds_manual_placeholder_laye
     assert product_layer["asset_code"] is None
     assert product_layer["x"] == 720
     assert product_layer["y"] == 980
-    assert product_layer["z_index"] == 5
+    assert product_layer["z_index"] == 2
+    assert [layer["z_index"] for layer in scene["layers"]] == [1, 2, 3]
     promo_layer = next(layer for layer in scene["layers"] if layer["layer_type"] == "promotion_sticker")
     assert promo_layer["asset_code"] == "AG-IMG-PROMO"
     assert promo_layer["asset_local_relative_path"] == "贴片/promo.png"

@@ -17,6 +17,7 @@ from typing import Any, Callable
 from urllib.parse import unquote, urlparse
 
 from .jd_metrics import JdLiveDashboardParser, JdLiveDashboardState
+from .maitu_layer_contract import layer_media_kind, maitu_payload_type_for_layer
 from .maitu_executor import MaituBrowserExecutionError
 
 CommandRunner = Callable[[Sequence[str],], str]
@@ -201,6 +202,7 @@ class BrowserUseCliSession:
     )
 
     PAGE_SUMMARY_SCRIPT = "(() => JSON.stringify({title:document.title,href:location.href,text:document.body?.innerText||''}))()"
+    MAITU_TAB_PROBE_SCRIPT = "(() => JSON.stringify({origin:location.origin,href:location.href}))()"
     IMAGE_UPLOAD_LAYER_TYPES = {
         "background_image",
         "product_image",
@@ -466,15 +468,7 @@ class BrowserUseCliSession:
         path = Path(local_path)
         suffix = path.suffix.lower()
         planned_layer_type = str(layer_type or "").strip().lower()
-        planned_kind = (
-            "video"
-            if planned_layer_type in self.VIDEO_UPLOAD_LAYER_TYPES
-            else "image"
-            if planned_layer_type in self.IMAGE_UPLOAD_LAYER_TYPES
-            else "visual"
-            if planned_layer_type in self.VISUAL_UPLOAD_LAYER_TYPES
-            else None
-        )
+        planned_kind = layer_media_kind(planned_layer_type)
         suffix_kind = (
             "video"
             if suffix in {".mp4", ".mov", ".m4v", ".avi"}
@@ -703,12 +697,183 @@ class BrowserUseCliSession:
 """.strip().replace("__ARGS__", json.dumps(args, ensure_ascii=False))
         return self._eval_json(script)
 
-    def rename_clip(self, *, live_room_id: str, clip_id: int, name: str) -> dict[str, Any]:
+    def delete_clip(
+        self,
+        *,
+        live_room_id: str,
+        clip_id: int,
+        expected_live_room_title: str,
+    ) -> dict[str, Any]:
+        args = {
+            "liveRoomId": str(live_room_id),
+            "clipId": int(clip_id),
+            "expectedLiveRoomTitle": expected_live_room_title,
+        }
+        script = """
+(() => {
+  const args = __ARGS__;
+  const token = (localStorage.getItem('token') || '').trim();
+  if (location.origin !== 'https://live2.maituai.com') throw new Error('unexpected Maitu origin: ' + location.origin);
+  if (!token) throw new Error('missing authenticated Maitu token');
+  const unwrap = (r) => (r && typeof r === 'object' && r.success === true && 'data' in r) ? r.data : r;
+  const arr = (x) => Array.isArray(x) ? x : [];
+  function xhr(method, path, body) {
+    const x = new XMLHttpRequest();
+    x.open(method, 'https://api.maituai.com/' + path, false);
+    x.setRequestHeader('Content-Type', 'application/json');
+    x.setRequestHeader('Authorization', token);
+    x.send(body === undefined ? null : JSON.stringify(body));
+    let data = null;
+    try { data = x.responseText ? JSON.parse(x.responseText) : null; } catch (e) { data = {raw:x.responseText}; }
+    if (!(x.status >= 200 && x.status < 300)) throw new Error(method + ' ' + path + ' failed ' + x.status + ': ' + x.responseText);
+    return data;
+  }
+  const roomPath = 'live_rooms/' + args.liveRoomId + '?env=working&include_qa_clips=true';
+  const room = unwrap(xhr('GET', roomPath));
+  const statusValues = [room.is_live, room.living, room.is_living, room.status, room.live_status, room.room_status]
+    .filter((value) => value !== null && value !== undefined);
+  const activeValues = new Set(['1','true','yes','live','living','on_air','started','running','broadcasting']);
+  const inactiveValues = new Set(['0','false','no','off','offline','stopped','draft','working','idle','pending','not_live']);
+  const active = statusValues.some((value) => value === true || activeValues.has(String(value).trim().toLowerCase()));
+  const confirmedNotLive = statusValues.some((value) => value === false || inactiveValues.has(String(value).trim().toLowerCase()));
+  const hasLiveTrace = [room.live_session_id, room.latest_live_time, room.live_started_at, room.live_start_time]
+    .some((value) => value !== null && value !== undefined && String(value).trim() !== '' && String(value).trim() !== '0');
+  if (String(room.id) !== args.liveRoomId) throw new Error('delete clip authoritative room id mismatch');
+  if (room.name !== args.expectedLiveRoomTitle) throw new Error('delete clip authoritative room title mismatch');
+  if (active || hasLiveTrace || !confirmedNotLive) throw new Error('delete clip requires explicit authoritative never-live evidence');
+  const clips = arr(room.topics).flatMap((topic) => arr(topic && topic.clips));
+  const matches = clips.filter((clip) => String(clip.id) === String(args.clipId));
+  if (matches.length !== 1) throw new Error('delete clip target is not unique in authoritative working room');
+  if (clips.length <= 1) throw new Error('refusing to delete the final clip in a live room draft');
+  const response = unwrap(xhr('DELETE', 'clips/' + args.clipId, {}));
+  const verifiedRoom = unwrap(xhr('GET', roomPath));
+  if (String(verifiedRoom.id) !== args.liveRoomId || verifiedRoom.name !== args.expectedLiveRoomTitle) {
+    throw new Error('delete clip room identity drifted during mutation');
+  }
+  const remaining = arr(verifiedRoom.topics).flatMap((topic) => arr(topic && topic.clips));
+  if (remaining.some((clip) => String(clip.id) === String(args.clipId))) {
+    throw new Error('deleted clip remains in authoritative working-room readback');
+  }
+  return JSON.stringify({status:'deleted', live_room_id:args.liveRoomId, clip_id:args.clipId, response,
+    verified:true, verification_source:'working_room_readback', not_live:true, go_live_clicked:false});
+})()
+""".strip().replace("__ARGS__", json.dumps(args, ensure_ascii=False))
+        return self._eval_json(script)
+
+    def clear_clip_materials(
+        self,
+        *,
+        live_room_id: str,
+        clip_id: int,
+        expected_live_room_title: str,
+    ) -> dict[str, Any]:
+        args = {
+            "liveRoomId": str(live_room_id),
+            "clipId": int(clip_id),
+            "expectedLiveRoomTitle": expected_live_room_title,
+        }
+        script = """
+(() => {
+  const args = __ARGS__;
+  const token = (localStorage.getItem('token') || '').trim();
+  if (location.origin !== 'https://live2.maituai.com') throw new Error('unexpected Maitu origin: ' + location.origin);
+  if (!token) throw new Error('missing authenticated Maitu token');
+  const unwrap = (r) => (r && typeof r === 'object' && r.success === true && 'data' in r) ? r.data : r;
+  const arr = (x) => Array.isArray(x) ? x : [];
+  function xhr(method, path, body) {
+    const x = new XMLHttpRequest();
+    x.open(method, 'https://api.maituai.com/' + path, false);
+    x.setRequestHeader('Content-Type', 'application/json');
+    x.setRequestHeader('Authorization', token);
+    x.send(body === undefined ? null : JSON.stringify(body));
+    let data = null;
+    try { data = x.responseText ? JSON.parse(x.responseText) : null; } catch (e) { data = {raw:x.responseText}; }
+    if (!(x.status >= 200 && x.status < 300)) throw new Error(method + ' ' + path + ' failed ' + x.status + ': ' + x.responseText);
+    return data;
+  }
+  const roomPath = 'live_rooms/' + args.liveRoomId + '?env=working&include_qa_clips=true';
+  const activeValues = new Set(['1','true','yes','live','living','on_air','started','running','broadcasting']);
+  const inactiveValues = new Set(['0','false','no','off','offline','stopped','draft','working','idle','pending','not_live']);
+  function assertTargetRoom(room, phase) {
+    const statusValues = [room.is_live, room.living, room.is_living, room.status, room.live_status, room.room_status]
+      .filter((value) => value !== null && value !== undefined);
+    const active = statusValues.some((value) => value === true || activeValues.has(String(value).trim().toLowerCase()));
+    const confirmedNotLive = statusValues.some((value) => value === false || inactiveValues.has(String(value).trim().toLowerCase()));
+    const hasLiveTrace = [room.live_session_id, room.latest_live_time, room.live_started_at, room.live_start_time]
+      .some((value) => value !== null && value !== undefined && String(value).trim() !== '' && String(value).trim() !== '0');
+    if (String(room.id) !== args.liveRoomId) throw new Error('clear materials authoritative room id mismatch during ' + phase);
+    if (room.name !== args.expectedLiveRoomTitle) throw new Error('clear materials authoritative room title mismatch during ' + phase);
+    if (active || hasLiveTrace || !confirmedNotLive) {
+      throw new Error('clear materials requires explicit authoritative never-live evidence during ' + phase);
+    }
+  }
+  const room = unwrap(xhr('GET', roomPath));
+  assertTargetRoom(room, 'initial read');
+  const clips = arr(room.topics).flatMap((topic) => arr(topic && topic.clips));
+  const matches = clips.filter((clip) => String(clip.id) === String(args.clipId));
+  if (matches.length !== 1) throw new Error('clear materials target clip is not unique in authoritative working room');
+  if (!Array.isArray(matches[0].clip_materials)) throw new Error('clear materials requires an authoritative material list');
+  const materials = matches[0].clip_materials;
+  const materialIds = materials.map((material) => material && material.id);
+  if (materialIds.some((id) => !Number.isInteger(Number(id)) || Number(id) <= 0)
+      || new Set(materialIds.map(String)).size !== materialIds.length) {
+    throw new Error('clear materials requires unique positive authoritative material ids');
+  }
+  const responses = [];
+  for (const materialId of materialIds) {
+    const beforeDelete = unwrap(xhr('GET', roomPath));
+    assertTargetRoom(beforeDelete, 'before deleting material ' + materialId);
+    const currentClips = arr(beforeDelete.topics).flatMap((topic) => arr(topic && topic.clips));
+    const currentClip = currentClips.find((clip) => String(clip.id) === String(args.clipId));
+    if (!currentClip || !Array.isArray(currentClip.clip_materials)) {
+      throw new Error('clear materials target clip disappeared before deleting material ' + materialId);
+    }
+    const currentMatches = currentClip.clip_materials.filter((material) => String(material && material.id) === String(materialId));
+    if (currentMatches.length !== 1) {
+      throw new Error('clear materials target is not unique immediately before deleting material ' + materialId);
+    }
+    responses.push(unwrap(xhr('DELETE', 'clip_materials/' + materialId, {})));
+    const afterDelete = unwrap(xhr('GET', roomPath));
+    assertTargetRoom(afterDelete, 'after deleting material ' + materialId);
+    const afterClips = arr(afterDelete.topics).flatMap((topic) => arr(topic && topic.clips));
+    const afterClip = afterClips.find((clip) => String(clip.id) === String(args.clipId));
+    if (!afterClip || !Array.isArray(afterClip.clip_materials)) {
+      throw new Error('clear materials target clip disappeared after deleting material ' + materialId);
+    }
+    if (afterClip.clip_materials.some((material) => String(material && material.id) === String(materialId))) {
+      throw new Error('deleted material remains after per-mutation authoritative readback: ' + materialId);
+    }
+  }
+  const verifiedRoom = unwrap(xhr('GET', roomPath));
+  assertTargetRoom(verifiedRoom, 'final readback');
+  const verifiedClips = arr(verifiedRoom.topics).flatMap((topic) => arr(topic && topic.clips));
+  const verifiedClip = verifiedClips.find((clip) => String(clip.id) === String(args.clipId));
+  if (!verifiedClip || !Array.isArray(verifiedClip.clip_materials) || verifiedClip.clip_materials.length !== 0) {
+    throw new Error('cleared clip still has materials in authoritative working-room readback');
+  }
+  return JSON.stringify({status:'cleared', live_room_id:args.liveRoomId, clip_id:args.clipId,
+    deleted_material_ids:materialIds, responses, remaining_material_count:0, verified:true,
+    verification_source:'working_room_readback', not_live:true, go_live_clicked:false});
+})()
+""".strip().replace("__ARGS__", json.dumps(args, ensure_ascii=False))
+        return self._eval_json(script)
+
+    def rename_clip(
+        self,
+        *,
+        live_room_id: str,
+        clip_id: int,
+        name: str,
+        order_num: int | None = None,
+        expected_live_room_title: str | None = None,
+    ) -> dict[str, Any]:
         args = {
             "liveRoomId": str(live_room_id),
             "clipId": int(clip_id),
             "name": name,
             "clipPath": f"clips/{int(clip_id)}",
+            "orderNum": int(order_num) if order_num is not None else None,
+            "expectedLiveRoomTitle": expected_live_room_title,
         }
         script = """
 (() => {
@@ -730,17 +895,39 @@ class BrowserUseCliSession:
   }
   if (!args.liveRoomId) throw new Error('rename verification requires explicit liveRoomId');
   const room = unwrap(xhr('GET', 'live_rooms/' + args.liveRoomId + '?env=working&include_qa_clips=true'));
-  const clips = ((room.topics || [])[0] || {}).clips || [];
+  const statusValues = [room.is_live, room.living, room.is_living, room.status, room.live_status, room.room_status]
+    .filter((value) => value !== null && value !== undefined);
+  const activeValues = new Set(['1','true','yes','live','living','on_air','started','running','broadcasting']);
+  const inactiveValues = new Set(['0','false','no','off','offline','stopped','draft','working','idle','pending','not_live']);
+  const active = statusValues.some((value) => value === true || activeValues.has(String(value).trim().toLowerCase()));
+  const confirmedNotLive = statusValues.some((value) => value === false || inactiveValues.has(String(value).trim().toLowerCase()));
+  const hasLiveTrace = [room.live_session_id, room.latest_live_time, room.live_started_at, room.live_start_time]
+    .some((value) => value !== null && value !== undefined && String(value).trim() !== '' && String(value).trim() !== '0');
+  if (String(room.id) !== args.liveRoomId) throw new Error('rename authoritative room id mismatch');
+  if (args.expectedLiveRoomTitle !== null && room.name !== args.expectedLiveRoomTitle) throw new Error('rename authoritative room title mismatch');
+  if (args.expectedLiveRoomTitle !== null && (active || hasLiveTrace || !confirmedNotLive)) {
+    throw new Error('rename requires explicit authoritative never-live evidence');
+  }
+  const clips = (room.topics || []).flatMap((topic) => Array.isArray(topic && topic.clips) ? topic.clips : []);
   const clip = clips.find((item) => String(item.id) === String(args.clipId));
   if (!clip) throw new Error('rename target clip not found in authoritative working room');
   const payload = {...clip, name: args.name};
+  if (args.orderNum !== null) payload.order_num = args.orderNum;
   delete payload.clip_materials;
   const response = unwrap(xhr('PUT', args.clipPath, payload));
   const verifiedRoom = unwrap(xhr('GET', 'live_rooms/' + args.liveRoomId + '?env=working&include_qa_clips=true'));
-  const verifiedClips = ((verifiedRoom.topics || [])[0] || {}).clips || [];
+  if (String(verifiedRoom.id) !== args.liveRoomId
+      || (args.expectedLiveRoomTitle !== null && verifiedRoom.name !== args.expectedLiveRoomTitle)) {
+    throw new Error('rename room identity drifted during mutation');
+  }
+  const verifiedClips = (verifiedRoom.topics || []).flatMap((topic) => Array.isArray(topic && topic.clips) ? topic.clips : []);
   const verifiedClip = verifiedClips.find((item) => String(item.id) === String(args.clipId));
-  if (!verifiedClip || verifiedClip.name !== args.name) throw new Error('clip rename authoritative readback mismatch');
-  return JSON.stringify({clip_id: args.clipId, name: args.name, response, verified:true, verification_source:'working_room_readback'});
+  if (!verifiedClip || verifiedClip.name !== args.name
+      || (args.orderNum !== null && Number(verifiedClip.order_num) !== Number(args.orderNum))) {
+    throw new Error('clip rename authoritative readback mismatch');
+  }
+  return JSON.stringify({clip_id: args.clipId, name: args.name, order_num:verifiedClip.order_num, response, verified:true,
+    verification_source:'working_room_readback', not_live:args.expectedLiveRoomTitle !== null, go_live_clicked:false});
 })()
 """.strip().replace("__ARGS__", json.dumps(args, ensure_ascii=False))
         return self._eval_json(script)
@@ -755,6 +942,7 @@ class BrowserUseCliSession:
         scene_name: str,
         component_operations: list[dict[str, Any]],
         script_content: str | None,
+        expected_live_room_title: str | None = None,
     ) -> dict[str, Any]:
         args = {
             "liveRoomId": str(live_room_id),
@@ -764,6 +952,7 @@ class BrowserUseCliSession:
             "sceneName": scene_name,
             "componentOperations": component_operations,
             "scriptContent": script_content,
+            "expectedLiveRoomTitle": expected_live_room_title,
         }
         script = """
 (() => {
@@ -784,14 +973,17 @@ class BrowserUseCliSession:
     if (!allowFail && !(x.status >= 200 && x.status < 300)) throw new Error(method + ' ' + path + ' failed ' + x.status);
     return {status:x.status, ok:x.status >= 200 && x.status < 300, data};
   }
-  function visualPayload(m, clipId) {
-    const sf = {...(m.style_front || {})};
+  function visualPayload(m, clipId, operation) {
+    const sourceStyle = typeof m.style_front === 'string' ? JSON.parse(m.style_front || '{}') : (m.style_front || {});
+    const sf = {...sourceStyle};
     if (sf.top == null && m.top != null) sf.top = m.top;
     if (sf.left == null && m.left != null) sf.left = m.left;
+    const plannedZ = operation.z_index == null ? m.layer_n : operation.z_index;
+    if (operation.z_index != null) sf.zIndex = plannedZ;
     return {
       url: m.url || null,
       type: m.type,
-      layer_n: m.layer_n,
+      layer_n: plannedZ,
       width: m.width,
       height: m.height,
       left: m.left || 0,
@@ -811,20 +1003,56 @@ class BrowserUseCliSession:
       scale: m.scale || null,
     };
   }
+  function assertSafeTargetRoom(room) {
+    const statusValues = [room.is_live, room.living, room.is_living, room.status, room.live_status, room.room_status]
+      .filter((value) => value !== null && value !== undefined);
+    const activeValues = new Set(['1','true','yes','live','living','on_air','started','running','broadcasting']);
+    const inactiveValues = new Set(['0','false','no','off','offline','stopped','draft','working','idle','pending','not_live']);
+    const active = statusValues.some((value) => value === true || activeValues.has(String(value).trim().toLowerCase()));
+    const confirmedNotLive = statusValues.some((value) => value === false || inactiveValues.has(String(value).trim().toLowerCase()));
+    const hasLiveTrace = [room.live_session_id, room.latest_live_time, room.live_started_at, room.live_start_time]
+      .some((value) => value !== null && value !== undefined && String(value).trim() !== '' && String(value).trim() !== '0');
+    if (String(room.id) !== args.liveRoomId) throw new Error('template fill authoritative room id mismatch');
+    if (args.expectedLiveRoomTitle !== null && room.name !== args.expectedLiveRoomTitle) throw new Error('template fill authoritative room title mismatch');
+    if (args.expectedLiveRoomTitle !== null && (active || hasLiveTrace || !confirmedNotLive)) {
+      throw new Error('template fill requires explicit authoritative never-live evidence');
+    }
+  }
+  const targetBeforeMutation = unwrap(xhr('GET', 'live_rooms/' + args.liveRoomId + '?env=working&include_qa_clips=true').data);
+  assertSafeTargetRoom(targetBeforeMutation);
+  const targetBeforeMutationClips = arr(targetBeforeMutation.topics).flatMap((topic) => arr(topic && topic.clips));
+  const targetMatches = targetBeforeMutationClips.filter((clip) => String(clip.id) === String(args.targetClipId));
+  if (targetMatches.length !== 1 || targetMatches[0].name !== args.sceneName) {
+    throw new Error('template fill target clip identity mismatch before mutation');
+  }
   const refRoom = unwrap(xhr('GET', 'live_rooms/' + args.referenceRoomId + '?env=working&include_qa_clips=true').data);
-  const refClips = arr(((refRoom.topics || [])[0] || {}).clips);
-  const refClip = refClips.find((clip) => String(clip.id) === String(args.referenceClipId));
-  if (!refClip) throw new Error('reference clip not found: ' + args.referenceClipId);
+  const refClips = arr(refRoom.topics).flatMap((topic) => arr(topic && topic.clips));
+  if (String(refRoom.id) !== args.referenceRoomId) throw new Error('reference room authoritative id mismatch');
+  const refMatches = refClips.filter((clip) => String(clip.id) === String(args.referenceClipId));
+  if (refMatches.length !== 1) throw new Error('reference clip missing or not unique: ' + args.referenceClipId);
+  const refClip = refMatches[0];
   const visualMaterials = arr(refClip.clip_materials).filter((m) => m.type !== 'text' && m.type !== 'audio');
   const count = args.componentOperations.length;
-  const selectedVisuals = visualMaterials.slice(0, count).map((m) => visualPayload(m, args.targetClipId));
-  const cumulative = [];
-  for (let i = 0; i < selectedVisuals.length; i += 1) {
-    cumulative.push(selectedVisuals[i]);
-    xhr('POST', 'clips/' + args.targetClipId + '/replace_clip_materials', {view_clip_materials: cumulative});
-  }
+  if (visualMaterials.length !== count) throw new Error('reference visual count does not match component operations');
+  const selectedVisuals = args.componentOperations.map((operation, operationIndex) => {
+    const componentIndex = Number(operation.component_index);
+    if (!Number.isInteger(componentIndex) || componentIndex < 0 || componentIndex >= visualMaterials.length) {
+      throw new Error('component operation has an invalid component_index: ' + operationIndex);
+    }
+    const material = visualMaterials[componentIndex];
+    if (operation.expected_layer_id != null && material.name !== operation.expected_layer_id) {
+      throw new Error('reference component layer identity differs from expected_layer_id');
+    }
+    if (operation.expected_source_material_id != null
+        && String(material.material_id || '') !== String(operation.expected_source_material_id)) {
+      throw new Error('reference component source differs from expected_source_material_id');
+    }
+    return visualPayload(material, args.targetClipId, operation);
+  });
+  xhr('POST', 'clips/' + args.targetClipId + '/replace_clip_materials', {view_clip_materials: selectedVisuals});
   const targetBeforeText = unwrap(xhr('GET', 'live_rooms/' + args.liveRoomId + '?env=working&include_qa_clips=true').data);
-  const targetClipBeforeText = arr(((targetBeforeText.topics || [])[0] || {}).clips).find((clip) => String(clip.id) === String(args.targetClipId));
+  const targetClipBeforeText = arr(targetBeforeText.topics).flatMap((topic) => arr(topic && topic.clips))
+    .find((clip) => String(clip.id) === String(args.targetClipId));
   const existingTexts = arr(targetClipBeforeText && targetClipBeforeText.clip_materials).filter((material) => material.type === 'text');
   let textMaterial = null;
   if (args.scriptContent) {
@@ -843,11 +1071,14 @@ class BrowserUseCliSession:
     }
   }
   const verifiedRoom = unwrap(xhr('GET', 'live_rooms/' + args.liveRoomId + '?env=working&include_qa_clips=true').data);
-  const verifiedClip = arr(((verifiedRoom.topics || [])[0] || {}).clips).find((clip) => String(clip.id) === String(args.targetClipId)) || {};
+  assertSafeTargetRoom(verifiedRoom);
+  const verifiedClip = arr(verifiedRoom.topics).flatMap((topic) => arr(topic && topic.clips))
+    .find((clip) => String(clip.id) === String(args.targetClipId)) || {};
   const materials = arr(verifiedClip.clip_materials);
   const visuals = materials.filter((m) => m.type !== 'text' && m.type !== 'audio');
   const texts = materials.filter((m) => m.type === 'text');
   const matchingTexts = texts.filter((m) => m.content === args.scriptContent);
+  if (visuals.length !== count) throw new Error('template visual copy authoritative readback count mismatch');
   if (args.scriptContent && (texts.length !== 1 || matchingTexts.length !== 1)) {
     throw new Error('template script write readback was not unique and authoritative');
   }
@@ -870,8 +1101,22 @@ class BrowserUseCliSession:
 """.strip().replace("__ARGS__", json.dumps(args, ensure_ascii=False))
         return self._eval_json(script)
 
-    def create_scene(self, *, live_room_id: str, scene_name: str, scene_index: int) -> dict[str, Any]:
-        args = {"liveRoomId": str(live_room_id), "sceneName": scene_name, "sceneIndex": int(scene_index)}
+    def create_scene(
+        self,
+        *,
+        live_room_id: str,
+        scene_name: str,
+        scene_index: int,
+        topic_id: int | None = None,
+        expected_live_room_title: str | None = None,
+    ) -> dict[str, Any]:
+        args = {
+            "liveRoomId": str(live_room_id),
+            "sceneName": scene_name,
+            "sceneIndex": int(scene_index),
+            "topicId": int(topic_id) if topic_id is not None else None,
+            "expectedLiveRoomTitle": expected_live_room_title,
+        }
         script = """
 (() => {
   const args = __ARGS__;
@@ -892,7 +1137,24 @@ class BrowserUseCliSession:
     return {status:x.status, ok:x.status >= 200 && x.status < 300, data};
   }
   const room = unwrap(xhr('GET', 'live_rooms/' + args.liveRoomId + '?env=working&include_qa_clips=true').data);
-  const topic = arr(room.topics)[0] || {};
+  const statusValues = [room.is_live, room.living, room.is_living, room.status, room.live_status, room.room_status]
+    .filter((value) => value !== null && value !== undefined);
+  const activeValues = new Set(['1','true','yes','live','living','on_air','started','running','broadcasting']);
+  const inactiveValues = new Set(['0','false','no','off','offline','stopped','draft','working','idle','pending','not_live']);
+  const active = statusValues.some((value) => value === true || activeValues.has(String(value).trim().toLowerCase()));
+  const confirmedNotLive = statusValues.some((value) => value === false || inactiveValues.has(String(value).trim().toLowerCase()));
+  const hasLiveTrace = [room.live_session_id, room.latest_live_time, room.live_started_at, room.live_start_time]
+    .some((value) => value !== null && value !== undefined && String(value).trim() !== '' && String(value).trim() !== '0');
+  if (String(room.id) !== args.liveRoomId) throw new Error('create scene authoritative room id mismatch');
+  if (args.expectedLiveRoomTitle !== null && room.name !== args.expectedLiveRoomTitle) throw new Error('create scene authoritative room title mismatch');
+  if (args.expectedLiveRoomTitle !== null && (active || hasLiveTrace || !confirmedNotLive)) {
+    throw new Error('create scene requires explicit authoritative never-live evidence');
+  }
+  const topics = arr(room.topics);
+  const topic = args.topicId == null
+    ? (topics.find((item) => arr(item && item.clips).length > 0) || topics[0] || {})
+    : (topics.find((item) => String(item && item.id) === String(args.topicId)) || {});
+  if (!topic.id) throw new Error('create scene target topic not found in authoritative working room');
   const clips = arr(topic.clips);
   const template = clips[0] || {};
   const payload = {...template, name: args.sceneName, order_num: args.sceneIndex, live_room_id: Number(args.liveRoomId), topic_id: topic.id || template.topic_id};
@@ -902,7 +1164,11 @@ class BrowserUseCliSession:
   delete payload.updated_at;
   const created = unwrap(xhr('POST', 'clips', payload).data);
   const verifyRoom = unwrap(xhr('GET', 'live_rooms/' + args.liveRoomId + '?env=working&include_qa_clips=true').data);
-  const verifyClips = arr((arr(verifyRoom.topics)[0] || {}).clips);
+  if (String(verifyRoom.id) !== args.liveRoomId
+      || (args.expectedLiveRoomTitle !== null && verifyRoom.name !== args.expectedLiveRoomTitle)) {
+    throw new Error('create scene room identity drifted during mutation');
+  }
+  const verifyClips = arr(verifyRoom.topics).flatMap((item) => arr(item && item.clips));
   if (!created || !created.id) throw new Error('created scene response did not include an authoritative clip id');
   const matched = verifyClips.find((clip) => String(clip.id) === String(created.id));
   if (!matched || !matched.id || matched.name !== args.sceneName || Number(matched.order_num || 0) !== args.sceneIndex) {
@@ -925,21 +1191,10 @@ class BrowserUseCliSession:
 
     @classmethod
     def _resolved_operation_material_type(cls, operation: dict[str, Any]) -> str | None:
-        layer_type = str(operation.get("layer_type") or "").strip().lower()
-        source_type = str(operation.get("source_material_type") or "").strip().lower()
-        if layer_type in cls.IMAGE_UPLOAD_LAYER_TYPES:
-            return "image" if source_type == "image" else None
-        if layer_type in cls.VIDEO_UPLOAD_LAYER_TYPES:
-            return "video" if source_type in {"video", "decorative_video"} else None
-        if layer_type in cls.VISUAL_UPLOAD_LAYER_TYPES:
-            if source_type == "image":
-                return "image"
-            if source_type in {"video", "decorative_video"}:
-                return "video"
-            return None
-        if layer_type == "digital_human":
-            return "digital_human" if source_type == "digital_human" else None
-        return None
+        return maitu_payload_type_for_layer(
+            operation.get("layer_type"),
+            operation.get("source_material_type"),
+        )
 
     def insert_asset_layer(self, *, live_room_id: str, clip_id: int, operation: dict[str, Any]) -> dict[str, Any]:
         material_type = self._resolved_operation_material_type(operation)
@@ -974,12 +1229,39 @@ class BrowserUseCliSession:
     if (!allowFail && !(x.status >= 200 && x.status < 300)) throw new Error(method + ' ' + path + ' failed ' + x.status + ': ' + x.responseText);
     return {status:x.status, ok:x.status >= 200 && x.status < 300, data};
   }
-  const sourceUrl = op.source_material_url || op.asset_url || op.url || null;
-  const coverUrl = op.source_cover_url || op.cover_url || sourceUrl || null;
-  const materialId = op.material_id || op.maitu_material_id || null;
+  const regularSourceUrl = op.source_material_url || op.asset_url || op.url || null;
   const digitalHumanImageId = op.digital_human_image_id || null;
   const speakerId = op.speaker_id || null;
   const materialType = args.materialType;
+  const isDigitalHuman = materialType === 'digital_human';
+  const materialId = isDigitalHuman
+    ? (op.maitu_source_material_id || null)
+    : (op.material_id || op.maitu_material_id || null);
+  const sourceUrl = isDigitalHuman
+    ? (op.source_cover_url || op.cover_url || regularSourceUrl || null)
+    : regularSourceUrl;
+  const coverUrl = op.source_cover_url || op.cover_url || sourceUrl || null;
+  const normalizeMaterialType = (value) => value === 'decorative_video' ? 'video' : value;
+  function assertSafeRoom(room, phase) {
+    const statuses = [room.is_live, room.living, room.is_living, room.status, room.live_status, room.room_status]
+      .filter((value) => value !== null && value !== undefined);
+    const active = new Set(['1','true','yes','live','living','on_air','started','running','broadcasting']);
+    const inactive = new Set(['0','false','no','off','offline','stopped','draft','working','idle','pending','not_live']);
+    const isActive = statuses.some((value) => value === true || active.has(String(value).trim().toLowerCase()));
+    const isOffline = statuses.some((value) => value === false || inactive.has(String(value).trim().toLowerCase()));
+    const hasTrace = [room.live_session_id, room.latest_live_time, room.live_started_at, room.live_start_time]
+      .some((value) => value !== null && value !== undefined && String(value).trim() !== '' && String(value).trim() !== '0');
+    if (String(room.id) !== args.liveRoomId) throw new Error(phase + ' room id mismatch');
+    if (op.require_offline_working_room === true && !op.expected_live_room_title) {
+      throw new Error(phase + ' expected room title is missing');
+    }
+    if (op.expected_live_room_title && room.name !== op.expected_live_room_title) {
+      throw new Error(phase + ' room title mismatch');
+    }
+    if (op.require_offline_working_room === true && (isActive || hasTrace || !isOffline)) {
+      throw new Error(phase + ' room is live or has a live-session trace');
+    }
+  }
   const bindingComplete = materialType === 'digital_human'
     ? Boolean(digitalHumanImageId && speakerId)
     : Boolean(sourceUrl && materialId);
@@ -994,7 +1276,20 @@ class BrowserUseCliSession:
       go_live_clicked: false,
     });
   }
-  const style = {left: op.x || 0, top: op.y || 0, width: op.width || null, height: op.height || null, zIndex: op.z_index || 1, fit: op.fit || 'contain'};
+  const beforeRoom = unwrap(xhr('GET', 'live_rooms/' + args.liveRoomId + '?env=working&include_qa_clips=true').data);
+  assertSafeRoom(beforeRoom, 'insert before mutation');
+  const beforeClip = (beforeRoom.topics || []).flatMap((topic) => Array.isArray(topic && topic.clips) ? topic.clips : [])
+    .find((item) => String(item.id) === String(args.clipId));
+  if (!beforeClip) throw new Error('insert target clip not found in authoritative working room');
+  const style = {
+    left: op.x ?? 0,
+    top: op.y ?? 0,
+    width: op.width ?? null,
+    height: op.height ?? null,
+    zIndex: op.z_index ?? 1,
+    fit: op.fit || 'contain',
+    transform: {scale: 1, rotation: op.rotation ?? 0},
+  };
   const payload = {
     type: materialType,
     clip_id: args.clipId,
@@ -1004,33 +1299,40 @@ class BrowserUseCliSession:
     material_id: materialId,
     digital_human_image_id: digitalHumanImageId,
     speaker_id: speakerId,
-    width: op.width || null,
-    height: op.height || null,
-    left: op.x || 0,
-    top: op.y || 0,
-    layer_n: op.z_index || 1,
+    width: op.width ?? null,
+    height: op.height ?? null,
+    left: op.x ?? 0,
+    top: op.y ?? 0,
+    layer_n: op.z_index ?? 1,
     sound_enabled: op.sound_enabled === true,
+    play_mode: op.loop === true ? 'loop' : null,
     style_front: JSON.stringify(style),
   };
   const created = unwrap(xhr('POST', 'clip_materials', payload).data);
   const verifyRoom = unwrap(xhr('GET', 'live_rooms/' + args.liveRoomId + '?env=working&include_qa_clips=true').data);
-  const verifyClips = ((verifyRoom.topics || [])[0] || {}).clips || [];
+  assertSafeRoom(verifyRoom, 'insert after mutation');
+  const verifyClips = (verifyRoom.topics || []).flatMap((topic) => Array.isArray(topic && topic.clips) ? topic.clips : []);
   const verifyClip = verifyClips.find((item) => String(item.id) === String(args.clipId)) || {};
   const verifiedMaterial = (verifyClip.clip_materials || []).find((item) => String(item.id) === String(created && created.id));
   const verifiedStyle = verifiedMaterial && (typeof verifiedMaterial.style_front === 'string'
     ? JSON.parse(verifiedMaterial.style_front || '{}') : (verifiedMaterial.style_front || {}));
+  const verifiedSourceMatches = verifiedMaterial && isDigitalHuman
+    ? String(verifiedMaterial.digital_human_image_id || '') === String(digitalHumanImageId || '')
+      && String(verifiedMaterial.speaker_id || '') === String(speakerId || '')
+    : verifiedMaterial
+      && String(verifiedMaterial.material_id || '') === String(materialId || '')
+      && String(verifiedMaterial.url || '') === String(sourceUrl || '');
   if (!verifiedMaterial || !verifiedMaterial.id || verifiedMaterial.name !== payload.name
-      || verifiedMaterial.type !== materialType
-      || String(verifiedMaterial.material_id || '') !== String(materialId || '')
-      || String(verifiedMaterial.url || '') !== String(sourceUrl || '')
-      || String(verifiedMaterial.digital_human_image_id || '') !== String(digitalHumanImageId || '')
-      || String(verifiedMaterial.speaker_id || '') !== String(speakerId || '')
+      || normalizeMaterialType(verifiedMaterial.type) !== normalizeMaterialType(materialType)
+      || !verifiedSourceMatches
       || Boolean(verifiedMaterial.sound_enabled) !== Boolean(payload.sound_enabled)
       || Number(verifiedStyle.left) !== Number(style.left)
       || Number(verifiedStyle.top) !== Number(style.top)
       || Number(verifiedStyle.width) !== Number(style.width)
       || Number(verifiedStyle.height) !== Number(style.height)
-      || Number(verifiedStyle.zIndex) !== Number(style.zIndex)) {
+      || Number(verifiedStyle.zIndex) !== Number(style.zIndex)
+      || verifiedStyle.fit !== style.fit
+      || Number((verifiedStyle.transform || {}).rotation) !== Number(style.transform.rotation)) {
     throw new Error('inserted material authoritative readback mismatch');
   }
   return JSON.stringify({
@@ -1043,11 +1345,11 @@ class BrowserUseCliSession:
     scene_name: op.scene_name || null,
     asset_code: op.asset_code || null,
     material_id: created && created.id,
-    source_material_id: materialId,
-    source_material_type: materialType,
-    source_material_url: sourceUrl,
-    speaker_id: speakerId,
-    digital_human_image_id: digitalHumanImageId,
+    source_material_id: verifiedMaterial.material_id || materialId,
+    source_material_type: verifiedMaterial.type,
+    source_material_url: verifiedMaterial.url || sourceUrl,
+    speaker_id: verifiedMaterial.speaker_id || speakerId,
+    digital_human_image_id: verifiedMaterial.digital_human_image_id || digitalHumanImageId,
     sound_enabled: Boolean(verifiedMaterial.sound_enabled),
     audio_role: op.audio_role || 'muted',
     left: style.left,
@@ -1055,6 +1357,9 @@ class BrowserUseCliSession:
     width: style.width,
     height: style.height,
     z_index: style.zIndex,
+    fit: style.fit,
+    rotation: style.transform.rotation,
+    loop: verifiedMaterial.play_mode === 'loop',
     response: created,
     verified: true,
     verification_source: 'working_room_readback',
@@ -1099,9 +1404,23 @@ class BrowserUseCliSession:
     return unwrap(data);
   }
   const read = () => xhr('GET', 'live_rooms/' + args.liveRoomId + '?env=working&include_qa_clips=true');
+  function assertSafeRoom(room, phase) {
+    const statuses = [room.is_live, room.living, room.is_living, room.status, room.live_status, room.room_status]
+      .filter((value) => value !== null && value !== undefined);
+    const active = new Set(['1','true','yes','live','living','on_air','started','running','broadcasting']);
+    const inactive = new Set(['0','false','no','off','offline','stopped','draft','working','idle','pending','not_live']);
+    const isActive = statuses.some((value) => value === true || active.has(String(value).trim().toLowerCase()));
+    const isOffline = statuses.some((value) => value === false || inactive.has(String(value).trim().toLowerCase()));
+    const hasTrace = [room.live_session_id, room.latest_live_time, room.live_started_at, room.live_start_time]
+      .some((value) => value !== null && value !== undefined && String(value).trim() !== '' && String(value).trim() !== '0');
+    if (String(room.id) !== args.liveRoomId) throw new Error(phase + ' room id mismatch');
+    if (op.require_offline_working_room === true && !op.expected_live_room_title) throw new Error(phase + ' expected room title is missing');
+    if (op.expected_live_room_title && room.name !== op.expected_live_room_title) throw new Error(phase + ' room title mismatch');
+    if (op.require_offline_working_room === true && (isActive || hasTrace || !isOffline)) throw new Error(phase + ' room is live or has a live-session trace');
+  }
   const room = read();
-  if (Number(room.status) !== 0 || room.latest_live_time) throw new Error('target is not an offline never-live draft');
-  const clips = arr((arr(room.topics)[0] || {}).clips);
+  assertSafeRoom(room, 'adopt before mutation');
+  const clips = arr(room.topics).flatMap((topic) => arr(topic && topic.clips));
   const clip = clips.find((item) => String(item.id) === String(args.clipId)) || {};
   const materials = arr(clip.clip_materials);
   const material = materials.find((item) => String(item.id) === String(args.materialId));
@@ -1118,7 +1437,9 @@ class BrowserUseCliSession:
     ? material.style_front : JSON.stringify(material.style_front || {});
   xhr('PUT', 'clip_materials/' + material.id, {...material, clip_id:args.clipId, name:targetName, style_front:style});
   const verifyRoom = read();
-  const verifyClip = arr((arr(verifyRoom.topics)[0] || {}).clips).find((item) => String(item.id) === String(args.clipId)) || {};
+  assertSafeRoom(verifyRoom, 'adopt after mutation');
+  const verifyClip = arr(verifyRoom.topics).flatMap((topic) => arr(topic && topic.clips))
+    .find((item) => String(item.id) === String(args.clipId)) || {};
   const verified = arr(verifyClip.clip_materials).find((item) => String(item.id) === String(args.materialId));
   const verifiedSource = verified && verified.type === 'digital_human'
     && String(verified.material_id || '') === String(op.material_id || '')
@@ -1161,15 +1482,31 @@ class BrowserUseCliSession:
     return {status:x.status, ok:x.status >= 200 && x.status < 300, data};
   }
   const room = unwrap(xhr('GET', 'live_rooms/' + args.liveRoomId + '?env=working&include_qa_clips=true').data);
-  const clips = arr((arr(room.topics)[0] || {}).clips);
+  function assertSafeRoom(value, phase) {
+    const statuses = [value.is_live, value.living, value.is_living, value.status, value.live_status, value.room_status]
+      .filter((item) => item !== null && item !== undefined);
+    const active = new Set(['1','true','yes','live','living','on_air','started','running','broadcasting']);
+    const inactive = new Set(['0','false','no','off','offline','stopped','draft','working','idle','pending','not_live']);
+    const isActive = statuses.some((item) => item === true || active.has(String(item).trim().toLowerCase()));
+    const isOffline = statuses.some((item) => item === false || inactive.has(String(item).trim().toLowerCase()));
+    const hasTrace = [value.live_session_id, value.latest_live_time, value.live_started_at, value.live_start_time]
+      .some((item) => item !== null && item !== undefined && String(item).trim() !== '' && String(item).trim() !== '0');
+    if (String(value.id) !== args.liveRoomId) throw new Error(phase + ' room id mismatch');
+    if (op.require_offline_working_room === true && !op.expected_live_room_title) throw new Error(phase + ' expected room title is missing');
+    if (op.expected_live_room_title && value.name !== op.expected_live_room_title) throw new Error(phase + ' room title mismatch');
+    if (op.require_offline_working_room === true && (isActive || hasTrace || !isOffline)) throw new Error(phase + ' room is live or has a live-session trace');
+  }
+  assertSafeRoom(room, 'position before mutation');
+  const clips = arr(room.topics).flatMap((topic) => arr(topic && topic.clips));
   const clip = clips.find((item) => String(item.id) === String(args.clipId)) || {};
   const materials = arr(clip.clip_materials);
   const material = materials.find((item) => String(item.id) === String(op.clip_material_id || ''));
   if (!material || !material.id) {
     throw new Error('exact clip-material id not found before position mutation');
   }
-  const expectedType = op.source_material_type === 'decorative_video' ? 'video' : op.source_material_type;
-  const sourceMatches = material.type === expectedType
+  const normalizeMaterialType = (value) => value === 'decorative_video' ? 'video' : value;
+  const expectedType = normalizeMaterialType(op.source_material_type);
+  const sourceMatches = normalizeMaterialType(material.type) === expectedType
     && (expectedType === 'digital_human'
       ? String(material.speaker_id || '') === String(op.speaker_id || '')
         && String(material.digital_human_image_id || '') === String(op.digital_human_image_id || '')
@@ -1179,19 +1516,25 @@ class BrowserUseCliSession:
     || Boolean(material.sound_enabled) === Boolean(op.sound_enabled);
   if (!sourceMatches || !soundMatches) throw new Error('exact clip-material source or audio identity mismatch before position mutation');
   const style = {...(typeof material.style_front === 'string' ? JSON.parse(material.style_front || '{}') : (material.style_front || {}))};
-  style.left = op.x || 0;
-  style.top = op.y || 0;
-  style.width = op.width || material.width || null;
-  style.height = op.height || material.height || null;
-  style.zIndex = op.z_index || material.layer_n || 1;
-  const payload = {...material, left: style.left, top: style.top, width: style.width, height: style.height, layer_n: style.zIndex, sound_enabled:op.sound_enabled === true, style_front: JSON.stringify(style)};
+  style.left = op.x ?? 0;
+  style.top = op.y ?? 0;
+  style.width = op.width ?? material.width ?? null;
+  style.height = op.height ?? material.height ?? null;
+  style.zIndex = op.z_index ?? material.layer_n ?? 1;
+  style.fit = op.fit || style.fit || 'contain';
+  const transform = {...(style.transform || {})};
+  transform.scale = transform.scale ?? 1;
+  transform.rotation = op.rotation ?? transform.rotation ?? 0;
+  style.transform = transform;
+  const payload = {...material, left: style.left, top: style.top, width: style.width, height: style.height, layer_n: style.zIndex, sound_enabled:op.sound_enabled === true, play_mode:op.loop === true ? 'loop' : null, style_front: JSON.stringify(style)};
   const updated = unwrap(xhr('PUT', 'clip_materials/' + material.id, payload).data);
   const verifyRoom = unwrap(xhr('GET', 'live_rooms/' + args.liveRoomId + '?env=working&include_qa_clips=true').data);
-  const verifyClips = arr((arr(verifyRoom.topics)[0] || {}).clips);
+  assertSafeRoom(verifyRoom, 'position after mutation');
+  const verifyClips = arr(verifyRoom.topics).flatMap((topic) => arr(topic && topic.clips));
   const verifyClip = verifyClips.find((item) => String(item.id) === String(args.clipId)) || {};
   const verifiedMaterial = arr(verifyClip.clip_materials).find((item) => String(item.id) === String(material.id));
   const verifiedStyle = verifiedMaterial && (typeof verifiedMaterial.style_front === 'string' ? JSON.parse(verifiedMaterial.style_front || '{}') : (verifiedMaterial.style_front || {}));
-  const verifiedSourceMatches = verifiedMaterial && verifiedMaterial.type === expectedType
+  const verifiedSourceMatches = verifiedMaterial && normalizeMaterialType(verifiedMaterial.type) === expectedType
     && (expectedType === 'digital_human'
       ? String(verifiedMaterial.speaker_id || '') === String(op.speaker_id || '')
         && String(verifiedMaterial.digital_human_image_id || '') === String(op.digital_human_image_id || '')
@@ -1201,16 +1544,31 @@ class BrowserUseCliSession:
     || Boolean(verifiedMaterial.sound_enabled) === Boolean(op.sound_enabled));
   if (!verifiedMaterial || !verifiedSourceMatches || !verifiedSoundMatches || Number(verifiedStyle.left) !== Number(style.left) || Number(verifiedStyle.top) !== Number(style.top)
       || Number(verifiedStyle.width) !== Number(style.width) || Number(verifiedStyle.height) !== Number(style.height)
-      || Number(verifiedStyle.zIndex) !== Number(style.zIndex)) {
+      || Number(verifiedStyle.zIndex) !== Number(style.zIndex) || verifiedStyle.fit !== style.fit
+      || Number((verifiedStyle.transform || {}).rotation) !== Number(style.transform.rotation)) {
     throw new Error('positioned material authoritative readback mismatch');
   }
-  return JSON.stringify({status:'positioned', clip_id:args.clipId, scene_index:op.scene_index, scene_name:op.scene_name || null, material_id:material.id, layer_id:op.layer_id || null, layer_type:op.layer_type || null, asset_code:op.asset_code || null, source_material_id:material.material_id || null, source_material_type:material.type || null, source_material_url:material.url || null, speaker_id:material.speaker_id || null, digital_human_image_id:material.digital_human_image_id || null, sound_enabled:Boolean(verifiedMaterial.sound_enabled), audio_role:op.audio_role || 'muted', left:style.left, top:style.top, width:style.width, height:style.height, z_index:style.zIndex, response:updated, verified:true, verification_source:'working_room_readback', go_live_clicked:false});
+  return JSON.stringify({status:'positioned', clip_id:args.clipId, scene_index:op.scene_index, scene_name:op.scene_name || null, material_id:material.id, layer_id:op.layer_id || null, layer_type:op.layer_type || null, asset_code:op.asset_code || null, source_material_id:material.material_id || null, source_material_type:material.type || null, source_material_url:material.url || null, speaker_id:material.speaker_id || null, digital_human_image_id:material.digital_human_image_id || null, sound_enabled:Boolean(verifiedMaterial.sound_enabled), audio_role:op.audio_role || 'muted', left:style.left, top:style.top, width:style.width, height:style.height, z_index:style.zIndex, fit:style.fit, rotation:style.transform.rotation, loop:verifiedMaterial.play_mode === 'loop', response:updated, verified:true, verification_source:'working_room_readback', go_live_clicked:false});
 })()
 """.strip().replace("__ARGS__", json.dumps(args, ensure_ascii=False))
         return self._eval_json(script)
 
-    def write_script(self, *, live_room_id: str, clip_id: int, scene_name: str, script_text: str) -> dict[str, Any]:
-        args = {"liveRoomId": str(live_room_id), "clipId": int(clip_id), "sceneName": scene_name, "scriptText": script_text}
+    def write_script(
+        self,
+        *,
+        live_room_id: str,
+        clip_id: int,
+        scene_name: str,
+        script_text: str,
+        expected_live_room_title: str | None = None,
+    ) -> dict[str, Any]:
+        args = {
+            "liveRoomId": str(live_room_id),
+            "clipId": int(clip_id),
+            "sceneName": scene_name,
+            "scriptText": script_text,
+            "expectedLiveRoomTitle": expected_live_room_title,
+        }
         script = """
 (() => {
   const args = __ARGS__;
@@ -1230,23 +1588,77 @@ class BrowserUseCliSession:
     if (!allowFail && !(x.status >= 200 && x.status < 300)) throw new Error(method + ' ' + path + ' failed ' + x.status + ': ' + x.responseText);
     return {status:x.status, ok:x.status >= 200 && x.status < 300, data};
   }
-  const room = unwrap(xhr('GET', 'live_rooms/' + args.liveRoomId + '?env=working&include_qa_clips=true').data);
-  const clips = arr((arr(room.topics)[0] || {}).clips);
+  const roomPath = 'live_rooms/' + args.liveRoomId + '?env=working&include_qa_clips=true';
+  const activeValues = new Set(['1','true','yes','live','living','on_air','started','running','broadcasting']);
+  const inactiveValues = new Set(['0','false','no','off','offline','stopped','draft','working','idle','pending','not_live']);
+  function assertSafeRoom(room, phase) {
+    const statusValues = [room.is_live, room.living, room.is_living, room.status, room.live_status, room.room_status]
+      .filter((value) => value !== null && value !== undefined);
+    const active = statusValues.some((value) => value === true || activeValues.has(String(value).trim().toLowerCase()));
+    const confirmedNotLive = statusValues.some((value) => value === false || inactiveValues.has(String(value).trim().toLowerCase()));
+    const hasLiveTrace = [room.live_session_id, room.latest_live_time, room.live_started_at, room.live_start_time]
+      .some((value) => value !== null && value !== undefined && String(value).trim() !== '' && String(value).trim() !== '0');
+    if (String(room.id) !== args.liveRoomId) throw new Error('script write authoritative room id mismatch during ' + phase);
+    if (args.expectedLiveRoomTitle !== null && room.name !== args.expectedLiveRoomTitle) {
+      throw new Error('script write authoritative room title mismatch during ' + phase);
+    }
+    if (args.expectedLiveRoomTitle !== null && (active || hasLiveTrace || !confirmedNotLive)) {
+      throw new Error('script write requires explicit authoritative never-live evidence during ' + phase);
+    }
+  }
+  function readTargetClip(phase) {
+    const currentRoom = unwrap(xhr('GET', roomPath).data);
+    assertSafeRoom(currentRoom, phase);
+    const currentClip = arr(currentRoom.topics).flatMap((topic) => arr(topic && topic.clips))
+      .find((item) => String(item.id) === String(args.clipId)) || {};
+    if (!currentClip.id || currentClip.name !== args.sceneName) {
+      throw new Error('script target clip identity mismatch during ' + phase);
+    }
+    return currentClip;
+  }
+  const room = unwrap(xhr('GET', roomPath).data);
+  assertSafeRoom(room, 'initial read');
+  const clips = arr(room.topics).flatMap((topic) => arr(topic && topic.clips));
   const clip = clips.find((item) => String(item.id) === String(args.clipId)) || {};
   if (!clip.id || clip.name !== args.sceneName) throw new Error('script target clip identity mismatch before write');
   const existingTexts = arr(clip.clip_materials).filter((material) => material.type === 'text');
   let textMaterial = null;
   if (existingTexts.length > 0) {
     const primary = existingTexts[0];
-    textMaterial = unwrap(xhr('PUT', 'clip_materials/' + primary.id, {...primary, content:args.scriptText, clip_id:args.clipId}).data);
+    const beforePrimaryWrite = readTargetClip('before primary text write');
+    const freshPrimary = arr(beforePrimaryWrite.clip_materials)
+      .find((material) => String(material && material.id) === String(primary.id));
+    if (!freshPrimary || freshPrimary.type !== 'text') throw new Error('primary text disappeared before script write');
+    textMaterial = unwrap(xhr('PUT', 'clip_materials/' + primary.id, {...freshPrimary, content:args.scriptText, clip_id:args.clipId}).data);
+    const afterPrimaryWrite = readTargetClip('after primary text write');
+    const writtenPrimary = arr(afterPrimaryWrite.clip_materials)
+      .find((material) => String(material && material.id) === String(primary.id));
+    if (!writtenPrimary || writtenPrimary.type !== 'text' || writtenPrimary.content !== args.scriptText) {
+      throw new Error('primary text authoritative readback mismatch');
+    }
     for (const duplicate of existingTexts.slice(1)) {
+      const beforeDuplicateDelete = readTargetClip('before duplicate text delete ' + duplicate.id);
+      const duplicateMatches = arr(beforeDuplicateDelete.clip_materials)
+        .filter((material) => String(material && material.id) === String(duplicate.id) && material.type === 'text');
+      if (duplicateMatches.length !== 1) throw new Error('duplicate text is not unique before delete: ' + duplicate.id);
       xhr('DELETE', 'clip_materials/' + duplicate.id, {});
+      const afterDuplicateDelete = readTargetClip('after duplicate text delete ' + duplicate.id);
+      if (arr(afterDuplicateDelete.clip_materials).some((material) => String(material && material.id) === String(duplicate.id))) {
+        throw new Error('duplicate text remains after authoritative readback: ' + duplicate.id);
+      }
     }
   } else {
+    const beforeTextCreate = readTargetClip('before text create');
+    if (arr(beforeTextCreate.clip_materials).some((material) => material.type === 'text')) {
+      throw new Error('text material appeared before create');
+    }
     textMaterial = unwrap(xhr('POST', 'clip_materials', {type:'text', clip_id:args.clipId, content:args.scriptText, order_num:0}).data);
+    readTargetClip('after text create');
   }
-  const verifyRoom = unwrap(xhr('GET', 'live_rooms/' + args.liveRoomId + '?env=working&include_qa_clips=true').data);
-  const verifyClip = arr((arr(verifyRoom.topics)[0] || {}).clips).find((item) => String(item.id) === String(args.clipId)) || {};
+  const verifyRoom = unwrap(xhr('GET', roomPath).data);
+  assertSafeRoom(verifyRoom, 'final readback');
+  const verifyClip = arr(verifyRoom.topics).flatMap((topic) => arr(topic && topic.clips))
+    .find((item) => String(item.id) === String(args.clipId)) || {};
   if (!verifyClip.id || verifyClip.name !== args.sceneName) throw new Error('script target clip identity mismatch after write');
   const verifiedTexts = arr(verifyClip.clip_materials).filter((material) => material.type === 'text');
   if (verifiedTexts.length !== 1 || verifiedTexts[0].content !== args.scriptText) {
@@ -1279,7 +1691,7 @@ class BrowserUseCliSession:
     return {status:x.status, ok:x.status >= 200 && x.status < 300, data};
   }
   const room = unwrap(xhr('GET', 'live_rooms/' + args.liveRoomId + '?env=working&include_qa_clips=true').data);
-  const clips = arr((arr(room.topics)[0] || {}).clips);
+  const clips = arr(room.topics).flatMap((topic) => arr(topic && topic.clips));
   const clip = clips.find((item) => String(item.id) === String(args.clipId));
   if (!clip || String(clip.id) !== String(args.clipId) || clip.name !== args.sceneName) {
     throw new Error('verify scene target clip identity mismatch');
@@ -1289,10 +1701,20 @@ class BrowserUseCliSession:
   const visuals = materials.filter((m) => m.type !== 'text' && m.type !== 'audio');
   const op = args.operation || {};
   const expectedLayers = arr(op.expected_layers);
-  const exactNumber = (actual, expected) => actual !== null && actual !== undefined && actual !== ''
-    && expected !== null && expected !== undefined && expected !== ''
-    && Number.isFinite(Number(actual)) && Number.isFinite(Number(expected))
-    && Number(actual) === Number(expected);
+	  const exactNumber = (actual, expected) => actual !== null && actual !== undefined && actual !== ''
+	    && expected !== null && expected !== undefined && expected !== ''
+	    && Number.isFinite(Number(actual)) && Number.isFinite(Number(expected))
+	    && Number(actual) === Number(expected);
+	  const canonicalSourceUrl = (value) => {
+	    try {
+	      const parsed = new URL(String(value || ''));
+	      parsed.search = '';
+	      parsed.hash = '';
+	      return parsed.href;
+	    } catch (_error) {
+	      return String(value || '');
+	    }
+	  };
   if (visuals.length !== Number(op.expected_visual_count) || expectedLayers.length !== visuals.length) {
     throw new Error('verify scene visual count mismatch');
   }
@@ -1301,18 +1723,40 @@ class BrowserUseCliSession:
     if (matches.length !== 1 || matches[0].name !== expected.layer_id) throw new Error('verify scene layer identity mismatch');
     const material = matches[0];
     const style = typeof material.style_front === 'string' ? JSON.parse(material.style_front || '{}') : (material.style_front || {});
+    const normalizeJson = (value) => {
+      if (Array.isArray(value)) return value.map(normalizeJson);
+      if (value && typeof value === 'object') {
+        return Object.keys(value).sort().reduce((result, key) => {
+          result[key] = normalizeJson(value[key]);
+          return result;
+        }, {});
+      }
+      if (typeof value === 'number' && !Number.isFinite(value)) throw new Error('verify scene style_front contains a non-finite number');
+      return value;
+    };
+	    const geometry = {
+	      left: style.left ?? material.left,
+	      top: style.top ?? material.top,
+	      width: style.width ?? material.width,
+	      height: style.height ?? material.height,
+	      zIndex: style.zIndex ?? material.layer_n,
+	    };
     const sourceMatches = material.type === expected.source_material_type
       && (expected.source_material_type === 'digital_human'
         ? String(material.speaker_id || '') === String(expected.speaker_id || '')
           && String(material.digital_human_image_id || '') === String(expected.digital_human_image_id || '')
-        : String(material.material_id || '') === String(expected.source_material_id || '')
-          && String(material.url || '') === String(expected.source_material_url || ''));
+	        : String(material.material_id || '') === String(expected.source_material_id || '')
+	          && canonicalSourceUrl(material.url) === canonicalSourceUrl(expected.source_material_url));
     if (!sourceMatches
         || (expected.sound_enabled !== undefined && Boolean(material.sound_enabled) !== Boolean(expected.sound_enabled))
-        || !exactNumber(style.left, expected.left) || !exactNumber(style.top, expected.top)
-        || !exactNumber(style.width, expected.width) || !exactNumber(style.height, expected.height)
-        || !exactNumber(style.zIndex, expected.z_index)) {
+        || !exactNumber(geometry.left, expected.left) || !exactNumber(geometry.top, expected.top)
+        || !exactNumber(geometry.width, expected.width) || !exactNumber(geometry.height, expected.height)
+        || !exactNumber(geometry.zIndex, expected.z_index)) {
       throw new Error('verify scene layer source or geometry mismatch');
+    }
+    if (Object.prototype.hasOwnProperty.call(expected, 'style_front')
+        && JSON.stringify(normalizeJson(style)) !== JSON.stringify(normalizeJson(expected.style_front))) {
+      throw new Error('verify scene style_front snapshot mismatch');
     }
     return {...expected, material_id:material.id};
   });
@@ -1664,6 +2108,7 @@ class BrowserUseCliSession:
         return self._runner(command)  # type: ignore[misc]
 
     def _eval_json(self, script: str) -> dict[str, Any]:
+        self._ensure_maitu_api_tab()
         result = self._parse_json_object(self._call_browser_use(["eval", script]))
         if result is None:
             raise MaituBrowserExecutionError(
@@ -1672,6 +2117,88 @@ class BrowserUseCliSession:
                 retry_instruction="Re-run observe and verify the browser is on an authenticated Maitu page before retrying.",
             )
         return result
+
+    def _ensure_maitu_api_tab(self) -> None:
+        if self.config.session_name is None or self.config.cdp_url is None:
+            return
+        deadline = time.monotonic() + self.config.timeout_seconds
+        for attempt in range(3):
+            listing_output = self._call_browser_use(["--json", "tab", "list"], deadline=deadline)
+            listing_payload = self._parse_json_object(listing_output)
+            listing_data = listing_payload.get("data") if isinstance(listing_payload, dict) else None
+            raw_table = listing_data.get("_raw_text") if isinstance(listing_data, dict) else None
+            if not isinstance(raw_table, str):
+                raise self._maitu_tab_selection_error(
+                    "browser-use did not return a structured tab list"
+                )
+            tabs = self._parse_browser_tab_table(raw_table)
+            candidates = [tab for tab in tabs if self._is_maitu_url(tab["url"])]
+            if len(candidates) != 1:
+                raise self._maitu_tab_selection_error(
+                    f"expected exactly one trusted Maitu tab, found {len(candidates)}"
+                )
+            target = candidates[0]
+            self._call_browser_use(["tab", "switch", str(target["index"])], deadline=deadline)
+            probe = self._parse_json_object(
+                self._call_browser_use(["eval", self.MAITU_TAB_PROBE_SCRIPT], deadline=deadline)
+            )
+            if (
+                probe is not None
+                and probe.get("origin") == "https://live2.maituai.com"
+                and self._is_maitu_url(str(probe.get("href") or ""))
+            ):
+                return
+            if attempt < 2:
+                remaining = deadline - time.monotonic()
+                if remaining > 0:
+                    time.sleep(min(0.2, remaining))
+        raise self._maitu_tab_selection_error(
+            "the selected tab did not remain on the trusted Maitu origin"
+        )
+
+    @staticmethod
+    def _parse_browser_tab_table(raw_table: str) -> list[dict[str, Any]]:
+        lines = [line.strip() for line in raw_table.splitlines() if line.strip()]
+        if not lines or re.fullmatch(r"TAB\s+URL", lines[0], flags=re.IGNORECASE) is None:
+            raise MaituBrowserExecutionError(
+                "Browser-use tab list format is not recognized.",
+                retryable=False,
+                retry_instruction="关闭多余页面并重新连接受信任的麦兔浏览器会话。",
+            )
+        tabs: list[dict[str, Any]] = []
+        seen_indices: set[int] = set()
+        for line in lines[1:]:
+            match = re.fullmatch(r"(\d+)\s+(\S+)", line)
+            if match is None:
+                raise MaituBrowserExecutionError(
+                    "Browser-use tab list contains an ambiguous row.",
+                    retryable=False,
+                    retry_instruction="关闭多余页面并重新连接受信任的麦兔浏览器会话。",
+                )
+            index = int(match.group(1))
+            if index in seen_indices:
+                raise MaituBrowserExecutionError(
+                    "Browser-use tab list contains a duplicate tab index.",
+                    retryable=False,
+                    retry_instruction="重启 browser-use 命名会话后再试。",
+                )
+            seen_indices.add(index)
+            tabs.append({"index": index, "url": match.group(2)})
+        if not tabs:
+            raise MaituBrowserExecutionError(
+                "Browser-use tab list is empty.",
+                retryable=False,
+                retry_instruction="请在可见浏览器中打开并登录麦兔后重试。",
+            )
+        return tabs
+
+    @staticmethod
+    def _maitu_tab_selection_error(reason: str) -> MaituBrowserExecutionError:
+        return MaituBrowserExecutionError(
+            f"Cannot select a unique trusted Maitu browser tab: {reason}.",
+            retryable=False,
+            retry_instruction="仅保留一个已登录的 live2.maituai.com 页面，然后重新执行任务。",
+        )
 
     def _run_command(self, args: Sequence[str], *, cwd: str | None, timeout_seconds: float) -> str:
         env = self._subprocess_env(cwd)

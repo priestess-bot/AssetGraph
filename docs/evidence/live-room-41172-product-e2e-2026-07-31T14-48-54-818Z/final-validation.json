@@ -1,0 +1,238 @@
+{
+  "capturedAt": "2026-07-31T14:58:09.246Z",
+  "planCode": "LIVEPLAN-20260731-000018",
+  "projectCode": "CONTENT-20260731-000019",
+  "validation": {
+    "sceneCount": 3,
+    "roles": [
+      "background",
+      "brand_title",
+      "digital_human",
+      "product_display",
+      "set_surface",
+      "supporting_video"
+    ],
+    "selectedAssetCodes": [
+      "AG-IMG-20260729-000002",
+      "AG-IMG-20260729-000021",
+      "AG-IMG-20260729-000025",
+      "AG-IMG-20260729-000028",
+      "AG-VID-20260729-000019",
+      "AG-VID-20260731-000001"
+    ],
+    "projectedAssetCodes": [
+      "AG-IMG-20260729-000002",
+      "AG-IMG-20260729-000021",
+      "AG-IMG-20260729-000025",
+      "AG-IMG-20260729-000028",
+      "AG-VID-20260729-000019",
+      "AG-VID-20260731-000001"
+    ],
+    "contentTarget": {
+      "theme": "介绍张裕品酒大师PRO",
+      "goal": "生成一场恰好三段的离线测试直播草稿，完整介绍张裕品酒大师PRO的产品特点、品鉴方法与适合场景。",
+      "story": "从第一次选酒的困惑切入，用看色、闻香、品味三个动作完成产品介绍，最后回顾适合人群与品鉴建议。",
+      "detailedDesign": "第一段开场建立品牌和品鉴目标；第二段展示商品或酒体视频并讲解品鉴步骤；第三段总结卖点和互动问题。\n背景必须置底，桌面承托商品，商品或视频位于背景之上，数字人位于商品内容之上，品牌标题或前景装饰位于高层。\n最终只生成三个场景，只写入离线测试草稿，不排播、不开播。"
+    },
+    "executionStatus": "succeeded",
+    "verification": {
+      "scenes": [
+        {
+          "scene_id": "437569",
+          "scene_name": "MSB-VARIANT-20260731-000018-001",
+          "scene_index": 0,
+          "visual_count": 4,
+          "layer_numbers": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "script_matched": true,
+          "highest_layer_type": "image",
+          "exact_expected_order": true,
+          "expected_layer_order": [
+            "LYR-MSB-VARIANT-20260731-000018-001-01",
+            "LYR-MSB-VARIANT-20260731-000018-001-02",
+            "LYR-MSB-VARIANT-20260731-000018-001-03",
+            "LYR-MSB-VARIANT-20260731-000018-001-04"
+          ],
+          "observed_layer_order": [
+            "LYR-MSB-VARIANT-20260731-000018-001-01",
+            "LYR-MSB-VARIANT-20260731-000018-001-02",
+            "LYR-MSB-VARIANT-20260731-000018-001-03",
+            "LYR-MSB-VARIANT-20260731-000018-001-04"
+          ]
+        },
+        {
+          "scene_id": "452249",
+          "scene_name": "MSB-VARIANT-20260731-000018-002",
+          "scene_index": 1,
+          "visual_count": 6,
+          "layer_numbers": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "script_matched": true,
+          "highest_layer_type": "image",
+          "exact_expected_order": true,
+          "expected_layer_order": [
+            "LYR-MSB-VARIANT-20260731-000018-002-01",
+            "LYR-MSB-VARIANT-20260731-000018-002-05",
+            "LYR-MSB-VARIANT-20260731-000018-002-02",
+            "LYR-MSB-VARIANT-20260731-000018-002-06",
+            "LYR-MSB-VARIANT-20260731-000018-002-03",
+            "LYR-MSB-VARIANT-20260731-000018-002-04"
+          ],
+          "observed_layer_order": [
+            "LYR-MSB-VARIANT-20260731-000018-002-01",
+            "LYR-MSB-VARIANT-20260731-000018-002-05",
+            "LYR-MSB-VARIANT-20260731-000018-002-02",
+            "LYR-MSB-VARIANT-20260731-000018-002-06",
+            "LYR-MSB-VARIANT-20260731-000018-002-03",
+            "LYR-MSB-VARIANT-20260731-000018-002-04"
+          ]
+        },
+        {
+          "scene_id": "452250",
+          "scene_name": "MSB-VARIANT-20260731-000018-003",
+          "scene_index": 2,
+          "visual_count": 5,
+          "layer_numbers": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "script_matched": true,
+          "highest_layer_type": "image",
+          "exact_expected_order": true,
+          "expected_layer_order": [
+            "LYR-MSB-VARIANT-20260731-000018-003-01",
+            "LYR-MSB-VARIANT-20260731-000018-003-02",
+            "LYR-MSB-VARIANT-20260731-000018-003-05",
+            "LYR-MSB-VARIANT-20260731-000018-003-03",
+            "LYR-MSB-VARIANT-20260731-000018-003-04"
+          ],
+          "observed_layer_order": [
+            "LYR-MSB-VARIANT-20260731-000018-003-01",
+            "LYR-MSB-VARIANT-20260731-000018-003-02",
+            "LYR-MSB-VARIANT-20260731-000018-003-05",
+            "LYR-MSB-VARIANT-20260731-000018-003-03",
+            "LYR-MSB-VARIANT-20260731-000018-003-04"
+          ]
+        }
+      ],
+      "matched": true,
+      "scene_count": 3,
+      "verification_source": "refreshed_working_room_readback"
+    },
+    "layerOrderValidation": {
+      "passed": true,
+      "scenes": [
+        {
+          "scene_id": "437569",
+          "scene_name": "MSB-VARIANT-20260731-000018-001",
+          "scene_index": 0,
+          "visual_count": 4,
+          "layer_numbers": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "script_matched": true,
+          "highest_layer_type": "image",
+          "exact_expected_order": true,
+          "expected_layer_order": [
+            "LYR-MSB-VARIANT-20260731-000018-001-01",
+            "LYR-MSB-VARIANT-20260731-000018-001-02",
+            "LYR-MSB-VARIANT-20260731-000018-001-03",
+            "LYR-MSB-VARIANT-20260731-000018-001-04"
+          ],
+          "observed_layer_order": [
+            "LYR-MSB-VARIANT-20260731-000018-001-01",
+            "LYR-MSB-VARIANT-20260731-000018-001-02",
+            "LYR-MSB-VARIANT-20260731-000018-001-03",
+            "LYR-MSB-VARIANT-20260731-000018-001-04"
+          ]
+        },
+        {
+          "scene_id": "452249",
+          "scene_name": "MSB-VARIANT-20260731-000018-002",
+          "scene_index": 1,
+          "visual_count": 6,
+          "layer_numbers": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "script_matched": true,
+          "highest_layer_type": "image",
+          "exact_expected_order": true,
+          "expected_layer_order": [
+            "LYR-MSB-VARIANT-20260731-000018-002-01",
+            "LYR-MSB-VARIANT-20260731-000018-002-05",
+            "LYR-MSB-VARIANT-20260731-000018-002-02",
+            "LYR-MSB-VARIANT-20260731-000018-002-06",
+            "LYR-MSB-VARIANT-20260731-000018-002-03",
+            "LYR-MSB-VARIANT-20260731-000018-002-04"
+          ],
+          "observed_layer_order": [
+            "LYR-MSB-VARIANT-20260731-000018-002-01",
+            "LYR-MSB-VARIANT-20260731-000018-002-05",
+            "LYR-MSB-VARIANT-20260731-000018-002-02",
+            "LYR-MSB-VARIANT-20260731-000018-002-06",
+            "LYR-MSB-VARIANT-20260731-000018-002-03",
+            "LYR-MSB-VARIANT-20260731-000018-002-04"
+          ]
+        },
+        {
+          "scene_id": "452250",
+          "scene_name": "MSB-VARIANT-20260731-000018-003",
+          "scene_index": 2,
+          "visual_count": 5,
+          "layer_numbers": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "script_matched": true,
+          "highest_layer_type": "image",
+          "exact_expected_order": true,
+          "expected_layer_order": [
+            "LYR-MSB-VARIANT-20260731-000018-003-01",
+            "LYR-MSB-VARIANT-20260731-000018-003-02",
+            "LYR-MSB-VARIANT-20260731-000018-003-05",
+            "LYR-MSB-VARIANT-20260731-000018-003-03",
+            "LYR-MSB-VARIANT-20260731-000018-003-04"
+          ],
+          "observed_layer_order": [
+            "LYR-MSB-VARIANT-20260731-000018-003-01",
+            "LYR-MSB-VARIANT-20260731-000018-003-02",
+            "LYR-MSB-VARIANT-20260731-000018-003-05",
+            "LYR-MSB-VARIANT-20260731-000018-003-03",
+            "LYR-MSB-VARIANT-20260731-000018-003-04"
+          ]
+        }
+      ],
+      "continuous_from_one": true,
+      "video_never_highest": true,
+      "exact_expected_order": true,
+      "exact_geometry_and_source": true
+    },
+    "readyForGoLive": false,
+    "goLiveClicked": false,
+    "nonReleasable": true
+  }
+}

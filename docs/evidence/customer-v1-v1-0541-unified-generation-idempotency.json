@@ -1,0 +1,24 @@
+{
+  "schema_version": "customer-v1-unified-generation-evidence.v1",
+  "executed_at": "2026-07-31T19:16:00+09:00",
+  "scope": ["V1-0541"],
+  "backend": {
+    "command": ".venv/bin/pytest -q tests/test_functional_live_rooms_postgres.py -k 'compiles_and_only_requests_maitu_execution or creation_idempotency'",
+    "result": "2 passed, 11 deselected",
+    "assertions": [
+      "a confirmed generated content project compiles exactly three blueprint scenes and a draft-only BuildPlan",
+      "the same plan creation key and input returns the original project variant and BuildPlan",
+      "input drift under the same key is rejected and only one plan row exists"
+    ]
+  },
+  "frontend": {
+    "command": "npx vitest run src/live-rooms/model.test.ts src/live-rooms/LiveRoomEditorProductPage.test.tsx --testTimeout=20000",
+    "result": "12 passed",
+    "assertions": [
+      "one page command creates/confirms the project, brief, content chain and three-scene plan",
+      "theme, story and detailed design are passed through the chain",
+      "refresh and blueprint revision switch the UI to the returned immutable plan version"
+    ]
+  },
+  "database_migration": "backend/migrations/108_functional_live_room_plan_idempotency.sql"
+}

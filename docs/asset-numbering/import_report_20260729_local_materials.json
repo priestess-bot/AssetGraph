@@ -1,0 +1,846 @@
+{
+  "mode": "import",
+  "planned_count": 49,
+  "invalid_count": 82,
+  "create_count": 49,
+  "skip_count": 0,
+  "fail_count": 0,
+  "file_upload_count": 0,
+  "items": [
+    {
+      "local_file_code": "DH-AVT-0001-F002",
+      "relative_path": "数字分身/数字分身成品/37200_张裕定制形象260519/DH-AVT-0001-F002_数字分身成品_37200_张裕定制形象260519_成品封面.png",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/数字分身成品/37200_张裕定制形象260519/DH-AVT-0001-F002_数字分身成品_37200_张裕定制形象260519_成品封面.png"
+    },
+    {
+      "local_file_code": "DH-AVT-0001-F003",
+      "relative_path": "数字分身/数字分身成品/37200_张裕定制形象260519/DH-AVT-0001-F003_数字分身成品_37200_张裕定制形象260519_成品预览视频.mp4",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/数字分身成品/37200_张裕定制形象260519/DH-AVT-0001-F003_数字分身成品_37200_张裕定制形象260519_成品预览视频.mp4"
+    },
+    {
+      "local_file_code": "DH-AVT-0002-F002",
+      "relative_path": "数字分身/数字分身成品/40222_明月/DH-AVT-0002-F002_数字分身成品_40222_明月_成品封面.png",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/数字分身成品/40222_明月/DH-AVT-0002-F002_数字分身成品_40222_明月_成品封面.png"
+    },
+    {
+      "local_file_code": "DH-AVT-0002-F003",
+      "relative_path": "数字分身/数字分身成品/40222_明月/DH-AVT-0002-F003_数字分身成品_40222_明月_成品预览视频.mp4",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/数字分身成品/40222_明月/DH-AVT-0002-F003_数字分身成品_40222_明月_成品预览视频.mp4"
+    },
+    {
+      "local_file_code": "DH-AVT-0001-F001",
+      "relative_path": "数字分身/数字分身成品/DH-AVT-0001-F001_数字分身成品_37200_张裕定制形象260519_成品封面.png",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/数字分身成品/DH-AVT-0001-F001_数字分身成品_37200_张裕定制形象260519_成品封面.png"
+    },
+    {
+      "local_file_code": "DH-AVT-0001-F004",
+      "relative_path": "数字分身/数字分身成品/DH-AVT-0001-F004_数字分身成品_37200_张裕定制形象260519_成品预览视频.mp4",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/数字分身成品/DH-AVT-0001-F004_数字分身成品_37200_张裕定制形象260519_成品预览视频.mp4"
+    },
+    {
+      "local_file_code": "DH-AVT-0002-F001",
+      "relative_path": "数字分身/数字分身成品/DH-AVT-0002-F001_数字分身成品_40222_明月_成品封面.png",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/数字分身成品/DH-AVT-0002-F001_数字分身成品_40222_明月_成品封面.png"
+    },
+    {
+      "local_file_code": "DH-AVT-0002-F004",
+      "relative_path": "数字分身/数字分身成品/DH-AVT-0002-F004_数字分身成品_40222_明月_成品预览视频.mp4",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/数字分身成品/DH-AVT-0002-F004_数字分身成品_40222_明月_成品预览视频.mp4"
+    },
+    {
+      "local_file_code": "DH-MDL-0001-F001",
+      "relative_path": "数字分身/模特/7717_Y26定制/DH-MDL-0001-F001_模特_7717_Y26定制_模特封面.png",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/7717_Y26定制/DH-MDL-0001-F001_模特_7717_Y26定制_模特封面.png"
+    },
+    {
+      "local_file_code": "DH-MDL-0001-F002",
+      "relative_path": "数字分身/模特/7717_Y26定制/DH-MDL-0001-F002_模特_7717_Y26定制_完整预览视频.mp4",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/7717_Y26定制/DH-MDL-0001-F002_模特_7717_Y26定制_完整预览视频.mp4"
+    },
+    {
+      "local_file_code": "DH-MDL-0001-F003",
+      "relative_path": "数字分身/模特/7717_Y26定制/DH-MDL-0001-F003_模特_7717_Y26定制_口型对比视频.mp4",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/7717_Y26定制/DH-MDL-0001-F003_模特_7717_Y26定制_口型对比视频.mp4"
+    },
+    {
+      "local_file_code": "DH-MDL-0001-F004",
+      "relative_path": "数字分身/模特/7717_Y26定制/DH-MDL-0001-F004_模特_7717_Y26定制_预览视频.mp4",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/7717_Y26定制/DH-MDL-0001-F004_模特_7717_Y26定制_预览视频.mp4"
+    },
+    {
+      "local_file_code": "DH-MDL-0001-F005",
+      "relative_path": "数字分身/模特/7717_Y26定制/DH-MDL-0001-F005_模特_7717_Y26定制_训练合成视频.mp4",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/7717_Y26定制/DH-MDL-0001-F005_模特_7717_Y26定制_训练合成视频.mp4"
+    },
+    {
+      "local_file_code": "DH-MDL-0001-F006",
+      "relative_path": "数字分身/模特/7717_Y26定制/分段封面/DH-MDL-0001-F006_模特_7717_Y26定制_多名利特选窖藏_分段封面.png",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/7717_Y26定制/分段封面/DH-MDL-0001-F006_模特_7717_Y26定制_多名利特选窖藏_分段封面.png"
+    },
+    {
+      "local_file_code": "DH-MDL-0001-F007",
+      "relative_path": "数字分身/模特/7717_Y26定制/分段封面/DH-MDL-0001-F007_模特_7717_Y26定制_N158_礼盒_分段封面.png",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/7717_Y26定制/分段封面/DH-MDL-0001-F007_模特_7717_Y26定制_N158_礼盒_分段封面.png"
+    },
+    {
+      "local_file_code": "DH-MDL-0001-F008",
+      "relative_path": "数字分身/模特/7717_Y26定制/分段封面/DH-MDL-0001-F008_模特_7717_Y26定制_解百纳1937_分段封面.png",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/7717_Y26定制/分段封面/DH-MDL-0001-F008_模特_7717_Y26定制_解百纳1937_分段封面.png"
+    },
+    {
+      "local_file_code": "DH-MDL-0001-F009",
+      "relative_path": "数字分身/模特/7717_Y26定制/分段封面/DH-MDL-0001-F009_模特_7717_Y26定制_品酒大师SUPER_分段封面.png",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/7717_Y26定制/分段封面/DH-MDL-0001-F009_模特_7717_Y26定制_品酒大师SUPER_分段封面.png"
+    },
+    {
+      "local_file_code": "DH-MDL-0001-F010",
+      "relative_path": "数字分身/模特/7717_Y26定制/分段封面/DH-MDL-0001-F010_模特_7717_Y26定制_品酒大师MASTER_分段封面.png",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/7717_Y26定制/分段封面/DH-MDL-0001-F010_模特_7717_Y26定制_品酒大师MASTER_分段封面.png"
+    },
+    {
+      "local_file_code": "DH-MDL-0001-F011",
+      "relative_path": "数字分身/模特/7717_Y26定制/分段封面/DH-MDL-0001-F011_模特_7717_Y26定制_品酒大师PRO_分段封面.png",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/7717_Y26定制/分段封面/DH-MDL-0001-F011_模特_7717_Y26定制_品酒大师PRO_分段封面.png"
+    },
+    {
+      "local_file_code": "DH-MDL-0001-F012",
+      "relative_path": "数字分身/模特/7717_Y26定制/分段封面/DH-MDL-0001-F012_模特_7717_Y26定制_品酒大师PLUS_分段封面.png",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/7717_Y26定制/分段封面/DH-MDL-0001-F012_模特_7717_Y26定制_品酒大师PLUS_分段封面.png"
+    },
+    {
+      "local_file_code": "DH-MDL-0001-F013",
+      "relative_path": "数字分身/模特/7717_Y26定制/分段封面/DH-MDL-0001-F013_模特_7717_Y26定制_龙谕单一园_礼盒_分段封面.png",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/7717_Y26定制/分段封面/DH-MDL-0001-F013_模特_7717_Y26定制_龙谕单一园_礼盒_分段封面.png"
+    },
+    {
+      "local_file_code": "DH-MDL-0001-F014",
+      "relative_path": "数字分身/模特/7717_Y26定制/分段封面/DH-MDL-0001-F014_模特_7717_Y26定制_龙谕龙12_分段封面.png",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/7717_Y26定制/分段封面/DH-MDL-0001-F014_模特_7717_Y26定制_龙谕龙12_分段封面.png"
+    },
+    {
+      "local_file_code": "DH-MDL-0001-F015",
+      "relative_path": "数字分身/模特/7717_Y26定制/分段封面/DH-MDL-0001-F015_模特_7717_Y26定制_张裕通用口播_分段封面.png",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/7717_Y26定制/分段封面/DH-MDL-0001-F015_模特_7717_Y26定制_张裕通用口播_分段封面.png"
+    },
+    {
+      "local_file_code": "DH-MDL-0001-F016",
+      "relative_path": "数字分身/模特/7717_Y26定制/分段封面/DH-MDL-0001-F016_模特_7717_Y26定制_龙谕龙8_分段封面.png",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/7717_Y26定制/分段封面/DH-MDL-0001-F016_模特_7717_Y26定制_龙谕龙8_分段封面.png"
+    },
+    {
+      "local_file_code": "DH-MDL-0001-F017",
+      "relative_path": "数字分身/模特/7717_Y26定制/训练素材/DH-MDL-0001-F017_模特_7717_Y26定制_多名利特选窖藏_训练素材.mov",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/7717_Y26定制/训练素材/DH-MDL-0001-F017_模特_7717_Y26定制_多名利特选窖藏_训练素材.mov"
+    },
+    {
+      "local_file_code": "DH-MDL-0001-F018",
+      "relative_path": "数字分身/模特/7717_Y26定制/训练素材/DH-MDL-0001-F018_模特_7717_Y26定制_N158_礼盒_训练素材.mov",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/7717_Y26定制/训练素材/DH-MDL-0001-F018_模特_7717_Y26定制_N158_礼盒_训练素材.mov"
+    },
+    {
+      "local_file_code": "DH-MDL-0001-F019",
+      "relative_path": "数字分身/模特/7717_Y26定制/训练素材/DH-MDL-0001-F019_模特_7717_Y26定制_解百纳1937_训练素材.mov",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/7717_Y26定制/训练素材/DH-MDL-0001-F019_模特_7717_Y26定制_解百纳1937_训练素材.mov"
+    },
+    {
+      "local_file_code": "DH-MDL-0001-F020",
+      "relative_path": "数字分身/模特/7717_Y26定制/训练素材/DH-MDL-0001-F020_模特_7717_Y26定制_品酒大师SUPER_训练素材.mov",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/7717_Y26定制/训练素材/DH-MDL-0001-F020_模特_7717_Y26定制_品酒大师SUPER_训练素材.mov"
+    },
+    {
+      "local_file_code": "DH-MDL-0001-F021",
+      "relative_path": "数字分身/模特/7717_Y26定制/训练素材/DH-MDL-0001-F021_模特_7717_Y26定制_品酒大师MASTER_训练素材.mov",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/7717_Y26定制/训练素材/DH-MDL-0001-F021_模特_7717_Y26定制_品酒大师MASTER_训练素材.mov"
+    },
+    {
+      "local_file_code": "DH-MDL-0001-F022",
+      "relative_path": "数字分身/模特/7717_Y26定制/训练素材/DH-MDL-0001-F022_模特_7717_Y26定制_品酒大师PRO_训练素材.mov",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/7717_Y26定制/训练素材/DH-MDL-0001-F022_模特_7717_Y26定制_品酒大师PRO_训练素材.mov"
+    },
+    {
+      "local_file_code": "DH-MDL-0001-F023",
+      "relative_path": "数字分身/模特/7717_Y26定制/训练素材/DH-MDL-0001-F023_模特_7717_Y26定制_品酒大师PLUS_训练素材.mov",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/7717_Y26定制/训练素材/DH-MDL-0001-F023_模特_7717_Y26定制_品酒大师PLUS_训练素材.mov"
+    },
+    {
+      "local_file_code": "DH-MDL-0001-F024",
+      "relative_path": "数字分身/模特/7717_Y26定制/训练素材/DH-MDL-0001-F024_模特_7717_Y26定制_龙谕单一园_礼盒_训练素材.mov",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/7717_Y26定制/训练素材/DH-MDL-0001-F024_模特_7717_Y26定制_龙谕单一园_礼盒_训练素材.mov"
+    },
+    {
+      "local_file_code": "DH-MDL-0001-F025",
+      "relative_path": "数字分身/模特/7717_Y26定制/训练素材/DH-MDL-0001-F025_模特_7717_Y26定制_龙谕龙12_训练素材.mov",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/7717_Y26定制/训练素材/DH-MDL-0001-F025_模特_7717_Y26定制_龙谕龙12_训练素材.mov"
+    },
+    {
+      "local_file_code": "DH-MDL-0001-F026",
+      "relative_path": "数字分身/模特/7717_Y26定制/训练素材/DH-MDL-0001-F026_模特_7717_Y26定制_张裕通用口播_训练素材.mov",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/7717_Y26定制/训练素材/DH-MDL-0001-F026_模特_7717_Y26定制_张裕通用口播_训练素材.mov"
+    },
+    {
+      "local_file_code": "DH-MDL-0001-F027",
+      "relative_path": "数字分身/模特/7717_Y26定制/训练素材/DH-MDL-0001-F027_模特_7717_Y26定制_龙谕龙8_训练素材.mov",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/7717_Y26定制/训练素材/DH-MDL-0001-F027_模特_7717_Y26定制_龙谕龙8_训练素材.mov"
+    },
+    {
+      "local_file_code": "DH-MDL-0001-F028",
+      "relative_path": "数字分身/模特/7717_Y26定制/训练素材封面/DH-MDL-0001-F028_模特_7717_Y26定制_多名利特选窖藏_训练素材封面.png",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/7717_Y26定制/训练素材封面/DH-MDL-0001-F028_模特_7717_Y26定制_多名利特选窖藏_训练素材封面.png"
+    },
+    {
+      "local_file_code": "DH-MDL-0001-F029",
+      "relative_path": "数字分身/模特/7717_Y26定制/训练素材封面/DH-MDL-0001-F029_模特_7717_Y26定制_N158_礼盒_训练素材封面.png",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/7717_Y26定制/训练素材封面/DH-MDL-0001-F029_模特_7717_Y26定制_N158_礼盒_训练素材封面.png"
+    },
+    {
+      "local_file_code": "DH-MDL-0001-F030",
+      "relative_path": "数字分身/模特/7717_Y26定制/训练素材封面/DH-MDL-0001-F030_模特_7717_Y26定制_解百纳1937_训练素材封面.png",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/7717_Y26定制/训练素材封面/DH-MDL-0001-F030_模特_7717_Y26定制_解百纳1937_训练素材封面.png"
+    },
+    {
+      "local_file_code": "DH-MDL-0001-F031",
+      "relative_path": "数字分身/模特/7717_Y26定制/训练素材封面/DH-MDL-0001-F031_模特_7717_Y26定制_品酒大师SUPER_训练素材封面.png",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/7717_Y26定制/训练素材封面/DH-MDL-0001-F031_模特_7717_Y26定制_品酒大师SUPER_训练素材封面.png"
+    },
+    {
+      "local_file_code": "DH-MDL-0001-F032",
+      "relative_path": "数字分身/模特/7717_Y26定制/训练素材封面/DH-MDL-0001-F032_模特_7717_Y26定制_品酒大师MASTER_训练素材封面.png",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/7717_Y26定制/训练素材封面/DH-MDL-0001-F032_模特_7717_Y26定制_品酒大师MASTER_训练素材封面.png"
+    },
+    {
+      "local_file_code": "DH-MDL-0001-F033",
+      "relative_path": "数字分身/模特/7717_Y26定制/训练素材封面/DH-MDL-0001-F033_模特_7717_Y26定制_品酒大师PRO_训练素材封面.png",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/7717_Y26定制/训练素材封面/DH-MDL-0001-F033_模特_7717_Y26定制_品酒大师PRO_训练素材封面.png"
+    },
+    {
+      "local_file_code": "DH-MDL-0001-F034",
+      "relative_path": "数字分身/模特/7717_Y26定制/训练素材封面/DH-MDL-0001-F034_模特_7717_Y26定制_品酒大师PLUS_训练素材封面.png",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/7717_Y26定制/训练素材封面/DH-MDL-0001-F034_模特_7717_Y26定制_品酒大师PLUS_训练素材封面.png"
+    },
+    {
+      "local_file_code": "DH-MDL-0001-F035",
+      "relative_path": "数字分身/模特/7717_Y26定制/训练素材封面/DH-MDL-0001-F035_模特_7717_Y26定制_龙谕单一园_礼盒_训练素材封面.png",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/7717_Y26定制/训练素材封面/DH-MDL-0001-F035_模特_7717_Y26定制_龙谕单一园_礼盒_训练素材封面.png"
+    },
+    {
+      "local_file_code": "DH-MDL-0001-F036",
+      "relative_path": "数字分身/模特/7717_Y26定制/训练素材封面/DH-MDL-0001-F036_模特_7717_Y26定制_龙谕龙12_训练素材封面.png",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/7717_Y26定制/训练素材封面/DH-MDL-0001-F036_模特_7717_Y26定制_龙谕龙12_训练素材封面.png"
+    },
+    {
+      "local_file_code": "DH-MDL-0001-F037",
+      "relative_path": "数字分身/模特/7717_Y26定制/训练素材封面/DH-MDL-0001-F037_模特_7717_Y26定制_张裕通用口播_训练素材封面.png",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/7717_Y26定制/训练素材封面/DH-MDL-0001-F037_模特_7717_Y26定制_张裕通用口播_训练素材封面.png"
+    },
+    {
+      "local_file_code": "DH-MDL-0001-F038",
+      "relative_path": "数字分身/模特/7717_Y26定制/训练素材封面/DH-MDL-0001-F038_模特_7717_Y26定制_龙谕龙8_训练素材封面.png",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/7717_Y26定制/训练素材封面/DH-MDL-0001-F038_模特_7717_Y26定制_龙谕龙8_训练素材封面.png"
+    },
+    {
+      "local_file_code": "DH-MDL-0002-F001",
+      "relative_path": "数字分身/模特/8856_明月/DH-MDL-0002-F001_模特_8856_明月_模特封面.png",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/8856_明月/DH-MDL-0002-F001_模特_8856_明月_模特封面.png"
+    },
+    {
+      "local_file_code": "DH-MDL-0002-F002",
+      "relative_path": "数字分身/模特/8856_明月/DH-MDL-0002-F002_模特_8856_明月_完整预览视频.mp4",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/8856_明月/DH-MDL-0002-F002_模特_8856_明月_完整预览视频.mp4"
+    },
+    {
+      "local_file_code": "DH-MDL-0002-F003",
+      "relative_path": "数字分身/模特/8856_明月/DH-MDL-0002-F003_模特_8856_明月_口型对比视频.mp4",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/8856_明月/DH-MDL-0002-F003_模特_8856_明月_口型对比视频.mp4"
+    },
+    {
+      "local_file_code": "DH-MDL-0002-F004",
+      "relative_path": "数字分身/模特/8856_明月/DH-MDL-0002-F004_模特_8856_明月_预览视频.mp4",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/8856_明月/DH-MDL-0002-F004_模特_8856_明月_预览视频.mp4"
+    },
+    {
+      "local_file_code": "DH-MDL-0002-F005",
+      "relative_path": "数字分身/模特/8856_明月/DH-MDL-0002-F005_模特_8856_明月_训练合成视频.mp4",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/8856_明月/DH-MDL-0002-F005_模特_8856_明月_训练合成视频.mp4"
+    },
+    {
+      "local_file_code": "DH-MDL-0002-F006",
+      "relative_path": "数字分身/模特/8856_明月/分段封面/DH-MDL-0002-F006_模特_8856_明月_侧坐A_分段封面.png",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/8856_明月/分段封面/DH-MDL-0002-F006_模特_8856_明月_侧坐A_分段封面.png"
+    },
+    {
+      "local_file_code": "DH-MDL-0002-F007",
+      "relative_path": "数字分身/模特/8856_明月/分段封面/DH-MDL-0002-F007_模特_8856_明月_站右A_分段封面.png",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/8856_明月/分段封面/DH-MDL-0002-F007_模特_8856_明月_站右A_分段封面.png"
+    },
+    {
+      "local_file_code": "DH-MDL-0002-F008",
+      "relative_path": "数字分身/模特/8856_明月/分段封面/DH-MDL-0002-F008_模特_8856_明月_站正面A_分段封面.png",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/8856_明月/分段封面/DH-MDL-0002-F008_模特_8856_明月_站正面A_分段封面.png"
+    },
+    {
+      "local_file_code": "DH-MDL-0002-F009",
+      "relative_path": "数字分身/模特/8856_明月/分段封面/DH-MDL-0002-F009_模特_8856_明月_站左A_分段封面.png",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/8856_明月/分段封面/DH-MDL-0002-F009_模特_8856_明月_站左A_分段封面.png"
+    },
+    {
+      "local_file_code": "DH-MDL-0002-F010",
+      "relative_path": "数字分身/模特/8856_明月/分段封面/DH-MDL-0002-F010_模特_8856_明月_正坐A_分段封面.png",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/8856_明月/分段封面/DH-MDL-0002-F010_模特_8856_明月_正坐A_分段封面.png"
+    },
+    {
+      "local_file_code": "DH-MDL-0002-F011",
+      "relative_path": "数字分身/模特/8856_明月/训练素材/DH-MDL-0002-F011_模特_8856_明月_侧坐A_训练素材.mp4",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/8856_明月/训练素材/DH-MDL-0002-F011_模特_8856_明月_侧坐A_训练素材.mp4"
+    },
+    {
+      "local_file_code": "DH-MDL-0002-F012",
+      "relative_path": "数字分身/模特/8856_明月/训练素材/DH-MDL-0002-F012_模特_8856_明月_站右A_训练素材.mp4",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/8856_明月/训练素材/DH-MDL-0002-F012_模特_8856_明月_站右A_训练素材.mp4"
+    },
+    {
+      "local_file_code": "DH-MDL-0002-F013",
+      "relative_path": "数字分身/模特/8856_明月/训练素材/DH-MDL-0002-F013_模特_8856_明月_站正面A_训练素材.mp4",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/8856_明月/训练素材/DH-MDL-0002-F013_模特_8856_明月_站正面A_训练素材.mp4"
+    },
+    {
+      "local_file_code": "DH-MDL-0002-F014",
+      "relative_path": "数字分身/模特/8856_明月/训练素材/DH-MDL-0002-F014_模特_8856_明月_站左A_训练素材.mp4",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/8856_明月/训练素材/DH-MDL-0002-F014_模特_8856_明月_站左A_训练素材.mp4"
+    },
+    {
+      "local_file_code": "DH-MDL-0002-F015",
+      "relative_path": "数字分身/模特/8856_明月/训练素材/DH-MDL-0002-F015_模特_8856_明月_正坐A_训练素材.mp4",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/8856_明月/训练素材/DH-MDL-0002-F015_模特_8856_明月_正坐A_训练素材.mp4"
+    },
+    {
+      "local_file_code": "DH-MDL-0002-F016",
+      "relative_path": "数字分身/模特/8856_明月/训练素材封面/DH-MDL-0002-F016_模特_8856_明月_侧坐A_训练素材封面.png",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/8856_明月/训练素材封面/DH-MDL-0002-F016_模特_8856_明月_侧坐A_训练素材封面.png"
+    },
+    {
+      "local_file_code": "DH-MDL-0002-F017",
+      "relative_path": "数字分身/模特/8856_明月/训练素材封面/DH-MDL-0002-F017_模特_8856_明月_站右A_训练素材封面.png",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/8856_明月/训练素材封面/DH-MDL-0002-F017_模特_8856_明月_站右A_训练素材封面.png"
+    },
+    {
+      "local_file_code": "DH-MDL-0002-F018",
+      "relative_path": "数字分身/模特/8856_明月/训练素材封面/DH-MDL-0002-F018_模特_8856_明月_站正面A_训练素材封面.png",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/8856_明月/训练素材封面/DH-MDL-0002-F018_模特_8856_明月_站正面A_训练素材封面.png"
+    },
+    {
+      "local_file_code": "DH-MDL-0002-F019",
+      "relative_path": "数字分身/模特/8856_明月/训练素材封面/DH-MDL-0002-F019_模特_8856_明月_站左A_训练素材封面.png",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/8856_明月/训练素材封面/DH-MDL-0002-F019_模特_8856_明月_站左A_训练素材封面.png"
+    },
+    {
+      "local_file_code": "DH-MDL-0002-F020",
+      "relative_path": "数字分身/模特/8856_明月/训练素材封面/DH-MDL-0002-F020_模特_8856_明月_正坐A_训练素材封面.png",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/模特/8856_明月/训练素材封面/DH-MDL-0002-F020_模特_8856_明月_正坐A_训练素材封面.png"
+    },
+    {
+      "local_file_code": "DH-VOI-0001-F001",
+      "relative_path": "数字分身/音色/3760_Y26音色/DH-VOI-0001-F001_音色_3760_Y26音色_音色封面.png",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/音色/3760_Y26音色/DH-VOI-0001-F001_音色_3760_Y26音色_音色封面.png"
+    },
+    {
+      "local_file_code": "DH-VOI-0001-F002",
+      "relative_path": "数字分身/音色/3760_Y26音色/DH-VOI-0001-F002_音色_3760_Y26音色_试听音频.mp3",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/音色/3760_Y26音色/DH-VOI-0001-F002_音色_3760_Y26音色_试听音频.mp3"
+    },
+    {
+      "local_file_code": "DH-VOI-0001-F003",
+      "relative_path": "数字分身/音色/3760_Y26音色/DH-VOI-0001-F003_音色_3760_Y26音色_训练音频.mp3",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/音色/3760_Y26音色/DH-VOI-0001-F003_音色_3760_Y26音色_训练音频.mp3"
+    },
+    {
+      "local_file_code": "DH-VOI-0002-F001",
+      "relative_path": "数字分身/音色/4224_明月（五抖官旗）/DH-VOI-0002-F001_音色_4224_明月（五抖官旗）_音色封面.png",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/音色/4224_明月（五抖官旗）/DH-VOI-0002-F001_音色_4224_明月（五抖官旗）_音色封面.png"
+    },
+    {
+      "local_file_code": "DH-VOI-0002-F002",
+      "relative_path": "数字分身/音色/4224_明月（五抖官旗）/DH-VOI-0002-F002_音色_4224_明月（五抖官旗）_试听音频.mp3",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/音色/4224_明月（五抖官旗）/DH-VOI-0002-F002_音色_4224_明月（五抖官旗）_试听音频.mp3"
+    },
+    {
+      "local_file_code": "DH-VOI-0002-F003",
+      "relative_path": "数字分身/音色/4224_明月（五抖官旗）/DH-VOI-0002-F003_音色_4224_明月（五抖官旗）_训练音频.mp3",
+      "operation": "invalid",
+      "reason": "file missing: 数字分身/音色/4224_明月（五抖官旗）/DH-VOI-0002-F003_音色_4224_明月（五抖官旗）_训练音频.mp3"
+    },
+    {
+      "local_file_code": "MT-TPL-0001",
+      "relative_path": "模版/302_张裕618背景/MT-TPL-0001_模版_模板预览_张裕618背景_preview.png",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-IMG-20260729-000001"
+    },
+    {
+      "local_file_code": "MT-BG-0001",
+      "relative_path": "背景/MT-BG-0001_背景_直播背景_背景-3.png",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-IMG-20260729-000002"
+    },
+    {
+      "local_file_code": "MT-BG-0002",
+      "relative_path": "背景/MT-BG-0002_背景_直播背景_直播.jpeg",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-IMG-20260729-000003"
+    },
+    {
+      "local_file_code": "MT-BG-0003",
+      "relative_path": "背景/MT-BG-0003_背景_底部背景_底背景.jpeg",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-IMG-20260729-000004"
+    },
+    {
+      "local_file_code": "MT-BG-0004",
+      "relative_path": "背景/MT-BG-0004_背景_直播背景_微信图片_20260618221607_11_15.jpeg",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-IMG-20260729-000005"
+    },
+    {
+      "local_file_code": "MT-DEC-0001",
+      "relative_path": "装饰/MT-DEC-0001_装饰_图标_icon.png",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-IMG-20260729-000006"
+    },
+    {
+      "local_file_code": "MT-DEC-0002",
+      "relative_path": "装饰/MT-DEC-0002_装饰_装饰_张裕百年.png",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-IMG-20260729-000007"
+    },
+    {
+      "local_file_code": "MT-DEC-0003",
+      "relative_path": "装饰/MT-DEC-0003_装饰_品牌Logo_logo.png",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-IMG-20260729-000008"
+    },
+    {
+      "local_file_code": "MT-DEC-0004",
+      "relative_path": "装饰/MT-DEC-0004_装饰_装饰底图_底图.png",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-IMG-20260729-000009"
+    },
+    {
+      "local_file_code": "MT-DEC-0005",
+      "relative_path": "装饰/MT-DEC-0005_装饰_动效装饰_gif-01.gif",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-IMG-20260729-000010"
+    },
+    {
+      "local_file_code": "MT-DEC-0006",
+      "relative_path": "装饰/MT-DEC-0006_装饰_装饰_png.png",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-IMG-20260729-000011"
+    },
+    {
+      "local_file_code": "MT-DEC-0007",
+      "relative_path": "装饰/MT-DEC-0007_装饰_贴片_AI贴片黑.png",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-IMG-20260729-000012"
+    },
+    {
+      "local_file_code": "MT-DEC-0008",
+      "relative_path": "装饰/MT-DEC-0008_装饰_贴片_AI贴片白.png",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-IMG-20260729-000013"
+    },
+    {
+      "local_file_code": "MT-DEC-0009",
+      "relative_path": "装饰/MT-DEC-0009_装饰_动效装饰_抽奖GIF新.gif",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-IMG-20260729-000014"
+    },
+    {
+      "local_file_code": "MT-DEC-0010",
+      "relative_path": "装饰/MT-DEC-0010_装饰_装饰底图_底.png",
+      "operation": "invalid",
+      "reason": "file missing: 装饰/MT-DEC-0010_装饰_装饰底图_底.png"
+    },
+    {
+      "local_file_code": "MT-DEC-0011",
+      "relative_path": "装饰/MT-DEC-0011_装饰_装饰_头部1.png",
+      "operation": "invalid",
+      "reason": "file missing: 装饰/MT-DEC-0011_装饰_装饰_头部1.png"
+    },
+    {
+      "local_file_code": "MT-DEC-0012",
+      "relative_path": "装饰/MT-DEC-0012_装饰_装饰_头部1.png",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-IMG-20260729-000015"
+    },
+    {
+      "local_file_code": "MT-DEC-0013",
+      "relative_path": "装饰/MT-DEC-0013_装饰_装饰底图_底.png",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-IMG-20260729-000016"
+    },
+    {
+      "local_file_code": "MT-DEC-0014",
+      "relative_path": "装饰/MT-DEC-0014_装饰_前景框_直播-前景.png",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-IMG-20260729-000017"
+    },
+    {
+      "local_file_code": "MT-DEC-0015",
+      "relative_path": "装饰/MT-DEC-0015_装饰_装饰_100029295227.png",
+      "operation": "invalid",
+      "reason": "file missing: 装饰/MT-DEC-0015_装饰_装饰_100029295227.png"
+    },
+    {
+      "local_file_code": "MT-DEC-0016",
+      "relative_path": "装饰/MT-DEC-0016_装饰_商品贴片_品酒大师MASTER.png",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-IMG-20260729-000018"
+    },
+    {
+      "local_file_code": "MT-DEC-0017",
+      "relative_path": "装饰/MT-DEC-0017_装饰_商品贴片_品酒大师PLUS.png",
+      "operation": "invalid",
+      "reason": "file missing: 装饰/MT-DEC-0017_装饰_商品贴片_品酒大师PLUS.png"
+    },
+    {
+      "local_file_code": "MT-DEC-0018",
+      "relative_path": "装饰/MT-DEC-0018_装饰_商品贴片_品酒大师PLUS.png",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-IMG-20260729-000019"
+    },
+    {
+      "local_file_code": "MT-DEC-0019",
+      "relative_path": "装饰/MT-DEC-0019_装饰_前景框_前景.png",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-IMG-20260729-000020"
+    },
+    {
+      "local_file_code": "MT-DEC-0020",
+      "relative_path": "装饰/MT-DEC-0020_装饰_品牌Logo_标题+logo.png",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-IMG-20260729-000021"
+    },
+    {
+      "local_file_code": "MT-DEC-0021",
+      "relative_path": "装饰/MT-DEC-0021_装饰_动效装饰_转盘动图.gif",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-IMG-20260729-000022"
+    },
+    {
+      "local_file_code": "MT-DEC-0022",
+      "relative_path": "装饰/MT-DEC-0022_装饰_买赠贴片_张裕买赠.png",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-IMG-20260729-000023"
+    },
+    {
+      "local_file_code": "MT-DEC-0023",
+      "relative_path": "装饰/MT-DEC-0023_装饰_动效装饰_标题动图-6088.gif",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-IMG-20260729-000024"
+    },
+    {
+      "local_file_code": "MT-DEC-0024",
+      "relative_path": "装饰/MT-DEC-0024_装饰_商品贴片_品酒大师PRO.png",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-IMG-20260729-000025"
+    },
+    {
+      "local_file_code": "MT-DEC-0025",
+      "relative_path": "装饰/MT-DEC-0025_装饰_礼盒装饰_礼盒.png",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-IMG-20260729-000026"
+    },
+    {
+      "local_file_code": "MT-DEC-0026",
+      "relative_path": "装饰/MT-DEC-0026_装饰_动效装饰_6月29日(1)-7682.gif",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-IMG-20260729-000027"
+    },
+    {
+      "local_file_code": "MT-VID-0001",
+      "relative_path": "视频/MT-VID-0001_视频_开箱视频_龙谕龙8_开箱.mov",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-VID-20260729-000001"
+    },
+    {
+      "local_file_code": "MT-VID-0002",
+      "relative_path": "视频/MT-VID-0002_视频_商品整体视频_多名利特选窖藏_整体.mov",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-VID-20260729-000002"
+    },
+    {
+      "local_file_code": "MT-VID-0003",
+      "relative_path": "视频/MT-VID-0003_视频_商品整体视频_解百纳1937_整体.mov",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-VID-20260729-000003"
+    },
+    {
+      "local_file_code": "MT-VID-0004",
+      "relative_path": "视频/MT-VID-0004_视频_商品整体视频_龙谕龙12_整体.mov",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-VID-20260729-000004"
+    },
+    {
+      "local_file_code": "MT-VID-0005",
+      "relative_path": "视频/MT-VID-0005_视频_酒体视频_龙谕龙12_酒体.mov",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-VID-20260729-000005"
+    },
+    {
+      "local_file_code": "MT-VID-0006",
+      "relative_path": "视频/MT-VID-0006_视频_酒体视频_龙谕龙8_酒体.mov",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-VID-20260729-000006"
+    },
+    {
+      "local_file_code": "MT-VID-0007",
+      "relative_path": "视频/MT-VID-0007_视频_开箱视频_龙谕龙12_开箱.mov",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-VID-20260729-000007"
+    },
+    {
+      "local_file_code": "MT-VID-0008",
+      "relative_path": "视频/MT-VID-0008_视频_酒体视频_龙谕单一园_酒体.mov",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-VID-20260729-000008"
+    },
+    {
+      "local_file_code": "MT-VID-0009",
+      "relative_path": "视频/MT-VID-0009_视频_商品整体视频_龙谕龙8_整体.mov",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-VID-20260729-000009"
+    },
+    {
+      "local_file_code": "MT-VID-0010",
+      "relative_path": "视频/MT-VID-0010_视频_商品整体视频_品酒大师PLUS_整体.mov",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-VID-20260729-000010"
+    },
+    {
+      "local_file_code": "MT-VID-0011",
+      "relative_path": "视频/MT-VID-0011_视频_酒体视频_品酒大师PLUS_酒体.mov",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-VID-20260729-000011"
+    },
+    {
+      "local_file_code": "MT-VID-0012",
+      "relative_path": "视频/MT-VID-0012_视频_商品整体视频_品酒大师SUPER_整体.mov",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-VID-20260729-000012"
+    },
+    {
+      "local_file_code": "MT-VID-0013",
+      "relative_path": "视频/MT-VID-0013_视频_开箱视频_N158_开箱.mov",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-VID-20260729-000013"
+    },
+    {
+      "local_file_code": "MT-VID-0014",
+      "relative_path": "视频/MT-VID-0014_视频_酒体视频_品酒大师SUPER_酒体.mov",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-VID-20260729-000014"
+    },
+    {
+      "local_file_code": "MT-VID-0015",
+      "relative_path": "视频/MT-VID-0015_视频_开箱视频_品酒大师SUPER_开箱.mov",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-VID-20260729-000015"
+    },
+    {
+      "local_file_code": "MT-VID-0016",
+      "relative_path": "视频/MT-VID-0016_视频_酒体视频_品酒大师PRO_酒体.mov",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-VID-20260729-000016"
+    },
+    {
+      "local_file_code": "MT-VID-0017",
+      "relative_path": "视频/MT-VID-0017_视频_商品整体视频_品酒大师MASTER_整体.mov",
+      "operation": "invalid",
+      "reason": "file_size mismatch: expected 123760101, got 586543661"
+    },
+    {
+      "local_file_code": "MT-VID-0018",
+      "relative_path": "视频/MT-VID-0018_视频_商品讲解视频_解百纳1937.mov",
+      "operation": "invalid",
+      "reason": "file_size mismatch: expected 156184038, got 595334803"
+    },
+    {
+      "local_file_code": "MT-VID-0019",
+      "relative_path": "视频/MT-VID-0019_视频_酒体视频_N158_酒体.mov",
+      "operation": "invalid",
+      "reason": "file_size mismatch: expected 138001894, got 638431954"
+    },
+    {
+      "local_file_code": "MT-VID-0020",
+      "relative_path": "视频/MT-VID-0020_视频_开箱视频_龙谕单一园_开箱.mov",
+      "operation": "invalid",
+      "reason": "file_size mismatch: expected 110239206, got 431902066"
+    },
+    {
+      "local_file_code": "MT-VID-0021",
+      "relative_path": "视频/MT-VID-0021_视频_视频素材_Timeline1-4699.mov",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-VID-20260729-000017"
+    },
+    {
+      "local_file_code": "MT-VID-0022",
+      "relative_path": "视频/MT-VID-0022_视频_视频素材_6月25日-3436.mov",
+      "operation": "invalid",
+      "reason": "file_size mismatch: expected 246988260, got 3498887240"
+    },
+    {
+      "local_file_code": "MT-VID-0023",
+      "relative_path": "视频/MT-VID-0023_视频_商品讲解视频_品酒大师MASTER.mp4",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-VID-20260729-000018"
+    },
+    {
+      "local_file_code": "MT-VID-0024",
+      "relative_path": "视频/MT-VID-0024_视频_商品讲解视频_品酒大师PRO.mp4",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-VID-20260729-000019"
+    },
+    {
+      "local_file_code": "MT-VID-0025",
+      "relative_path": "视频/MT-VID-0025_视频_商品讲解视频_品酒大师PLUS.mp4",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-VID-20260729-000020"
+    },
+    {
+      "local_file_code": "MT-VID-0026",
+      "relative_path": "视频/MT-VID-0026_视频_商品讲解视频_品酒大师SUPER.mp4",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-VID-20260729-000021"
+    },
+    {
+      "local_file_code": "MT-VID-0027",
+      "relative_path": "视频/MT-VID-0027_视频_品牌TVC_品酒大师_TVC.mp4",
+      "operation": "invalid",
+      "reason": "file_size mismatch: expected 251444717, got 548998185"
+    },
+    {
+      "local_file_code": "MT-VID-0028",
+      "relative_path": "视频/MT-VID-0028_视频_视频素材_6月29日(2)-9051.mp4",
+      "operation": "created",
+      "reason": "created",
+      "asset_code": "AG-VID-20260729-000022"
+    }
+  ]
+}

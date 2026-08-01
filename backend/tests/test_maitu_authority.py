@@ -144,6 +144,190 @@ def test_completion_attestation_validates_at_repository_boundary(monkeypatch) ->
     )
 
 
+def test_functional_worker_observed_completion_is_test_only_signed_without_external_read(monkeypatch) -> None:
+    verifier = verifier_for(monkeypatch, {})
+    checkpoint = {
+        "operation_fingerprint": "b" * 64,
+        "operation_type": "preflight_content_build_plan",
+        "effect_class": "read_only",
+        "intent_snapshot": {
+            "operation_type": "preflight_content_build_plan",
+            "expected_live_room_title": "asser测试",
+        },
+    }
+    payload = {
+        "operation_fingerprint": "b" * 64,
+        "attempt_id": "44444444-4444-4444-8444-444444444444",
+        "lease_token": "55555555-5555-4555-8555-555555555555",
+        "lease_version": 1,
+        "completion_id": "66666666-6666-4666-8666-666666666666",
+        "evidence": {
+            "verified": True,
+            "operation_applied": False,
+            "no_side_effect": True,
+            "operation_index": 0,
+            "operation_type": "preflight_content_build_plan",
+            "operation_fingerprint": "b" * 64,
+            "target_live_room_id": "41172",
+            "expected_live_room_title": "asser测试",
+            "authoritative_live_room_title": "asser测试",
+            "verification_source": "working_room_readback",
+            "environment": "working",
+            "not_live": True,
+            "default_clip_id": 437569,
+            "clip_id": 437569,
+            "go_live_clicked": False,
+        },
+    }
+    context = {
+        "execution_job_code": "MT-WB-EXEC-20260731-000006",
+        "worker_id": "maitu-workbench-worker",
+        "target_live_room_id": "41172",
+        "expected_title": "asser测试",
+        "source_plan_fingerprint": "d" * 64,
+    }
+
+    result = verifier.attest_functional_worker_observed_completion(
+        build_plan_code="MT-BUILD-20260731-000018",
+        execution_code="MT-EXEC-20260731-000004",
+        operation_index=0,
+        checkpoint=checkpoint,
+        payload=payload,
+        context=context,
+    )
+
+    observation = result["evidence"]["backend_authority_observation"]
+    assert observation["authority_domain"] == "worker_observed_test_only"
+    assert observation["non_releasable"] is True
+    assert observation["target_live_room_id"] == "41172"
+    MaituMaterialSlotRepository._validate_completion_readback_attestation(
+        build_plan_code="MT-BUILD-20260731-000018",
+        execution_code="MT-EXEC-20260731-000004",
+        operation_index=0,
+        checkpoint=checkpoint,
+        payload=result,
+    )
+
+
+def test_functional_worker_observed_completion_accepts_exact_draft_persistence_manifest(monkeypatch) -> None:
+    verifier = verifier_for(monkeypatch, {})
+    checkpoint = {
+        "operation_fingerprint": "e" * 64,
+        "operation_type": "verify_draft_persisted",
+        "effect_class": "read_only",
+        "intent_snapshot": {
+            "operation_type": "verify_draft_persisted",
+            "expected_scene_names": ["开场", "讲解", "收束"],
+        },
+    }
+    payload = {
+        "attempt_id": "84444444-4444-4444-8444-444444444444",
+        "lease_token": "85555555-5555-4555-8555-555555555555",
+        "lease_version": 1,
+        "completion_id": "86666666-6666-4666-8666-666666666666",
+        "evidence": {
+            "verified": True,
+            "operation_applied": False,
+            "no_side_effect": True,
+            "operation_index": 40,
+            "operation_type": "verify_draft_persisted",
+            "operation_fingerprint": "e" * 64,
+            "target_live_room_id": "41172",
+            "verification_source": "working_room_readback",
+            "environment": "working",
+            "not_live": True,
+            "expected_scene_names": ["开场", "讲解", "收束"],
+            "actual_scene_names": ["开场", "讲解", "收束"],
+            "go_live_clicked": False,
+        },
+    }
+
+    result = verifier.attest_functional_worker_observed_completion(
+        build_plan_code="MT-BUILD-20260731-000024",
+        execution_code="MT-EXEC-20260731-000010",
+        operation_index=40,
+        checkpoint=checkpoint,
+        payload=payload,
+        context={
+            "execution_job_code": "MT-WB-EXEC-20260731-000012",
+            "worker_id": "maitu-workbench-worker",
+            "target_live_room_id": "41172",
+            "expected_title": "asser测试",
+            "source_plan_fingerprint": "d" * 64,
+        },
+    )
+
+    observation = result["evidence"]["backend_authority_observation"]
+    assert observation["operation_type"] == "verify_draft_persisted"
+    assert observation["operation_applied"] is False
+
+
+@pytest.mark.parametrize(
+    ("context_patch", "evidence_patch"),
+    [
+        ({"target_live_room_id": "47000002"}, {}),
+        ({"expected_title": "其他直播间"}, {}),
+        ({}, {"authoritative_live_room_title": "其他直播间"}),
+        ({}, {"not_live": False}),
+        ({}, {"verification_source": "provider_response"}),
+    ],
+)
+def test_functional_worker_observed_completion_rejects_non_allowlisted_or_weak_evidence(
+    monkeypatch,
+    context_patch: dict[str, Any],
+    evidence_patch: dict[str, Any],
+) -> None:
+    verifier = verifier_for(monkeypatch, {})
+    checkpoint = {
+        "operation_fingerprint": "b" * 64,
+        "operation_type": "preflight_content_build_plan",
+        "effect_class": "read_only",
+        "intent_snapshot": {"expected_live_room_title": "asser测试"},
+    }
+    evidence = {
+        "verified": True,
+        "operation_applied": False,
+        "no_side_effect": True,
+        "operation_index": 0,
+        "operation_type": "preflight_content_build_plan",
+        "operation_fingerprint": "b" * 64,
+        "target_live_room_id": "41172",
+        "expected_live_room_title": "asser测试",
+        "authoritative_live_room_title": "asser测试",
+        "verification_source": "working_room_readback",
+        "environment": "working",
+        "not_live": True,
+        "default_clip_id": 437569,
+        "clip_id": 437569,
+        "go_live_clicked": False,
+        **evidence_patch,
+    }
+    context = {
+        "execution_job_code": "MT-WB-EXEC-20260731-000006",
+        "worker_id": "maitu-workbench-worker",
+        "target_live_room_id": "41172",
+        "expected_title": "asser测试",
+        "source_plan_fingerprint": "d" * 64,
+        **context_patch,
+    }
+
+    with pytest.raises(MaituAuthorityError):
+        verifier.attest_functional_worker_observed_completion(
+            build_plan_code="MT-BUILD-20260731-000018",
+            execution_code="MT-EXEC-20260731-000004",
+            operation_index=0,
+            checkpoint=checkpoint,
+            payload={
+                "attempt_id": "44444444-4444-4444-8444-444444444444",
+                "lease_token": "55555555-5555-4555-8555-555555555555",
+                "lease_version": 1,
+                "completion_id": "66666666-6666-4666-8666-666666666666",
+                "evidence": evidence,
+            },
+            context=context,
+        )
+
+
 def test_completion_attestation_rejects_preflight_room_title_mismatch(monkeypatch) -> None:
     verifier = verifier_for(
         monkeypatch,
@@ -218,6 +402,93 @@ def test_completion_attestation_accepts_offline_manual_review_gate(monkeypatch) 
     )
 
     assert result["evidence"]["backend_authority_observation"]["operation_applied"] is False
+
+
+def test_completion_attestation_verifies_exact_auto_saved_scene_manifest(monkeypatch) -> None:
+    verifier = verifier_for(
+        monkeypatch,
+        {
+            "/live_rooms/41172?env=working&include_qa_clips=true": {
+                "id": 41172,
+                "name": "asser测试",
+                "environment": "working",
+                "is_live": False,
+                "status": 0,
+                "topics": [
+                    {
+                        "clips": [
+                            {"id": 1, "name": "开场", "clip_materials": []},
+                            {"id": 2, "name": "讲解", "clip_materials": []},
+                            {"id": 3, "name": "收束", "clip_materials": []},
+                        ]
+                    }
+                ],
+            }
+        },
+    )
+    checkpoint = {
+        "operation_fingerprint": "c" * 64,
+        "operation_type": "verify_draft_persisted",
+        "effect_class": "read_only",
+        "intent_snapshot": {
+            "operation_type": "verify_draft_persisted",
+            "expected_scene_names": ["开场", "讲解", "收束"],
+        },
+    }
+    payload = {
+        "operation_fingerprint": "c" * 64,
+        "attempt_id": "74444444-4444-4444-8444-444444444444",
+        "lease_token": "75555555-5555-4555-8555-555555555555",
+        "lease_version": 1,
+        "completion_id": "76666666-6666-4666-8666-666666666666",
+        "evidence": {
+            "verified": True,
+            "operation_applied": False,
+            "no_side_effect": True,
+            "go_live_clicked": False,
+            "operation_type": "verify_draft_persisted",
+            "target_live_room_id": "41172",
+            "verification_source": "working_room_readback",
+            "expected_scene_names": ["开场", "讲解", "收束"],
+            "actual_scene_names": ["开场", "讲解", "收束"],
+        },
+    }
+
+    result = verifier.attest_completion(
+        build_plan_code="MT-BUILD-20260731-000001",
+        execution_code="MT-EXEC-20260731-000001",
+        operation_index=40,
+        checkpoint=checkpoint,
+        payload=payload,
+    )
+
+    observation = result["evidence"]["backend_authority_observation"]
+    assert observation["operation_type"] == "verify_draft_persisted"
+    assert observation["operation_applied"] is True
+
+
+def test_auto_saved_scene_manifest_rejects_room_drift(monkeypatch) -> None:
+    verifier = verifier_for(
+        monkeypatch,
+        {
+            "/live_rooms/41172?env=working&include_qa_clips=true": {
+                "id": 41172,
+                "environment": "working",
+                "is_live": False,
+                "status": 0,
+                "topics": [{"clips": [{"id": 1, "name": "被改名", "clip_materials": []}]}],
+            }
+        },
+    )
+
+    with pytest.raises(MaituAuthorityError, match="not confirmed applied"):
+        verifier.verify_checkpoint(
+            {
+                "operation_type": "verify_draft_persisted",
+                "intent_snapshot": {"expected_scene_names": ["开场"]},
+            },
+            {"target_live_room_id": "41172"},
+        )
 
 
 @pytest.mark.parametrize(
@@ -695,6 +966,57 @@ def test_binding_accepts_public_oss_transform_query(monkeypatch) -> None:
     )
 
     assert result["source_material_url"] == public_url
+
+
+def test_checkpoint_source_identity_ignores_runtime_transform_query(monkeypatch) -> None:
+    verifier = verifier_for(
+        monkeypatch,
+        {
+            "/live_rooms/47000002?env=working&include_qa_clips=true": {
+                "id": 47000002,
+                "environment": "working",
+                "is_live": False,
+                "topics": [
+                    {
+                        "clips": [
+                            {
+                                "id": 10,
+                                "name": "促单",
+                                "clip_materials": [
+                                    {
+                                        "id": 20,
+                                        "name": "product",
+                                        "type": "image",
+                                        "material_id": 901,
+                                        "url": (
+                                            "https://cdn.example/product.png?"
+                                            "x-oss-process=style/max_width_1080"
+                                        ),
+                                    }
+                                ],
+                            }
+                        ]
+                    }
+                ],
+            }
+        },
+    )
+
+    result = verifier.verify_checkpoint(
+        {
+            "operation_type": "insert_asset_layer",
+            "intent_snapshot": {
+                "scene_name": "促单",
+                "layer_id": "product",
+                "source_material_type": "image",
+                "material_id": 901,
+                "source_material_url": "https://cdn.example/product.png",
+            },
+        },
+        {"target_live_room_id": "47000002", "clip_id": 10, "material_id": 20},
+    )
+
+    assert result["operation_applied"] is True
 
 
 def test_verify_scene_rejects_worker_geometry_not_present_in_authoritative_room(monkeypatch) -> None:

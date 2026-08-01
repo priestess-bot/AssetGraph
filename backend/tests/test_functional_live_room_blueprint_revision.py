@@ -127,7 +127,18 @@ def test_blueprint_revision_reorders_and_recompiles_scene_inputs() -> None:
         "width": 0.3,
         "height": 0.3,
     }
-    assert blueprint["scenes"][0]["layers"][0]["z_order"] == 20
+    assert blueprint["scenes"][0]["layers"][0]["z_order"] == 1
+    assert blueprint["scenes"][0]["layers"][0]["constraint_evidence"]["stacking"] == {
+        "schema_version": "layer-stacking.v1",
+        "policy": "bottom_band_then_relative_dag_then_top_band",
+        "stack_position": 1,
+        "resolved_z_order": 1,
+        "pin_band": "normal",
+        "forbid_layer_top": False,
+        "hard_predecessors": [],
+        "conditional_relations_not_applicable": [],
+        "soft_rule_deviations": [],
+    }
     assert build_plan["go_live"] is False
     write_operations = [
         operation
@@ -255,6 +266,69 @@ def test_persisted_build_plan_uses_only_draft_actions_and_fixed_asset_codes() ->
                                 "height": 1.0,
                             },
                             "z_order": 1,
+                            "visual_properties": {
+                                "crop_policy": "cover",
+                                "rotation_policy": "locked",
+                            },
+                            "audio_properties": {
+                                "loop_policy": "disabled",
+                                "mute_policy": "muted",
+                            },
+                            "constraint_rules": [
+                                {
+                                    "kind": "preserve_aspect_ratio",
+                                    "hard": True,
+                                    "parameters": {},
+                                },
+                                {
+                                    "kind": "crop_policy",
+                                    "hard": True,
+                                    "parameters": {"policy": "cover"},
+                                },
+                            ],
+                            "constraint_evidence": {"asset_code": "AG-BG-A"},
+                        },
+                        {
+                            "layer_blueprint_code": "LYR-TABLE",
+                            "material_role": "set_surface",
+                            "asset_code": "AG-TABLE",
+                            "normalized_geometry": {
+                                "x": 0.0,
+                                "y": 0.45,
+                                "width": 1.0,
+                                "height": 0.55,
+                            },
+                            "z_order": 2,
+                            "constraint_rules": [
+                                {
+                                    "kind": "provide_named_region",
+                                    "hard": True,
+                                    "parameters": {
+                                        "region": "table_surface",
+                                        "rect": [0.0, 0.45, 1.0, 0.55],
+                                    },
+                                }
+                            ],
+                        },
+                        {
+                            "layer_blueprint_code": "LYR-PRODUCT",
+                            "material_role": "product_display",
+                            "asset_code": "AG-PRODUCT",
+                            "normalized_geometry": {
+                                "x": 0.3,
+                                "y": 0.6,
+                                "width": 0.4,
+                                "height": 0.4,
+                            },
+                            "z_order": 3,
+                            "constraint_rules": [
+                                {
+                                    "kind": "require_named_region",
+                                    "hard": True,
+                                    "parameters": {"region": "table_surface"},
+                                }
+                            ],
+                            "constraint_evidence": {"media_kind": "video"},
                         }
                     ],
                 }
@@ -271,6 +345,7 @@ def test_persisted_build_plan_uses_only_draft_actions_and_fixed_asset_codes() ->
         "position_asset_layer",
         "write_script",
         "verify_scene",
+        "verify_draft_persisted",
         "save_draft",
     }
     assert build_plan["go_live"] is False
@@ -282,4 +357,37 @@ def test_persisted_build_plan_uses_only_draft_actions_and_fixed_asset_codes() ->
     )
     assert insert["asset_code"] == "AG-BG-A"
     assert insert["layer_id"] == "LYR-1"
+    assert insert["fit"] == "cover"
+    assert insert["preserve_aspect_ratio"] is True
+    assert insert["rotation"] == 0.0
+    assert insert["loop"] is False
+    assert insert["muted"] is True
+    assert insert["constraint_evidence"]["maitu_render_contract"] == {
+        "schema_version": "maitu-layer-render-contract.v1",
+        "material_role": "background",
+        "requested_crop_policy": "cover",
+        "resolved_fit": "cover",
+        "preserve_aspect_ratio": True,
+        "rotation_policy": "locked",
+        "rotation_degrees": 0.0,
+        "loop_policy": "disabled",
+        "mute_policy": "muted",
+    }
+    product_insert = next(
+        operation
+        for operation in build_plan["operations"]
+        if operation["operation_type"] == "insert_asset_layer"
+        and operation["layer_id"] == "LYR-PRODUCT"
+    )
+    product_position = next(
+        operation
+        for operation in build_plan["operations"]
+        if operation["operation_type"] == "position_asset_layer"
+        and operation["layer_id"] == "LYR-PRODUCT"
+    )
+    assert product_insert["fit"] == "contain"
+    assert product_insert["loop"] is True
+    assert product_insert["muted"] is True
+    assert (product_position["x"], product_position["y"]) == (324.0, 1152.0)
+    assert product_position["z_index"] == 3
     assert build_plan["inventory_snapshot"] == {"asset_codes": ["AG-BG-A"]}

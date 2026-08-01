@@ -369,6 +369,10 @@ def test_migration_discovery_is_contiguous() -> None:
                 "functional_operation_file_imports.sql",
                 "legacy_product_maitu_category.sql",
                 "video_production_edit_hold.sql",
+                "material_bootstrap_classification.sql",
+                "functional_live_room_execution_queue.sql",
+                "content_project_creation_idempotency.sql",
+                "functional_live_room_plan_idempotency.sql",
             ],
             start=1,
         )

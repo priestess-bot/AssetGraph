@@ -205,9 +205,18 @@ class MaituAuthorityVerifier:
         expected_material_id = intent.get("material_id") or intent.get("maitu_material_id") or intent.get(
             "source_material_id"
         )
-        return cls._same_id(material.get("material_id"), expected_material_id) and str(material.get("url") or "") == str(
-            intent.get("source_material_url") or ""
+        return cls._same_id(
+            material.get("material_id"), expected_material_id
+        ) and cls._stable_material_url(material.get("url")) == cls._stable_material_url(
+            intent.get("source_material_url")
         )
+
+    @staticmethod
+    def _stable_material_url(value: Any) -> str:
+        parsed = urlsplit(str(value or "").strip())
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            return ""
+        return parsed._replace(query="", fragment="").geturl()
 
     @classmethod
     def _material_geometry_matches(cls, material: dict[str, Any], intent: dict[str, Any]) -> bool:
@@ -477,6 +486,16 @@ class MaituAuthorityVerifier:
                 and text.get("content") == intent.get("expected_script_text")
                 and evidence.get("verified_script_text") == intent.get("expected_script_text")
             )
+        elif operation_type == "verify_draft_persisted":
+            expected_scene_names = intent.get("expected_scene_names")
+            if (
+                not isinstance(expected_scene_names, list)
+                or not expected_scene_names
+                or any(not isinstance(name, str) or not name for name in expected_scene_names)
+            ):
+                raise MaituAuthorityError("draft persistence intent has no exact scene-name manifest")
+            actual_scene_names = [str(clip.get("name") or "") for clip in clips]
+            applied = actual_scene_names == expected_scene_names
         elif operation_type in {"placeholder_required", "save_draft"}:
             if (
                 evidence.get("operation_applied") is not False
@@ -510,6 +529,134 @@ class MaituAuthorityVerifier:
         evidence = dict(payload.get("evidence") or {})
         expect_applied = checkpoint.get("effect_class") != "manual_noop"
         observation = self.verify_checkpoint(checkpoint, evidence, expect_applied=expect_applied)
+        evidence["backend_authority_observation"] = observation
+        unsigned_evidence = dict(evidence)
+        attested = {
+            "build_plan_code": build_plan_code,
+            "execution_code": execution_code,
+            "operation_index": operation_index,
+            "operation_fingerprint": checkpoint["operation_fingerprint"],
+            "attempt_id": str(payload["attempt_id"]),
+            "lease_token": str(payload["lease_token"]),
+            "lease_version": payload["lease_version"],
+            "completion_id": str(payload["completion_id"]),
+            "evidence": unsigned_evidence,
+        }
+        evidence["readback_attestation_algorithm"] = "hmac-sha256-v1"
+        evidence["readback_attestation"] = self._sign(attested)
+        return {**payload, "evidence": evidence}
+
+    def attest_functional_worker_observed_completion(
+        self,
+        *,
+        build_plan_code: str,
+        execution_code: str,
+        operation_index: int,
+        checkpoint: dict[str, Any],
+        payload: dict[str, Any],
+        context: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Sign worker readback only for the allowlisted non-releasable test job."""
+        evidence = dict(payload.get("evidence") or {})
+        intent = checkpoint.get("intent_snapshot")
+        if not isinstance(intent, dict):
+            raise MaituAuthorityError("test-only checkpoint has no frozen intent")
+        operation_type = str(checkpoint.get("operation_type") or "")
+        expected_identity = {
+            "operation_index": operation_index,
+            "operation_type": operation_type,
+            "operation_fingerprint": checkpoint.get("operation_fingerprint"),
+            "target_live_room_id": "41172",
+        }
+        if any(evidence.get(key) != value for key, value in expected_identity.items()):
+            raise MaituAuthorityError("test-only worker readback identity differs from frozen intent")
+        if (
+            context.get("target_live_room_id") != "41172"
+            or context.get("expected_title") != "asser测试"
+            or len(str(context.get("source_plan_fingerprint") or "")) != 64
+            or evidence.get("verified") is not True
+            or evidence.get("go_live_clicked") is not False
+        ):
+            raise MaituAuthorityError("test-only worker readback is outside the allowlisted draft domain")
+
+        effect_class = checkpoint.get("effect_class")
+        if effect_class == "mutating":
+            if (
+                evidence.get("operation_applied") is not True
+                or evidence.get("verification_source") != "working_room_readback"
+            ):
+                raise MaituAuthorityError("test-only mutation lacks working-room readback")
+        elif effect_class in {"read_only", "manual_noop"}:
+            if evidence.get("operation_applied") is not False or evidence.get("no_side_effect") is not True:
+                raise MaituAuthorityError("test-only observation lacks no-side-effect evidence")
+        else:
+            raise MaituAuthorityError("test-only checkpoint effect class is unsupported")
+
+        expected_scene = intent.get("scene_name")
+        if expected_scene is not None and evidence.get("scene_name") != expected_scene:
+            raise MaituAuthorityError("test-only worker readback scene differs from frozen intent")
+        expected_layer = intent.get("layer_id")
+        if expected_layer is not None and evidence.get("layer_id") != expected_layer:
+            raise MaituAuthorityError("test-only worker readback layer differs from frozen intent")
+        expected_asset = intent.get("asset_code") or intent.get("selected_asset_code")
+        if expected_asset is not None and evidence.get("asset_code") != expected_asset:
+            raise MaituAuthorityError("test-only worker readback asset differs from frozen intent")
+
+        if operation_type == "preflight_content_build_plan":
+            if (
+                intent.get("expected_live_room_title") != "asser测试"
+                or evidence.get("expected_live_room_title") != "asser测试"
+                or evidence.get("authoritative_live_room_title") != "asser测试"
+                or evidence.get("verification_source") != "working_room_readback"
+                or evidence.get("environment") not in {"working", "draft"}
+                or evidence.get("not_live") is not True
+                or not self._same_id(evidence.get("default_clip_id"), evidence.get("clip_id"))
+            ):
+                raise MaituAuthorityError("test-only preflight lacks exact offline working-room evidence")
+        elif operation_type == "write_script":
+            expected_text = intent.get("script_text")
+            expected_sha256 = (
+                hashlib.sha256(expected_text.encode("utf-8")).hexdigest()
+                if isinstance(expected_text, str)
+                else None
+            )
+            if expected_sha256 is None or evidence.get("script_sha256") != expected_sha256:
+                raise MaituAuthorityError("test-only script readback differs from frozen intent")
+        elif operation_type == "position_asset_layer":
+            for evidence_key, intent_key in (
+                ("left", "x"),
+                ("top", "y"),
+                ("width", "width"),
+                ("height", "height"),
+                ("z_index", "z_index"),
+            ):
+                if self._number(evidence.get(evidence_key)) != self._number(intent.get(intent_key)):
+                    raise MaituAuthorityError("test-only layer geometry differs from frozen intent")
+        elif operation_type == "verify_draft_persisted":
+            expected_scene_names = intent.get("expected_scene_names")
+            if (
+                not isinstance(expected_scene_names, list)
+                or evidence.get("expected_scene_names") != expected_scene_names
+                or evidence.get("actual_scene_names") != expected_scene_names
+                or evidence.get("verification_source") != "working_room_readback"
+                or evidence.get("environment") not in {"working", "draft"}
+                or evidence.get("not_live") is not True
+            ):
+                raise MaituAuthorityError("test-only draft persistence readback differs from frozen intent")
+
+        observation = {
+            "contract": "assetgraph-functional-worker-observed-test-only.v1",
+            "authority_domain": "worker_observed_test_only",
+            "non_releasable": True,
+            "execution_job_code": context.get("execution_job_code"),
+            "worker_id": context.get("worker_id"),
+            "target_live_room_id": "41172",
+            "expected_title": "asser测试",
+            "source_plan_fingerprint": context.get("source_plan_fingerprint"),
+            "operation_type": operation_type,
+            "operation_applied": evidence.get("operation_applied"),
+            "worker_evidence_sha256": hashlib.sha256(self._canonical(evidence)).hexdigest(),
+        }
         evidence["backend_authority_observation"] = observation
         unsigned_evidence = dict(evidence)
         attested = {
@@ -589,6 +736,7 @@ class MaituAuthorityVerifier:
                 raise MaituAuthorityError("digital-human binding differs from backend Maitu inventory readback")
             authoritative_binding = {
                 "maitu_material_id": None,
+                "maitu_source_material_id": int(item["id"]),
                 "source_material_type": "digital_human",
                 "source_material_url": None,
                 "source_cover_url": self._public_inventory_url(item.get("cover_url") or item.get("url"), required=False),
@@ -600,6 +748,7 @@ class MaituAuthorityVerifier:
                 raise MaituAuthorityError("material binding URL differs from backend Maitu inventory readback")
             authoritative_binding = {
                 "maitu_material_id": int(item["id"]),
+                "maitu_source_material_id": int(item["id"]),
                 "source_material_type": str(item["type"]),
                 "source_material_url": self._public_inventory_url(item.get("url"), required=True),
                 "source_cover_url": self._public_inventory_url(

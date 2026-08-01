@@ -153,6 +153,28 @@ def test_script_layout_manifest_accepts_backend_bound_public_material_urls() -> 
     assert parsed.operations[1].intent["source_material_url"].startswith("https://")
 
 
+def test_script_layout_manifest_accepts_nested_constraint_profile_fingerprint() -> None:
+    payload = start_payload()
+    constraint_fingerprint = (
+        "1241833682d0ccee34e918d002e0aabd24264591fbd4bd987f0b138c700df0e3"
+    )
+    payload["operations"][1]["intent"]["constraint_evidence"] = {
+        "constraint_profile_ref": {
+            "profile_code": "AG-CP-20260731-000001",
+            "fingerprint": constraint_fingerprint,
+        }
+    }
+
+    parsed = MaituScriptLayoutExecutionStartCreate.model_validate(payload)
+
+    assert (
+        parsed.operations[1].intent["constraint_evidence"]["constraint_profile_ref"][
+            "fingerprint"
+        ]
+        == constraint_fingerprint
+    )
+
+
 def test_checkpoint_complete_requires_fence_verified_evidence_and_matching_result_identity() -> None:
     payload = MaituScriptLayoutExecutionCheckpointCompleteCreate.model_validate(
         {

@@ -1,0 +1,61 @@
+{
+  "schema_version": "assetgraph-product-e2e-material-report.v1",
+  "evidence_level": "product_e2e",
+  "plan_code": "LIVEPLAN-20260731-000018",
+  "selected_count": 6,
+  "execution_scope": "allowlisted_offline_test_draft_only",
+  "rights_status": "pending",
+  "rights_note": "本次只使用不可发布的测试草稿例外；素材约束推断和麦兔绑定没有改变版权状态。",
+  "materials": [
+    {
+      "role": "background",
+      "asset_code": "AG-IMG-20260729-000002",
+      "maitu_source_material_id": 37262,
+      "fit": "cover",
+      "stacking": "pinned_bottom"
+    },
+    {
+      "role": "set_surface",
+      "asset_code": "AG-IMG-20260729-000028",
+      "maitu_source_material_id": 39157,
+      "fit": "contain",
+      "stacking": "above_background_below_product_and_host"
+    },
+    {
+      "role": "product_display",
+      "asset_code": "AG-IMG-20260729-000025",
+      "maitu_source_material_id": 40999,
+      "fit": "contain",
+      "stacking": "above_set_surface_below_host_and_title"
+    },
+    {
+      "role": "supporting_video",
+      "asset_code": "AG-VID-20260729-000019",
+      "maitu_source_material_id": 40774,
+      "fit": "contain",
+      "stacking": "above_background_below_host_and_title_never_top"
+    },
+    {
+      "role": "digital_human",
+      "asset_code": "AG-VID-20260731-000001",
+      "maitu_source_material_id": 37200,
+      "digital_human_image_id": 7717,
+      "speaker_id": 3760,
+      "fit": "contain",
+      "stacking": "above_product_content_below_title"
+    },
+    {
+      "role": "brand_title",
+      "asset_code": "AG-IMG-20260729-000021",
+      "maitu_source_material_id": 40101,
+      "fit": "contain",
+      "stacking": "pinned_top"
+    }
+  ],
+  "source_evidence": [
+    "build-plan-from-ui-response.json",
+    "final-plan.json",
+    "final-execution.json",
+    "final-maitu-readback.json"
+  ]
+}

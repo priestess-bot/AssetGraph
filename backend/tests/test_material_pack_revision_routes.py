@@ -93,6 +93,9 @@ class FakeMaterialLibraryRepository:
         media_kind: str | None,
         material_roles: list[str],
         execution_capability: str,
+        classification_review_status: str,
+        classification_confidence: float | None,
+        classification_evidence: dict,
     ) -> list[dict]:
         self.batch_updates.append(
             {
@@ -100,6 +103,9 @@ class FakeMaterialLibraryRepository:
                 "media_kind": media_kind,
                 "material_roles": material_roles,
                 "execution_capability": execution_capability,
+                "classification_review_status": classification_review_status,
+                "classification_confidence": classification_confidence,
+                "classification_evidence": classification_evidence,
             }
         )
         return [
@@ -112,6 +118,9 @@ class FakeMaterialLibraryRepository:
                 "media_kind": media_kind,
                 "material_roles": material_roles,
                 "execution_capability": execution_capability,
+                "classification_review_status": classification_review_status,
+                "classification_confidence": classification_confidence,
+                "classification_evidence": classification_evidence,
             }
             for asset_code in asset_codes
         ]

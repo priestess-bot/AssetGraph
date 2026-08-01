@@ -12,6 +12,8 @@
     "build:console": "vite build",
     "capture:product": "node scripts/capture-product-redesign.mjs",
     "accept:product-workflows": "node scripts/accept-product-workflows.mjs",
+    "accept:live-room-41172": "node scripts/accept-live-room-41172-e2e.mjs",
+    "verify:material-bootstrap-page": "node scripts/verify-material-bootstrap-page.mjs",
     "check:product-copy": "node scripts/check-product-copy.mjs",
     "test": "vitest run",
     "test:watch": "vitest",

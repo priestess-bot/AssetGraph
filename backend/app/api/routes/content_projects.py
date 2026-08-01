@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from psycopg import Connection
 
 from app.core.database import get_db
@@ -35,8 +35,18 @@ def get_service(connection: Annotated[Connection, Depends(get_db)]) -> Functiona
 def create_content_project(
     payload: ContentProjectCreate,
     service: Annotated[FunctionalContentService, Depends(get_service)],
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> dict:
-    return service.create_project(payload.model_dump(mode="json"), actor_id="functional-operator")
+    try:
+        return service.create_project(
+            payload.model_dump(mode="json"),
+            actor_id="functional-operator",
+            idempotency_key=idempotency_key,
+        )
+    except DomainConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.as_dict()) from exc
+    except DomainValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=exc.as_dict()) from exc
 
 
 @router.get("", response_model=list[ContentProjectSummary])

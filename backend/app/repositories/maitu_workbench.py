@@ -2,11 +2,16 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from psycopg import Connection
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
+
+from app.domain.contracts import canonical_fingerprint
+from app.repositories.maitu import MaituMaterialSlotRepository
+from app.services.maitu_binding_identity import canonical_maitu_binding_identity
 
 
 class MaituWorkbenchConflictError(RuntimeError):
@@ -20,6 +25,13 @@ class MaituWorkbenchLeaseConflictError(MaituWorkbenchConflictError):
 class MaituWorkbenchRepository:
     def __init__(self, connection: Connection):
         self.connection = connection
+
+    @staticmethod
+    def _lock_idempotency_key(cursor: Any, namespace: str, idempotency_key: str) -> None:
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+            (f"{namespace}:{idempotency_key}",),
+        )
 
     def get_protected_resource(self, resource_type: str, resource_id: str) -> dict[str, Any] | None:
         with self.connection.cursor(row_factory=dict_row) as cursor:
@@ -1694,6 +1706,409 @@ class MaituWorkbenchRepository:
 
     # Draft execution jobs ---------------------------------------------
 
+    # Read-only room inspection jobs -----------------------------------
+
+    def create_room_inspection_job(
+        self,
+        *,
+        target_live_room_id: str,
+        expected_title: str | None,
+        authority_mode: str,
+        input_fingerprint: str,
+        idempotency_key: str | None,
+        requested_by: str | None,
+    ) -> dict[str, Any]:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            if idempotency_key:
+                self._lock_idempotency_key(
+                    cursor,
+                    "maitu-room-inspection",
+                    idempotency_key,
+                )
+                cursor.execute(
+                    "SELECT * FROM maitu_live_room_inspection_jobs WHERE idempotency_key = %s FOR UPDATE",
+                    (idempotency_key,),
+                )
+                existing = cursor.fetchone()
+                if existing is not None:
+                    if existing["input_fingerprint"] != input_fingerprint:
+                        self.connection.rollback()
+                        raise MaituWorkbenchConflictError(
+                            "Idempotency key was used for another room inspection"
+                        )
+                    self.connection.commit()
+                    return self._serialize(existing)
+            inspection_code = self._next_code(cursor, "MT-ROOM-CHECK", "MAITU_ROOM_INSPECTION")
+            cursor.execute(
+                """
+                INSERT INTO maitu_live_room_inspection_jobs (
+                    inspection_code, target_live_room_id, expected_title, authority_mode,
+                    input_fingerprint, idempotency_key, requested_by
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+                RETURNING *
+                """,
+                (
+                    inspection_code,
+                    target_live_room_id,
+                    expected_title,
+                    authority_mode,
+                    input_fingerprint,
+                    idempotency_key,
+                    requested_by,
+                ),
+            )
+            row = cursor.fetchone()
+        self.connection.commit()
+        return self._serialize(row)
+
+    def get_room_inspection_job(self, inspection_code: str) -> dict[str, Any] | None:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                "SELECT * FROM maitu_live_room_inspection_jobs WHERE inspection_code = %s",
+                (inspection_code,),
+            )
+            row = cursor.fetchone()
+        return self._serialize(row) if row else None
+
+    def claim_room_inspection_job(
+        self,
+        worker_id: str,
+        lease_seconds: int,
+        *,
+        inspection_code: str | None = None,
+    ) -> dict[str, Any] | None:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            code_clause = "AND inspection_code = %s" if inspection_code else ""
+            params: list[Any] = [inspection_code] if inspection_code else []
+            cursor.execute(
+                f"""
+                SELECT * FROM maitu_live_room_inspection_jobs
+                WHERE (status = 'queued' OR (status = 'running' AND lease_expires_at < now()))
+                  AND authority_mode = 'worker_readback'
+                {code_clause}
+                ORDER BY CASE WHEN status = 'running' THEN 0 ELSE 1 END, created_at
+                FOR UPDATE SKIP LOCKED LIMIT 1
+                """,
+                tuple(params),
+            )
+            candidate = cursor.fetchone()
+            if candidate is None:
+                self.connection.commit()
+                return None
+            cursor.execute(
+                """
+                UPDATE maitu_live_room_inspection_jobs
+                SET status = 'running', claimed_by = %s, lease_token = gen_random_uuid(),
+                    lease_expires_at = now() + (%s * interval '1 second'), heartbeat_at = now(),
+                    attempt = attempt + CASE WHEN %s = 'running' THEN 1 ELSE 0 END,
+                    started_at = COALESCE(started_at, now()), completed_at = NULL,
+                    error_code = NULL, error_message = NULL, updated_at = now()
+                WHERE id = %s RETURNING *
+                """,
+                (worker_id, lease_seconds, candidate["status"], candidate["id"]),
+            )
+            claimed = cursor.fetchone()
+        self.connection.commit()
+        return self._serialize(claimed)
+
+    def heartbeat_room_inspection_job(
+        self,
+        inspection_code: str,
+        worker_id: str,
+        lease_token: str,
+        lease_seconds: int,
+    ) -> dict[str, Any] | None:
+        token = self._parse_uuid(lease_token)
+        if token is None:
+            return None
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                UPDATE maitu_live_room_inspection_jobs
+                SET lease_expires_at = now() + (%s * interval '1 second'),
+                    heartbeat_at = now(), updated_at = now()
+                WHERE inspection_code = %s AND status = 'running' AND claimed_by = %s
+                  AND lease_token = %s AND lease_expires_at > now()
+                RETURNING *
+                """,
+                (lease_seconds, inspection_code, worker_id, token),
+            )
+            row = cursor.fetchone()
+        self.connection.commit()
+        return self._serialize(row) if row else None
+
+    def complete_room_inspection_job(
+        self,
+        inspection_code: str,
+        worker_id: str,
+        lease_token: str,
+        result: dict[str, Any],
+    ) -> dict[str, Any]:
+        token = self._parse_uuid(lease_token)
+        if token is None:
+            raise MaituWorkbenchLeaseConflictError("Room inspection lease is invalid")
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            job = self._lock_owned_job(
+                cursor,
+                table="maitu_live_room_inspection_jobs",
+                code_column="inspection_code",
+                code=inspection_code,
+                worker_id=worker_id,
+                lease_token=token,
+            )
+            if job is None:
+                self.connection.rollback()
+                raise MaituWorkbenchLeaseConflictError("Room inspection lease is not active")
+            identity = {
+                "target_live_room_id": str(result.get("target_live_room_id") or ""),
+                "actual_title": result.get("actual_title"),
+                "is_live": result.get("is_live"),
+                "has_live_trace": result.get("has_live_trace"),
+                "read_environment": result.get("read_environment"),
+                "scenes": result.get("scenes"),
+            }
+            if (
+                identity["target_live_room_id"] != str(job["target_live_room_id"])
+                or not isinstance(identity["actual_title"], str)
+                or not isinstance(identity["is_live"], bool)
+                or not isinstance(identity["has_live_trace"], bool)
+                or identity["read_environment"] != "working"
+                or not isinstance(identity["scenes"], list)
+            ):
+                self.connection.rollback()
+                raise MaituWorkbenchConflictError(
+                    "Room inspection result is not an authoritative working-room readback"
+                )
+            room_fingerprint = canonical_fingerprint(identity)
+            normalized = {
+                **result,
+                "room_fingerprint": room_fingerprint,
+                "title_matches": (
+                    job.get("expected_title") is None
+                    or identity["actual_title"] == job.get("expected_title")
+                ),
+                "ready_for_go_live": False,
+                "go_live_clicked": False,
+            }
+            cursor.execute(
+                """
+                UPDATE maitu_live_room_inspection_jobs
+                SET status = 'succeeded', result = %s, room_fingerprint = %s,
+                    claimed_by = NULL, lease_token = NULL, lease_expires_at = NULL,
+                    heartbeat_at = NULL, completed_at = now(), updated_at = now()
+                WHERE id = %s RETURNING *
+                """,
+                (Jsonb(normalized), room_fingerprint, job["id"]),
+            )
+            completed = cursor.fetchone()
+        self.connection.commit()
+        return self._serialize(completed)
+
+    def fail_room_inspection_job(
+        self,
+        inspection_code: str,
+        worker_id: str,
+        lease_token: str,
+        *,
+        error_code: str,
+        error_message: str,
+    ) -> dict[str, Any]:
+        token = self._parse_uuid(lease_token)
+        if token is None:
+            raise MaituWorkbenchLeaseConflictError("Room inspection lease is invalid")
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            job = self._lock_owned_job(
+                cursor,
+                table="maitu_live_room_inspection_jobs",
+                code_column="inspection_code",
+                code=inspection_code,
+                worker_id=worker_id,
+                lease_token=token,
+            )
+            if job is None:
+                self.connection.rollback()
+                raise MaituWorkbenchLeaseConflictError("Room inspection lease is not active")
+            cursor.execute(
+                """
+                UPDATE maitu_live_room_inspection_jobs
+                SET status = 'failed', error_code = %s, error_message = %s,
+                    claimed_by = NULL, lease_token = NULL, lease_expires_at = NULL,
+                    heartbeat_at = NULL, completed_at = now(), updated_at = now()
+                WHERE id = %s RETURNING *
+                """,
+                (error_code, error_message, job["id"]),
+            )
+            failed = cursor.fetchone()
+        self.connection.commit()
+        return self._serialize(failed)
+
+    def create_functional_draft_execution_job(
+        self,
+        plan_code: str,
+        *,
+        room_inspection_code: str,
+        expected_room_fingerprint: str,
+        confirmed_scene_ids: list[str],
+        input_fingerprint: str,
+        payload: dict[str, Any],
+        idempotency_key: str | None,
+        queued_by: str | None,
+    ) -> dict[str, Any]:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            if idempotency_key:
+                self._lock_idempotency_key(
+                    cursor,
+                    "maitu-functional-draft-execution",
+                    idempotency_key,
+                )
+                cursor.execute(
+                    "SELECT * FROM maitu_workbench_draft_execution_jobs WHERE idempotency_key = %s FOR UPDATE",
+                    (idempotency_key,),
+                )
+                existing = cursor.fetchone()
+                if existing is not None:
+                    if existing["input_fingerprint"] != input_fingerprint:
+                        self.connection.rollback()
+                        raise MaituWorkbenchConflictError(
+                            "Idempotency key was used for another draft execution"
+                        )
+                    self.connection.commit()
+                    return self._serialize(existing)
+            cursor.execute(
+                "SELECT * FROM functional_live_room_plans WHERE plan_code = %s FOR UPDATE",
+                (plan_code,),
+            )
+            plan = cursor.fetchone()
+            if plan is None:
+                self.connection.rollback()
+                raise KeyError(plan_code)
+            cursor.execute(
+                """
+                SELECT execution_job_code, status
+                FROM maitu_workbench_draft_execution_jobs
+                WHERE functional_plan_id = %s
+                  AND status IN ('queued', 'running', 'reconcile_required')
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (plan["id"],),
+            )
+            active_job = cursor.fetchone()
+            if active_job is not None:
+                self.connection.rollback()
+                raise MaituWorkbenchConflictError(
+                    "This live-room plan already has an active draft execution job"
+                )
+            cursor.execute(
+                "SELECT * FROM maitu_live_room_inspection_jobs WHERE inspection_code = %s FOR UPDATE",
+                (room_inspection_code,),
+            )
+            inspection = cursor.fetchone()
+            if inspection is None or inspection.get("status") != "succeeded":
+                self.connection.rollback()
+                raise MaituWorkbenchConflictError("A completed room inspection is required")
+            snapshot = inspection.get("result") if isinstance(inspection.get("result"), dict) else {}
+            observed_scene_ids = [str(item.get("scene_id")) for item in snapshot.get("scenes") or []]
+            blocked_reasons = [str(item) for item in plan.get("blocked_reasons") or []]
+            pending_rights_only = bool(blocked_reasons) and all(
+                (item.startswith("asset_rights_not_approved:") and item.endswith(":pending"))
+                or item == "GATE_ASSET_RIGHTS_BLOCKED"
+                for item in blocked_reasons
+            )
+            if (
+                (plan.get("status") != "ready" and not pending_rights_only)
+                or payload.get("execution_mode") != "replace_test_draft"
+                or payload.get("test_use_acknowledged") is not True
+                or payload.get("non_releasable") is not True
+                or payload.get("ready_for_go_live") is not False
+                or str(plan.get("target_live_room_id")) != "41172"
+                or str(plan.get("expected_title")) != "asser测试"
+                or str(inspection.get("target_live_room_id")) != str(plan.get("target_live_room_id"))
+                or str(snapshot.get("actual_title")) != str(plan.get("expected_title"))
+                or snapshot.get("is_live") is not False
+                or snapshot.get("has_live_trace") is not False
+                or snapshot.get("read_environment") != "working"
+                or str(inspection.get("room_fingerprint")) != expected_room_fingerprint
+                or sorted(observed_scene_ids) != sorted(confirmed_scene_ids)
+            ):
+                self.connection.rollback()
+                raise MaituWorkbenchConflictError(
+                    "Test-room confirmation is stale or does not match the allowlisted offline room"
+                )
+            execution_job_code = self._next_code(cursor, "MT-WB-EXEC", "MAITU_WB_EXEC")
+            initial_event = {
+                "stage": "queued",
+                "message": "草稿重建任务已进入队列",
+                "progress_current": 0,
+                "progress_total": 5,
+            }
+            cursor.execute(
+                """
+                INSERT INTO maitu_workbench_draft_execution_jobs (
+                    execution_job_code, source_kind, functional_plan_id, functional_plan_code,
+                    execution_mode, authority_mode, room_inspection_id, room_inspection_code,
+                    room_snapshot, room_fingerprint, status, input_fingerprint, idempotency_key,
+                    payload, ready_for_go_live, queued_by, stage, progress_current,
+                    progress_total, stage_events
+                ) VALUES (
+                    %s, 'functional_live_room_plan', %s, %s, 'replace_test_draft',
+                    'worker_readback', %s, %s, %s, %s, 'queued', %s, %s, %s,
+                    false, %s, 'queued', 0, 5, jsonb_build_array(%s::jsonb)
+                ) RETURNING *
+                """,
+                (
+                    execution_job_code,
+                    plan["id"],
+                    plan_code,
+                    inspection["id"],
+                    room_inspection_code,
+                    Jsonb(snapshot),
+                    expected_room_fingerprint,
+                    input_fingerprint,
+                    idempotency_key,
+                    Jsonb(payload),
+                    queued_by,
+                    Jsonb(initial_event),
+                ),
+            )
+            job = cursor.fetchone()
+            prior_execution_evidence = (
+                plan.get("execution_evidence")
+                if isinstance(plan.get("execution_evidence"), dict)
+                else {}
+            )
+            execution_history = prior_execution_evidence.get("execution_history")
+            if not isinstance(execution_history, list):
+                execution_history = []
+            queued_evidence = {
+                "schema_version": "functional-live-room-execution-queue.v1",
+                "status": "queued",
+                "message": "草稿重建任务已进入队列，尚未修改麦兔。",
+                "execution_job_code": execution_job_code,
+                "room_fingerprint": expected_room_fingerprint,
+                "ready_for_go_live": False,
+            }
+            if execution_history:
+                queued_evidence["execution_history"] = execution_history
+            cursor.execute(
+                """
+                UPDATE functional_live_room_plans
+                SET execution_status = 'requested', execution_job_code = %s,
+                    room_inspection_code = %s, execution_mode = 'replace_test_draft',
+                    execution_authority_mode = 'worker_readback', execution_evidence = %s,
+                    updated_at = now()
+                WHERE id = %s
+                """,
+                (
+                    execution_job_code,
+                    room_inspection_code,
+                    Jsonb(queued_evidence),
+                    plan["id"],
+                ),
+            )
+        self.connection.commit()
+        return self._serialize(job)
+
     def create_draft_execution_job(
         self,
         run_code: str,
@@ -1802,6 +2217,50 @@ class MaituWorkbenchRepository:
             params: list[Any] = [execution_job_code] if execution_job_code else []
             cursor.execute(
                 f"""
+                WITH expired_destructive AS (
+                    UPDATE maitu_workbench_draft_execution_jobs
+                    SET status = 'reconcile_required', stage = 'reconcile_required',
+                        claimed_by = NULL, lease_token = NULL, lease_expires_at = NULL,
+                        heartbeat_at = NULL, completed_at = now(),
+                        error_code = 'LEASE_EXPIRED_AFTER_DRAFT_MUTATION',
+                        error_message = '执行器在修改测试草稿后失联，必须先核对麦兔当前状态。',
+                        stage_events = stage_events || jsonb_build_array(jsonb_build_object(
+                            'stage', 'reconcile_required',
+                            'message', '执行器在修改测试草稿后失联，已停止自动重放。',
+                            'progress_current', progress_current,
+                            'progress_total', progress_total,
+                            'recorded_at', now()
+                        )), updated_at = now()
+                    WHERE source_kind = 'functional_live_room_plan'
+                      AND status = 'running' AND lease_expires_at < now()
+                      AND stage IN (
+                          'clearing_draft', 'building_scenes', 'writing_scripts',
+                          'verifying_readback'
+                      )
+                      {code_clause}
+                    RETURNING functional_plan_id, execution_job_code
+                )
+                UPDATE functional_live_room_plans AS plan
+                SET execution_status = 'maitu_reconcile_required',
+                    execution_evidence = jsonb_build_object(
+                        'schema_version', 'functional-live-room-execution-queue.v1',
+                        'status', 'reconcile_required',
+                        'stage', 'reconcile_required',
+                        'message', '执行器在修改测试草稿后失联，请先核对麦兔当前状态。',
+                        'execution_job_code', expired_destructive.execution_job_code,
+                        'ready_for_go_live', false
+                    ) || CASE
+                        WHEN jsonb_typeof(plan.execution_evidence->'execution_history') = 'array'
+                        THEN jsonb_build_object('execution_history', plan.execution_evidence->'execution_history')
+                        ELSE '{{}}'::jsonb
+                    END, updated_at = now()
+                FROM expired_destructive
+                WHERE plan.id = expired_destructive.functional_plan_id
+                """,
+                tuple(params),
+            )
+            cursor.execute(
+                f"""
                 SELECT * FROM maitu_workbench_draft_execution_jobs
                 WHERE (status = 'queued' OR (status = 'running' AND lease_expires_at < now()))
                 {code_clause}
@@ -1828,9 +2287,39 @@ class MaituWorkbenchRepository:
             )
             claimed = cursor.fetchone()
             cursor.execute(
-                "UPDATE maitu_workbench_runs SET status = 'executing', updated_at = now() WHERE id = %s",
-                (candidate["run_id"],),
+                """
+                UPDATE maitu_workbench_runs SET status = 'executing', updated_at = now()
+                WHERE id = %s AND %s = 'workbench_run'
+                """,
+                (candidate.get("run_id"), candidate.get("source_kind", "workbench_run")),
             )
+            if candidate.get("source_kind") == "functional_live_room_plan":
+                cursor.execute(
+                    """
+                    UPDATE functional_live_room_plans
+                    SET execution_status = 'maitu_running',
+                        execution_evidence = %s::jsonb || CASE
+                            WHEN jsonb_typeof(execution_evidence->'execution_history') = 'array'
+                            THEN jsonb_build_object('execution_history', execution_evidence->'execution_history')
+                            ELSE '{}'::jsonb
+                        END,
+                        updated_at = now()
+                    WHERE id = %s
+                    """,
+                    (
+                        Jsonb(
+                            {
+                                "schema_version": "functional-live-room-execution-queue.v1",
+                                "status": "running",
+                                "stage": "preparing_materials",
+                                "message": "正在准备并核对全部素材，尚未清空原草稿。",
+                                "execution_job_code": candidate["execution_job_code"],
+                                "ready_for_go_live": False,
+                            }
+                        ),
+                        candidate["functional_plan_id"],
+                    ),
+                )
         self.connection.commit()
         return self._serialize(claimed)
 
@@ -1840,6 +2329,11 @@ class MaituWorkbenchRepository:
         worker_id: str,
         lease_token: str,
         lease_seconds: int,
+        *,
+        stage: str | None = None,
+        progress_current: int | None = None,
+        progress_total: int | None = None,
+        message: str | None = None,
     ) -> dict[str, Any] | None:
         token = self._parse_uuid(lease_token)
         if token is None:
@@ -1848,17 +2342,290 @@ class MaituWorkbenchRepository:
             cursor.execute(
                 """
                 UPDATE maitu_workbench_draft_execution_jobs
-                SET lease_expires_at = now() + (%s * interval '1 second'),
-                    heartbeat_at = now(), updated_at = now()
+                SET lease_expires_at = now() + (%s * interval '1 second'), heartbeat_at = now(),
+                    stage_events = CASE
+                        WHEN %s::text IS NULL AND %s::text IS NULL THEN stage_events
+                        ELSE stage_events || jsonb_build_array(jsonb_build_object(
+                            'stage', COALESCE(%s::text, stage),
+                            'message', %s::text,
+                            'progress_current', COALESCE(%s, progress_current),
+                            'progress_total', COALESCE(%s, progress_total),
+                            'recorded_at', now()
+                        ))
+                    END,
+                    stage = COALESCE(%s::text, stage),
+                    progress_current = COALESCE(%s, progress_current),
+                    progress_total = COALESCE(%s, progress_total),
+                    updated_at = now()
                 WHERE execution_job_code = %s AND status = 'running' AND claimed_by = %s
                   AND lease_token = %s AND lease_expires_at > now()
                 RETURNING *
                 """,
-                (lease_seconds, execution_job_code, worker_id, token),
+                (
+                    lease_seconds,
+                    stage,
+                    message,
+                    stage,
+                    message,
+                    progress_current,
+                    progress_total,
+                    stage,
+                    progress_current,
+                    progress_total,
+                    execution_job_code,
+                    worker_id,
+                    token,
+                ),
             )
             row = cursor.fetchone()
+            if row is not None and row.get("source_kind") == "functional_live_room_plan":
+                cursor.execute(
+                    """
+                    UPDATE functional_live_room_plans
+                    SET execution_status = 'maitu_running',
+                        execution_evidence = %s::jsonb || CASE
+                            WHEN jsonb_typeof(execution_evidence->'execution_history') = 'array'
+                            THEN jsonb_build_object('execution_history', execution_evidence->'execution_history')
+                            ELSE '{}'::jsonb
+                        END,
+                        updated_at = now()
+                    WHERE id = %s
+                    """,
+                    (
+                        Jsonb(
+                            {
+                                "schema_version": "functional-live-room-execution-queue.v1",
+                                "status": "running",
+                                "stage": row["stage"],
+                                "message": message,
+                                "progress_current": row["progress_current"],
+                                "progress_total": row["progress_total"],
+                                "execution_job_code": execution_job_code,
+                                "ready_for_go_live": False,
+                            }
+                        ),
+                        row["functional_plan_id"],
+                    ),
+                )
         self.connection.commit()
         return self._serialize(row) if row else None
+
+    def refresh_functional_draft_material_receipt(
+        self,
+        execution_job_code: str,
+        worker_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        token = self._parse_uuid(str(payload.get("lease_token") or ""))
+        if token is None:
+            raise MaituWorkbenchLeaseConflictError("Draft execution lease is invalid")
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            job = self._lock_owned_job(
+                cursor,
+                table="maitu_workbench_draft_execution_jobs",
+                code_column="execution_job_code",
+                code=execution_job_code,
+                worker_id=worker_id,
+                lease_token=token,
+            )
+            if job is None:
+                self.connection.rollback()
+                raise MaituWorkbenchLeaseConflictError("Draft execution lease is not active")
+            job_payload = job.get("payload") if isinstance(job.get("payload"), dict) else {}
+            job_build_plan = (
+                job_payload.get("build_plan")
+                if isinstance(job_payload.get("build_plan"), dict)
+                else {}
+            )
+            authority = self._functional_build_plan_material_authority(
+                cursor,
+                job=job,
+                job_build_plan=job_build_plan,
+            )
+            asset_code = str(payload.get("asset_code") or "")
+            if (
+                job.get("source_kind") != "functional_live_room_plan"
+                or job.get("execution_mode") != "replace_test_draft"
+                or authority is None
+                or asset_code not in authority["asset_codes"]
+            ):
+                self.connection.rollback()
+                raise MaituWorkbenchConflictError(
+                    "Material receipt refresh is limited to the active allowlisted test job"
+                )
+            cursor.execute(
+                """
+                SELECT * FROM assets
+                WHERE asset_code = %s AND deleted_at IS NULL
+                FOR UPDATE
+                """,
+                (asset_code,),
+            )
+            asset = cursor.fetchone()
+            if asset is None:
+                self.connection.rollback()
+                raise MaituWorkbenchConflictError("Selected material asset no longer exists")
+            if not self._functional_material_identity_matches(asset, payload):
+                self.connection.rollback()
+                raise MaituWorkbenchConflictError(
+                    "Fresh worker inventory identity differs from the persisted material binding"
+                )
+            evidence = {
+                "source": "active_functional_worker_inventory_readback",
+                "execution_job_code": execution_job_code,
+                "build_plan_code": authority["build_plan_code"],
+                "source_plan_fingerprint": authority["source_plan_fingerprint"],
+                "inventory_item_fingerprint": payload["inventory_item_fingerprint"],
+                "binding_identity_fingerprint": canonical_fingerprint(
+                    canonical_maitu_binding_identity(asset_code, asset)
+                ),
+            }
+            cursor.execute(
+                """
+                UPDATE assets
+                SET maitu_binding_verification_source = 'worker_maitu_inventory_readback',
+                    maitu_binding_verified_at = now(),
+                    maitu_binding_scope = 'assetgraph_script_layout_material_binding_v2',
+                    maitu_binding_inventory_fingerprint = %s,
+                    maitu_binding_readback_nonce = NULL,
+                    maitu_binding_attestation = NULL,
+                    maitu_binding_evidence = %s,
+                    updated_at = now()
+                WHERE id = %s
+                RETURNING *
+                """,
+                (
+                    payload["inventory_item_fingerprint"],
+                    Jsonb(evidence),
+                    asset["id"],
+                ),
+            )
+            refreshed = cursor.fetchone()
+        self.connection.commit()
+        return self._serialize(refreshed)
+
+    def _functional_build_plan_material_authority(
+        self,
+        cursor: Any,
+        *,
+        job: dict[str, Any],
+        job_build_plan: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        if (
+            job.get("source_kind") != "functional_live_room_plan"
+            or job.get("functional_plan_id") is None
+            or not job.get("functional_plan_code")
+        ):
+            return None
+        cursor.execute(
+            """
+            SELECT * FROM functional_live_room_plans
+            WHERE id = %s AND plan_code = %s
+            FOR SHARE
+            """,
+            (job["functional_plan_id"], job["functional_plan_code"]),
+        )
+        functional_plan = cursor.fetchone()
+        if functional_plan is None:
+            return None
+        persisted_plan = (
+            functional_plan.get("build_plan")
+            if isinstance(functional_plan.get("build_plan"), dict)
+            else {}
+        )
+        build_plan_code = str(job_build_plan.get("build_plan_code") or "").strip()
+        source_plan_fingerprint = str(
+            job_build_plan.get("source_plan_fingerprint") or ""
+        ).strip()
+        if (
+            not build_plan_code
+            or len(source_plan_fingerprint) != 64
+            or build_plan_code != str(persisted_plan.get("build_plan_code") or "").strip()
+            or str(functional_plan.get("target_live_room_id") or "") != "41172"
+            or str(functional_plan.get("expected_title") or "") != "asser测试"
+            or str(job_build_plan.get("target_live_room_id") or "") != "41172"
+            or str(job_build_plan.get("expected_title") or "") != "asser测试"
+        ):
+            return None
+
+        cursor.execute(
+            """
+            SELECT id FROM maitu_live_room_build_plans
+            WHERE build_plan_code = %s AND deleted_at IS NULL
+            FOR SHARE
+            """,
+            (build_plan_code,),
+        )
+        if cursor.fetchone() is None:
+            return None
+        cursor.execute(
+            """
+            SELECT id FROM maitu_live_room_build_plan_operations
+            WHERE build_plan_code = %s
+            ORDER BY sort_order ASC, created_at ASC
+            FOR SHARE
+            """,
+            (build_plan_code,),
+        )
+        if not cursor.fetchall():
+            return None
+
+        operation_plan = MaituMaterialSlotRepository(
+            self.connection
+        ).get_live_room_build_plan_operations(build_plan_code)
+        if (
+            operation_plan is None
+            or str(operation_plan.get("target_live_room_id") or "") != "41172"
+            or str(operation_plan.get("expected_title") or "") != "asser测试"
+            or operation_plan.get("checkpoint_source_fingerprint")
+            != source_plan_fingerprint
+        ):
+            return None
+        asset_codes = {
+            str(operation.get("asset_code") or operation.get("selected_asset_code") or "")
+            for operation in operation_plan.get("operations") or []
+            if isinstance(operation, dict)
+            and operation.get("operation_type") == "insert_asset_layer"
+            and (operation.get("asset_code") or operation.get("selected_asset_code"))
+        }
+        return {
+            "build_plan_code": build_plan_code,
+            "source_plan_fingerprint": source_plan_fingerprint,
+            "asset_codes": asset_codes,
+        }
+
+    @classmethod
+    def _functional_material_identity_matches(
+        cls,
+        asset: dict[str, Any],
+        receipt: dict[str, Any],
+    ) -> bool:
+        identity_fields = (
+            "maitu_material_id",
+            "maitu_source_material_id",
+            "source_material_type",
+            "speaker_id",
+            "digital_human_image_id",
+        )
+        if any(
+            str(asset.get(field) or "") != str(receipt.get(field) or "")
+            for field in identity_fields
+        ):
+            return False
+        return all(
+            cls._stable_material_url(asset.get(field))
+            == cls._stable_material_url(receipt.get(field))
+            for field in ("source_material_url", "source_cover_url")
+        )
+
+    @staticmethod
+    def _stable_material_url(value: Any) -> str:
+        parsed = urlsplit(str(value or "").strip())
+        if not parsed.scheme and not parsed.netloc and not parsed.path:
+            return ""
+        if parsed.scheme != "https" or not parsed.netloc:
+            return "!invalid"
+        return parsed._replace(query="", fragment="").geturl()
 
     def complete_draft_execution_job(
         self,
@@ -1887,21 +2654,54 @@ class MaituWorkbenchRepository:
                 UPDATE maitu_workbench_draft_execution_jobs
                 SET status = 'succeeded', result = %s, claimed_by = NULL,
                     lease_token = NULL, lease_expires_at = NULL, heartbeat_at = NULL,
-                    completed_at = now(), updated_at = now()
+                    stage = 'succeeded', progress_current = progress_total,
+                    stage_events = stage_events || jsonb_build_array(jsonb_build_object(
+                        'stage', 'succeeded', 'message', '草稿已重建并完成最终回读',
+                        'progress_current', progress_total, 'progress_total', progress_total,
+                        'recorded_at', now()
+                    )), completed_at = now(), updated_at = now()
                 WHERE id = %s RETURNING *
                 """,
                 (Jsonb(result), job["id"]),
             )
             completed = cursor.fetchone()
-            cursor.execute(
-                """
-                UPDATE maitu_workbench_runs
-                SET status = 'completed', completed_at = now(), error_code = NULL,
-                    error_message = NULL, updated_at = now()
-                WHERE id = %s
-                """,
-                (job["run_id"],),
-            )
+            if job.get("source_kind") == "functional_live_room_plan":
+                cursor.execute(
+                    """
+                    UPDATE functional_live_room_plans
+                    SET execution_status = 'maitu_complete',
+                        execution_evidence = %s::jsonb || CASE
+                            WHEN jsonb_typeof(execution_evidence->'execution_history') = 'array'
+                            THEN jsonb_build_object('execution_history', execution_evidence->'execution_history')
+                            ELSE '{}'::jsonb
+                        END,
+                        updated_at = now()
+                    WHERE id = %s
+                    """,
+                    (
+                        Jsonb(
+                            {
+                                "schema_version": "functional-live-room-execution-queue.v1",
+                                "status": "finalized_draft_readback",
+                                "message": "麦兔测试草稿已重建，最终回读与 BuildPlan 一致。",
+                                "execution_job_code": execution_job_code,
+                                "result": result,
+                                "ready_for_go_live": False,
+                            }
+                        ),
+                        job["functional_plan_id"],
+                    ),
+                )
+            else:
+                cursor.execute(
+                    """
+                    UPDATE maitu_workbench_runs
+                    SET status = 'completed', completed_at = now(), error_code = NULL,
+                        error_message = NULL, updated_at = now()
+                    WHERE id = %s
+                    """,
+                    (job["run_id"],),
+                )
         self.connection.commit()
         return self._serialize(completed)
 
@@ -1913,6 +2713,7 @@ class MaituWorkbenchRepository:
         *,
         error_code: str,
         error_message: str,
+        reconcile_required: bool = False,
     ) -> dict[str, Any]:
         token = self._parse_uuid(lease_token)
         if token is None:
@@ -1929,25 +2730,68 @@ class MaituWorkbenchRepository:
             if job is None:
                 self.connection.rollback()
                 raise MaituWorkbenchLeaseConflictError("Draft execution lease is not active")
+            terminal_status = "reconcile_required" if reconcile_required else "failed"
+            terminal_stage = "reconcile_required" if reconcile_required else "failed"
             cursor.execute(
                 """
                 UPDATE maitu_workbench_draft_execution_jobs
-                SET status = 'failed', error_code = %s, error_message = %s,
+                SET status = %s, stage = %s, error_code = %s, error_message = %s,
                     claimed_by = NULL, lease_token = NULL, lease_expires_at = NULL,
-                    heartbeat_at = NULL, completed_at = now(), updated_at = now()
+                    heartbeat_at = NULL,
+                    stage_events = stage_events || jsonb_build_array(jsonb_build_object(
+                        'stage', %s::text, 'message', %s::text, 'progress_current', progress_current,
+                        'progress_total', progress_total, 'recorded_at', now()
+                    )), completed_at = now(), updated_at = now()
                 WHERE id = %s RETURNING *
                 """,
-                (error_code, error_message, job["id"]),
+                (
+                    terminal_status,
+                    terminal_stage,
+                    error_code,
+                    error_message,
+                    terminal_stage,
+                    error_message,
+                    job["id"],
+                ),
             )
             failed = cursor.fetchone()
-            cursor.execute(
-                """
-                UPDATE maitu_workbench_runs
-                SET status = 'failed', error_code = %s, error_message = %s, updated_at = now()
-                WHERE id = %s
-                """,
-                (error_code, error_message, job["run_id"]),
-            )
+            if job.get("source_kind") == "functional_live_room_plan":
+                cursor.execute(
+                    """
+                    UPDATE functional_live_room_plans
+                    SET execution_status = %s,
+                        execution_evidence = %s::jsonb || CASE
+                            WHEN jsonb_typeof(execution_evidence->'execution_history') = 'array'
+                            THEN jsonb_build_object('execution_history', execution_evidence->'execution_history')
+                            ELSE '{}'::jsonb
+                        END,
+                        updated_at = now()
+                    WHERE id = %s
+                    """,
+                    (
+                        "maitu_reconcile_required" if reconcile_required else "maitu_failed",
+                        Jsonb(
+                            {
+                                "schema_version": "functional-live-room-execution-queue.v1",
+                                "status": terminal_status,
+                                "message": error_message,
+                                "error_code": error_code,
+                                "execution_job_code": execution_job_code,
+                                "ready_for_go_live": False,
+                            }
+                        ),
+                        job["functional_plan_id"],
+                    ),
+                )
+            else:
+                cursor.execute(
+                    """
+                    UPDATE maitu_workbench_runs
+                    SET status = 'failed', error_code = %s, error_message = %s, updated_at = now()
+                    WHERE id = %s
+                    """,
+                    (error_code, error_message, job["run_id"]),
+                )
         self.connection.commit()
         return self._serialize(failed)
 
@@ -1975,7 +2819,7 @@ class MaituWorkbenchRepository:
             payload = failed_job.get("payload") if isinstance(failed_job.get("payload"), dict) else {}
             embedded_plan = payload.get("build_plan") if isinstance(payload.get("build_plan"), dict) else {}
             build_plan_code = str(embedded_plan.get("build_plan_code") or "").strip()
-            if build_plan_code:
+            if failed_job.get("source_kind", "workbench_run") == "workbench_run" and build_plan_code:
                 cursor.execute(
                     """
                     SELECT * FROM maitu_live_room_build_plan_executions
@@ -2058,7 +2902,12 @@ class MaituWorkbenchRepository:
                 SET status = 'queued', attempt = attempt + 1, queued_by = COALESCE(%s, queued_by),
                     result = '{}'::jsonb, claimed_by = NULL, lease_token = NULL,
                     lease_expires_at = NULL, heartbeat_at = NULL, error_code = NULL,
-                    error_message = NULL, started_at = NULL, completed_at = NULL, updated_at = now()
+                    error_message = NULL, stage = 'queued', progress_current = 0,
+                    stage_events = stage_events || jsonb_build_array(jsonb_build_object(
+                        'stage', 'queued', 'message', '草稿重建任务已重新进入队列',
+                        'progress_current', 0, 'progress_total', progress_total,
+                        'recorded_at', now()
+                    )), started_at = NULL, completed_at = NULL, updated_at = now()
                 WHERE id = %s AND status = 'failed'
                 RETURNING *
                 """,
@@ -2068,17 +2917,171 @@ class MaituWorkbenchRepository:
             if job is None:
                 self.connection.rollback()
                 raise MaituWorkbenchConflictError("Draft execution job changed during retry")
-            cursor.execute(
-                """
-                UPDATE maitu_workbench_runs
-                SET status = 'execution_queued', error_code = NULL, error_message = NULL,
-                    completed_at = NULL, updated_at = now()
-                WHERE id = %s
-                """,
-                (job["run_id"],),
-            )
+            if job.get("source_kind") == "functional_live_room_plan":
+                cursor.execute(
+                    """
+                    UPDATE functional_live_room_plans
+                    SET execution_status = 'requested',
+                        execution_evidence = %s::jsonb || CASE
+                            WHEN jsonb_typeof(execution_evidence->'execution_history') = 'array'
+                            THEN jsonb_build_object('execution_history', execution_evidence->'execution_history')
+                            ELSE '{}'::jsonb
+                        END,
+                        updated_at = now()
+                    WHERE id = %s
+                    """,
+                    (
+                        Jsonb(
+                            {
+                                "schema_version": "functional-live-room-execution-queue.v1",
+                                "status": "queued",
+                                "message": "草稿重建任务已重新进入队列。",
+                                "execution_job_code": execution_job_code,
+                                "ready_for_go_live": False,
+                            }
+                        ),
+                        job["functional_plan_id"],
+                    ),
+                )
+            else:
+                cursor.execute(
+                    """
+                    UPDATE maitu_workbench_runs
+                    SET status = 'execution_queued', error_code = NULL, error_message = NULL,
+                        completed_at = NULL, updated_at = now()
+                    WHERE id = %s
+                    """,
+                    (job["run_id"],),
+                )
         self.connection.commit()
         return self._serialize(job)
+
+    def get_functional_draft_execution_job(self, plan_code: str) -> dict[str, Any] | None:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT * FROM maitu_workbench_draft_execution_jobs
+                WHERE functional_plan_code = %s
+                ORDER BY created_at DESC LIMIT 1
+                """,
+                (plan_code,),
+            )
+            row = cursor.fetchone()
+        return self._serialize(row) if row else None
+
+    def acknowledge_draft_reconciliation(
+        self,
+        execution_job_code: str,
+        *,
+        acknowledged_by: str,
+        note: str,
+    ) -> dict[str, Any] | None:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                UPDATE maitu_workbench_draft_execution_jobs
+                SET status = 'cancelled', stage = 'reconciled',
+                    error_message = COALESCE(error_message, '') || E'\n对账记录：' || %s || ' - ' || %s,
+                    result = result || jsonb_build_object(
+                        'reconciliation', jsonb_build_object(
+                            'status', 'acknowledged_and_closed',
+                            'acknowledged_by', %s::text,
+                            'note', %s::text,
+                            'recorded_at', now(),
+                            'replay_allowed', false
+                        )
+                    ),
+                    stage_events = stage_events || jsonb_build_array(jsonb_build_object(
+                        'stage', 'reconciled', 'message', %s::text, 'acknowledged_by', %s::text,
+                        'progress_current', progress_current, 'progress_total', progress_total,
+                        'recorded_at', now()
+                    )), claimed_by = NULL, lease_token = NULL, lease_expires_at = NULL,
+                    heartbeat_at = NULL, completed_at = COALESCE(completed_at, now()), updated_at = now()
+                WHERE execution_job_code = %s AND status = 'reconcile_required'
+                RETURNING *
+                """,
+                (
+                    acknowledged_by,
+                    note,
+                    acknowledged_by,
+                    note,
+                    note,
+                    acknowledged_by,
+                    execution_job_code,
+                ),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                cursor.execute(
+                    "SELECT status FROM maitu_workbench_draft_execution_jobs WHERE execution_job_code = %s",
+                    (execution_job_code,),
+                )
+                existing = cursor.fetchone()
+                self.connection.rollback()
+                if existing is None:
+                    return None
+                raise MaituWorkbenchConflictError(
+                    "Only reconciliation-required draft jobs can be acknowledged"
+                )
+            if row.get("functional_plan_id"):
+                cursor.execute(
+                    """
+                    SELECT execution_evidence
+                    FROM functional_live_room_plans
+                    WHERE id = %s
+                    FOR UPDATE
+                    """,
+                    (row["functional_plan_id"],),
+                )
+                plan_projection = cursor.fetchone() or {}
+                previous_evidence = (
+                    plan_projection.get("execution_evidence")
+                    if isinstance(plan_projection.get("execution_evidence"), dict)
+                    else {}
+                )
+                execution_history = previous_evidence.get("execution_history")
+                if not isinstance(execution_history, list):
+                    execution_history = []
+                execution_history = [
+                    *execution_history,
+                    {
+                        "execution_job_code": execution_job_code,
+                        "status": "cancelled",
+                        "stage": "reconciled",
+                        "acknowledged_by": acknowledged_by,
+                        "note": note,
+                        "previous_evidence": {
+                            key: value
+                            for key, value in previous_evidence.items()
+                            if key != "execution_history"
+                        },
+                    },
+                ]
+                cursor.execute(
+                    """
+                    UPDATE functional_live_room_plans
+                    SET execution_status = 'not_requested', execution_evidence = %s, updated_at = now()
+                    WHERE id = %s
+                    """,
+                    (
+                        Jsonb(
+                            {
+                                "schema_version": "functional-live-room-execution-queue.v1",
+                                "status": "reconciled_reinspection_required",
+                                "message": "已记录人工对账结果；请重新检查房间并重新确认清空范围。",
+                                "execution_job_code": execution_job_code,
+                                "closed_job_status": "cancelled",
+                                "acknowledged_by": acknowledged_by,
+                                "note": note,
+                                "execution_history": execution_history,
+                                "ready_for_go_live": False,
+                            }
+                        ),
+                        row["functional_plan_id"],
+                    ),
+                )
+        self.connection.commit()
+        return self._serialize(row)
 
     def cancel_draft_execution_job(self, execution_job_code: str) -> dict[str, Any] | None:
         with self.connection.cursor(row_factory=dict_row) as cursor:
@@ -2102,10 +3105,21 @@ class MaituWorkbenchRepository:
                 if existing is None:
                     return None
                 raise MaituWorkbenchConflictError("Only queued draft execution jobs can be cancelled")
-            cursor.execute(
-                "UPDATE maitu_workbench_runs SET status = 'preflight_passed', updated_at = now() WHERE id = %s",
-                (job["run_id"],),
-            )
+            if job.get("source_kind") == "functional_live_room_plan":
+                cursor.execute(
+                    """
+                    UPDATE functional_live_room_plans
+                    SET execution_status = 'not_requested', execution_job_code = NULL,
+                        execution_evidence = '{}'::jsonb, updated_at = now()
+                    WHERE id = %s
+                    """,
+                    (job["functional_plan_id"],),
+                )
+            else:
+                cursor.execute(
+                    "UPDATE maitu_workbench_runs SET status = 'preflight_passed', updated_at = now() WHERE id = %s",
+                    (job["run_id"],),
+                )
         self.connection.commit()
         return self._serialize(job)
 
@@ -2809,6 +3823,7 @@ class MaituWorkbenchRepository:
             ("maitu_workbench_inventory_sync_jobs", "sync_job_code"),
             ("maitu_workbench_draft_execution_jobs", "execution_job_code"),
             ("maitu_workbench_video_analyses", "analysis_code"),
+            ("maitu_live_room_inspection_jobs", "inspection_code"),
         }
         if (table, code_column) not in allowed:
             raise ValueError("unsupported lease table")

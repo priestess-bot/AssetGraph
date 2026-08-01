@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -12,6 +13,7 @@ class FakeAssetGraphClient:
     def __init__(self, assets: dict[str, dict[str, Any]]) -> None:
         self.assets = assets
         self.updates: list[tuple[str, dict[str, Any]]] = []
+        self.receipt_refreshes: list[tuple[str, dict[str, Any]]] = []
 
     def get_asset(self, asset_code: str) -> dict[str, Any] | None:
         asset = self.assets.get(asset_code)
@@ -27,6 +29,28 @@ class FakeAssetGraphClient:
             "maitu_binding_verified_at": "2026-07-12T14:00:00Z",
         }
         return dict(self.assets[asset_code])
+
+    def refresh_functional_draft_material_receipt(
+        self,
+        execution_job_code: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        self.receipt_refreshes.append((execution_job_code, dict(payload)))
+        asset_code = str(payload["asset_code"])
+        asset = self.assets[asset_code]
+        for field in ("source_material_url", "source_cover_url"):
+            value = asset.get(field)
+            if isinstance(value, str) and value:
+                parsed = urlsplit(value)
+                asset[field] = parsed._replace(query="", fragment="").geturl()
+        asset.update(
+            {
+                "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+                "maitu_binding_scope": "assetgraph_script_layout_material_binding_v2",
+                "maitu_binding_verified_at": "2026-07-31T14:00:00Z",
+            }
+        )
+        return dict(asset)
 
 
 class FakeMaituMaterialSession:
@@ -539,7 +563,9 @@ def test_resolver_maps_digital_human_material_ids_from_nested_image_name(tmp_pat
         "digital_human_image_id": 7717,
     }
     assert result.operation_plan["operations"][0]["material_id"] is None
-    assert update["source_cover_url"] is None
+    assert update["maitu_source_material_id"] == 37200
+    assert update["source_cover_url"] == "https://static.example/digital-human/7717.png"
+    assert result.operation_plan["operations"][0]["maitu_source_material_id"] == 37200
     assert result.operation_plan["operations"][0]["digital_human_image_id"] == 7717
     assert result.operation_plan["operations"][0]["speaker_id"] == 3760
 
@@ -850,6 +876,228 @@ def test_resolver_rejects_binding_writeback_for_wrong_asset_code(tmp_path: Path)
     assert "material_id" not in result.operation_plan["operations"][0]
 
 
+def test_worker_readback_binding_is_limited_to_explicit_test_mode(tmp_path: Path) -> None:
+    asset_code = "AG-IMG-WORKER-READBACK"
+
+    class WorkerReadbackClient(FakeAssetGraphClient):
+        def update_asset_maitu_material_binding(self, asset_code: str, payload: dict[str, Any]) -> dict[str, Any]:
+            result = super().update_asset_maitu_material_binding(asset_code, payload)
+            result["maitu_binding_verification_source"] = "worker_maitu_inventory_readback"
+            self.assets[asset_code] = result
+            return result
+
+    def client() -> WorkerReadbackClient:
+        return WorkerReadbackClient(
+            {
+                asset_code: {
+                    "asset_code": asset_code,
+                    "maitu_material_id": 77,
+                    "maitu_source_material_id": 77,
+                    "source_material_type": "image",
+                    "source_material_url": "https://static.example/item.png",
+                }
+            }
+        )
+
+    session = FakeMaituMaterialSession(
+        [{"id": 77, "name": "item", "type": "image", "url": "https://static.example/item.png"}]
+    )
+    standard = MaituMaterialResolver(
+        asset_client=client(), session=session, assets_root=tmp_path
+    ).resolve_plan(plan_for(asset_code))
+    assert standard.status == "completed_with_manual_review"
+    assert standard.issues[0].reason == "binding_writeback_verification_failed"
+
+    test_only = MaituMaterialResolver(
+        asset_client=client(),
+        session=session,
+        assets_root=tmp_path,
+        allow_worker_readback_binding=True,
+        functional_execution_job_code="MT-WB-EXEC-20260731-000010",
+        functional_lease_token="11111111-1111-4111-8111-111111111111",
+    ).resolve_plan(plan_for(asset_code))
+    assert test_only.status == "resolved"
+    assert test_only.operation_plan["operations"][0]["material_id"] == 77
+
+
+def test_functional_worker_receipt_mode_requires_job_lease(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="active execution job lease"):
+        MaituMaterialResolver(
+            asset_client=FakeAssetGraphClient({}),
+            session=FakeMaituMaterialSession([]),
+            assets_root=tmp_path,
+            allow_worker_readback_binding=True,
+        )
+
+
+def test_functional_worker_refreshes_receipt_and_keeps_runtime_inventory_url_out_of_persistence(
+    tmp_path: Path,
+) -> None:
+    asset_code = "AG-IMG-TEST-ROOM"
+    client = FakeAssetGraphClient(
+        {
+            asset_code: {
+                "asset_code": asset_code,
+                "execution_capability": "maitu_bound",
+                "maitu_material_id": 37262,
+                "maitu_source_material_id": 37262,
+                "source_material_type": "image",
+                "source_material_url": "https://static.example/background.png",
+                "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+                "maitu_binding_scope": "assetgraph_test_draft_material_binding_v1",
+                "maitu_binding_verified_at": "2026-07-20T11:25:00Z",
+            }
+        }
+    )
+    inventory_url = "https://static.example/background.png?x-oss-process=style/max_width_1080"
+    session = FakeMaituMaterialSession(
+        [{"id": 37262, "name": "背景-3", "type": "image", "url": inventory_url}]
+    )
+
+    result = MaituMaterialResolver(
+        asset_client=client,
+        session=session,
+        assets_root=tmp_path,
+        allow_worker_readback_binding=True,
+        functional_execution_job_code="MT-WB-EXEC-20260731-000011",
+        functional_lease_token="22222222-2222-4222-8222-222222222222",
+    ).resolve_plan(plan_for(asset_code, layer_type="background_image"))
+
+    assert result.status == "resolved"
+    assert result.issues == []
+    assert client.updates == []
+    assert len(client.receipt_refreshes) == 1
+    receipt_job_code, receipt_payload = client.receipt_refreshes[0]
+    assert receipt_job_code == "MT-WB-EXEC-20260731-000011"
+    assert receipt_payload["lease_token"] == "22222222-2222-4222-8222-222222222222"
+    assert receipt_payload["inventory_item_fingerprint"]
+    assert "?x-oss-process=" in receipt_payload["source_material_url"]
+    assert client.assets[asset_code]["source_material_url"] == "https://static.example/background.png"
+    assert client.assets[asset_code]["maitu_binding_scope"] == "assetgraph_script_layout_material_binding_v2"
+    for operation in result.operation_plan["operations"]:
+        assert operation["material_id"] == 37262
+        assert operation["source_material_url"] == inventory_url
+        assert operation["material_resolution_status"] == "refreshed_functional_worker_inventory_readback"
+
+
+def test_functional_worker_refreshes_native_digital_human_receipt(tmp_path: Path) -> None:
+    asset_code = "AG-VID-20260731-000001"
+    cover_url = "https://static.example/digital-human/7717.png"
+    runtime_cover_url = f"{cover_url}?x-oss-process=style/max_width_1080"
+    client = FakeAssetGraphClient(
+        {
+            asset_code: {
+                "asset_code": asset_code,
+                "execution_capability": "maitu_bound",
+                "maitu_material_id": None,
+                "maitu_source_material_id": 37200,
+                "source_material_type": "digital_human",
+                "source_material_url": None,
+                "source_cover_url": cover_url,
+                "speaker_id": 3760,
+                "digital_human_image_id": 7717,
+                "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+                "maitu_binding_scope": "assetgraph_test_draft_material_binding_v1",
+                "maitu_binding_verified_at": "2026-07-20T11:25:00Z",
+            }
+        }
+    )
+    session = FakeMaituMaterialSession(
+        [
+            {
+                "id": 37200,
+                "name": "张裕定制形象260519",
+                "type": "digital_human",
+                "url": runtime_cover_url,
+                "speaker_id": 3760,
+                "digital_human_image_id": 7717,
+            }
+        ]
+    )
+
+    result = MaituMaterialResolver(
+        asset_client=client,
+        session=session,
+        assets_root=tmp_path,
+        allow_worker_readback_binding=True,
+        functional_execution_job_code="MT-WB-EXEC-20260731-000013",
+        functional_lease_token="44444444-4444-4444-8444-444444444444",
+    ).resolve_plan(plan_for(asset_code, layer_type="digital_human"))
+
+    assert result.status == "resolved"
+    assert len(client.receipt_refreshes) == 1
+    receipt = client.receipt_refreshes[0][1]
+    assert receipt["maitu_material_id"] is None
+    assert receipt["maitu_source_material_id"] == 37200
+    assert receipt["speaker_id"] == 3760
+    assert receipt["digital_human_image_id"] == 7717
+    assert receipt["source_cover_url"] == runtime_cover_url
+    assert client.assets[asset_code]["source_cover_url"] == cover_url
+    for operation in result.operation_plan["operations"]:
+        assert operation["material_id"] is None
+        assert operation["maitu_material_id"] is None
+        assert operation["maitu_source_material_id"] == 37200
+        assert operation["source_cover_url"] == runtime_cover_url
+        assert operation["material_resolution_status"] == "refreshed_functional_worker_inventory_readback"
+
+
+def test_functional_worker_rejects_tampered_receipt_identity(tmp_path: Path) -> None:
+    asset_code = "AG-IMG-TEST-ROOM-MISMATCH"
+
+    class TamperedReceiptClient(FakeAssetGraphClient):
+        def refresh_functional_draft_material_receipt(
+            self,
+            execution_job_code: str,
+            payload: dict[str, Any],
+        ) -> dict[str, Any]:
+            result = super().refresh_functional_draft_material_receipt(
+                execution_job_code,
+                payload,
+            )
+            result["maitu_material_id"] = 99999
+            result["maitu_source_material_id"] = 99999
+            return result
+
+    client = TamperedReceiptClient(
+        {
+            asset_code: {
+                "asset_code": asset_code,
+                "execution_capability": "maitu_bound",
+                "maitu_material_id": 37262,
+                "maitu_source_material_id": 37262,
+                "source_material_type": "image",
+                "source_material_url": "https://static.example/background.png",
+                "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+                "maitu_binding_scope": "assetgraph_test_draft_material_binding_v1",
+                "maitu_binding_verified_at": "2026-07-20T11:25:00Z",
+            }
+        }
+    )
+    session = FakeMaituMaterialSession(
+        [
+            {
+                "id": 37262,
+                "name": "背景-3",
+                "type": "image",
+                "url": "https://static.example/background.png?x-oss-process=style/max_width_1080",
+            }
+        ]
+    )
+
+    result = MaituMaterialResolver(
+        asset_client=client,
+        session=session,
+        assets_root=tmp_path,
+        allow_worker_readback_binding=True,
+        functional_execution_job_code="MT-WB-EXEC-20260731-000012",
+        functional_lease_token="33333333-3333-4333-8333-333333333333",
+    ).resolve_plan(plan_for(asset_code, layer_type="background_image"))
+
+    assert result.status == "completed_with_manual_review"
+    assert result.issues[0].reason == "functional_material_receipt_verification_failed"
+    assert result.operation_plan["operations"][0]["material_resolution_status"] == "manual_required"
+
+
 def test_resolver_rejects_non_object_plan_before_any_side_effect(tmp_path: Path) -> None:
     client = FakeAssetGraphClient({})
     session = FakeMaituMaterialSession([])
@@ -877,6 +1125,34 @@ def test_resolver_rejects_unknown_or_go_live_operation_before_any_side_effect(tm
 
     assert result.status == "completed_with_manual_review"
     assert result.issues[0].reason == "invalid_material_operation_plan"
+    assert session.list_calls == 0
+    assert client.updates == []
+
+
+def test_resolver_accepts_auto_saved_draft_verification_operation(tmp_path: Path) -> None:
+    client = FakeAssetGraphClient({})
+    session = FakeMaituMaterialSession([])
+    plan = {
+        "operations": [
+            {
+                "operation_type": "verify_draft_persisted",
+                "status": "ready",
+                "target_live_room_id": "47000002",
+                "expected_scene_names": ["开场"],
+            }
+        ]
+    }
+
+    result = MaituMaterialResolver(
+        asset_client=client,
+        session=session,
+        assets_root=tmp_path,
+    ).resolve_plan(plan)
+
+    assert result.status == "resolved"
+    assert result.issues == []
+    assert result.operation_plan["operations"] == plan["operations"]
+    assert result.operation_plan["material_resolution"]["status"] == "resolved"
     assert session.list_calls == 0
     assert client.updates == []
 

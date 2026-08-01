@@ -1,0 +1,46 @@
+{
+  "schema_version": "assetgraph-product-e2e-runtime-reset-plan.v1",
+  "evidence_level": "product_e2e",
+  "target_live_room_id": "41172",
+  "expected_title": "asser测试",
+  "inspection_code": "MT-ROOM-CHECK-20260731-000025",
+  "authority_mode": "worker_readback",
+  "execution_mode": "replace_test_draft",
+  "room_fingerprint": "4e9b6005acce9af9abb34925d0a8b80634f47aa734d34ac0e1e4712793f5b4fb",
+  "preconditions": {
+    "allowlisted_room": true,
+    "working_environment": true,
+    "title_exact_match": true,
+    "is_live": false,
+    "go_live_permitted": false,
+    "release_permitted": false,
+    "explicit_confirmation": true
+  },
+  "confirmed_scene_ids": [
+    "437569",
+    "452248"
+  ],
+  "reset_result": {
+    "keeper_scene_id": "437569",
+    "deleted_scene_ids": [
+      "452248"
+    ],
+    "deleted_material_ids": [
+      10566233,
+      10566229,
+      10566230,
+      10566231,
+      10566232
+    ],
+    "remaining_scene_count": 1,
+    "remaining_material_count": 0,
+    "verified_by": "working_room_readback",
+    "go_live_clicked": false
+  },
+  "source_evidence": [
+    "04-room-inspection-readback.png",
+    "05-delete-confirmation-all-scenes.png",
+    "06-ready-to-replace-test-draft.png",
+    "final-execution.json"
+  ]
+}

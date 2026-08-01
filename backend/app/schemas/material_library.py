@@ -19,6 +19,7 @@ class MediaKind(StrEnum):
 
 class MaterialRole(StrEnum):
     BACKGROUND = "background"
+    SET_SURFACE = "set_surface"
     PRODUCT_DISPLAY = "product_display"
     DIGITAL_HUMAN = "digital_human"
     BRAND_TITLE = "brand_title"
@@ -45,6 +46,12 @@ class RightsStatus(StrEnum):
     REVOKED = "revoked"
 
 
+class ClassificationReviewStatus(StrEnum):
+    INFERRED = "inferred"
+    REVIEW_REQUIRED = "review_required"
+    CONFIRMED = "confirmed"
+
+
 class ConstraintKind(StrEnum):
     ALLOWED_REGION = "allowed_region"
     FORBIDDEN_REGION = "forbidden_region"
@@ -57,6 +64,7 @@ class ConstraintKind(StrEnum):
     ROTATION_POLICY = "rotation_policy"
     PIN_LAYER_TOP = "pin_layer_top"
     PIN_LAYER_BOTTOM = "pin_layer_bottom"
+    FORBID_LAYER_TOP = "forbid_layer_top"
     ABOVE_ROLE = "above_role"
     BELOW_ROLE = "below_role"
     AVOID_OVERLAP = "avoid_overlap"
@@ -73,11 +81,38 @@ class ConstraintRule(BaseModel):
     hard: bool = True
     parameters: dict[str, Any] = Field(default_factory=dict)
 
+    @model_validator(mode="after")
+    def validate_layer_relation(self) -> "ConstraintRule":
+        if self.kind in {
+            ConstraintKind.PIN_LAYER_TOP,
+            ConstraintKind.PIN_LAYER_BOTTOM,
+            ConstraintKind.FORBID_LAYER_TOP,
+        } and not self.hard:
+            raise ValueError(f"{self.kind.value} is an absolute layer band and must be hard")
+        if self.kind in {ConstraintKind.ABOVE_ROLE, ConstraintKind.BELOW_ROLE}:
+            role = self.parameters.get("role") or self.parameters.get("target_role")
+            try:
+                MaterialRole(str(role or ""))
+            except ValueError as exc:
+                raise ValueError(f"{self.kind.value} requires a valid material role") from exc
+        return self
+
 
 class AssetClassificationUpdate(BaseModel):
     media_kind: MediaKind | None = None
     material_roles: list[MaterialRole] = Field(default_factory=list)
-    execution_capability: ExecutionCapability = ExecutionCapability.UNCLASSIFIED
+    execution_capability: ExecutionCapability | None = None
+    classification_review_status: ClassificationReviewStatus = ClassificationReviewStatus.CONFIRMED
+    classification_confidence: float = Field(default=1.0, ge=0, le=1)
+    classification_evidence: dict[str, Any] = Field(
+        default_factory=lambda: {"source": "manual_operator"}
+    )
+
+    @model_validator(mode="after")
+    def reject_unverified_maitu_capability(self) -> "AssetClassificationUpdate":
+        if self.execution_capability == ExecutionCapability.MAITU_BOUND:
+            raise ValueError("maitu_bound is derived from a verified Maitu inventory binding")
+        return self
 
 
 class AssetClassificationBatchUpdate(AssetClassificationUpdate):
@@ -126,6 +161,15 @@ class AssetGroupRead(BaseModel):
 
 class AssetConstraintProfileWrite(BaseModel):
     constraints: list[ConstraintRule] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_layer_pins(self) -> "AssetConstraintProfileWrite":
+        hard_kinds = {rule.kind for rule in self.constraints if rule.hard}
+        if {ConstraintKind.PIN_LAYER_TOP, ConstraintKind.PIN_LAYER_BOTTOM} <= hard_kinds:
+            raise ValueError("one material cannot be hard-pinned to both the top and bottom layer bands")
+        if {ConstraintKind.PIN_LAYER_TOP, ConstraintKind.FORBID_LAYER_TOP} <= hard_kinds:
+            raise ValueError("one material cannot be pinned to and forbidden from the top layer")
+        return self
 
 
 class AssetConstraintProfileRead(BaseModel):

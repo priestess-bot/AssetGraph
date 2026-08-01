@@ -3,7 +3,13 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.schemas.material_library import ExecutionCapability, MaterialRole, MediaKind, RightsStatus
+from app.schemas.material_library import (
+    ClassificationReviewStatus,
+    ExecutionCapability,
+    MaterialRole,
+    MediaKind,
+    RightsStatus,
+)
 
 
 class MaituAssetCategory(StrEnum):
@@ -56,6 +62,10 @@ class AssetCreate(BaseModel):
     execution_capability: ExecutionCapability = ExecutionCapability.UNCLASSIFIED
     rights_status: RightsStatus = RightsStatus.PENDING
     rights_note: str | None = Field(default=None, max_length=1_000)
+    classification_review_status: ClassificationReviewStatus = ClassificationReviewStatus.REVIEW_REQUIRED
+    classification_confidence: float | None = Field(default=None, ge=0, le=1)
+    classification_evidence: dict = Field(default_factory=dict)
+    classification_fingerprint: str | None = Field(default=None, min_length=64, max_length=64)
 
     # Source-side identity mapping. AssetGraph keeps a stable global
     # asset_code, while preserving Maitu / local Browser-use-friendly codes
@@ -90,6 +100,7 @@ class AssetCreate(BaseModel):
     source_cover_url: str | None = None
     speaker_id: int | None = Field(default=None, ge=1)
     digital_human_image_id: int | None = Field(default=None, ge=1)
+    maitu_source_material_id: int | None = Field(default=None, ge=1)
     maitu_scene_name: str | None = Field(default=None, max_length=128)
     maitu_scene_index: int | None = Field(default=None, ge=0)
     maitu_layer_name: str | None = Field(default=None, max_length=128)
@@ -102,7 +113,6 @@ class AssetCreate(BaseModel):
     layer_height: float | None = Field(default=None, gt=0)
     layer_z_index: int | None = None
     replacement_policy: MaituReplacementPolicy | None = MaituReplacementPolicy.KEEP_LAYOUT
-
 
 class AssetFileRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -172,5 +182,6 @@ class AssetRead(AssetCreate):
     maitu_binding_verification_source: str | None = None
     maitu_binding_verified_at: datetime | None = None
     maitu_binding_scope: str | None = None
+    maitu_binding_evidence: dict = Field(default_factory=dict)
     rights_updated_at: datetime | None = None
     rights_updated_by: str | None = None

@@ -1,0 +1,25 @@
+{
+  "status": "failed",
+  "target_live_room_id": "41172",
+  "expected_title": "asser测试",
+  "keeper_clip_id": 437569,
+  "scene_clip_ids": [],
+  "action_count": 1,
+  "failure_count": 1,
+  "summary": "Test-room rebuild stopped after the first failure; reconcile the authoritative room before retrying.",
+  "actions": [
+    {
+      "action_type": "preflight",
+      "status": "failed",
+      "summary": "Stopped after first failure: ValueError: layer left conflicts between style_front and top-level material geometry",
+      "scene_name": null,
+      "clip_id": null,
+      "details": {
+        "retry_attempted": false,
+        "go_live_clicked": false
+      }
+    }
+  ],
+  "ready_for_go_live": false,
+  "go_live_clicked": false
+}

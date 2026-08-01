@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.services.audio_plan import AudioPlanError, AudioPlanValidator
+from app.services.layer_stacking import compile_layer_stack
 
 SOURCE = "script_content_layout_build_plan_rule_v1"
 PROTECTED_REFERENCE_ROOM_IDS = ("38336", "38995")
@@ -52,6 +53,32 @@ class ScriptLayoutBuildPlanBuilder:
                 "can_execute": False,
                 "manual_review_required": True,
                 "blocked_reasons": ["audio_policy_violation", str(exc)],
+                "operation_count": 0,
+                "operations": [],
+            }
+
+        stacking_failures: list[str] = []
+        for scene in normalized_layout["scenes"]:
+            if not isinstance(scene, dict):
+                stacking_failures.append("layer_stack_scene_invalid")
+                continue
+            layers = scene.get("layers")
+            if not isinstance(layers, list):
+                stacking_failures.append(f"layer_stack_missing:{scene.get('scene_name') or 'unknown'}")
+                continue
+            stacking_failures.extend(str(reason) for reason in scene.get("stacking_failures") or [])
+            stacking_failures.extend(compile_layer_stack(layers))
+        stacking_failures = list(dict.fromkeys(stacking_failures))
+        if stacking_failures:
+            return {
+                "source": SOURCE,
+                "status": "blocked_layer_constraints",
+                "target_live_room_id": target_live_room_id,
+                "expected_title": normalized_expected_title,
+                "build_mode": build_mode,
+                "can_execute": False,
+                "manual_review_required": True,
+                "blocked_reasons": stacking_failures,
                 "operation_count": 0,
                 "operations": [],
             }
@@ -167,14 +194,26 @@ class ScriptLayoutBuildPlanBuilder:
         manual_review = bool(layout_plan.get("manual_review_required")) or any(
             operation.get("status") == "manual_required" for operation in operations
         )
+        scene_names = [
+            str(scene.get("scene_name") or "").strip()
+            for scene in sorted(
+                layout_plan.get("scenes") or [],
+                key=lambda item: int(item.get("scene_index") or 0),
+            )
+        ]
         operations.append(
             {
-                "operation_type": "save_draft",
-                "operation_name": "保存直播间草稿",
+                "operation_type": "save_draft" if manual_review else "verify_draft_persisted",
+                "operation_name": "人工复核并保存直播间草稿" if manual_review else "确认直播间草稿已自动保存",
                 "sort_order": 9999,
                 "status": "manual_review" if manual_review else "ready",
                 "target_live_room_id": target_live_room_id,
-                "instruction": "仅保存草稿；存在占位/缺口时必须人工复核，不点击正式开播。",
+                "expected_scene_names": scene_names,
+                "instruction": (
+                    "存在占位或缺口，人工复核后仅保存草稿，不点击正式开播。"
+                    if manual_review
+                    else "刷新 working room 并确认全部场景已自动保存；不点击保存；不点击正式开播。"
+                ),
             }
         )
         return operations
@@ -214,6 +253,13 @@ class ScriptLayoutBuildPlanBuilder:
             "width": layer.get("width"),
             "height": layer.get("height"),
             "z_index": layer.get("z_index"),
+            "fit": layer.get("fit") or "contain",
+            "preserve_aspect_ratio": layer.get("preserve_aspect_ratio") is True,
+            "rotation": layer.get("rotation", 0.0),
+            "loop": layer.get("loop") is True,
+            "muted": layer.get("muted") is not False,
+            "constraint_rules": list(layer.get("constraint_rules") or []),
+            "constraint_evidence": dict(layer.get("constraint_evidence") or {}),
             "instruction": f"按素材编号 {layer.get('asset_code')} 插入 {layer.get('layer_type')} 图层。",
         }
 
@@ -234,6 +280,15 @@ class ScriptLayoutBuildPlanBuilder:
             "width": layer.get("width"),
             "height": layer.get("height"),
             "z_index": layer.get("z_index"),
+            "fit": layer.get("fit") or "contain",
+            "preserve_aspect_ratio": layer.get("preserve_aspect_ratio") is True,
+            "rotation": layer.get("rotation", 0.0),
+            "loop": layer.get("loop") is True,
+            "muted": layer.get("muted") is not False,
+            "sound_enabled": layer.get("sound_enabled") is True,
+            "audio_role": layer.get("audio_role") or "muted",
+            "constraint_rules": list(layer.get("constraint_rules") or []),
+            "constraint_evidence": dict(layer.get("constraint_evidence") or {}),
             "instruction": "按布局计划设置图层坐标、尺寸和层级，执行后回读坐标验证。",
         }
 

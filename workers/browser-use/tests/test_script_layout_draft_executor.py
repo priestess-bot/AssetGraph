@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from browser_use_worker.maitu_executor import MaituBrowserExecutionError
 from browser_use_worker.script_layout_draft_executor import (
     ScriptLayoutDraftRunner,
     build_script_layout_draft_execution_payload,
@@ -33,7 +34,15 @@ class FakeScriptLayoutDraftSession:
         self.calls.append(("read_live_room", live_room_id))
         return self.room
 
-    def rename_clip(self, *, live_room_id: str, clip_id: int, name: str) -> dict:
+    def rename_clip(
+        self,
+        *,
+        live_room_id: str,
+        clip_id: int,
+        name: str,
+        expected_live_room_title: str | None = None,
+    ) -> dict:
+        assert expected_live_room_title == "新品空白草稿"
         self.calls.append(("rename_clip", {"clip_id": clip_id, "name": name}))
         for clip in self.room["topics"][0]["clips"]:
             if clip["id"] == clip_id:
@@ -41,7 +50,15 @@ class FakeScriptLayoutDraftSession:
                 return {"clip_id": clip_id, "name": name}
         raise AssertionError(f"clip not found: {clip_id}")
 
-    def create_scene(self, *, live_room_id: str, scene_name: str, scene_index: int) -> dict:
+    def create_scene(
+        self,
+        *,
+        live_room_id: str,
+        scene_name: str,
+        scene_index: int,
+        expected_live_room_title: str | None = None,
+    ) -> dict:
+        assert expected_live_room_title == "新品空白草稿"
         self.calls.append(("create_scene", {"live_room_id": live_room_id, "scene_name": scene_name, "scene_index": scene_index}))
         clip = {"id": self.next_clip_id, "name": scene_name, "order_num": scene_index, "clip_materials": []}
         self.next_clip_id += 1
@@ -49,6 +66,9 @@ class FakeScriptLayoutDraftSession:
         return {"clip_id": clip["id"], "name": scene_name}
 
     def insert_asset_layer(self, *, live_room_id: str, clip_id: int, operation: dict) -> dict:
+        assert operation["expected_live_room_id"] == "47000002"
+        assert operation["expected_live_room_title"] == "新品空白草稿"
+        assert operation["require_offline_working_room"] is True
         self.calls.append(("insert_asset_layer", {"clip_id": clip_id, "asset_code": operation.get("asset_code")}))
         self.layers_by_clip.setdefault(clip_id, []).append(dict(operation))
         return {
@@ -66,6 +86,8 @@ class FakeScriptLayoutDraftSession:
         material_id: int,
         operation: dict,
     ) -> dict:
+        assert operation["expected_live_room_id"] == "47000002"
+        assert operation["expected_live_room_title"] == "新品空白草稿"
         self.calls.append(("adopt_seeded_digital_human", {"clip_id": clip_id, "material_id": material_id}))
         clip = next(item for item in self.room["topics"][0]["clips"] if item["id"] == clip_id)
         material = next(item for item in clip["clip_materials"] if item["id"] == material_id)
@@ -83,10 +105,21 @@ class FakeScriptLayoutDraftSession:
         }
 
     def position_asset_layer(self, *, live_room_id: str, clip_id: int, operation: dict) -> dict:
+        assert operation["expected_live_room_id"] == "47000002"
+        assert operation["expected_live_room_title"] == "新品空白草稿"
         self.calls.append(("position_asset_layer", {"clip_id": clip_id, "layer_id": operation.get("layer_id")}))
         return {"clip_id": clip_id, "layer_id": operation.get("layer_id"), "x": operation.get("x"), "y": operation.get("y")}
 
-    def write_script(self, *, live_room_id: str, clip_id: int, scene_name: str, script_text: str) -> dict:
+    def write_script(
+        self,
+        *,
+        live_room_id: str,
+        clip_id: int,
+        scene_name: str,
+        script_text: str,
+        expected_live_room_title: str | None = None,
+    ) -> dict:
+        assert expected_live_room_title == "新品空白草稿"
         self.calls.append(("write_script", {"clip_id": clip_id, "scene_name": scene_name, "script_text": script_text}))
         self.scripts_by_clip[clip_id] = script_text
         return {"clip_id": clip_id, "script_length": len(script_text)}
@@ -485,6 +518,64 @@ def test_script_layout_draft_runner_executes_ready_ops_and_skips_placeholders() 
     assert save.action_type == "manual_review_save_not_clicked"
 
 
+def test_script_layout_draft_runner_verifies_exact_auto_saved_working_draft() -> None:
+    session = FakeScriptLayoutDraftSession()
+    plan = fresh_room_preflight_plan()
+    plan["operations"].append(
+        {
+            "operation_type": "verify_draft_persisted",
+            "operation_name": "确认直播间草稿已自动保存",
+            "status": "ready",
+            "target_live_room_id": "47000002",
+            "expected_scene_names": ["未命名"],
+        }
+    )
+
+    result = ScriptLayoutDraftRunner(session=session).run(plan)
+
+    assert result.status == "completed"
+    assert result.manual_review_required is False
+    assert result.executed_action_count == 2
+    action = result.actions[-1]
+    assert action.operation_type == "verify_draft_persisted"
+    assert action.status == "completed"
+    assert action.details == {
+        "draft_result": {
+            "verified": True,
+            "verification_source": "working_room_readback",
+            "environment": "working",
+            "not_live": True,
+            "target_live_room_id": "47000002",
+            "expected_scene_names": ["未命名"],
+            "actual_scene_names": ["未命名"],
+            "scene_count": 1,
+            "save_clicked": False,
+            "go_live_clicked": False,
+        },
+        "go_live_clicked": False,
+    }
+    assert not any(call[0] in {"save_draft", "go_live"} for call in session.calls)
+
+
+def test_script_layout_draft_runner_rejects_auto_saved_draft_scene_mismatch() -> None:
+    session = FakeScriptLayoutDraftSession()
+    plan = fresh_room_preflight_plan()
+    plan["operations"].append(
+        {
+            "operation_type": "verify_draft_persisted",
+            "status": "ready",
+            "target_live_room_id": "47000002",
+            "expected_scene_names": ["开场"],
+        }
+    )
+
+    result = ScriptLayoutDraftRunner(session=session).run(plan)
+
+    assert result.status == "failed"
+    assert result.actions[-1].action_type == "verify_draft_persisted"
+    assert "does not exactly match" in result.actions[-1].summary
+
+
 def test_script_layout_draft_runner_blocks_strict_blocked_plan_without_browser_calls() -> None:
     session = FakeScriptLayoutDraftSession()
     plan = {
@@ -505,7 +596,15 @@ def test_script_layout_draft_runner_blocks_strict_blocked_plan_without_browser_c
 
 def test_script_layout_draft_runner_stops_after_first_failed_operation() -> None:
     class FailingRenameSession(FakeScriptLayoutDraftSession):
-        def rename_clip(self, *, live_room_id: str, clip_id: int, name: str) -> dict:
+        def rename_clip(
+            self,
+            *,
+            live_room_id: str,
+            clip_id: int,
+            name: str,
+            expected_live_room_title: str | None = None,
+        ) -> dict:
+            assert expected_live_room_title == "新品空白草稿"
             self.calls.append(("rename_clip", {"clip_id": clip_id, "name": name}))
             raise RuntimeError("rename failed after an uncertain remote response")
 
@@ -538,6 +637,54 @@ def test_script_layout_draft_runner_stops_after_first_failed_operation() -> None
         "preflight_content_build_plan",
         "fill_default_scene",
     ]
+    assert not any(call[0] == "create_scene" for call in session.calls)
+
+
+def test_script_layout_draft_runner_stops_when_room_goes_live_during_mutation() -> None:
+    class GoesLiveAfterRenameSession(FakeScriptLayoutDraftSession):
+        def rename_clip(
+            self,
+            *,
+            live_room_id: str,
+            clip_id: int,
+            name: str,
+            expected_live_room_title: str | None = None,
+        ) -> dict:
+            result = super().rename_clip(
+                live_room_id=live_room_id,
+                clip_id=clip_id,
+                name=name,
+                expected_live_room_title=expected_live_room_title,
+            )
+            self.room["is_live"] = True
+            return result
+
+    session = GoesLiveAfterRenameSession()
+    plan = {
+        "status": "ready",
+        "target_live_room_id": "47000002",
+        "operations": [
+            {"operation_type": "preflight_content_build_plan", "status": "ready"},
+            {
+                "operation_type": "fill_default_scene",
+                "status": "ready",
+                "scene_index": 0,
+                "scene_name": "开场",
+            },
+            {
+                "operation_type": "create_scene",
+                "status": "ready",
+                "scene_index": 1,
+                "scene_name": "讲解",
+            },
+        ],
+    }
+
+    result = ScriptLayoutDraftRunner(session=session).run(plan)
+
+    assert result.status == "failed"
+    assert result.actions[-1].action_type == "room_state_guard_after_mutation"
+    assert "live-session trace" in result.summary
     assert not any(call[0] == "create_scene" for call in session.calls)
 
 
@@ -851,6 +998,39 @@ def test_script_layout_draft_runner_skips_ready_asset_when_maitu_binding_is_miss
     assert result.ready_for_go_live is False
 
 
+def test_script_layout_draft_retries_idempotent_position_after_retryable_cdp_drop() -> None:
+    class ReconnectingSession(FakeScriptLayoutDraftSession):
+        remaining_failures = 1
+
+        def position_asset_layer(
+            self,
+            *,
+            live_room_id: str,
+            clip_id: int,
+            operation: dict,
+        ) -> dict:
+            self.calls.append(
+                ("position_asset_layer", {"clip_id": clip_id, "layer_id": operation.get("layer_id")})
+            )
+            if self.remaining_failures:
+                self.remaining_failures -= 1
+                raise MaituBrowserExecutionError("no close frame received or sent", retryable=True)
+            return {
+                "clip_id": clip_id,
+                "layer_id": operation.get("layer_id"),
+                "x": operation.get("x"),
+                "y": operation.get("y"),
+            }
+
+    session = ReconnectingSession()
+
+    result = ScriptLayoutDraftRunner(session=session).run(content_build_plan())
+
+    position_actions = [action for action in result.actions if action.operation_type == "position_asset_layer"]
+    assert all(action.status == "completed" for action in position_actions)
+    assert len([call for call in session.calls if call[0] == "position_asset_layer"]) == 3
+
+
 def test_script_layout_draft_skipped_binding_marks_result_manual_review() -> None:
     class MissingBindingSession(FakeScriptLayoutDraftSession):
         def insert_asset_layer(self, *, live_room_id: str, clip_id: int, operation: dict) -> dict:
@@ -979,6 +1159,58 @@ def test_checkpoint_skip_reuses_preflight_and_hydrates_clip_dependency() -> None
     assert ("insert_asset_layer", {"clip_id": 416425, "asset_code": "AG-IMG-BG"}) in session.calls
     assert checkpoints.dispatches == [2]
     assert checkpoints.completions == [2]
+
+
+def test_checkpoint_frozen_identity_keeps_runtime_query_for_maitu_insert() -> None:
+    session = FakeScriptLayoutDraftSession()
+    plan = checkpoint_plan()
+    runtime_url = (
+        "https://static.example/background.png"
+        "?x-oss-process=style/max_width_1080"
+    )
+    plan["operations"][2]["source_material_url"] = runtime_url
+    frozen_insert = {
+        **plan["operations"][2],
+        "source_material_url": "https://static.example/background.png",
+    }
+    checkpoints = FakeCheckpointStore(
+        {2: {"decision": "execute", "intent_snapshot": frozen_insert}}
+    )
+
+    result = ScriptLayoutDraftRunner(
+        session=session,
+        checkpoint_store=checkpoints,
+    ).run(plan)
+
+    assert result.status == "completed"
+    assert session.layers_by_clip[416425][0]["source_material_url"] == runtime_url
+    assert checkpoints.dispatches == [1, 2]
+
+
+def test_checkpoint_rejects_runtime_material_url_with_different_stable_identity() -> None:
+    session = FakeScriptLayoutDraftSession()
+    plan = checkpoint_plan()
+    plan["operations"][2]["source_material_url"] = (
+        "https://static.example/runtime-background.png?x-oss-process=style/max_width_1080"
+    )
+    frozen_insert = {
+        **plan["operations"][2],
+        "source_material_url": "https://static.example/frozen-background.png",
+    }
+    checkpoints = FakeCheckpointStore(
+        {2: {"decision": "execute", "intent_snapshot": frozen_insert}}
+    )
+
+    result = ScriptLayoutDraftRunner(
+        session=session,
+        checkpoint_store=checkpoints,
+    ).run(plan)
+
+    assert result.status == "failed"
+    assert result.actions[-1].action_type == "checkpoint_manifest"
+    assert "differs from the backend-frozen material identity" in result.actions[-1].summary
+    assert not any(call[0] == "insert_asset_layer" for call in session.calls)
+    assert checkpoints.dispatches == [1]
 
 
 def test_checkpoint_skip_with_stale_room_evidence_is_invalidated_before_later_side_effects() -> None:

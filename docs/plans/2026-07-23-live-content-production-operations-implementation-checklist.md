@@ -246,7 +246,7 @@ completed_at:
 - [ ] `CHK-1182` 创建 ShotProjectionLink，支持一对多和多对一并保存关系类型和适用区间。
 - [ ] `CHK-1183` 实现确定性 BuildPlan 编译器，固定 content/variant/revision/inventory/material/policy/site fingerprint。
 - [ ] `CHK-1184` 仅允许 rename、默认空场景、创建场景、插入白名单素材、写脚本、受控属性、保存和只读验证。
-- [ ] `CHK-1185` 拒绝未知 operation、任意 selector/URL、白名单外素材、非目标房间、清空房间和开播动作。
+- [ ] `CHK-1185` 静态 BuildPlan 拒绝未知 operation、任意 selector/URL、白名单外素材、非目标房间、清空房间和开播动作；ADR-0003 白名单测试房的清空由带现场指纹的 Draft Job runtime reset plan 承担，不得进入普通 BuildPlan。
 - [ ] `CHK-1186` 每个 operation 生成前置条件、后置条件、幂等键、capability、来源 Shot/ScriptBlock 和证据要求。
 - [ ] `CHK-1187` 实现时长估算和约 50% 偏差 warning；单一时长偏差不得阻断。
 - [ ] `CHK-1188` 生成结构化素材需求、冲突和分支质量报告。
@@ -271,7 +271,7 @@ completed_at:
 - [ ] `CHK-1221` 实现 release 校验、批准、草稿 DeliveryAttempt、authoritative readback 和 100% 证据完整率门禁。
 - [ ] `CHK-1222` 成功写入不等于曝光；不创建虚假的 ContentExposureEvent。
 - [ ] `CHK-1223` 实现 `clone` 到新空白房间，复制业务输入但清除旧目标 fingerprint、授权和执行状态。
-- [ ] `CHK-1224` 禁止第一版对非空旧房间做增量重建、清空或差异回滚。
+- [ ] `CHK-1224` 禁止第一版对普通非空旧房间做增量重建、清空或差异回滚；仅允许 ADR-0003 定义的白名单离线测试房在显式场景预览、确认和现场指纹不变时整房重建。
 - [ ] `CHK-1225` 实现从 operation -> `LayerBlueprint/MaituSceneBlueprint` -> Shot -> ProgramSegment -> ScriptBlock -> StoryBrief -> facts/templates 的全链路下钻。
 - [ ] `CHK-1226` 在 live-room UI 分开展示 workflow、quality、release、delivery 和现场 readback 状态。
 
@@ -279,7 +279,7 @@ completed_at:
 
 - [ ] `CHK-1290` 端到端用例从 ContentProject 输入生成一个受保护规则外的空白麦兔草稿，并完成不可变 release。
 - [ ] `CHK-1291` 每个事实句、Shot、`MaituSceneBlueprint`、`LayerBlueprint` 和 operation 均通过 `ShotProjectionLink` 显式回溯；旧 Scene/历史场景投影不能代替该验收，release 证据完整率 100%。
-- [ ] `CHK-1292` 非空、已开播、错房间、现场变化、白名单外素材和未知操作均被拒绝。
+- [ ] `CHK-1292` 普通非空房间、已开播、错房间、现场变化、白名单外素材和未知操作均被拒绝；白名单测试房只允许已确认快照的整房重建。
 - [ ] `CHK-1293` 注入网络超时和 Worker 崩溃后能够 reconcile，且无重复场景、素材、脚本或保存动作。
 - [ ] `CHK-1294` ContentProject 无房间仍可确认；live_room 分支缺 title/ID/现场不能确认。
 - [ ] `CHK-1295` 同一输入重放可解释结构结果和外部差异，RunManifest、指纹和现场证据齐全。
@@ -297,7 +297,7 @@ completed_at:
 - [ ] `CHK-2101` 将 Asset 明确为逻辑作品，追加 AssetVersion、AssetFile/Rendition 和 derived_from 关系。
 - [ ] `CHK-2102` 为 Asset/AssetVersion 落库三个相互独立的分类维度：单值 `media_kind`、多值 `material_role` 和单值 `execution_capability`；数据库约束、schema 和 revision fingerprint 均包含这三个维度。
 - [ ] `CHK-2103` 实现 `media_kind = image/video/audio/digital_human/text/template_preview/document`，禁止以扩展名或麦兔页签作为持久化业务语义。
-- [ ] `CHK-2104` 实现多值 `material_role = background/product_display/digital_human/brand_title/promotion_text/decoration_foreground/supporting_video/voice/background_music/sound_effect`，素材包、素材需求和关系约束只引用该维度。
+- [ ] `CHK-2104` 实现多值 `material_role = background/set_surface/product_display/digital_human/brand_title/promotion_text/decoration_foreground/supporting_video/voice/background_music/sound_effect`，其中 `set_surface` 表达底图、桌面和承托面；素材包、素材需求和关系约束只引用该维度。
 - [ ] `CHK-2105` 实现 `execution_capability = maitu_bound/local_only/reference_only/unavailable`，状态只能由可验证绑定与生命周期证据确定，不得由 `media_kind`、`material_role`、`asset_type` 或 `maitu_category` 推断。
 - [ ] `CHK-2106` 迁移现有 `asset_type/maitu_category` 为来源/兼容字段；为无法确定的三维分类创建人工校正任务，禁止通过不可靠映射自动赋予 `maitu_bound` 或可执行业务角色。
 - [ ] `CHK-2107` 扩展素材创建、详情、列表、批量更新和筛选 API，分别读写/查询三个维度，并对未知枚举、单值/多值混用和不合法组合返回稳定错误码。
@@ -327,7 +327,7 @@ completed_at:
 - [ ] `CHK-2141` 实现命名区域、矩形/多边形、锚点和归一化 `[0,1]` 坐标；保留原像素为证据。
 - [ ] `CHK-2142` 实现 `allowed_region / forbidden_region / provide_named_region / require_named_region`。
 - [ ] `CHK-2143` 实现 `preserve_aspect_ratio / size_range / scale_range / crop_policy / rotation_policy`。
-- [ ] `CHK-2144` 实现 `pin_layer_top / pin_layer_bottom / above_role / below_role / avoid_overlap`。
+- [x] `CHK-2144` 实现 `pin_layer_top / pin_layer_bottom / above_role / below_role / avoid_overlap`。
 - [ ] `CHK-2145` 实现 `align_anchor / distance_range / loop_policy / mute_policy / volume_range`。
 - [ ] `CHK-2146` 实现背景 table_surface/surface_line 与商品 bottom_center 的桌面摆放组合规则。
 - [ ] `CHK-2147` 实现多个硬约束取交集、soft 分层目标、系统规则不可覆盖和显式 constraint_key override。
@@ -1207,6 +1207,10 @@ completed_at:
 | `CHK-5120`,`CHK-5122`,`CHK-7122`-`CHK-7124` preparation update (items remain open) | coderdailyone | commit `d564913`; the local graph projection now reads immutable MetricDefinition revisions, session-grain metric snapshots and frozen AttributionReport inputs. It connects `OperationSession -> SessionMetricSnapshot` as `MEASURED_BY`, each snapshot to its exact metric code/revision, every report to only the session/import-version pair recorded inside its frozen input snapshot, and each EffectEstimate to its persisted AttributionReport with `DERIVED_FROM`. Report nodes retain status and `descriptive_only` scope; descriptive effect-to-content edges remain labelled `descriptive_association`. Focused graph tests (`29 passed`) and Ruff passed. | N/A: no relation implies causal evidence, recommendation eligibility, an interval estimate, a metric-bucket-level observation, feature snapshot, data-quality replay, report query benchmark or automatic content mutation. Legacy reports lacking frozen session import versions produce no session edge instead of a false historical join. PostgreSQL integration awaits a local `ASSETGRAPH_TEST_DATABASE_URL` migrated through `097`; no external API or credential is required. No strict checkbox is checked. | 2026-07-25 |
 
 | `CHK-2202`,`CHK-2300`,`CHK-7105`,`CHK-7122`-`CHK-7124` preparation update (items remain open) | coderdailyone | commit `a091f2e`; the local graph projection now materializes current non-deleted Asset identities with their checksum, three-axis material classification and execution capability, plus every content-strategy Template revision with its readiness/layout/buildability dimensions. A ContentProject links to only its frozen primary/secondary template code and revision through `CITES`; live-room plans link to their stored selected asset codes and rendered-video plans link only to asset codes frozen in the confirmed Variant material snapshot, both through `USES_ASSET`. The graph drops an edge whose referenced asset/template revision cannot be found instead of guessing from labels or current defaults. Focused graph tests and Ruff passed. | N/A: assets remain identity/checksum nodes, not AssetFile/rendition/rights/constraint-profile/pack/gap geometry nodes. Templates do not yet include capture-session source, module-level adoption or external layout inference. These relationships do not assert suitability, license, recommendation score or actual platform application. PostgreSQL integration awaits local `ASSETGRAPH_TEST_DATABASE_URL` migrated through `097`; no external API or credential is required. No strict checkbox is checked. | 2026-07-25 |
+
+| `CHK-2144` | coderdailyone | `backend/app/services/layer_stacking.py` 将硬置底/置顶编译为不可穿越层级带，将 `above_role/below_role` 编译为角色 DAG，硬冲突或环阻断，成功结果稳定压缩为唯一连续 `1..N` 并同步 `z_order/z_index`；`avoid_overlap` 继续作为硬几何冲突。素材角色、约束和证据已贯通选材、布局、BuildPlan 与 Browser-use 回读；测试房模板层序不再覆盖计划层序。素材页保留 hard/soft 与未展示规则。真实房间 `41172` 三场回读均为背景=1、全屏视频=2、数字人=3、标题=9，详见 `docs/evidence/maitu-41172-layer-order-correction.md`。backend `782 passed, 138 skipped`，Browser-use `413 passed`，frontend `90 passed`，TypeScript/构建/Ruff 通过。 | N/A: automated regression plus authenticated offline test-room readback; no go-live action | 2026-07-31 |
+
+| `CHK-1101`-`CHK-1295`,`CHK-2101`-`CHK-2209` v1 product-e2e mapping (items remain governed by their full production DoD) | v1 accelerator complete | `V1-0520`-`V1-0552` and `V1-0810`-`V1-0814` are complete: 63-material bootstrap, deterministic layer rules, unified generation entry, allowlisted 41172 replacement job, real queue/worker and UI-only refresh evidence. Audit is 22/22 with no errors: `docs/evidence/customer-v1-v1-0813-checklist-audit.json`; final product run: `docs/evidence/live-room-41172-product-e2e-2026-07-31T14-48-54-818Z`. | This mapping completion does not check any broad CHK item whose original production DoD is still unmet. Existing direct-room scripts remain `adapter_validation`; only the indexed final run is `product_e2e`. Five external customer-v1 acceptances remain open. | 2026-07-31 |
 
 ## 附录 C. 权威设计覆盖索引
 

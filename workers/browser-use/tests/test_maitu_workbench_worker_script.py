@@ -61,7 +61,7 @@ def test_worker_subprocesses_never_receive_backend_only_secrets(monkeypatch) -> 
     monkeypatch.setattr(worker.subprocess, "run", run)
 
     assert worker.run_cycle() == 0
-    assert len(calls) == 2
+    assert len(calls) == 3
     assert all(
         key not in environment
         for environment in calls

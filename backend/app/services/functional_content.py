@@ -29,7 +29,13 @@ class FunctionalContentService:
         self.knowledge = FunctionalKnowledgeService(connection)
         self.templates = LiveObservationRepository(connection)
 
-    def create_project(self, payload: dict[str, Any], *, actor_id: str) -> dict[str, Any]:
+    def create_project(
+        self,
+        payload: dict[str, Any],
+        *,
+        actor_id: str,
+        idempotency_key: str | None = None,
+    ) -> dict[str, Any]:
         document = self._document(payload)
         self._pin_fact_cards(document)
         self._pin_fact_claims(document)
@@ -42,6 +48,7 @@ class FunctionalContentService:
             actor_id=actor_id,
             producer_strategy_revision="functional-input.v1",
             source_revision_refs=self._source_refs(document),
+            idempotency_key=idempotency_key,
         )
         return self._summary(created)
 
@@ -962,12 +969,19 @@ class FunctionalContentService:
         content = frozen_inputs
         design_ref = f"{design_brief['design_brief_code']}:r{design_brief['revision_number']}"
         generation_context = self._generation_context(current, design_brief, content)
+        producer_content = {
+            **content,
+            "_confirmed_design_brief": dict(design_brief["parsed_brief"] or {}),
+            "_confirmed_design_brief_ref": design_ref,
+        }
         story = self.production.create_story_brief_revision(
             project_code=project_code,
             project_revision=int(current["revision_number"]),
             expected_revision=self._current_story_revision(current["project_id"]),
             source_design_brief_revision=design_ref,
-            content=self._story_content(current["generation_goal"], content, design_brief["parsed_brief"]),
+            content=self._story_content(
+                current["generation_goal"], producer_content, design_brief["parsed_brief"]
+            ),
             fact_revision_refs=self._fact_revision_refs(content),
             template_revision_refs=self._template_refs(content),
             actor_id=actor_id,
@@ -976,10 +990,12 @@ class FunctionalContentService:
         story = self.production.confirm_story_brief_revision(
             story["story_brief_code"], revision_number=int(story["revision_number"]), actor_id=actor_id
         )
-        blocks = self._script_blocks(current["generation_goal"], content, generation_context["approved_facts"])
-        blocks = self._attach_literal_content_rule_refs(blocks, content)
+        blocks = self._script_blocks(
+            current["generation_goal"], producer_content, generation_context["approved_facts"]
+        )
+        blocks = self._attach_literal_content_rule_refs(blocks, producer_content)
         self._validate_fact_citations(blocks, generation_context["approved_facts"])
-        self._validate_literal_content_rules(blocks, content)
+        self._validate_literal_content_rules(blocks, producer_content)
         script_draft = self.production.create_script_revision(
             story_brief_code=story["story_brief_code"],
             story_brief_revision=int(story["revision_number"]),
@@ -989,6 +1005,9 @@ class FunctionalContentService:
                 "generation_mode": "deterministic_demo",
                 "theme": content.get("theme"),
                 "story": content.get("story"),
+                "detailed_design": producer_content.get("detailed_design"),
+                "confirmed_design_brief_ref": design_ref,
+                "confirmed_design_brief": producer_content["_confirmed_design_brief"],
                 "product_order": content.get("product_order") or [],
                 "generation_context_fingerprint": canonical_fingerprint(generation_context),
                 "generation_context_sections": list(generation_context),
@@ -1015,7 +1034,9 @@ class FunctionalContentService:
             program_draft["program_revision_code"], revision_number=int(program_draft["revision_number"]), actor_id=actor_id
         )
         program["segments"] = program_draft["segments"]
-        shots = self._shots(program_draft["segments"], script_draft["blocks"], content)
+        shots = self._shots(
+            program_draft["segments"], script_draft["blocks"], producer_content
+        )
         shot_list = self.production.create_shot_list_revision(
             program_revision_code=program["program_revision_code"],
             expected_revision=self._current_project_revision("shot_list_revisions", current["project_id"]),
@@ -1635,6 +1656,7 @@ class FunctionalContentService:
             "objective": current["generation_goal"],
             "theme": content.get("theme"),
             "story": content.get("story"),
+            "detailed_design": content.get("detailed_design"),
             "audience": content.get("audience"),
             "priorities": FunctionalContentService._effective_rule_directives(content, "must_include"),
             "persona": content.get("persona"),
@@ -1996,6 +2018,7 @@ class FunctionalContentService:
             "objective": goal,
             "theme": design_brief.get("theme") or content.get("theme") or goal,
             "story": design_brief.get("story") or content.get("story") or "通过清晰的场景和节奏帮助观众完成选择。",
+            "detailed_design": design_brief.get("detailed_design") or content.get("detailed_design"),
             "audience": design_brief.get("audience") or content.get("audience") or "目标直播间观众",
             "tone": design_brief.get("tone") or content.get("tone") or "自然、可信、直接",
             "product_order": content.get("product_order") or [],
@@ -2133,7 +2156,7 @@ class FunctionalContentService:
             if isinstance(item, dict) and item.get("template_code")
         }
         allowed = {
-            "background", "product_display", "digital_human", "brand_title", "promotion_text",
+            "background", "set_surface", "product_display", "digital_human", "brand_title", "promotion_text",
             "decoration_foreground", "supporting_video", "voice", "background_music", "sound_effect",
         }
         return list(
@@ -2151,8 +2174,25 @@ class FunctionalContentService:
         content: dict[str, Any],
         approved_facts: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
-        theme = content.get("theme") or goal
-        story = content.get("story") or "从真实使用场景出发，给出容易理解的选择建议。"
+        design_brief = (
+            content.get("_confirmed_design_brief")
+            if isinstance(content.get("_confirmed_design_brief"), dict)
+            else {}
+        )
+        theme = design_brief.get("theme") or content.get("theme") or goal
+        story = (
+            design_brief.get("story")
+            or content.get("story")
+            or "从真实使用场景出发，给出容易理解的选择建议。"
+        )
+        detailed_design = str(
+            design_brief.get("detailed_design") or content.get("detailed_design") or ""
+        ).strip()
+        design_direction = (
+            f" 整体画面与节奏按以下设计执行：{detailed_design}。"
+            if detailed_design
+            else ""
+        )
 
         def fact_blocks(sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
             facts: list[dict[str, Any]] = []
@@ -2267,6 +2307,8 @@ class FunctionalContentService:
                     if module_type != "story"
                     else f"{stage['title']}：{story} {stage['purpose']}。"
                 )
+                if index == 0:
+                    stage_content += design_direction
                 conversion_policy = FunctionalContentService._policy_for_sources(
                     sources, "conversion_policy"
                 )
@@ -2297,7 +2339,7 @@ class FunctionalContentService:
         blocks = [
             {
                 "module_type": "opening",
-                "content": f"今天我们围绕{theme}展开，目标是{goal}。",
+                "content": f"今天我们围绕{theme}展开，目标是{goal}。{design_direction}",
                 "estimated_duration_ms": 45_000,
                 "template_sources": opening_sources,
                 "interaction_intent": interaction_intent(opening_sources),
@@ -2418,11 +2460,32 @@ class FunctionalContentService:
     @staticmethod
     def _shots(segments: list[dict[str, Any]], blocks: list[dict[str, Any]], content: dict[str, Any]) -> list[dict[str, Any]]:
         default_roles = ["digital_human", "background"]
+        design_brief = (
+            content.get("_confirmed_design_brief")
+            if isinstance(content.get("_confirmed_design_brief"), dict)
+            else {}
+        )
+        detailed_design = str(
+            design_brief.get("detailed_design") or content.get("detailed_design") or ""
+        ).strip()
+        staging = design_brief.get("staging") or content.get("staging_requirements") or []
+        visual = design_brief.get("visual") or content.get("visual_requirements") or []
         return [
             {
                 "program_segment_code": segment["segment_code"],
                 "shot_goal": segment["semantic_goal"],
-                "composition_intent": {"style": "talking_head", "focus": "host" if index == 0 else "product_or_message"},
+                "composition_intent": {
+                    "style": "talking_head",
+                    "focus": "host" if index == 0 else "product_or_message",
+                    **({"user_design_direction": detailed_design} if detailed_design else {}),
+                    **({"staging_requirements": staging} if staging else {}),
+                    **({"visual_requirements": visual} if visual else {}),
+                    **(
+                        {"confirmed_design_brief_ref": content["_confirmed_design_brief_ref"]}
+                        if content.get("_confirmed_design_brief_ref")
+                        else {}
+                    ),
+                },
                 "material_role_requirements": FunctionalContentService._shot_material_roles(
                     blocks[index].get("module_type"),
                     default_roles,
@@ -2446,7 +2509,7 @@ class FunctionalContentService:
         if module_type in {"opening", "story"}:
             base = default_roles
         elif module_type == "product_fact":
-            base = ["digital_human", "product_image"]
+            base = ["digital_human", "product_display"]
         else:
             base = ["digital_human", "promotion_text"]
         return list(dict.fromkeys([*base, *material_cues]))

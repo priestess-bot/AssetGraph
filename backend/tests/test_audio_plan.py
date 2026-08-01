@@ -69,3 +69,48 @@ def test_build_plan_freezes_fresh_blank_room_preflight() -> None:
     assert plan["expected_title"] == "新品空白草稿"
     assert preflight["expected_live_room_title"] == "新品空白草稿"
     assert set(preflight["protected_reference_room_ids"]) == {"38336", "38995"}
+
+
+def test_clean_build_plan_verifies_auto_saved_draft_without_manual_gate() -> None:
+    plan = ScriptLayoutBuildPlanBuilder().build(
+        {
+            "build_mode": "strict",
+            "status": "ready_for_build_plan",
+            "can_generate_executable_build_plan": True,
+            "scenes": [
+                {"scene_index": 0, "scene_name": "开场", "layers": [], "script_block": {"text": "开场词"}},
+                {"scene_index": 1, "scene_name": "讲解", "layers": [], "script_block": {"text": "讲解词"}},
+            ],
+        },
+        target_live_room_id="41172",
+        expected_title="asser测试",
+    )
+
+    final_operation = plan["operations"][-1]
+    assert plan["can_execute"] is True
+    assert plan["manual_review_required"] is False
+    assert final_operation["operation_type"] == "verify_draft_persisted"
+    assert final_operation["status"] == "ready"
+    assert final_operation["expected_scene_names"] == ["开场", "讲解"]
+    assert "不点击正式开播" in final_operation["instruction"]
+
+
+def test_incomplete_build_plan_keeps_manual_save_gate() -> None:
+    plan = ScriptLayoutBuildPlanBuilder().build(
+        {
+            "build_mode": "draft_with_placeholders",
+            "status": "manual_review_required",
+            "can_generate_executable_build_plan": True,
+            "manual_review_required": True,
+            "scenes": [
+                {"scene_index": 0, "scene_name": "待复核", "layers": [], "script_block": {"text": "待复核"}},
+            ],
+        },
+        target_live_room_id="41172",
+    )
+
+    final_operation = plan["operations"][-1]
+    assert plan["can_execute"] is False
+    assert plan["manual_review_required"] is True
+    assert final_operation["operation_type"] == "save_draft"
+    assert final_operation["status"] == "manual_review"

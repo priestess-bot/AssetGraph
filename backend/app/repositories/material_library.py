@@ -62,18 +62,51 @@ class MaterialLibraryRepository:
         *,
         media_kind: str | None,
         material_roles: list[str],
-        execution_capability: str,
+        execution_capability: str | None,
+        classification_review_status: str = "confirmed",
+        classification_confidence: float = 1.0,
+        classification_evidence: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
+        if execution_capability == "maitu_bound":
+            raise MaterialLibraryValidationError(
+                "maitu_bound is derived from a verified Maitu inventory binding"
+            )
+        evidence = dict(classification_evidence or {"source": "manual_operator"})
+        fingerprint = self._fingerprint(
+            self._canonical(
+                {
+                    "media_kind": media_kind,
+                    "material_roles": sorted(set(material_roles)),
+                    "review_status": classification_review_status,
+                    "confidence": classification_confidence,
+                    "evidence": evidence,
+                }
+            )
+        )
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
                 """
                 UPDATE assets
                 SET media_kind = %s, material_roles = %s::jsonb,
-                    execution_capability = %s, updated_at = now()
+                    execution_capability = COALESCE(%s, execution_capability),
+                    classification_review_status = %s,
+                    classification_confidence = %s,
+                    classification_evidence = %s::jsonb,
+                    classification_fingerprint = %s,
+                    updated_at = now()
                 WHERE asset_code = %s AND deleted_at IS NULL
                 RETURNING *
                 """,
-                (media_kind, json.dumps(sorted(set(material_roles))), execution_capability, asset_code),
+                (
+                    media_kind,
+                    json.dumps(sorted(set(material_roles))),
+                    execution_capability,
+                    classification_review_status,
+                    classification_confidence,
+                    json.dumps(evidence, ensure_ascii=False),
+                    fingerprint,
+                    asset_code,
+                ),
             )
             row = cursor.fetchone()
         self.connection.commit()
@@ -107,12 +140,31 @@ class MaterialLibraryRepository:
         *,
         media_kind: str | None,
         material_roles: list[str],
-        execution_capability: str,
+        execution_capability: str | None,
+        classification_review_status: str = "confirmed",
+        classification_confidence: float = 1.0,
+        classification_evidence: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         """Apply one explicit three-axis classification to an all-or-nothing target set."""
         codes = self._dedupe_codes(asset_codes)
         if not codes:
             raise MaterialLibraryValidationError("At least one asset code is required")
+        if execution_capability == "maitu_bound":
+            raise MaterialLibraryValidationError(
+                "maitu_bound is derived from a verified Maitu inventory binding"
+            )
+        evidence = dict(classification_evidence or {"source": "manual_operator"})
+        fingerprint = self._fingerprint(
+            self._canonical(
+                {
+                    "media_kind": media_kind,
+                    "material_roles": sorted(set(material_roles)),
+                    "review_status": classification_review_status,
+                    "confidence": classification_confidence,
+                    "evidence": evidence,
+                }
+            )
+        )
         try:
             with self.connection.cursor(row_factory=dict_row) as cursor:
                 cursor.execute(
@@ -129,13 +181,22 @@ class MaterialLibraryRepository:
                 cursor.execute(
                     """UPDATE assets
                        SET media_kind = %s, material_roles = %s::jsonb,
-                           execution_capability = %s, updated_at = now()
+                           execution_capability = COALESCE(%s, execution_capability),
+                           classification_review_status = %s,
+                           classification_confidence = %s,
+                           classification_evidence = %s::jsonb,
+                           classification_fingerprint = %s,
+                           updated_at = now()
                        WHERE asset_code = ANY(%s) AND deleted_at IS NULL
                        RETURNING *""",
                     (
                         media_kind,
                         json.dumps(sorted(set(material_roles))),
                         execution_capability,
+                        classification_review_status,
+                        classification_confidence,
+                        json.dumps(evidence, ensure_ascii=False),
+                        fingerprint,
                         codes,
                     ),
                 )

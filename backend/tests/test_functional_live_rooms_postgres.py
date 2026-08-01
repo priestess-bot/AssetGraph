@@ -1038,3 +1038,44 @@ def test_live_room_plan_rejects_template_not_pinned_by_content_project() -> None
                 actor_id="test-operator",
             )
         assert invalid.value.code == "LIVE_ROOM_TEMPLATE_SELECTION_MISMATCH"
+
+
+def test_live_room_plan_creation_idempotency_returns_original_and_rejects_drift() -> None:
+    suffix = uuid4().hex
+    with psycopg.connect(DATABASE_URL) as connection:
+        assets = AssetRepository(connection)
+        project = _generated_project(connection, suffix)
+        selected = [
+            _asset(assets, suffix, "digital_human"),
+            _asset(assets, suffix, "background"),
+            _asset(assets, suffix, "promotion_text"),
+        ]
+        payload = {
+            "project_code": project["project_code"],
+            "target_live_room_id": f"empty-draft-{suffix}",
+            "expected_title": "Idempotent live-room draft",
+            "asset_codes": [item["asset_code"] for item in selected],
+            "group_codes": [],
+            "idempotency_key": f"live-room-plan-{suffix}",
+        }
+        service = FunctionalLiveRoomService(connection)
+
+        original = service.create_plan(payload, actor_id="test-operator")
+        repeated = service.create_plan(payload, actor_id="test-operator")
+
+        assert repeated["plan_code"] == original["plan_code"]
+        assert repeated["variant_code"] == original["variant_code"]
+        assert repeated["build_plan"]["build_plan_code"] == original["build_plan"]["build_plan_code"]
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT count(*) FROM functional_live_room_plans WHERE creation_idempotency_key = %s",
+                (payload["idempotency_key"],),
+            )
+            assert cursor.fetchone()[0] == 1
+
+        with pytest.raises(DomainValidationError) as invalid:
+            service.create_plan(
+                {**payload, "expected_title": "Changed title must not reuse the command"},
+                actor_id="test-operator",
+            )
+        assert invalid.value.code == "LIVE_ROOM_PLAN_IDEMPOTENCY_CONFLICT"

@@ -35,6 +35,25 @@ python -m browser_use_worker --build-plan-code MT-BUILD-20260709-000001 --non-de
 python -m browser_use_worker --script-layout-build-plan-file /tmp/script-layout-build-plan.json --script-layout-draft-execute --dry-run
 python -m browser_use_worker --resolve-maitu-materials --script-layout-build-plan-file /tmp/script-layout-build-plan.json --resolved-plan-file /tmp/resolved-build-plan.json
 python -m browser_use_worker --resolve-maitu-materials --script-layout-build-plan-file /tmp/script-layout-build-plan.json --resolved-plan-file /tmp/resolved-build-plan.json --script-layout-draft-execute --target-live-room-id 40173
+python -m browser_use_worker --maitu-test-room-rebuild-file /tmp/maitu-test-room-rebuild.json
+```
+
+`--maitu-test-room-rebuild-file` is an explicitly destructive, test-draft-only mode. The JSON spec must bind a canonical string `target_live_room_id`, an exact non-empty `expected_title`, a different `reference_room_id`, and one or more scenes. Each scene supplies `scene_name`, `reference_clip_id`, `script_text`, and either the complete `component_operations` list or its exact positive `visual_count`. A complete operation list must cover every referenced component exactly once and assign a unique contiguous `z_index` from `1..N`. Before deletion, the runner reads the working target, rejects protected reference rooms (`38336` and `38995`), title/id drift, active or ambiguous live status, and any live-session trace; it also snapshots every referenced visual layer across all topics. It globally keeps the first target clip by `(order_num,id)`, deletes every other clip, clears all keeper materials, and proves the intermediate room contains exactly one clip and zero materials. It then rebuilds every scene using the reference component identity and geometry but the explicit planned component order, verifies each target layer against that planned snapshot, verifies the unique custom script, and performs a final title/scene readback. A reference clip's original layer order is never authoritative over the plan. Every mutation repeats the exact title/never-live gate inside the browser-side API script. The workflow has no retry loop and never saves, schedules, authorizes, or starts a live stream. A failure exits `2` and requires authoritative reconciliation before another run.
+
+```json
+{
+  "target_live_room_id": "41172",
+  "expected_title": "Exact current test-room title",
+  "reference_room_id": "38336",
+  "scenes": [
+    {
+      "scene_name": "Product introduction",
+      "reference_clip_id": "390069",
+      "visual_count": 9,
+      "script_text": "Custom script text"
+    }
+  ]
+}
 ```
 
 `--preflight --plan-code ...` fetches the replacement plan operation plan and performs read-only safety checks before any mutating Browser-use execution. It validates operation support, Maitu project/scene context, AssetGraph asset lookup, Browser-use-friendly asset fields, local file availability under `--assets-root` (default: repository `素材/`, override with `ASSETGRAPH_ASSETS_ROOT`), the current Maitu browser/login shell, and whether the target layer/slot name is visible on the current page. It exits with code `0` when there are no failures and code `2` when a blocking check fails. `ready_to_execute` is only `true` when there are no failures, warnings, or skipped checks.

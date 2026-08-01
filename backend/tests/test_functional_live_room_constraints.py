@@ -142,3 +142,28 @@ def test_room_private_override_requires_selected_asset_and_reason() -> None:
             actor_id="operator-1",
         )
     assert no_reason.value.code == "LIVE_ROOM_CONSTRAINT_OVERRIDE_REASON_REQUIRED"
+
+
+def test_hard_avoid_overlap_blocks_an_intersecting_scene() -> None:
+    layers = [
+        {
+            "asset_code": "ASSET-PRODUCT",
+            "role": "product_display",
+            "z_order": 2,
+            "normalized_geometry": {"x": 0.2, "y": 0.2, "width": 0.4, "height": 0.4},
+            "constraint_rules": [
+                {"kind": "avoid_overlap", "hard": True, "parameters": {"role": "digital_human"}}
+            ],
+        },
+        {
+            "asset_code": "ASSET-HOST",
+            "role": "digital_human",
+            "z_order": 1,
+            "normalized_geometry": {"x": 0.3, "y": 0.3, "width": 0.4, "height": 0.4},
+            "constraint_rules": [],
+        },
+    ]
+
+    failures = FunctionalLiveRoomService._resolve_scene_layer_relationships(layers)
+
+    assert failures == ["constraint_overlap:ASSET-PRODUCT:ASSET-HOST"]

@@ -1,0 +1,4184 @@
+{
+  "schema_version": "material-bootstrap-report-v1",
+  "mode": "apply",
+  "bootstrap_version": "material-bootstrap-v1",
+  "input_fingerprint": "58437a093e44f3e8bb230cd5ebe4c19798d4a536896671b0c2bffde34dd27523",
+  "input_manifest": {
+    "bootstrap_version": "material-bootstrap-v1",
+    "source_revision": "f1d8a08584015403e6ae8218eeb9f989322d6c19b0a37c8cbc45763fff4cefd9",
+    "digital_human_inventory_fingerprint": "8c15142f61990a1de7a0772011a8245f899a5f70128943d9da64844661e80b3e",
+    "materials": [
+      {
+        "asset_code": "AG-IMG-20260729-000001",
+        "local_file_code": "MT-TPL-0001",
+        "checksum_sha256": "2b27e561f10211e986f824eb3983a838d6df8393ee300838dcad00d188e4dada",
+        "inventory_item_fingerprint": "7dcfc1d180616e664e3f1ac540fbd2d0272dfb2609b515362a3ae5ba36e40ed3"
+      },
+      {
+        "asset_code": "AG-IMG-20260729-000002",
+        "local_file_code": "MT-BG-0001",
+        "checksum_sha256": "5e8ce7fc08aaa078b57965c7cf046bb492896ddd55a70da98c8966e7755166f3",
+        "inventory_item_fingerprint": "61e61ffbaefcdd99afda5c3052b91aad0eb4f0ddb9d4afab0a9883074449efc6"
+      },
+      {
+        "asset_code": "AG-IMG-20260729-000003",
+        "local_file_code": "MT-BG-0002",
+        "checksum_sha256": "12775d7aeb9eaf02139e177fa845411c75b7b704f66df423ba577616da3ad6a1",
+        "inventory_item_fingerprint": "06539a1919e0d79deed3cd19a14d74e9d391d51b903dbd3570975a8d69d63e50"
+      },
+      {
+        "asset_code": "AG-IMG-20260729-000004",
+        "local_file_code": "MT-BG-0003",
+        "checksum_sha256": "906734b5196c90ef9295ef29613d3ecd3f97d4035d32caf4e96c6d227ffc87a2",
+        "inventory_item_fingerprint": "911de36a7b8ba6851048f9d92fe119497dc9298ac8d854ddcf7c7d7c6b80e720"
+      },
+      {
+        "asset_code": "AG-IMG-20260729-000005",
+        "local_file_code": "MT-BG-0004",
+        "checksum_sha256": "3443a5e4bf6cbac8bf43e8f1875a308525d3d56d1e1162b72e4263a2cdb87e1b",
+        "inventory_item_fingerprint": "2f1ced7730363ebdbb8714b02e1f8dab6681a278de8949fa90af54bc260cbf63"
+      },
+      {
+        "asset_code": "AG-IMG-20260729-000006",
+        "local_file_code": "MT-DEC-0001",
+        "checksum_sha256": "c58816e119a15529df27337cb177301571ee6fc3909e20c3516cbab53cd62192",
+        "inventory_item_fingerprint": "47ccd771f5dfa54019a045397a8f01d6b90340416ad34fd6e45603b1642595a7"
+      },
+      {
+        "asset_code": "AG-IMG-20260729-000007",
+        "local_file_code": "MT-DEC-0002",
+        "checksum_sha256": "9658154c97509ec4bb22e35d10b63230e04cbeeb2ddfc21878ee16d7770c9f43",
+        "inventory_item_fingerprint": "6a48d72e513e2390affc9741cccfc620fe071838daa2847353fee85798f838f8"
+      },
+      {
+        "asset_code": "AG-IMG-20260729-000008",
+        "local_file_code": "MT-DEC-0003",
+        "checksum_sha256": "1514f083707bbfe874070cf464f88bd591d189c6e88c3fa13853ae8705f1b1ef",
+        "inventory_item_fingerprint": "ebe899212f3ecdb1c55f4e30163f77153e2e6e688362bf1198dc2fc6f29c8328"
+      },
+      {
+        "asset_code": "AG-IMG-20260729-000009",
+        "local_file_code": "MT-DEC-0004",
+        "checksum_sha256": "ed2c34dd52e955285dbd1ec477a31972341e93af03926cc8f7cc1cb11642fe29",
+        "inventory_item_fingerprint": "0029e17b90d10ff46e7c518be9f7242df8eae87458b2abec0e584f1f22c9a791"
+      },
+      {
+        "asset_code": "AG-IMG-20260729-000010",
+        "local_file_code": "MT-DEC-0005",
+        "checksum_sha256": "0816c96528b8b40427a9dcda937fa0c7f17aa348b34a810cea8738801f9f9f4e",
+        "inventory_item_fingerprint": "487f95de5e539e04c9f9891dd1c026105242bb991d376537079582c3bcd2fec6"
+      },
+      {
+        "asset_code": "AG-IMG-20260729-000011",
+        "local_file_code": "MT-DEC-0006",
+        "checksum_sha256": "aaf80719ca68e340fa5cbfec1c36326322621020452384847ba29c3dbd381c25",
+        "inventory_item_fingerprint": "e8d70e326ef83a9f8f530facc1f1e326c71631f71e8e14b887c194fa84ac290e"
+      },
+      {
+        "asset_code": "AG-IMG-20260729-000012",
+        "local_file_code": "MT-DEC-0007",
+        "checksum_sha256": "54fb106a7d83bea67471387b37d0ee9babdac9990044c4377d6686f32f477ae2",
+        "inventory_item_fingerprint": "42afd6e4213a5387b24ff871eed3528deb8654bd7c4cd6727d3b5758fd71b77e"
+      },
+      {
+        "asset_code": "AG-IMG-20260729-000013",
+        "local_file_code": "MT-DEC-0008",
+        "checksum_sha256": "8c18388a5ab4e30669f1f3d06e729444046779957978855cca823905b8c33121",
+        "inventory_item_fingerprint": "e012a492b7afc164003591f589ed8b326c22f26d5dd7d0f586df867bf5a8a099"
+      },
+      {
+        "asset_code": "AG-IMG-20260729-000014",
+        "local_file_code": "MT-DEC-0009",
+        "checksum_sha256": "3e585ac12f80a26eeab477ec887bb39f625de73dd7a5713d760ce872456e0f99",
+        "inventory_item_fingerprint": "f991ad8a32742b9b159fc63436c32c0f2877f480380fb7ee8a3486877462583a"
+      },
+      {
+        "asset_code": "AG-IMG-20260729-000015",
+        "local_file_code": "MT-DEC-0012",
+        "checksum_sha256": "c27718e6435262ba021e62592965e880ca3a9d0816e56d83692ae7a320ac1aa5",
+        "inventory_item_fingerprint": "a93171725e627008f8d9deb0b735270bab57fd0ab27b9cea1afb8107c9629bdb"
+      },
+      {
+        "asset_code": "AG-IMG-20260729-000016",
+        "local_file_code": "MT-DEC-0013",
+        "checksum_sha256": "b7b155c2bf61f84e636ae66a4ea61e2263978cb4fbed87c48f5a36931dd137b3",
+        "inventory_item_fingerprint": "25024e23ba3c399e18f9ca14a6449bd1f46336874dbf72c14da5ceeba3f97c74"
+      },
+      {
+        "asset_code": "AG-IMG-20260729-000017",
+        "local_file_code": "MT-DEC-0014",
+        "checksum_sha256": "1216e1d7339d3af2b5cb0d1a4777a135439f5b9b87ff32478731f13efbef94e6",
+        "inventory_item_fingerprint": "af0ee94033bd7bae0a81bb54246a2476fa30fbb7af0ed9c92f2fa44b645fe06b"
+      },
+      {
+        "asset_code": "AG-IMG-20260729-000018",
+        "local_file_code": "MT-DEC-0016",
+        "checksum_sha256": "ac2bb0fad4606f716b6322e330f5844e6e0ca220fb5a2688689f3e181b59d1dc",
+        "inventory_item_fingerprint": "0c8724676fd43571b9bd70cbf57acbeb62f88635b64880d1ac47892355b32f67"
+      },
+      {
+        "asset_code": "AG-IMG-20260729-000019",
+        "local_file_code": "MT-DEC-0018",
+        "checksum_sha256": "a348ed6096fe313b51ebefe3efefab1438669a226220914d4cdd276702e96f7c",
+        "inventory_item_fingerprint": "64aa7581f634eeb877b570ac738e9cb850f233ee2b7b1297a99b42d4d637183c"
+      },
+      {
+        "asset_code": "AG-IMG-20260729-000020",
+        "local_file_code": "MT-DEC-0019",
+        "checksum_sha256": "5dc150927d5947f5fe5e0e6d5d70844e72e043fd1d32899f14a207ace061916d",
+        "inventory_item_fingerprint": "6a605797e68f05a208226914834c83abe5f510e15fef60a9175bd98dc38efc33"
+      },
+      {
+        "asset_code": "AG-IMG-20260729-000021",
+        "local_file_code": "MT-DEC-0020",
+        "checksum_sha256": "e5e839741769b4491d67f30dafed80ad63948580db3f0b0e0fd01713f1941ad3",
+        "inventory_item_fingerprint": "c4e22bce3b9aa50e83664ca2572c3f95798d4d14b356b79edfb0a379954cf51f"
+      },
+      {
+        "asset_code": "AG-IMG-20260729-000022",
+        "local_file_code": "MT-DEC-0021",
+        "checksum_sha256": "8cd37022b2ae83a98f7ef72427d3ac5d362e2a2e257f487a24c2c36d6815234e",
+        "inventory_item_fingerprint": "23456025f2a4ab1545402be5aa98187c3370259e61fa1f6431a20e941cd994de"
+      },
+      {
+        "asset_code": "AG-IMG-20260729-000023",
+        "local_file_code": "MT-DEC-0022",
+        "checksum_sha256": "c41573d48ddfe19bbb5aff643ff5c483c96a739a521d8d737185713d5ab29e74",
+        "inventory_item_fingerprint": "8761a76984c195283e259f5b0bff7c4a50c35c73c7129f52f085de73523806ac"
+      },
+      {
+        "asset_code": "AG-IMG-20260729-000024",
+        "local_file_code": "MT-DEC-0023",
+        "checksum_sha256": "3085c30a163770263c6f18c12291353b2db7babef7f81e7ca7309e6a58df83de",
+        "inventory_item_fingerprint": "47d6368c9a8320ef28fa5ad3a24984b8212f4714739acca3902a589cbeca256c"
+      },
+      {
+        "asset_code": "AG-IMG-20260729-000025",
+        "local_file_code": "MT-DEC-0024",
+        "checksum_sha256": "b93c79a6f127165cf24dad4552bb2d86e3b5d33cc898bf1f5d9e3117fbaf0306",
+        "inventory_item_fingerprint": "7404fba6dcb9fe1a6238bce02d9e3a1247e144820fcc9e9755b1766f5294a0d4"
+      },
+      {
+        "asset_code": "AG-IMG-20260729-000026",
+        "local_file_code": "MT-DEC-0025",
+        "checksum_sha256": "598d67e6a147dc5d3b7fb6534e10cc422399e6ee0d432a4dc2ce52124568be69",
+        "inventory_item_fingerprint": "0809fc0387b97d4ee2b25a6756b995af23b1c5838d18773a85c97eb7e2bcd383"
+      },
+      {
+        "asset_code": "AG-IMG-20260729-000027",
+        "local_file_code": "MT-DEC-0026",
+        "checksum_sha256": "10c42a36be91521093ebafdf0fc17c8f8f66fe5e163c55af0c45cabd064000d8",
+        "inventory_item_fingerprint": "67f6b67775dc5bbb6d5e7ca0d1883ac1904d38065ecd776bdebe65130c5f478e"
+      },
+      {
+        "asset_code": "AG-IMG-20260729-000028",
+        "local_file_code": "39157_底",
+        "checksum_sha256": "b7b155c2bf61f84e636ae66a4ea61e2263978cb4fbed87c48f5a36931dd137b3",
+        "inventory_item_fingerprint": "85a40d6a7a5eb356bb5f0b4b77a1a4d44d144e893810deca084bdfbefd322448"
+      },
+      {
+        "asset_code": "AG-IMG-20260729-000029",
+        "local_file_code": "39159_头部1",
+        "checksum_sha256": "c27718e6435262ba021e62592965e880ca3a9d0816e56d83692ae7a320ac1aa5",
+        "inventory_item_fingerprint": "33a4097bf8d70fb70814ae0fa7241fe4bbca7362a7256bcf729b2b1798b16ecd"
+      },
+      {
+        "asset_code": "AG-IMG-20260729-000030",
+        "local_file_code": "39598_100029295227",
+        "checksum_sha256": "c0612db293bbf78b7d901881065c6c8c118f392d690685dbc85b93270925f058",
+        "inventory_item_fingerprint": "eee8e090c3599d85ab984ed268858042e8914b0a2e9fae9daddc942be33e465b"
+      },
+      {
+        "asset_code": "AG-IMG-20260729-000031",
+        "local_file_code": "39894_plus",
+        "checksum_sha256": "a348ed6096fe313b51ebefe3efefab1438669a226220914d4cdd276702e96f7c",
+        "inventory_item_fingerprint": "8de84d8c8536366a9b0102fbd1749b196a1955eee82bcd764f02febc69601dfb"
+      },
+      {
+        "asset_code": "AG-IMG-20260729-000032",
+        "local_file_code": "42419_MT-TPL-0001_模版_模板预览_张裕618背景_preview",
+        "checksum_sha256": "2b27e561f10211e986f824eb3983a838d6df8393ee300838dcad00d188e4dada",
+        "inventory_item_fingerprint": "b0e07a505776caebce778748c1fc46a4175caba4fae9c12fed8b5e5f5789ed6d"
+      },
+      {
+        "asset_code": "AG-IMG-20260729-000033",
+        "local_file_code": "40099_背景",
+        "checksum_sha256": "3443a5e4bf6cbac8bf43e8f1875a308525d3d56d1e1162b72e4263a2cdb87e1b",
+        "inventory_item_fingerprint": "12b2429a50e6155f14873a537ac138cff8c9d88d3e2e89bb32030a7ba16b1ad0"
+      },
+      {
+        "asset_code": "AG-VID-20260729-000001",
+        "local_file_code": "MT-VID-0001",
+        "checksum_sha256": "89e06b42b942a89c156c9dd23bd2b0ed25fc658c32faa8bda7149c3f850283c8",
+        "inventory_item_fingerprint": "eac93854d52fb7a758dd36d2334fc6f9bb9fa8c5a047e8df5f843b203cc84571"
+      },
+      {
+        "asset_code": "AG-VID-20260729-000002",
+        "local_file_code": "MT-VID-0002",
+        "checksum_sha256": "d6b6bc1c3e70f1d65a8f905481636c1ad3a295e332a16935f12fbf0332e6ef16",
+        "inventory_item_fingerprint": "c64656eb48bf5a6ced0ee1c17cfb65dc1450257e45d7e8ab07cda8c023725897"
+      },
+      {
+        "asset_code": "AG-VID-20260729-000003",
+        "local_file_code": "MT-VID-0003",
+        "checksum_sha256": "8b3517150d80f7964ad8defe61f43fff9a178ea3794762f8a3f217d5cddc0324",
+        "inventory_item_fingerprint": "4b4468b276ffab845b0e27b09926e91f1eb683005f9c3ce30cc0a731d4ff6810"
+      },
+      {
+        "asset_code": "AG-VID-20260729-000004",
+        "local_file_code": "MT-VID-0004",
+        "checksum_sha256": "fc8078d197962f9e8e28e1ef061b9f3d34c4c907ac008e12be4ee969463d9192",
+        "inventory_item_fingerprint": "e77b8e81141e78d68bd93e932f91eccd16a9fe333881eaa127388ff561c021b2"
+      },
+      {
+        "asset_code": "AG-VID-20260729-000005",
+        "local_file_code": "MT-VID-0005",
+        "checksum_sha256": "f01a6f302e5d04129e15a5c678185aa4e1b614a056c4c65e487f6d0e7b55a8f0",
+        "inventory_item_fingerprint": "e1b66aed68abd19796db9c845e3b7e1eacf9f53872e04b677d9cac121d211878"
+      },
+      {
+        "asset_code": "AG-VID-20260729-000006",
+        "local_file_code": "MT-VID-0006",
+        "checksum_sha256": "26059e8fd09599f5d34bac12be70d1b6cba9fd814faf31e3d18104cb02bcb166",
+        "inventory_item_fingerprint": "2c303a54a9bf04c7fd532f9a467dcd5caac306ad952a4e09aa5f174691ad727d"
+      },
+      {
+        "asset_code": "AG-VID-20260729-000007",
+        "local_file_code": "MT-VID-0007",
+        "checksum_sha256": "b6f39f6fb85fc82fe842d61a320e3ff7d50018fa768f31d2cade4398ce01238f",
+        "inventory_item_fingerprint": "c55cbbdef5dd5a6849b0b6dc0e5fbd9d38ad14b015e476c5ec8a22261ae44ea0"
+      },
+      {
+        "asset_code": "AG-VID-20260729-000008",
+        "local_file_code": "MT-VID-0008",
+        "checksum_sha256": "4fa7044ca47c8f1d290ba495b3aad23abb1670020cd28886235b697d02e2dab7",
+        "inventory_item_fingerprint": "6586c50ad5e36d629bd89e9989304180786ac81574c41d7f001860b58260f99c"
+      },
+      {
+        "asset_code": "AG-VID-20260729-000009",
+        "local_file_code": "MT-VID-0009",
+        "checksum_sha256": "9722511bef9f52c8c2517e3382da422b1793a647d653b521afe8651d2780be7a",
+        "inventory_item_fingerprint": "a586c9241c07a542afe346ff60bab8dba701e9e0c9494033c2eb23529b1e4bb2"
+      },
+      {
+        "asset_code": "AG-VID-20260729-000010",
+        "local_file_code": "MT-VID-0010",
+        "checksum_sha256": "f4883c9fdcfc13713a02a0725c0605adb99a9077e15766f406484b3b98376eb5",
+        "inventory_item_fingerprint": "3effed0558585400ac194ba11d6d4173320243008989d1f8a5b765cab8ed401c"
+      },
+      {
+        "asset_code": "AG-VID-20260729-000011",
+        "local_file_code": "MT-VID-0011",
+        "checksum_sha256": "cc0ff012e58dcdf0e80c2d82ab581e36a47f1480ef02b86596fc6f608f320aed",
+        "inventory_item_fingerprint": "08385cca6ff478de53d653a3f30b06f59dfdf7d91c0fda8068cf78820f13a770"
+      },
+      {
+        "asset_code": "AG-VID-20260729-000012",
+        "local_file_code": "MT-VID-0012",
+        "checksum_sha256": "52216243b340b0b66835e352d9e650c2ffce4278f0b28bc1f40af5f65d1a9d46",
+        "inventory_item_fingerprint": "d44c9e99f9594c6be52a7f9a17deea9a2d1c55eeb3b276d06740cf6d6009be13"
+      },
+      {
+        "asset_code": "AG-VID-20260729-000013",
+        "local_file_code": "MT-VID-0013",
+        "checksum_sha256": "3237eb133755bf91d02e452241b6f18b5f72a07862bd1c57abbac56bd7ad4673",
+        "inventory_item_fingerprint": "419924ad4fa80fd89041d4cd45e2c54eeb4f71a0f0ced36254d49a9b38b79b52"
+      },
+      {
+        "asset_code": "AG-VID-20260729-000014",
+        "local_file_code": "MT-VID-0014",
+        "checksum_sha256": "6046b030ca3beb10781f125268d500468dc8b41bdbcb332ccbdb6a4f25e865b1",
+        "inventory_item_fingerprint": "a0e64f03f0d1ce771e18b7a8007f5a6cd52645025d4849d7ad1e6ca2a6fe4bd4"
+      },
+      {
+        "asset_code": "AG-VID-20260729-000015",
+        "local_file_code": "MT-VID-0015",
+        "checksum_sha256": "4ed2856ed8f6614bc511b0309b8acabfcb93ce951f49df35e93225416c95cf0c",
+        "inventory_item_fingerprint": "087543e0e793a1d353857ffd8b21153ab4aa47f1aad7eb1166d25a4fe2e5ae7b"
+      },
+      {
+        "asset_code": "AG-VID-20260729-000016",
+        "local_file_code": "MT-VID-0016",
+        "checksum_sha256": "138d20431679a59163a2d3b8cb6ffc63341a6c2f6c0e5e9b8cf8ab593ec1cf2c",
+        "inventory_item_fingerprint": "6772ecc6c75914955f95875dcf28cb81c668d4d77247efef1fe389ff80f1c73f"
+      },
+      {
+        "asset_code": "AG-VID-20260729-000017",
+        "local_file_code": "MT-VID-0021",
+        "checksum_sha256": "21224baf29256be570094e0ee5923697e50de2751777f012685bfe879e0c69cf",
+        "inventory_item_fingerprint": "511121c57b224d0c302a1c9258e6ebb507ab0476352b634e08166a0ece2c0a88"
+      },
+      {
+        "asset_code": "AG-VID-20260729-000018",
+        "local_file_code": "MT-VID-0023",
+        "checksum_sha256": "15644303a0ab5d6aa7043b68e84255a812992378a25f51235b4c531a94f95f1b",
+        "inventory_item_fingerprint": "4e7615fd0944189d7350cd9099efcffb2b47acea87f534c3c35600477f356894"
+      },
+      {
+        "asset_code": "AG-VID-20260729-000019",
+        "local_file_code": "MT-VID-0024",
+        "checksum_sha256": "a803a7d13afe5695b42f1e4f74809cc99b54e6276c0ff5ce02b07fb34895a6cc",
+        "inventory_item_fingerprint": "ca70d5b07f9b13963d911584ef16d024fa0999245338af3980aad4b50118108e"
+      },
+      {
+        "asset_code": "AG-VID-20260729-000020",
+        "local_file_code": "MT-VID-0025",
+        "checksum_sha256": "691a0f839abd9a6366e13c1b8876b9d49c14c48922813cfd25c83df952a94f1d",
+        "inventory_item_fingerprint": "d2f823cd795a2ba9313bb5261fea0a6dfb2188624122ca5ea23e5f3a0fbf35dd"
+      },
+      {
+        "asset_code": "AG-VID-20260729-000021",
+        "local_file_code": "MT-VID-0026",
+        "checksum_sha256": "78802ae039b3f98ccea135067298ca297efc97a2cf8d1471e5204c635bc212a2",
+        "inventory_item_fingerprint": "3be9db40b22b0982686b44eda87440af449b55d2739942923a980c8be63547ab"
+      },
+      {
+        "asset_code": "AG-VID-20260729-000022",
+        "local_file_code": "MT-VID-0028",
+        "checksum_sha256": "c9c7e9deef0ee4a8a45d785148daca50d08cbe588b886bed4f48cad05fb8f4b1",
+        "inventory_item_fingerprint": "1d4d088b379ad85ef3ee77fac04ad970d5a9886b0eb3dc36954321d52b47bcbc"
+      },
+      {
+        "asset_code": "AG-VID-20260729-000023",
+        "local_file_code": "42601_MT-VID-0024_视频_商品讲解视频_品酒大师PRO-3129",
+        "checksum_sha256": "a803a7d13afe5695b42f1e4f74809cc99b54e6276c0ff5ce02b07fb34895a6cc",
+        "inventory_item_fingerprint": "48298117a858a051f4b55f9f51c3616f5547912918bf4dd82ad2d58e7bf0e735"
+      },
+      {
+        "asset_code": "AG-VID-20260729-000024",
+        "local_file_code": "42744_MT-VID-0010_视频_商品整体视频_品酒大师PLUS_整体-5802",
+        "checksum_sha256": "f4883c9fdcfc13713a02a0725c0605adb99a9077e15766f406484b3b98376eb5",
+        "inventory_item_fingerprint": "66e1ca15307e4f9c30f4b30625e6674e147eb9c3b231908d2abf5eb99b5b0e3e"
+      },
+      {
+        "asset_code": "AG-VID-20260729-000025",
+        "local_file_code": "MT-VID-0017",
+        "checksum_sha256": "85fe519614d0a9a73401d80c83751e2e670131da7871cb049f66ea57a75f5629",
+        "inventory_item_fingerprint": "7c36777e0f412970f0d49c3e436726f35d8a16e8eb7a2e392814df4e2ff979b8"
+      },
+      {
+        "asset_code": "AG-VID-20260729-000026",
+        "local_file_code": "MT-VID-0018",
+        "checksum_sha256": "8b3517150d80f7964ad8defe61f43fff9a178ea3794762f8a3f217d5cddc0324",
+        "inventory_item_fingerprint": "54e80fa7b5195b81638420856bdb8d8290c8b2ecb5d0e00a8b2bfee66b11d138"
+      },
+      {
+        "asset_code": "AG-VID-20260729-000027",
+        "local_file_code": "MT-VID-0019",
+        "checksum_sha256": "4fb6d022865a2251ef59805241717186ffd94f33891cfcd3b4bcf383df586e0c",
+        "inventory_item_fingerprint": "9e53eb131ddb84b8bcc2c8f54970cb06bfe04acc7767949e1068f43fe8d1066f"
+      },
+      {
+        "asset_code": "AG-VID-20260729-000028",
+        "local_file_code": "MT-VID-0020",
+        "checksum_sha256": "773080545dba0d70c29eed2c29a9e9ae3b0480a58caffdcbb125ad985b644383",
+        "inventory_item_fingerprint": "5e7a0fedf96a9df3db41ee579e17b27d422405c0a4091c10f28348e27e1dade2"
+      },
+      {
+        "asset_code": "AG-VID-20260729-000029",
+        "local_file_code": "MT-VID-0022",
+        "checksum_sha256": "0630f296b9b2f99fb64c30c31886eddefb87e09252e4303e2efbf5131e01b526",
+        "inventory_item_fingerprint": "a9b01ade5e96cf4f026f5ec66c28bdaff5c7aa2bca0c55f17a3a026912648c5a"
+      },
+      {
+        "asset_code": "AG-VID-20260729-000030",
+        "local_file_code": "MT-VID-0027",
+        "checksum_sha256": "29945837004e11cf6a6e2e72d7bf7edb21b96d1758c9447330b234d1e22d8155",
+        "inventory_item_fingerprint": "03da3cdeb21c7ed2d9c904f19bc2c0b9d20e4beb1a69e1f781a58689cdeaea2d"
+      }
+    ]
+  },
+  "generated_at": "2026-07-31T09:24:29.515533+00:00",
+  "source_revision": "f1d8a08584015403e6ae8218eeb9f989322d6c19b0a37c8cbc45763fff4cefd9",
+  "observation_path": "/DATA/Downloads/AssetGraph/maitu-mirror/inventory-observations/f1d8a08584015403e6ae8218eeb9f989322d6c19b0a37c8cbc45763fff4cefd9.json",
+  "summary": {
+    "catalog_count": 63,
+    "asset_match_count": 63,
+    "inventory_evidence_match_count": 63,
+    "executable_binding_count": 62,
+    "reference_only_count": 1,
+    "review_required_count": 0,
+    "digital_human_binding_count": 1,
+    "ambiguous_count": 0,
+    "unmatched_count": 0
+  },
+  "digital_human": {
+    "asset_code": "AG-VID-20260731-000001",
+    "maitu_source_material_id": 37200,
+    "digital_human_image_id": 7717,
+    "speaker_id": 3760,
+    "inventory_item_fingerprint": "8c15142f61990a1de7a0772011a8245f899a5f70128943d9da64844661e80b3e"
+  },
+  "items": [
+    {
+      "asset_code": "AG-IMG-20260729-000001",
+      "local_file_code": "MT-TPL-0001",
+      "relative_path": "模版/302_张裕618背景/MT-TPL-0001_模版_模板预览_张裕618背景_preview.png",
+      "checksum_sha256": "2b27e561f10211e986f824eb3983a838d6df8393ee300838dcad00d188e4dada",
+      "media_kind": "template_preview",
+      "material_roles": [],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.99,
+      "classification_rule": "template_preview",
+      "classification_explanation": "名称明确标注为模板预览，仅供参考。",
+      "execution_capability": "reference_only",
+      "maitu_material_id": null,
+      "inventory_item_fingerprint": "7dcfc1d180616e664e3f1ac540fbd2d0272dfb2609b515362a3ae5ba36e40ed3",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 320,
+        "height": 570,
+        "aspect_ratio": 0.561404,
+        "duration_seconds": null,
+        "average_frame_rate": "25/1",
+        "audio_track_count": 0,
+        "format_name": "png_pipe"
+      },
+      "constraint_count": 0,
+      "constraint_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "image",
+        "material_roles": [
+          "background"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "template_preview",
+        "material_roles": [],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.99,
+        "execution_capability": "reference_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null,
+        "constraint_fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      }
+    },
+    {
+      "asset_code": "AG-IMG-20260729-000002",
+      "local_file_code": "MT-BG-0001",
+      "relative_path": "背景/MT-BG-0001_背景_直播背景_背景-3.png",
+      "checksum_sha256": "5e8ce7fc08aaa078b57965c7cf046bb492896ddd55a70da98c8966e7755166f3",
+      "media_kind": "image",
+      "material_roles": [
+        "background"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.96,
+      "classification_rule": "full_background",
+      "classification_explanation": "名称明确标注为直播背景。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 37262,
+      "inventory_item_fingerprint": "61e61ffbaefcdd99afda5c3052b91aad0eb4f0ddb9d4afab0a9883074449efc6",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 1080,
+        "height": 1920,
+        "aspect_ratio": 0.5625,
+        "duration_seconds": null,
+        "average_frame_rate": "25/1",
+        "audio_track_count": 0,
+        "format_name": "png_pipe"
+      },
+      "constraint_count": 4,
+      "constraint_fingerprint": "1241833682d0ccee34e918d002e0aabd24264591fbd4bd987f0b138c700df0e3",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "image",
+        "material_roles": [
+          "background"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "image",
+        "material_roles": [
+          "background"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.96,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 37262,
+        "maitu_source_material_id": 37262,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "61e61ffbaefcdd99afda5c3052b91aad0eb4f0ddb9d4afab0a9883074449efc6",
+        "constraint_fingerprint": "1241833682d0ccee34e918d002e0aabd24264591fbd4bd987f0b138c700df0e3"
+      }
+    },
+    {
+      "asset_code": "AG-IMG-20260729-000003",
+      "local_file_code": "MT-BG-0002",
+      "relative_path": "背景/MT-BG-0002_背景_直播背景_直播.jpeg",
+      "checksum_sha256": "12775d7aeb9eaf02139e177fa845411c75b7b704f66df423ba577616da3ad6a1",
+      "media_kind": "image",
+      "material_roles": [
+        "background"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.96,
+      "classification_rule": "full_background",
+      "classification_explanation": "名称明确标注为直播背景。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 39112,
+      "inventory_item_fingerprint": "06539a1919e0d79deed3cd19a14d74e9d391d51b903dbd3570975a8d69d63e50",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 1080,
+        "height": 1920,
+        "aspect_ratio": 0.5625,
+        "duration_seconds": 0.04,
+        "average_frame_rate": "25/1",
+        "audio_track_count": 0,
+        "format_name": "image2"
+      },
+      "constraint_count": 4,
+      "constraint_fingerprint": "1241833682d0ccee34e918d002e0aabd24264591fbd4bd987f0b138c700df0e3",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "image",
+        "material_roles": [
+          "background"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "image",
+        "material_roles": [
+          "background"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.96,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 39112,
+        "maitu_source_material_id": 39112,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "06539a1919e0d79deed3cd19a14d74e9d391d51b903dbd3570975a8d69d63e50",
+        "constraint_fingerprint": "1241833682d0ccee34e918d002e0aabd24264591fbd4bd987f0b138c700df0e3"
+      }
+    },
+    {
+      "asset_code": "AG-IMG-20260729-000004",
+      "local_file_code": "MT-BG-0003",
+      "relative_path": "背景/MT-BG-0003_背景_底部背景_底背景.jpeg",
+      "checksum_sha256": "906734b5196c90ef9295ef29613d3ecd3f97d4035d32caf4e96c6d227ffc87a2",
+      "media_kind": "image",
+      "material_roles": [
+        "set_surface"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.94,
+      "classification_rule": "set_surface",
+      "classification_explanation": "名称明确标注为底图、桌面或底部承托面。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 39158,
+      "inventory_item_fingerprint": "911de36a7b8ba6851048f9d92fe119497dc9298ac8d854ddcf7c7d7c6b80e720",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 1080,
+        "height": 1920,
+        "aspect_ratio": 0.5625,
+        "duration_seconds": 0.04,
+        "average_frame_rate": "25/1",
+        "audio_track_count": 0,
+        "format_name": "image2"
+      },
+      "constraint_count": 10,
+      "constraint_fingerprint": "66cc4bf8fb620ec78f730269bc4c27fd03244f070689002b23462b62cf543f6f",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "image",
+        "material_roles": [
+          "background"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "image",
+        "material_roles": [
+          "set_surface"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.94,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 39158,
+        "maitu_source_material_id": 39158,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "911de36a7b8ba6851048f9d92fe119497dc9298ac8d854ddcf7c7d7c6b80e720",
+        "constraint_fingerprint": "66cc4bf8fb620ec78f730269bc4c27fd03244f070689002b23462b62cf543f6f"
+      }
+    },
+    {
+      "asset_code": "AG-IMG-20260729-000005",
+      "local_file_code": "MT-BG-0004",
+      "relative_path": "背景/MT-BG-0004_背景_直播背景_微信图片_20260618221607_11_15.jpeg",
+      "checksum_sha256": "3443a5e4bf6cbac8bf43e8f1875a308525d3d56d1e1162b72e4263a2cdb87e1b",
+      "media_kind": "image",
+      "material_roles": [
+        "background"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.96,
+      "classification_rule": "full_background",
+      "classification_explanation": "名称明确标注为直播背景。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 40131,
+      "inventory_item_fingerprint": "2f1ced7730363ebdbb8714b02e1f8dab6681a278de8949fa90af54bc260cbf63",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 1080,
+        "height": 1920,
+        "aspect_ratio": 0.5625,
+        "duration_seconds": 0.04,
+        "average_frame_rate": "25/1",
+        "audio_track_count": 0,
+        "format_name": "image2"
+      },
+      "constraint_count": 4,
+      "constraint_fingerprint": "1241833682d0ccee34e918d002e0aabd24264591fbd4bd987f0b138c700df0e3",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "image",
+        "material_roles": [
+          "background"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "image",
+        "material_roles": [
+          "background"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.96,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 40131,
+        "maitu_source_material_id": 40131,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "2f1ced7730363ebdbb8714b02e1f8dab6681a278de8949fa90af54bc260cbf63",
+        "constraint_fingerprint": "1241833682d0ccee34e918d002e0aabd24264591fbd4bd987f0b138c700df0e3"
+      }
+    },
+    {
+      "asset_code": "AG-IMG-20260729-000006",
+      "local_file_code": "MT-DEC-0001",
+      "relative_path": "装饰/MT-DEC-0001_装饰_图标_icon.png",
+      "checksum_sha256": "c58816e119a15529df27337cb177301571ee6fc3909e20c3516cbab53cd62192",
+      "media_kind": "image",
+      "material_roles": [
+        "decoration_foreground"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.78,
+      "classification_rule": "generic_overlay",
+      "classification_explanation": "名称表明其为图标或贴片，但具体构图仍建议人工确认。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 37263,
+      "inventory_item_fingerprint": "47ccd771f5dfa54019a045397a8f01d6b90340416ad34fd6e45603b1642595a7",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 900,
+        "height": 110,
+        "aspect_ratio": 8.181818,
+        "duration_seconds": null,
+        "average_frame_rate": "25/1",
+        "audio_track_count": 0,
+        "format_name": "png_pipe"
+      },
+      "constraint_count": 4,
+      "constraint_fingerprint": "1ffa278f710fd70aca9aed7deec47dc07419049d248821bc61b0fba89934aafc",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "image",
+        "material_roles": [
+          "decoration_foreground"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "image",
+        "material_roles": [
+          "decoration_foreground"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.78,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 37263,
+        "maitu_source_material_id": 37263,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "47ccd771f5dfa54019a045397a8f01d6b90340416ad34fd6e45603b1642595a7",
+        "constraint_fingerprint": "1ffa278f710fd70aca9aed7deec47dc07419049d248821bc61b0fba89934aafc"
+      }
+    },
+    {
+      "asset_code": "AG-IMG-20260729-000007",
+      "local_file_code": "MT-DEC-0002",
+      "relative_path": "装饰/MT-DEC-0002_装饰_装饰_张裕百年.png",
+      "checksum_sha256": "9658154c97509ec4bb22e35d10b63230e04cbeeb2ddfc21878ee16d7770c9f43",
+      "media_kind": "image",
+      "material_roles": [
+        "brand_title"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.93,
+      "classification_rule": "brand_title",
+      "classification_explanation": "名称明确标注为品牌、Logo、标题或头部。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 37264,
+      "inventory_item_fingerprint": "6a48d72e513e2390affc9741cccfc620fe071838daa2847353fee85798f838f8",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 725,
+        "height": 116,
+        "aspect_ratio": 6.25,
+        "duration_seconds": null,
+        "average_frame_rate": "25/1",
+        "audio_track_count": 0,
+        "format_name": "png_pipe"
+      },
+      "constraint_count": 4,
+      "constraint_fingerprint": "1ffa278f710fd70aca9aed7deec47dc07419049d248821bc61b0fba89934aafc",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "image",
+        "material_roles": [
+          "decoration_foreground"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "image",
+        "material_roles": [
+          "brand_title"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.93,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 37264,
+        "maitu_source_material_id": 37264,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "6a48d72e513e2390affc9741cccfc620fe071838daa2847353fee85798f838f8",
+        "constraint_fingerprint": "1ffa278f710fd70aca9aed7deec47dc07419049d248821bc61b0fba89934aafc"
+      }
+    },
+    {
+      "asset_code": "AG-IMG-20260729-000008",
+      "local_file_code": "MT-DEC-0003",
+      "relative_path": "装饰/MT-DEC-0003_装饰_品牌Logo_logo.png",
+      "checksum_sha256": "1514f083707bbfe874070cf464f88bd591d189c6e88c3fa13853ae8705f1b1ef",
+      "media_kind": "image",
+      "material_roles": [
+        "brand_title"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.93,
+      "classification_rule": "brand_title",
+      "classification_explanation": "名称明确标注为品牌、Logo、标题或头部。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 37265,
+      "inventory_item_fingerprint": "ebe899212f3ecdb1c55f4e30163f77153e2e6e688362bf1198dc2fc6f29c8328",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 108,
+        "height": 108,
+        "aspect_ratio": 1.0,
+        "duration_seconds": null,
+        "average_frame_rate": "25/1",
+        "audio_track_count": 0,
+        "format_name": "png_pipe"
+      },
+      "constraint_count": 4,
+      "constraint_fingerprint": "1ffa278f710fd70aca9aed7deec47dc07419049d248821bc61b0fba89934aafc",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "image",
+        "material_roles": [
+          "decoration_foreground"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "image",
+        "material_roles": [
+          "brand_title"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.93,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 37265,
+        "maitu_source_material_id": 37265,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "ebe899212f3ecdb1c55f4e30163f77153e2e6e688362bf1198dc2fc6f29c8328",
+        "constraint_fingerprint": "1ffa278f710fd70aca9aed7deec47dc07419049d248821bc61b0fba89934aafc"
+      }
+    },
+    {
+      "asset_code": "AG-IMG-20260729-000009",
+      "local_file_code": "MT-DEC-0004",
+      "relative_path": "装饰/MT-DEC-0004_装饰_装饰底图_底图.png",
+      "checksum_sha256": "ed2c34dd52e955285dbd1ec477a31972341e93af03926cc8f7cc1cb11642fe29",
+      "media_kind": "image",
+      "material_roles": [
+        "set_surface"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.94,
+      "classification_rule": "set_surface",
+      "classification_explanation": "名称明确标注为底图、桌面或底部承托面。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 37266,
+      "inventory_item_fingerprint": "0029e17b90d10ff46e7c518be9f7242df8eae87458b2abec0e584f1f22c9a791",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 1080,
+        "height": 292,
+        "aspect_ratio": 3.69863,
+        "duration_seconds": null,
+        "average_frame_rate": "25/1",
+        "audio_track_count": 0,
+        "format_name": "png_pipe"
+      },
+      "constraint_count": 10,
+      "constraint_fingerprint": "66cc4bf8fb620ec78f730269bc4c27fd03244f070689002b23462b62cf543f6f",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "image",
+        "material_roles": [
+          "decoration_foreground"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "image",
+        "material_roles": [
+          "set_surface"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.94,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 37266,
+        "maitu_source_material_id": 37266,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "0029e17b90d10ff46e7c518be9f7242df8eae87458b2abec0e584f1f22c9a791",
+        "constraint_fingerprint": "66cc4bf8fb620ec78f730269bc4c27fd03244f070689002b23462b62cf543f6f"
+      }
+    },
+    {
+      "asset_code": "AG-IMG-20260729-000010",
+      "local_file_code": "MT-DEC-0005",
+      "relative_path": "装饰/MT-DEC-0005_装饰_动效装饰_gif-01.gif",
+      "checksum_sha256": "0816c96528b8b40427a9dcda937fa0c7f17aa348b34a810cea8738801f9f9f4e",
+      "media_kind": "image",
+      "material_roles": [
+        "promotion_text",
+        "decoration_foreground"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.98,
+      "classification_rule": "visual_promotion_overlay",
+      "classification_explanation": "画面为购物车抽奖促销贴片，应保持完整并位于前景层。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 37267,
+      "inventory_item_fingerprint": "487f95de5e539e04c9f9891dd1c026105242bb991d376537079582c3bcd2fec6",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 350,
+        "height": 430,
+        "aspect_ratio": 0.813953,
+        "duration_seconds": 2.0,
+        "average_frame_rate": "0/0",
+        "audio_track_count": 0,
+        "format_name": "gif"
+      },
+      "constraint_count": 4,
+      "constraint_fingerprint": "1ffa278f710fd70aca9aed7deec47dc07419049d248821bc61b0fba89934aafc",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "image",
+        "material_roles": [
+          "decoration_foreground"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "image",
+        "material_roles": [
+          "promotion_text",
+          "decoration_foreground"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.98,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 37267,
+        "maitu_source_material_id": 37267,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "487f95de5e539e04c9f9891dd1c026105242bb991d376537079582c3bcd2fec6",
+        "constraint_fingerprint": "1ffa278f710fd70aca9aed7deec47dc07419049d248821bc61b0fba89934aafc"
+      }
+    },
+    {
+      "asset_code": "AG-IMG-20260729-000011",
+      "local_file_code": "MT-DEC-0006",
+      "relative_path": "装饰/MT-DEC-0006_装饰_装饰_png.png",
+      "checksum_sha256": "aaf80719ca68e340fa5cbfec1c36326322621020452384847ba29c3dbd381c25",
+      "media_kind": "image",
+      "material_roles": [
+        "promotion_text",
+        "decoration_foreground"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.98,
+      "classification_rule": "visual_product_promotion_overlay",
+      "classification_explanation": "画面为品酒大师系列买赠促销贴片，应保持完整并位于前景层。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 37268,
+      "inventory_item_fingerprint": "e8d70e326ef83a9f8f530facc1f1e326c71631f71e8e14b887c194fa84ac290e",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 350,
+        "height": 430,
+        "aspect_ratio": 0.813953,
+        "duration_seconds": null,
+        "average_frame_rate": "25/1",
+        "audio_track_count": 0,
+        "format_name": "png_pipe"
+      },
+      "constraint_count": 4,
+      "constraint_fingerprint": "1ffa278f710fd70aca9aed7deec47dc07419049d248821bc61b0fba89934aafc",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "image",
+        "material_roles": [
+          "decoration_foreground"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "image",
+        "material_roles": [
+          "promotion_text",
+          "decoration_foreground"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.98,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 37268,
+        "maitu_source_material_id": 37268,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "e8d70e326ef83a9f8f530facc1f1e326c71631f71e8e14b887c194fa84ac290e",
+        "constraint_fingerprint": "1ffa278f710fd70aca9aed7deec47dc07419049d248821bc61b0fba89934aafc"
+      }
+    },
+    {
+      "asset_code": "AG-IMG-20260729-000012",
+      "local_file_code": "MT-DEC-0007",
+      "relative_path": "装饰/MT-DEC-0007_装饰_贴片_AI贴片黑.png",
+      "checksum_sha256": "54fb106a7d83bea67471387b37d0ee9babdac9990044c4377d6686f32f477ae2",
+      "media_kind": "image",
+      "material_roles": [
+        "decoration_foreground"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.78,
+      "classification_rule": "generic_overlay",
+      "classification_explanation": "名称表明其为图标或贴片，但具体构图仍建议人工确认。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 37560,
+      "inventory_item_fingerprint": "42afd6e4213a5387b24ff871eed3528deb8654bd7c4cd6727d3b5758fd71b77e",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 248,
+        "height": 64,
+        "aspect_ratio": 3.875,
+        "duration_seconds": null,
+        "average_frame_rate": "25/1",
+        "audio_track_count": 0,
+        "format_name": "png_pipe"
+      },
+      "constraint_count": 4,
+      "constraint_fingerprint": "1ffa278f710fd70aca9aed7deec47dc07419049d248821bc61b0fba89934aafc",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "image",
+        "material_roles": [
+          "decoration_foreground"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "image",
+        "material_roles": [
+          "decoration_foreground"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.78,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 37560,
+        "maitu_source_material_id": 37560,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "42afd6e4213a5387b24ff871eed3528deb8654bd7c4cd6727d3b5758fd71b77e",
+        "constraint_fingerprint": "1ffa278f710fd70aca9aed7deec47dc07419049d248821bc61b0fba89934aafc"
+      }
+    },
+    {
+      "asset_code": "AG-IMG-20260729-000013",
+      "local_file_code": "MT-DEC-0008",
+      "relative_path": "装饰/MT-DEC-0008_装饰_贴片_AI贴片白.png",
+      "checksum_sha256": "8c18388a5ab4e30669f1f3d06e729444046779957978855cca823905b8c33121",
+      "media_kind": "image",
+      "material_roles": [
+        "decoration_foreground"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.78,
+      "classification_rule": "generic_overlay",
+      "classification_explanation": "名称表明其为图标或贴片，但具体构图仍建议人工确认。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 37561,
+      "inventory_item_fingerprint": "e012a492b7afc164003591f589ed8b326c22f26d5dd7d0f586df867bf5a8a099",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 248,
+        "height": 64,
+        "aspect_ratio": 3.875,
+        "duration_seconds": null,
+        "average_frame_rate": "25/1",
+        "audio_track_count": 0,
+        "format_name": "png_pipe"
+      },
+      "constraint_count": 4,
+      "constraint_fingerprint": "1ffa278f710fd70aca9aed7deec47dc07419049d248821bc61b0fba89934aafc",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "image",
+        "material_roles": [
+          "decoration_foreground"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "image",
+        "material_roles": [
+          "decoration_foreground"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.78,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 37561,
+        "maitu_source_material_id": 37561,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "e012a492b7afc164003591f589ed8b326c22f26d5dd7d0f586df867bf5a8a099",
+        "constraint_fingerprint": "1ffa278f710fd70aca9aed7deec47dc07419049d248821bc61b0fba89934aafc"
+      }
+    },
+    {
+      "asset_code": "AG-IMG-20260729-000014",
+      "local_file_code": "MT-DEC-0009",
+      "relative_path": "装饰/MT-DEC-0009_装饰_动效装饰_抽奖GIF新.gif",
+      "checksum_sha256": "3e585ac12f80a26eeab477ec887bb39f625de73dd7a5713d760ce872456e0f99",
+      "media_kind": "image",
+      "material_roles": [
+        "promotion_text",
+        "decoration_foreground"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.9,
+      "classification_rule": "promotion_overlay",
+      "classification_explanation": "名称明确标注为买赠、抽奖或活动转盘。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 37562,
+      "inventory_item_fingerprint": "f991ad8a32742b9b159fc63436c32c0f2877f480380fb7ee8a3486877462583a",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 350,
+        "height": 430,
+        "aspect_ratio": 0.813953,
+        "duration_seconds": 2.0,
+        "average_frame_rate": "0/0",
+        "audio_track_count": 0,
+        "format_name": "gif"
+      },
+      "constraint_count": 4,
+      "constraint_fingerprint": "1ffa278f710fd70aca9aed7deec47dc07419049d248821bc61b0fba89934aafc",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "image",
+        "material_roles": [
+          "decoration_foreground"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "image",
+        "material_roles": [
+          "promotion_text",
+          "decoration_foreground"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.9,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 37562,
+        "maitu_source_material_id": 37562,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "f991ad8a32742b9b159fc63436c32c0f2877f480380fb7ee8a3486877462583a",
+        "constraint_fingerprint": "1ffa278f710fd70aca9aed7deec47dc07419049d248821bc61b0fba89934aafc"
+      }
+    },
+    {
+      "asset_code": "AG-IMG-20260729-000015",
+      "local_file_code": "MT-DEC-0012",
+      "relative_path": "装饰/MT-DEC-0012_装饰_装饰_头部1.png",
+      "checksum_sha256": "c27718e6435262ba021e62592965e880ca3a9d0816e56d83692ae7a320ac1aa5",
+      "media_kind": "image",
+      "material_roles": [
+        "brand_title"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.93,
+      "classification_rule": "brand_title",
+      "classification_explanation": "名称明确标注为品牌、Logo、标题或头部。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 39162,
+      "inventory_item_fingerprint": "a93171725e627008f8d9deb0b735270bab57fd0ab27b9cea1afb8107c9629bdb",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 800,
+        "height": 400,
+        "aspect_ratio": 2.0,
+        "duration_seconds": null,
+        "average_frame_rate": "25/1",
+        "audio_track_count": 0,
+        "format_name": "png_pipe"
+      },
+      "constraint_count": 4,
+      "constraint_fingerprint": "1ffa278f710fd70aca9aed7deec47dc07419049d248821bc61b0fba89934aafc",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "image",
+        "material_roles": [
+          "decoration_foreground"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "image",
+        "material_roles": [
+          "brand_title"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.93,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 39162,
+        "maitu_source_material_id": 39162,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "a93171725e627008f8d9deb0b735270bab57fd0ab27b9cea1afb8107c9629bdb",
+        "constraint_fingerprint": "1ffa278f710fd70aca9aed7deec47dc07419049d248821bc61b0fba89934aafc"
+      }
+    },
+    {
+      "asset_code": "AG-IMG-20260729-000016",
+      "local_file_code": "MT-DEC-0013",
+      "relative_path": "装饰/MT-DEC-0013_装饰_装饰底图_底.png",
+      "checksum_sha256": "b7b155c2bf61f84e636ae66a4ea61e2263978cb4fbed87c48f5a36931dd137b3",
+      "media_kind": "image",
+      "material_roles": [
+        "set_surface"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.94,
+      "classification_rule": "set_surface",
+      "classification_explanation": "名称明确标注为底图、桌面或底部承托面。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 39163,
+      "inventory_item_fingerprint": "25024e23ba3c399e18f9ca14a6449bd1f46336874dbf72c14da5ceeba3f97c74",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 1080,
+        "height": 684,
+        "aspect_ratio": 1.578947,
+        "duration_seconds": null,
+        "average_frame_rate": "25/1",
+        "audio_track_count": 0,
+        "format_name": "png_pipe"
+      },
+      "constraint_count": 10,
+      "constraint_fingerprint": "66cc4bf8fb620ec78f730269bc4c27fd03244f070689002b23462b62cf543f6f",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "image",
+        "material_roles": [
+          "decoration_foreground"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "image",
+        "material_roles": [
+          "set_surface"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.94,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 39163,
+        "maitu_source_material_id": 39163,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "25024e23ba3c399e18f9ca14a6449bd1f46336874dbf72c14da5ceeba3f97c74",
+        "constraint_fingerprint": "66cc4bf8fb620ec78f730269bc4c27fd03244f070689002b23462b62cf543f6f"
+      }
+    },
+    {
+      "asset_code": "AG-IMG-20260729-000017",
+      "local_file_code": "MT-DEC-0014",
+      "relative_path": "装饰/MT-DEC-0014_装饰_前景框_直播-前景.png",
+      "checksum_sha256": "1216e1d7339d3af2b5cb0d1a4777a135439f5b9b87ff32478731f13efbef94e6",
+      "media_kind": "image",
+      "material_roles": [
+        "decoration_foreground"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.96,
+      "classification_rule": "foreground_frame",
+      "classification_explanation": "名称明确标注为前景框。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 39200,
+      "inventory_item_fingerprint": "af0ee94033bd7bae0a81bb54246a2476fa30fbb7af0ed9c92f2fa44b645fe06b",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 1080,
+        "height": 1920,
+        "aspect_ratio": 0.5625,
+        "duration_seconds": null,
+        "average_frame_rate": "25/1",
+        "audio_track_count": 0,
+        "format_name": "png_pipe"
+      },
+      "constraint_count": 4,
+      "constraint_fingerprint": "1ffa278f710fd70aca9aed7deec47dc07419049d248821bc61b0fba89934aafc",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "image",
+        "material_roles": [
+          "decoration_foreground"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "image",
+        "material_roles": [
+          "decoration_foreground"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.96,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 39200,
+        "maitu_source_material_id": 39200,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "af0ee94033bd7bae0a81bb54246a2476fa30fbb7af0ed9c92f2fa44b645fe06b",
+        "constraint_fingerprint": "1ffa278f710fd70aca9aed7deec47dc07419049d248821bc61b0fba89934aafc"
+      }
+    },
+    {
+      "asset_code": "AG-IMG-20260729-000018",
+      "local_file_code": "MT-DEC-0016",
+      "relative_path": "装饰/MT-DEC-0016_装饰_商品贴片_品酒大师MASTER.png",
+      "checksum_sha256": "ac2bb0fad4606f716b6322e330f5844e6e0ca220fb5a2688689f3e181b59d1dc",
+      "media_kind": "image",
+      "material_roles": [
+        "product_display"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.95,
+      "classification_rule": "product_display",
+      "classification_explanation": "名称明确标注为商品贴片或商品礼盒。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 39605,
+      "inventory_item_fingerprint": "0c8724676fd43571b9bd70cbf57acbeb62f88635b64880d1ac47892355b32f67",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 164,
+        "height": 739,
+        "aspect_ratio": 0.221922,
+        "duration_seconds": null,
+        "average_frame_rate": "25/1",
+        "audio_track_count": 0,
+        "format_name": "png_pipe"
+      },
+      "constraint_count": 9,
+      "constraint_fingerprint": "e8172a14e8d25d085ce28d88fd0e04f96f5b625d2193bcd644c98852a6123fdb",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "image",
+        "material_roles": [
+          "decoration_foreground"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "image",
+        "material_roles": [
+          "product_display"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.95,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 39605,
+        "maitu_source_material_id": 39605,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "0c8724676fd43571b9bd70cbf57acbeb62f88635b64880d1ac47892355b32f67",
+        "constraint_fingerprint": "e8172a14e8d25d085ce28d88fd0e04f96f5b625d2193bcd644c98852a6123fdb"
+      }
+    },
+    {
+      "asset_code": "AG-IMG-20260729-000019",
+      "local_file_code": "MT-DEC-0018",
+      "relative_path": "装饰/MT-DEC-0018_装饰_商品贴片_品酒大师PLUS.png",
+      "checksum_sha256": "a348ed6096fe313b51ebefe3efefab1438669a226220914d4cdd276702e96f7c",
+      "media_kind": "image",
+      "material_roles": [
+        "product_display"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.95,
+      "classification_rule": "product_display",
+      "classification_explanation": "名称明确标注为商品贴片或商品礼盒。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 39895,
+      "inventory_item_fingerprint": "64aa7581f634eeb877b570ac738e9cb850f233ee2b7b1297a99b42d4d637183c",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 189,
+        "height": 891,
+        "aspect_ratio": 0.212121,
+        "duration_seconds": null,
+        "average_frame_rate": "25/1",
+        "audio_track_count": 0,
+        "format_name": "png_pipe"
+      },
+      "constraint_count": 9,
+      "constraint_fingerprint": "e8172a14e8d25d085ce28d88fd0e04f96f5b625d2193bcd644c98852a6123fdb",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "image",
+        "material_roles": [
+          "decoration_foreground"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "image",
+        "material_roles": [
+          "product_display"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.95,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 39895,
+        "maitu_source_material_id": 39895,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "64aa7581f634eeb877b570ac738e9cb850f233ee2b7b1297a99b42d4d637183c",
+        "constraint_fingerprint": "e8172a14e8d25d085ce28d88fd0e04f96f5b625d2193bcd644c98852a6123fdb"
+      }
+    },
+    {
+      "asset_code": "AG-IMG-20260729-000020",
+      "local_file_code": "MT-DEC-0019",
+      "relative_path": "装饰/MT-DEC-0019_装饰_前景框_前景.png",
+      "checksum_sha256": "5dc150927d5947f5fe5e0e6d5d70844e72e043fd1d32899f14a207ace061916d",
+      "media_kind": "image",
+      "material_roles": [
+        "decoration_foreground"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.96,
+      "classification_rule": "foreground_frame",
+      "classification_explanation": "名称明确标注为前景框。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 40100,
+      "inventory_item_fingerprint": "6a605797e68f05a208226914834c83abe5f510e15fef60a9175bd98dc38efc33",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 1080,
+        "height": 1920,
+        "aspect_ratio": 0.5625,
+        "duration_seconds": null,
+        "average_frame_rate": "25/1",
+        "audio_track_count": 0,
+        "format_name": "png_pipe"
+      },
+      "constraint_count": 4,
+      "constraint_fingerprint": "1ffa278f710fd70aca9aed7deec47dc07419049d248821bc61b0fba89934aafc",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "image",
+        "material_roles": [
+          "decoration_foreground"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "image",
+        "material_roles": [
+          "decoration_foreground"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.96,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 40100,
+        "maitu_source_material_id": 40100,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "6a605797e68f05a208226914834c83abe5f510e15fef60a9175bd98dc38efc33",
+        "constraint_fingerprint": "1ffa278f710fd70aca9aed7deec47dc07419049d248821bc61b0fba89934aafc"
+      }
+    },
+    {
+      "asset_code": "AG-IMG-20260729-000021",
+      "local_file_code": "MT-DEC-0020",
+      "relative_path": "装饰/MT-DEC-0020_装饰_品牌Logo_标题+logo.png",
+      "checksum_sha256": "e5e839741769b4491d67f30dafed80ad63948580db3f0b0e0fd01713f1941ad3",
+      "media_kind": "image",
+      "material_roles": [
+        "brand_title"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.93,
+      "classification_rule": "brand_title",
+      "classification_explanation": "名称明确标注为品牌、Logo、标题或头部。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 40101,
+      "inventory_item_fingerprint": "c4e22bce3b9aa50e83664ca2572c3f95798d4d14b356b79edfb0a379954cf51f",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 976,
+        "height": 505,
+        "aspect_ratio": 1.932673,
+        "duration_seconds": null,
+        "average_frame_rate": "25/1",
+        "audio_track_count": 0,
+        "format_name": "png_pipe"
+      },
+      "constraint_count": 4,
+      "constraint_fingerprint": "1ffa278f710fd70aca9aed7deec47dc07419049d248821bc61b0fba89934aafc",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "image",
+        "material_roles": [
+          "decoration_foreground"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "image",
+        "material_roles": [
+          "brand_title"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.93,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 40101,
+        "maitu_source_material_id": 40101,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "c4e22bce3b9aa50e83664ca2572c3f95798d4d14b356b79edfb0a379954cf51f",
+        "constraint_fingerprint": "1ffa278f710fd70aca9aed7deec47dc07419049d248821bc61b0fba89934aafc"
+      }
+    },
+    {
+      "asset_code": "AG-IMG-20260729-000022",
+      "local_file_code": "MT-DEC-0021",
+      "relative_path": "装饰/MT-DEC-0021_装饰_动效装饰_转盘动图.gif",
+      "checksum_sha256": "8cd37022b2ae83a98f7ef72427d3ac5d362e2a2e257f487a24c2c36d6815234e",
+      "media_kind": "image",
+      "material_roles": [
+        "promotion_text",
+        "decoration_foreground"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.9,
+      "classification_rule": "promotion_overlay",
+      "classification_explanation": "名称明确标注为买赠、抽奖或活动转盘。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 40103,
+      "inventory_item_fingerprint": "23456025f2a4ab1545402be5aa98187c3370259e61fa1f6431a20e941cd994de",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 325,
+        "height": 391,
+        "aspect_ratio": 0.831202,
+        "duration_seconds": 2.0,
+        "average_frame_rate": "0/0",
+        "audio_track_count": 0,
+        "format_name": "gif"
+      },
+      "constraint_count": 4,
+      "constraint_fingerprint": "1ffa278f710fd70aca9aed7deec47dc07419049d248821bc61b0fba89934aafc",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "image",
+        "material_roles": [
+          "decoration_foreground"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "image",
+        "material_roles": [
+          "promotion_text",
+          "decoration_foreground"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.9,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 40103,
+        "maitu_source_material_id": 40103,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "23456025f2a4ab1545402be5aa98187c3370259e61fa1f6431a20e941cd994de",
+        "constraint_fingerprint": "1ffa278f710fd70aca9aed7deec47dc07419049d248821bc61b0fba89934aafc"
+      }
+    },
+    {
+      "asset_code": "AG-IMG-20260729-000023",
+      "local_file_code": "MT-DEC-0022",
+      "relative_path": "装饰/MT-DEC-0022_装饰_买赠贴片_张裕买赠.png",
+      "checksum_sha256": "c41573d48ddfe19bbb5aff643ff5c483c96a739a521d8d737185713d5ab29e74",
+      "media_kind": "image",
+      "material_roles": [
+        "promotion_text",
+        "decoration_foreground"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.9,
+      "classification_rule": "promotion_overlay",
+      "classification_explanation": "名称明确标注为买赠、抽奖或活动转盘。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 40104,
+      "inventory_item_fingerprint": "8761a76984c195283e259f5b0bff7c4a50c35c73c7129f52f085de73523806ac",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 350,
+        "height": 430,
+        "aspect_ratio": 0.813953,
+        "duration_seconds": null,
+        "average_frame_rate": "25/1",
+        "audio_track_count": 0,
+        "format_name": "png_pipe"
+      },
+      "constraint_count": 4,
+      "constraint_fingerprint": "1ffa278f710fd70aca9aed7deec47dc07419049d248821bc61b0fba89934aafc",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "image",
+        "material_roles": [
+          "decoration_foreground"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "image",
+        "material_roles": [
+          "promotion_text",
+          "decoration_foreground"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.9,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 40104,
+        "maitu_source_material_id": 40104,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "8761a76984c195283e259f5b0bff7c4a50c35c73c7129f52f085de73523806ac",
+        "constraint_fingerprint": "1ffa278f710fd70aca9aed7deec47dc07419049d248821bc61b0fba89934aafc"
+      }
+    },
+    {
+      "asset_code": "AG-IMG-20260729-000024",
+      "local_file_code": "MT-DEC-0023",
+      "relative_path": "装饰/MT-DEC-0023_装饰_动效装饰_标题动图-6088.gif",
+      "checksum_sha256": "3085c30a163770263c6f18c12291353b2db7babef7f81e7ca7309e6a58df83de",
+      "media_kind": "image",
+      "material_roles": [
+        "brand_title"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.93,
+      "classification_rule": "brand_title",
+      "classification_explanation": "名称明确标注为品牌、Logo、标题或头部。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 40105,
+      "inventory_item_fingerprint": "47d6368c9a8320ef28fa5ad3a24984b8212f4714739acca3902a589cbeca256c",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 3000,
+        "height": 1800,
+        "aspect_ratio": 1.666667,
+        "duration_seconds": 1.2,
+        "average_frame_rate": "100/3",
+        "audio_track_count": 0,
+        "format_name": "gif"
+      },
+      "constraint_count": 4,
+      "constraint_fingerprint": "1ffa278f710fd70aca9aed7deec47dc07419049d248821bc61b0fba89934aafc",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "image",
+        "material_roles": [
+          "decoration_foreground"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "image",
+        "material_roles": [
+          "brand_title"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.93,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 40105,
+        "maitu_source_material_id": 40105,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "47d6368c9a8320ef28fa5ad3a24984b8212f4714739acca3902a589cbeca256c",
+        "constraint_fingerprint": "1ffa278f710fd70aca9aed7deec47dc07419049d248821bc61b0fba89934aafc"
+      }
+    },
+    {
+      "asset_code": "AG-IMG-20260729-000025",
+      "local_file_code": "MT-DEC-0024",
+      "relative_path": "装饰/MT-DEC-0024_装饰_商品贴片_品酒大师PRO.png",
+      "checksum_sha256": "b93c79a6f127165cf24dad4552bb2d86e3b5d33cc898bf1f5d9e3117fbaf0306",
+      "media_kind": "image",
+      "material_roles": [
+        "product_display"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.95,
+      "classification_rule": "product_display",
+      "classification_explanation": "名称明确标注为商品贴片或商品礼盒。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 40999,
+      "inventory_item_fingerprint": "7404fba6dcb9fe1a6238bce02d9e3a1247e144820fcc9e9755b1766f5294a0d4",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 161,
+        "height": 744,
+        "aspect_ratio": 0.216398,
+        "duration_seconds": null,
+        "average_frame_rate": "25/1",
+        "audio_track_count": 0,
+        "format_name": "png_pipe"
+      },
+      "constraint_count": 9,
+      "constraint_fingerprint": "e8172a14e8d25d085ce28d88fd0e04f96f5b625d2193bcd644c98852a6123fdb",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "image",
+        "material_roles": [
+          "decoration_foreground"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "image",
+        "material_roles": [
+          "product_display"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.95,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 40999,
+        "maitu_source_material_id": 40999,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "7404fba6dcb9fe1a6238bce02d9e3a1247e144820fcc9e9755b1766f5294a0d4",
+        "constraint_fingerprint": "e8172a14e8d25d085ce28d88fd0e04f96f5b625d2193bcd644c98852a6123fdb"
+      }
+    },
+    {
+      "asset_code": "AG-IMG-20260729-000026",
+      "local_file_code": "MT-DEC-0025",
+      "relative_path": "装饰/MT-DEC-0025_装饰_礼盒装饰_礼盒.png",
+      "checksum_sha256": "598d67e6a147dc5d3b7fb6534e10cc422399e6ee0d432a4dc2ce52124568be69",
+      "media_kind": "image",
+      "material_roles": [
+        "product_display"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.95,
+      "classification_rule": "product_display",
+      "classification_explanation": "名称明确标注为商品贴片或商品礼盒。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 41000,
+      "inventory_item_fingerprint": "0809fc0387b97d4ee2b25a6756b995af23b1c5838d18773a85c97eb7e2bcd383",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 800,
+        "height": 800,
+        "aspect_ratio": 1.0,
+        "duration_seconds": null,
+        "average_frame_rate": "25/1",
+        "audio_track_count": 0,
+        "format_name": "png_pipe"
+      },
+      "constraint_count": 9,
+      "constraint_fingerprint": "e8172a14e8d25d085ce28d88fd0e04f96f5b625d2193bcd644c98852a6123fdb",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "image",
+        "material_roles": [
+          "decoration_foreground"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "image",
+        "material_roles": [
+          "product_display"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.95,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 41000,
+        "maitu_source_material_id": 41000,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "0809fc0387b97d4ee2b25a6756b995af23b1c5838d18773a85c97eb7e2bcd383",
+        "constraint_fingerprint": "e8172a14e8d25d085ce28d88fd0e04f96f5b625d2193bcd644c98852a6123fdb"
+      }
+    },
+    {
+      "asset_code": "AG-IMG-20260729-000027",
+      "local_file_code": "MT-DEC-0026",
+      "relative_path": "装饰/MT-DEC-0026_装饰_动效装饰_6月29日(1)-7682.gif",
+      "checksum_sha256": "10c42a36be91521093ebafdf0fc17c8f8f66fe5e163c55af0c45cabd064000d8",
+      "media_kind": "image",
+      "material_roles": [
+        "product_display"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.98,
+      "classification_rule": "visual_product_cutout",
+      "classification_explanation": "画面为绿幕酒瓶商品主体，应完整放置在桌面区域。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 41018,
+      "inventory_item_fingerprint": "67f6b67775dc5bbb6d5e7ca0d1883ac1904d38065ecd776bdebe65130c5f478e",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 640,
+        "height": 1138,
+        "aspect_ratio": 0.56239,
+        "duration_seconds": 38.4,
+        "average_frame_rate": "10/1",
+        "audio_track_count": 0,
+        "format_name": "gif"
+      },
+      "constraint_count": 9,
+      "constraint_fingerprint": "e8172a14e8d25d085ce28d88fd0e04f96f5b625d2193bcd644c98852a6123fdb",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "image",
+        "material_roles": [
+          "decoration_foreground"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "image",
+        "material_roles": [
+          "product_display"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.98,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 41018,
+        "maitu_source_material_id": 41018,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "67f6b67775dc5bbb6d5e7ca0d1883ac1904d38065ecd776bdebe65130c5f478e",
+        "constraint_fingerprint": "e8172a14e8d25d085ce28d88fd0e04f96f5b625d2193bcd644c98852a6123fdb"
+      }
+    },
+    {
+      "asset_code": "AG-IMG-20260729-000028",
+      "local_file_code": "39157_底",
+      "relative_path": "背景/39157_底.png",
+      "checksum_sha256": "b7b155c2bf61f84e636ae66a4ea61e2263978cb4fbed87c48f5a36931dd137b3",
+      "media_kind": "image",
+      "material_roles": [
+        "set_surface"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.94,
+      "classification_rule": "set_surface",
+      "classification_explanation": "名称明确标注为底图、桌面或底部承托面。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 39157,
+      "inventory_item_fingerprint": "85a40d6a7a5eb356bb5f0b4b77a1a4d44d144e893810deca084bdfbefd322448",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 1080,
+        "height": 684,
+        "aspect_ratio": 1.578947,
+        "duration_seconds": null,
+        "average_frame_rate": "25/1",
+        "audio_track_count": 0,
+        "format_name": "png_pipe"
+      },
+      "constraint_count": 10,
+      "constraint_fingerprint": "66cc4bf8fb620ec78f730269bc4c27fd03244f070689002b23462b62cf543f6f",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "image",
+        "material_roles": [],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "image",
+        "material_roles": [
+          "set_surface"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.94,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 39157,
+        "maitu_source_material_id": 39157,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "85a40d6a7a5eb356bb5f0b4b77a1a4d44d144e893810deca084bdfbefd322448",
+        "constraint_fingerprint": "66cc4bf8fb620ec78f730269bc4c27fd03244f070689002b23462b62cf543f6f"
+      }
+    },
+    {
+      "asset_code": "AG-IMG-20260729-000029",
+      "local_file_code": "39159_头部1",
+      "relative_path": "背景/39159_头部1.png",
+      "checksum_sha256": "c27718e6435262ba021e62592965e880ca3a9d0816e56d83692ae7a320ac1aa5",
+      "media_kind": "image",
+      "material_roles": [
+        "brand_title"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.93,
+      "classification_rule": "brand_title",
+      "classification_explanation": "名称明确标注为品牌、Logo、标题或头部。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 39159,
+      "inventory_item_fingerprint": "33a4097bf8d70fb70814ae0fa7241fe4bbca7362a7256bcf729b2b1798b16ecd",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 800,
+        "height": 400,
+        "aspect_ratio": 2.0,
+        "duration_seconds": null,
+        "average_frame_rate": "25/1",
+        "audio_track_count": 0,
+        "format_name": "png_pipe"
+      },
+      "constraint_count": 4,
+      "constraint_fingerprint": "1ffa278f710fd70aca9aed7deec47dc07419049d248821bc61b0fba89934aafc",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "image",
+        "material_roles": [],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "image",
+        "material_roles": [
+          "brand_title"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.93,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 39159,
+        "maitu_source_material_id": 39159,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "33a4097bf8d70fb70814ae0fa7241fe4bbca7362a7256bcf729b2b1798b16ecd",
+        "constraint_fingerprint": "1ffa278f710fd70aca9aed7deec47dc07419049d248821bc61b0fba89934aafc"
+      }
+    },
+    {
+      "asset_code": "AG-IMG-20260729-000030",
+      "local_file_code": "39598_100029295227",
+      "relative_path": "背景/39598_100029295227.png",
+      "checksum_sha256": "c0612db293bbf78b7d901881065c6c8c118f392d690685dbc85b93270925f058",
+      "media_kind": "image",
+      "material_roles": [
+        "product_display"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.98,
+      "classification_rule": "visual_product_cutout",
+      "classification_explanation": "画面为龙谕酒瓶商品主体；虽然文件位于背景目录，但不能误作背景。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 39598,
+      "inventory_item_fingerprint": "eee8e090c3599d85ab984ed268858042e8914b0a2e9fae9daddc942be33e465b",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 800,
+        "height": 800,
+        "aspect_ratio": 1.0,
+        "duration_seconds": null,
+        "average_frame_rate": "25/1",
+        "audio_track_count": 0,
+        "format_name": "png_pipe"
+      },
+      "constraint_count": 9,
+      "constraint_fingerprint": "e8172a14e8d25d085ce28d88fd0e04f96f5b625d2193bcd644c98852a6123fdb",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "image",
+        "material_roles": [],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "image",
+        "material_roles": [
+          "product_display"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.98,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 39598,
+        "maitu_source_material_id": 39598,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "eee8e090c3599d85ab984ed268858042e8914b0a2e9fae9daddc942be33e465b",
+        "constraint_fingerprint": "e8172a14e8d25d085ce28d88fd0e04f96f5b625d2193bcd644c98852a6123fdb"
+      }
+    },
+    {
+      "asset_code": "AG-IMG-20260729-000031",
+      "local_file_code": "39894_plus",
+      "relative_path": "背景/39894_plus.png",
+      "checksum_sha256": "a348ed6096fe313b51ebefe3efefab1438669a226220914d4cdd276702e96f7c",
+      "media_kind": "image",
+      "material_roles": [
+        "product_display"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.9,
+      "classification_rule": "checksum_alias:product_display",
+      "classification_explanation": "文件 checksum 与已明确分类的素材完全一致，沿用其用途；仍保留推断证据。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 39894,
+      "inventory_item_fingerprint": "8de84d8c8536366a9b0102fbd1749b196a1955eee82bcd764f02febc69601dfb",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 189,
+        "height": 891,
+        "aspect_ratio": 0.212121,
+        "duration_seconds": null,
+        "average_frame_rate": "25/1",
+        "audio_track_count": 0,
+        "format_name": "png_pipe"
+      },
+      "constraint_count": 9,
+      "constraint_fingerprint": "e8172a14e8d25d085ce28d88fd0e04f96f5b625d2193bcd644c98852a6123fdb",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "image",
+        "material_roles": [],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "image",
+        "material_roles": [
+          "product_display"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.9,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 39894,
+        "maitu_source_material_id": 39894,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "8de84d8c8536366a9b0102fbd1749b196a1955eee82bcd764f02febc69601dfb",
+        "constraint_fingerprint": "e8172a14e8d25d085ce28d88fd0e04f96f5b625d2193bcd644c98852a6123fdb"
+      }
+    },
+    {
+      "asset_code": "AG-IMG-20260729-000032",
+      "local_file_code": "42419_MT-TPL-0001_模版_模板预览_张裕618背景_preview",
+      "relative_path": "背景/42419_MT-TPL-0001_模版_模板预览_张裕618背景_preview.png",
+      "checksum_sha256": "2b27e561f10211e986f824eb3983a838d6df8393ee300838dcad00d188e4dada",
+      "media_kind": "image",
+      "material_roles": [
+        "background"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.98,
+      "classification_rule": "visual_composite_background",
+      "classification_explanation": "画面为完整竖屏直播背景合成图，可作为麦兔图片背景执行。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 42419,
+      "inventory_item_fingerprint": "b0e07a505776caebce778748c1fc46a4175caba4fae9c12fed8b5e5f5789ed6d",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 320,
+        "height": 570,
+        "aspect_ratio": 0.561404,
+        "duration_seconds": null,
+        "average_frame_rate": "25/1",
+        "audio_track_count": 0,
+        "format_name": "png_pipe"
+      },
+      "constraint_count": 4,
+      "constraint_fingerprint": "1241833682d0ccee34e918d002e0aabd24264591fbd4bd987f0b138c700df0e3",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "image",
+        "material_roles": [],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "image",
+        "material_roles": [
+          "background"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.98,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 42419,
+        "maitu_source_material_id": 42419,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "b0e07a505776caebce778748c1fc46a4175caba4fae9c12fed8b5e5f5789ed6d",
+        "constraint_fingerprint": "1241833682d0ccee34e918d002e0aabd24264591fbd4bd987f0b138c700df0e3"
+      }
+    },
+    {
+      "asset_code": "AG-IMG-20260729-000033",
+      "local_file_code": "40099_背景",
+      "relative_path": "装饰/40099_背景.jpeg",
+      "checksum_sha256": "3443a5e4bf6cbac8bf43e8f1875a308525d3d56d1e1162b72e4263a2cdb87e1b",
+      "media_kind": "image",
+      "material_roles": [
+        "background"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.9,
+      "classification_rule": "checksum_alias:full_background",
+      "classification_explanation": "文件 checksum 与已明确分类的素材完全一致，沿用其用途；仍保留推断证据。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 40099,
+      "inventory_item_fingerprint": "12b2429a50e6155f14873a537ac138cff8c9d88d3e2e89bb32030a7ba16b1ad0",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 1080,
+        "height": 1920,
+        "aspect_ratio": 0.5625,
+        "duration_seconds": 0.04,
+        "average_frame_rate": "25/1",
+        "audio_track_count": 0,
+        "format_name": "image2"
+      },
+      "constraint_count": 4,
+      "constraint_fingerprint": "1241833682d0ccee34e918d002e0aabd24264591fbd4bd987f0b138c700df0e3",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "image",
+        "material_roles": [],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "image",
+        "material_roles": [
+          "background"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.9,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 40099,
+        "maitu_source_material_id": 40099,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "12b2429a50e6155f14873a537ac138cff8c9d88d3e2e89bb32030a7ba16b1ad0",
+        "constraint_fingerprint": "1241833682d0ccee34e918d002e0aabd24264591fbd4bd987f0b138c700df0e3"
+      }
+    },
+    {
+      "asset_code": "AG-VID-20260729-000001",
+      "local_file_code": "MT-VID-0001",
+      "relative_path": "视频/MT-VID-0001_视频_开箱视频_龙谕龙8_开箱.mov",
+      "checksum_sha256": "89e06b42b942a89c156c9dd23bd2b0ed25fc658c32faa8bda7149c3f850283c8",
+      "media_kind": "video",
+      "material_roles": [
+        "supporting_video"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.98,
+      "classification_rule": "product_or_wine_video",
+      "classification_explanation": "视频目录与名称明确标注商品、酒体、开箱、讲解或品牌视频。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 37251,
+      "inventory_item_fingerprint": "eac93854d52fb7a758dd36d2334fc6f9bb9fa8c5a047e8df5f843b203cc84571",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 2160,
+        "height": 3840,
+        "aspect_ratio": 0.5625,
+        "duration_seconds": 29.5,
+        "average_frame_rate": "50/1",
+        "audio_track_count": 1,
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2"
+      },
+      "constraint_count": 10,
+      "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.98,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 37251,
+        "maitu_source_material_id": 37251,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "eac93854d52fb7a758dd36d2334fc6f9bb9fa8c5a047e8df5f843b203cc84571",
+        "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2"
+      }
+    },
+    {
+      "asset_code": "AG-VID-20260729-000002",
+      "local_file_code": "MT-VID-0002",
+      "relative_path": "视频/MT-VID-0002_视频_商品整体视频_多名利特选窖藏_整体.mov",
+      "checksum_sha256": "d6b6bc1c3e70f1d65a8f905481636c1ad3a295e332a16935f12fbf0332e6ef16",
+      "media_kind": "video",
+      "material_roles": [
+        "supporting_video"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.98,
+      "classification_rule": "product_or_wine_video",
+      "classification_explanation": "视频目录与名称明确标注商品、酒体、开箱、讲解或品牌视频。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 37254,
+      "inventory_item_fingerprint": "c64656eb48bf5a6ced0ee1c17cfb65dc1450257e45d7e8ab07cda8c023725897",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 2160,
+        "height": 3840,
+        "aspect_ratio": 0.5625,
+        "duration_seconds": 39.98,
+        "average_frame_rate": "50/1",
+        "audio_track_count": 1,
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2"
+      },
+      "constraint_count": 10,
+      "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.98,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 37254,
+        "maitu_source_material_id": 37254,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "c64656eb48bf5a6ced0ee1c17cfb65dc1450257e45d7e8ab07cda8c023725897",
+        "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2"
+      }
+    },
+    {
+      "asset_code": "AG-VID-20260729-000003",
+      "local_file_code": "MT-VID-0003",
+      "relative_path": "视频/MT-VID-0003_视频_商品整体视频_解百纳1937_整体.mov",
+      "checksum_sha256": "8b3517150d80f7964ad8defe61f43fff9a178ea3794762f8a3f217d5cddc0324",
+      "media_kind": "video",
+      "material_roles": [
+        "supporting_video"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.98,
+      "classification_rule": "product_or_wine_video",
+      "classification_explanation": "视频目录与名称明确标注商品、酒体、开箱、讲解或品牌视频。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 37256,
+      "inventory_item_fingerprint": "4b4468b276ffab845b0e27b09926e91f1eb683005f9c3ce30cc0a731d4ff6810",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 2160,
+        "height": 3840,
+        "aspect_ratio": 0.5625,
+        "duration_seconds": 39.54,
+        "average_frame_rate": "50/1",
+        "audio_track_count": 1,
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2"
+      },
+      "constraint_count": 10,
+      "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.98,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 37256,
+        "maitu_source_material_id": 37256,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "4b4468b276ffab845b0e27b09926e91f1eb683005f9c3ce30cc0a731d4ff6810",
+        "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2"
+      }
+    },
+    {
+      "asset_code": "AG-VID-20260729-000004",
+      "local_file_code": "MT-VID-0004",
+      "relative_path": "视频/MT-VID-0004_视频_商品整体视频_龙谕龙12_整体.mov",
+      "checksum_sha256": "fc8078d197962f9e8e28e1ef061b9f3d34c4c907ac008e12be4ee969463d9192",
+      "media_kind": "video",
+      "material_roles": [
+        "supporting_video"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.98,
+      "classification_rule": "product_or_wine_video",
+      "classification_explanation": "视频目录与名称明确标注商品、酒体、开箱、讲解或品牌视频。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 37257,
+      "inventory_item_fingerprint": "e77b8e81141e78d68bd93e932f91eccd16a9fe333881eaa127388ff561c021b2",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 2160,
+        "height": 3840,
+        "aspect_ratio": 0.5625,
+        "duration_seconds": 16.9,
+        "average_frame_rate": "50/1",
+        "audio_track_count": 1,
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2"
+      },
+      "constraint_count": 10,
+      "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.98,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 37257,
+        "maitu_source_material_id": 37257,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "e77b8e81141e78d68bd93e932f91eccd16a9fe333881eaa127388ff561c021b2",
+        "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2"
+      }
+    },
+    {
+      "asset_code": "AG-VID-20260729-000005",
+      "local_file_code": "MT-VID-0005",
+      "relative_path": "视频/MT-VID-0005_视频_酒体视频_龙谕龙12_酒体.mov",
+      "checksum_sha256": "f01a6f302e5d04129e15a5c678185aa4e1b614a056c4c65e487f6d0e7b55a8f0",
+      "media_kind": "video",
+      "material_roles": [
+        "supporting_video"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.98,
+      "classification_rule": "product_or_wine_video",
+      "classification_explanation": "视频目录与名称明确标注商品、酒体、开箱、讲解或品牌视频。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 37258,
+      "inventory_item_fingerprint": "e1b66aed68abd19796db9c845e3b7e1eacf9f53872e04b677d9cac121d211878",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 2160,
+        "height": 3840,
+        "aspect_ratio": 0.5625,
+        "duration_seconds": 30.58,
+        "average_frame_rate": "50/1",
+        "audio_track_count": 1,
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2"
+      },
+      "constraint_count": 10,
+      "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.98,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 37258,
+        "maitu_source_material_id": 37258,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "e1b66aed68abd19796db9c845e3b7e1eacf9f53872e04b677d9cac121d211878",
+        "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2"
+      }
+    },
+    {
+      "asset_code": "AG-VID-20260729-000006",
+      "local_file_code": "MT-VID-0006",
+      "relative_path": "视频/MT-VID-0006_视频_酒体视频_龙谕龙8_酒体.mov",
+      "checksum_sha256": "26059e8fd09599f5d34bac12be70d1b6cba9fd814faf31e3d18104cb02bcb166",
+      "media_kind": "video",
+      "material_roles": [
+        "supporting_video"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.98,
+      "classification_rule": "product_or_wine_video",
+      "classification_explanation": "视频目录与名称明确标注商品、酒体、开箱、讲解或品牌视频。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 37318,
+      "inventory_item_fingerprint": "2c303a54a9bf04c7fd532f9a467dcd5caac306ad952a4e09aa5f174691ad727d",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 2160,
+        "height": 3840,
+        "aspect_ratio": 0.5625,
+        "duration_seconds": 41.86,
+        "average_frame_rate": "50/1",
+        "audio_track_count": 1,
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2"
+      },
+      "constraint_count": 10,
+      "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.98,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 37318,
+        "maitu_source_material_id": 37318,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "2c303a54a9bf04c7fd532f9a467dcd5caac306ad952a4e09aa5f174691ad727d",
+        "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2"
+      }
+    },
+    {
+      "asset_code": "AG-VID-20260729-000007",
+      "local_file_code": "MT-VID-0007",
+      "relative_path": "视频/MT-VID-0007_视频_开箱视频_龙谕龙12_开箱.mov",
+      "checksum_sha256": "b6f39f6fb85fc82fe842d61a320e3ff7d50018fa768f31d2cade4398ce01238f",
+      "media_kind": "video",
+      "material_roles": [
+        "supporting_video"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.98,
+      "classification_rule": "product_or_wine_video",
+      "classification_explanation": "视频目录与名称明确标注商品、酒体、开箱、讲解或品牌视频。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 37319,
+      "inventory_item_fingerprint": "c55cbbdef5dd5a6849b0b6dc0e5fbd9d38ad14b015e476c5ec8a22261ae44ea0",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 2160,
+        "height": 3840,
+        "aspect_ratio": 0.5625,
+        "duration_seconds": 28.3,
+        "average_frame_rate": "50/1",
+        "audio_track_count": 1,
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2"
+      },
+      "constraint_count": 10,
+      "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.98,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 37319,
+        "maitu_source_material_id": 37319,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "c55cbbdef5dd5a6849b0b6dc0e5fbd9d38ad14b015e476c5ec8a22261ae44ea0",
+        "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2"
+      }
+    },
+    {
+      "asset_code": "AG-VID-20260729-000008",
+      "local_file_code": "MT-VID-0008",
+      "relative_path": "视频/MT-VID-0008_视频_酒体视频_龙谕单一园_酒体.mov",
+      "checksum_sha256": "4fa7044ca47c8f1d290ba495b3aad23abb1670020cd28886235b697d02e2dab7",
+      "media_kind": "video",
+      "material_roles": [
+        "supporting_video"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.98,
+      "classification_rule": "product_or_wine_video",
+      "classification_explanation": "视频目录与名称明确标注商品、酒体、开箱、讲解或品牌视频。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 37321,
+      "inventory_item_fingerprint": "6586c50ad5e36d629bd89e9989304180786ac81574c41d7f001860b58260f99c",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 2160,
+        "height": 3840,
+        "aspect_ratio": 0.5625,
+        "duration_seconds": 26.3,
+        "average_frame_rate": "50/1",
+        "audio_track_count": 1,
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2"
+      },
+      "constraint_count": 10,
+      "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.98,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 37321,
+        "maitu_source_material_id": 37321,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "6586c50ad5e36d629bd89e9989304180786ac81574c41d7f001860b58260f99c",
+        "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2"
+      }
+    },
+    {
+      "asset_code": "AG-VID-20260729-000009",
+      "local_file_code": "MT-VID-0009",
+      "relative_path": "视频/MT-VID-0009_视频_商品整体视频_龙谕龙8_整体.mov",
+      "checksum_sha256": "9722511bef9f52c8c2517e3382da422b1793a647d653b521afe8651d2780be7a",
+      "media_kind": "video",
+      "material_roles": [
+        "supporting_video"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.98,
+      "classification_rule": "product_or_wine_video",
+      "classification_explanation": "视频目录与名称明确标注商品、酒体、开箱、讲解或品牌视频。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 37322,
+      "inventory_item_fingerprint": "a586c9241c07a542afe346ff60bab8dba701e9e0c9494033c2eb23529b1e4bb2",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 2160,
+        "height": 3840,
+        "aspect_ratio": 0.5625,
+        "duration_seconds": 8.74,
+        "average_frame_rate": "50/1",
+        "audio_track_count": 1,
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2"
+      },
+      "constraint_count": 10,
+      "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.98,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 37322,
+        "maitu_source_material_id": 37322,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "a586c9241c07a542afe346ff60bab8dba701e9e0c9494033c2eb23529b1e4bb2",
+        "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2"
+      }
+    },
+    {
+      "asset_code": "AG-VID-20260729-000010",
+      "local_file_code": "MT-VID-0010",
+      "relative_path": "视频/MT-VID-0010_视频_商品整体视频_品酒大师PLUS_整体.mov",
+      "checksum_sha256": "f4883c9fdcfc13713a02a0725c0605adb99a9077e15766f406484b3b98376eb5",
+      "media_kind": "video",
+      "material_roles": [
+        "supporting_video"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.98,
+      "classification_rule": "product_or_wine_video",
+      "classification_explanation": "视频目录与名称明确标注商品、酒体、开箱、讲解或品牌视频。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 37342,
+      "inventory_item_fingerprint": "3effed0558585400ac194ba11d6d4173320243008989d1f8a5b765cab8ed401c",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 2160,
+        "height": 3840,
+        "aspect_ratio": 0.5625,
+        "duration_seconds": 15.02,
+        "average_frame_rate": "50/1",
+        "audio_track_count": 1,
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2"
+      },
+      "constraint_count": 10,
+      "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.98,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 37342,
+        "maitu_source_material_id": 37342,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "3effed0558585400ac194ba11d6d4173320243008989d1f8a5b765cab8ed401c",
+        "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2"
+      }
+    },
+    {
+      "asset_code": "AG-VID-20260729-000011",
+      "local_file_code": "MT-VID-0011",
+      "relative_path": "视频/MT-VID-0011_视频_酒体视频_品酒大师PLUS_酒体.mov",
+      "checksum_sha256": "cc0ff012e58dcdf0e80c2d82ab581e36a47f1480ef02b86596fc6f608f320aed",
+      "media_kind": "video",
+      "material_roles": [
+        "supporting_video"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.98,
+      "classification_rule": "product_or_wine_video",
+      "classification_explanation": "视频目录与名称明确标注商品、酒体、开箱、讲解或品牌视频。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 37343,
+      "inventory_item_fingerprint": "08385cca6ff478de53d653a3f30b06f59dfdf7d91c0fda8068cf78820f13a770",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 2160,
+        "height": 3840,
+        "aspect_ratio": 0.5625,
+        "duration_seconds": 38.8,
+        "average_frame_rate": "50/1",
+        "audio_track_count": 1,
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2"
+      },
+      "constraint_count": 10,
+      "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.98,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 37343,
+        "maitu_source_material_id": 37343,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "08385cca6ff478de53d653a3f30b06f59dfdf7d91c0fda8068cf78820f13a770",
+        "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2"
+      }
+    },
+    {
+      "asset_code": "AG-VID-20260729-000012",
+      "local_file_code": "MT-VID-0012",
+      "relative_path": "视频/MT-VID-0012_视频_商品整体视频_品酒大师SUPER_整体.mov",
+      "checksum_sha256": "52216243b340b0b66835e352d9e650c2ffce4278f0b28bc1f40af5f65d1a9d46",
+      "media_kind": "video",
+      "material_roles": [
+        "supporting_video"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.98,
+      "classification_rule": "product_or_wine_video",
+      "classification_explanation": "视频目录与名称明确标注商品、酒体、开箱、讲解或品牌视频。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 37344,
+      "inventory_item_fingerprint": "d44c9e99f9594c6be52a7f9a17deea9a2d1c55eeb3b276d06740cf6d6009be13",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 2160,
+        "height": 3840,
+        "aspect_ratio": 0.5625,
+        "duration_seconds": 14.24,
+        "average_frame_rate": "50/1",
+        "audio_track_count": 1,
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2"
+      },
+      "constraint_count": 10,
+      "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.98,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 37344,
+        "maitu_source_material_id": 37344,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "d44c9e99f9594c6be52a7f9a17deea9a2d1c55eeb3b276d06740cf6d6009be13",
+        "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2"
+      }
+    },
+    {
+      "asset_code": "AG-VID-20260729-000013",
+      "local_file_code": "MT-VID-0013",
+      "relative_path": "视频/MT-VID-0013_视频_开箱视频_N158_开箱.mov",
+      "checksum_sha256": "3237eb133755bf91d02e452241b6f18b5f72a07862bd1c57abbac56bd7ad4673",
+      "media_kind": "video",
+      "material_roles": [
+        "supporting_video"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.98,
+      "classification_rule": "product_or_wine_video",
+      "classification_explanation": "视频目录与名称明确标注商品、酒体、开箱、讲解或品牌视频。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 37345,
+      "inventory_item_fingerprint": "419924ad4fa80fd89041d4cd45e2c54eeb4f71a0f0ced36254d49a9b38b79b52",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 2160,
+        "height": 3840,
+        "aspect_ratio": 0.5625,
+        "duration_seconds": 14.28,
+        "average_frame_rate": "50/1",
+        "audio_track_count": 1,
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2"
+      },
+      "constraint_count": 10,
+      "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.98,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 37345,
+        "maitu_source_material_id": 37345,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "419924ad4fa80fd89041d4cd45e2c54eeb4f71a0f0ced36254d49a9b38b79b52",
+        "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2"
+      }
+    },
+    {
+      "asset_code": "AG-VID-20260729-000014",
+      "local_file_code": "MT-VID-0014",
+      "relative_path": "视频/MT-VID-0014_视频_酒体视频_品酒大师SUPER_酒体.mov",
+      "checksum_sha256": "6046b030ca3beb10781f125268d500468dc8b41bdbcb332ccbdb6a4f25e865b1",
+      "media_kind": "video",
+      "material_roles": [
+        "supporting_video"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.98,
+      "classification_rule": "product_or_wine_video",
+      "classification_explanation": "视频目录与名称明确标注商品、酒体、开箱、讲解或品牌视频。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 37346,
+      "inventory_item_fingerprint": "a0e64f03f0d1ce771e18b7a8007f5a6cd52645025d4849d7ad1e6ca2a6fe4bd4",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 2160,
+        "height": 3840,
+        "aspect_ratio": 0.5625,
+        "duration_seconds": 32.92,
+        "average_frame_rate": "50/1",
+        "audio_track_count": 1,
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2"
+      },
+      "constraint_count": 10,
+      "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.98,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 37346,
+        "maitu_source_material_id": 37346,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "a0e64f03f0d1ce771e18b7a8007f5a6cd52645025d4849d7ad1e6ca2a6fe4bd4",
+        "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2"
+      }
+    },
+    {
+      "asset_code": "AG-VID-20260729-000015",
+      "local_file_code": "MT-VID-0015",
+      "relative_path": "视频/MT-VID-0015_视频_开箱视频_品酒大师SUPER_开箱.mov",
+      "checksum_sha256": "4ed2856ed8f6614bc511b0309b8acabfcb93ce951f49df35e93225416c95cf0c",
+      "media_kind": "video",
+      "material_roles": [
+        "supporting_video"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.98,
+      "classification_rule": "product_or_wine_video",
+      "classification_explanation": "视频目录与名称明确标注商品、酒体、开箱、讲解或品牌视频。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 37347,
+      "inventory_item_fingerprint": "087543e0e793a1d353857ffd8b21153ab4aa47f1aad7eb1166d25a4fe2e5ae7b",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 2160,
+        "height": 3840,
+        "aspect_ratio": 0.5625,
+        "duration_seconds": 33.42,
+        "average_frame_rate": "50/1",
+        "audio_track_count": 1,
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2"
+      },
+      "constraint_count": 10,
+      "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.98,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 37347,
+        "maitu_source_material_id": 37347,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "087543e0e793a1d353857ffd8b21153ab4aa47f1aad7eb1166d25a4fe2e5ae7b",
+        "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2"
+      }
+    },
+    {
+      "asset_code": "AG-VID-20260729-000016",
+      "local_file_code": "MT-VID-0016",
+      "relative_path": "视频/MT-VID-0016_视频_酒体视频_品酒大师PRO_酒体.mov",
+      "checksum_sha256": "138d20431679a59163a2d3b8cb6ffc63341a6c2f6c0e5e9b8cf8ab593ec1cf2c",
+      "media_kind": "video",
+      "material_roles": [
+        "supporting_video"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.98,
+      "classification_rule": "product_or_wine_video",
+      "classification_explanation": "视频目录与名称明确标注商品、酒体、开箱、讲解或品牌视频。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 37348,
+      "inventory_item_fingerprint": "6772ecc6c75914955f95875dcf28cb81c668d4d77247efef1fe389ff80f1c73f",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 2160,
+        "height": 3840,
+        "aspect_ratio": 0.5625,
+        "duration_seconds": 38.84,
+        "average_frame_rate": "50/1",
+        "audio_track_count": 1,
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2"
+      },
+      "constraint_count": 10,
+      "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.98,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 37348,
+        "maitu_source_material_id": 37348,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "6772ecc6c75914955f95875dcf28cb81c668d4d77247efef1fe389ff80f1c73f",
+        "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2"
+      }
+    },
+    {
+      "asset_code": "AG-VID-20260729-000017",
+      "local_file_code": "MT-VID-0021",
+      "relative_path": "视频/MT-VID-0021_视频_视频素材_Timeline1-4699.mov",
+      "checksum_sha256": "21224baf29256be570094e0ee5923697e50de2751777f012685bfe879e0c69cf",
+      "media_kind": "video",
+      "material_roles": [
+        "supporting_video"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.98,
+      "classification_rule": "product_or_wine_video",
+      "classification_explanation": "视频目录与名称明确标注商品、酒体、开箱、讲解或品牌视频。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 39780,
+      "inventory_item_fingerprint": "511121c57b224d0c302a1c9258e6ebb507ab0476352b634e08166a0ece2c0a88",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 1920,
+        "height": 1080,
+        "aspect_ratio": 1.777778,
+        "duration_seconds": 45.083333,
+        "average_frame_rate": "24/1",
+        "audio_track_count": 1,
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2"
+      },
+      "constraint_count": 10,
+      "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.98,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 39780,
+        "maitu_source_material_id": 39780,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "511121c57b224d0c302a1c9258e6ebb507ab0476352b634e08166a0ece2c0a88",
+        "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2"
+      }
+    },
+    {
+      "asset_code": "AG-VID-20260729-000018",
+      "local_file_code": "MT-VID-0023",
+      "relative_path": "视频/MT-VID-0023_视频_商品讲解视频_品酒大师MASTER.mp4",
+      "checksum_sha256": "15644303a0ab5d6aa7043b68e84255a812992378a25f51235b4c531a94f95f1b",
+      "media_kind": "video",
+      "material_roles": [
+        "supporting_video"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.98,
+      "classification_rule": "product_or_wine_video",
+      "classification_explanation": "视频目录与名称明确标注商品、酒体、开箱、讲解或品牌视频。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 40773,
+      "inventory_item_fingerprint": "4e7615fd0944189d7350cd9099efcffb2b47acea87f534c3c35600477f356894",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 1080,
+        "height": 1920,
+        "aspect_ratio": 0.5625,
+        "duration_seconds": 6.464,
+        "average_frame_rate": "50/1",
+        "audio_track_count": 1,
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2"
+      },
+      "constraint_count": 10,
+      "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.98,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 40773,
+        "maitu_source_material_id": 40773,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "4e7615fd0944189d7350cd9099efcffb2b47acea87f534c3c35600477f356894",
+        "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2"
+      }
+    },
+    {
+      "asset_code": "AG-VID-20260729-000019",
+      "local_file_code": "MT-VID-0024",
+      "relative_path": "视频/MT-VID-0024_视频_商品讲解视频_品酒大师PRO.mp4",
+      "checksum_sha256": "a803a7d13afe5695b42f1e4f74809cc99b54e6276c0ff5ce02b07fb34895a6cc",
+      "media_kind": "video",
+      "material_roles": [
+        "supporting_video"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.98,
+      "classification_rule": "product_or_wine_video",
+      "classification_explanation": "视频目录与名称明确标注商品、酒体、开箱、讲解或品牌视频。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 40774,
+      "inventory_item_fingerprint": "ca70d5b07f9b13963d911584ef16d024fa0999245338af3980aad4b50118108e",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 1080,
+        "height": 1920,
+        "aspect_ratio": 0.5625,
+        "duration_seconds": 6.443,
+        "average_frame_rate": "50/1",
+        "audio_track_count": 1,
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2"
+      },
+      "constraint_count": 10,
+      "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.98,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 40774,
+        "maitu_source_material_id": 40774,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "ca70d5b07f9b13963d911584ef16d024fa0999245338af3980aad4b50118108e",
+        "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2"
+      }
+    },
+    {
+      "asset_code": "AG-VID-20260729-000020",
+      "local_file_code": "MT-VID-0025",
+      "relative_path": "视频/MT-VID-0025_视频_商品讲解视频_品酒大师PLUS.mp4",
+      "checksum_sha256": "691a0f839abd9a6366e13c1b8876b9d49c14c48922813cfd25c83df952a94f1d",
+      "media_kind": "video",
+      "material_roles": [
+        "supporting_video"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.98,
+      "classification_rule": "product_or_wine_video",
+      "classification_explanation": "视频目录与名称明确标注商品、酒体、开箱、讲解或品牌视频。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 40775,
+      "inventory_item_fingerprint": "d2f823cd795a2ba9313bb5261fea0a6dfb2188624122ca5ea23e5f3a0fbf35dd",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 1080,
+        "height": 1920,
+        "aspect_ratio": 0.5625,
+        "duration_seconds": 14.23,
+        "average_frame_rate": "50/1",
+        "audio_track_count": 1,
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2"
+      },
+      "constraint_count": 10,
+      "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.98,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 40775,
+        "maitu_source_material_id": 40775,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "d2f823cd795a2ba9313bb5261fea0a6dfb2188624122ca5ea23e5f3a0fbf35dd",
+        "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2"
+      }
+    },
+    {
+      "asset_code": "AG-VID-20260729-000021",
+      "local_file_code": "MT-VID-0026",
+      "relative_path": "视频/MT-VID-0026_视频_商品讲解视频_品酒大师SUPER.mp4",
+      "checksum_sha256": "78802ae039b3f98ccea135067298ca297efc97a2cf8d1471e5204c635bc212a2",
+      "media_kind": "video",
+      "material_roles": [
+        "supporting_video"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.98,
+      "classification_rule": "product_or_wine_video",
+      "classification_explanation": "视频目录与名称明确标注商品、酒体、开箱、讲解或品牌视频。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 40776,
+      "inventory_item_fingerprint": "3be9db40b22b0982686b44eda87440af449b55d2739942923a980c8be63547ab",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 1080,
+        "height": 1920,
+        "aspect_ratio": 0.5625,
+        "duration_seconds": 9.216,
+        "average_frame_rate": "50/1",
+        "audio_track_count": 1,
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2"
+      },
+      "constraint_count": 10,
+      "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.98,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 40776,
+        "maitu_source_material_id": 40776,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "3be9db40b22b0982686b44eda87440af449b55d2739942923a980c8be63547ab",
+        "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2"
+      }
+    },
+    {
+      "asset_code": "AG-VID-20260729-000022",
+      "local_file_code": "MT-VID-0028",
+      "relative_path": "视频/MT-VID-0028_视频_视频素材_6月29日(2)-9051.mp4",
+      "checksum_sha256": "c9c7e9deef0ee4a8a45d785148daca50d08cbe588b886bed4f48cad05fb8f4b1",
+      "media_kind": "video",
+      "material_roles": [
+        "supporting_video"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.98,
+      "classification_rule": "product_or_wine_video",
+      "classification_explanation": "视频目录与名称明确标注商品、酒体、开箱、讲解或品牌视频。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 41043,
+      "inventory_item_fingerprint": "1d4d088b379ad85ef3ee77fac04ad970d5a9886b0eb3dc36954321d52b47bcbc",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 1080,
+        "height": 1920,
+        "aspect_ratio": 0.5625,
+        "duration_seconds": 10.71,
+        "average_frame_rate": "30/1",
+        "audio_track_count": 1,
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2"
+      },
+      "constraint_count": 10,
+      "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.98,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 41043,
+        "maitu_source_material_id": 41043,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "1d4d088b379ad85ef3ee77fac04ad970d5a9886b0eb3dc36954321d52b47bcbc",
+        "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2"
+      }
+    },
+    {
+      "asset_code": "AG-VID-20260729-000023",
+      "local_file_code": "42601_MT-VID-0024_视频_商品讲解视频_品酒大师PRO-3129",
+      "relative_path": "视频/42601_MT-VID-0024_视频_商品讲解视频_品酒大师PRO-3129.mp4",
+      "checksum_sha256": "a803a7d13afe5695b42f1e4f74809cc99b54e6276c0ff5ce02b07fb34895a6cc",
+      "media_kind": "video",
+      "material_roles": [
+        "supporting_video"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.98,
+      "classification_rule": "product_or_wine_video",
+      "classification_explanation": "视频目录与名称明确标注商品、酒体、开箱、讲解或品牌视频。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 42601,
+      "inventory_item_fingerprint": "48298117a858a051f4b55f9f51c3616f5547912918bf4dd82ad2d58e7bf0e735",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 1080,
+        "height": 1920,
+        "aspect_ratio": 0.5625,
+        "duration_seconds": 6.443,
+        "average_frame_rate": "50/1",
+        "audio_track_count": 1,
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2"
+      },
+      "constraint_count": 10,
+      "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "video",
+        "material_roles": [],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.98,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 42601,
+        "maitu_source_material_id": 42601,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "48298117a858a051f4b55f9f51c3616f5547912918bf4dd82ad2d58e7bf0e735",
+        "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2"
+      }
+    },
+    {
+      "asset_code": "AG-VID-20260729-000024",
+      "local_file_code": "42744_MT-VID-0010_视频_商品整体视频_品酒大师PLUS_整体-5802",
+      "relative_path": "视频/42744_MT-VID-0010_视频_商品整体视频_品酒大师PLUS_整体-5802.mov",
+      "checksum_sha256": "f4883c9fdcfc13713a02a0725c0605adb99a9077e15766f406484b3b98376eb5",
+      "media_kind": "video",
+      "material_roles": [
+        "supporting_video"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.98,
+      "classification_rule": "product_or_wine_video",
+      "classification_explanation": "视频目录与名称明确标注商品、酒体、开箱、讲解或品牌视频。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 42744,
+      "inventory_item_fingerprint": "66e1ca15307e4f9c30f4b30625e6674e147eb9c3b231908d2abf5eb99b5b0e3e",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 2160,
+        "height": 3840,
+        "aspect_ratio": 0.5625,
+        "duration_seconds": 15.02,
+        "average_frame_rate": "50/1",
+        "audio_track_count": 1,
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2"
+      },
+      "constraint_count": 10,
+      "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "video",
+        "material_roles": [],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.98,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 42744,
+        "maitu_source_material_id": 42744,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "66e1ca15307e4f9c30f4b30625e6674e147eb9c3b231908d2abf5eb99b5b0e3e",
+        "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2"
+      }
+    },
+    {
+      "asset_code": "AG-VID-20260729-000025",
+      "local_file_code": "MT-VID-0017",
+      "relative_path": "视频/MT-VID-0017_视频_商品整体视频_品酒大师MASTER_整体.mov",
+      "checksum_sha256": "85fe519614d0a9a73401d80c83751e2e670131da7871cb049f66ea57a75f5629",
+      "media_kind": "video",
+      "material_roles": [
+        "supporting_video"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.98,
+      "classification_rule": "product_or_wine_video",
+      "classification_explanation": "视频目录与名称明确标注商品、酒体、开箱、讲解或品牌视频。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 37349,
+      "inventory_item_fingerprint": "7c36777e0f412970f0d49c3e436726f35d8a16e8eb7a2e392814df4e2ff979b8",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 2160,
+        "height": 3840,
+        "aspect_ratio": 0.5625,
+        "duration_seconds": 38.96,
+        "average_frame_rate": "50/1",
+        "audio_track_count": 1,
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2"
+      },
+      "constraint_count": 10,
+      "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.98,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 37349,
+        "maitu_source_material_id": 37349,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "7c36777e0f412970f0d49c3e436726f35d8a16e8eb7a2e392814df4e2ff979b8",
+        "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2"
+      }
+    },
+    {
+      "asset_code": "AG-VID-20260729-000026",
+      "local_file_code": "MT-VID-0018",
+      "relative_path": "视频/MT-VID-0018_视频_商品讲解视频_解百纳1937.mov",
+      "checksum_sha256": "8b3517150d80f7964ad8defe61f43fff9a178ea3794762f8a3f217d5cddc0324",
+      "media_kind": "video",
+      "material_roles": [
+        "supporting_video"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.98,
+      "classification_rule": "product_or_wine_video",
+      "classification_explanation": "视频目录与名称明确标注商品、酒体、开箱、讲解或品牌视频。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 37350,
+      "inventory_item_fingerprint": "54e80fa7b5195b81638420856bdb8d8290c8b2ecb5d0e00a8b2bfee66b11d138",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 2160,
+        "height": 3840,
+        "aspect_ratio": 0.5625,
+        "duration_seconds": 39.54,
+        "average_frame_rate": "50/1",
+        "audio_track_count": 1,
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2"
+      },
+      "constraint_count": 10,
+      "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.98,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 37350,
+        "maitu_source_material_id": 37350,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "54e80fa7b5195b81638420856bdb8d8290c8b2ecb5d0e00a8b2bfee66b11d138",
+        "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2"
+      }
+    },
+    {
+      "asset_code": "AG-VID-20260729-000027",
+      "local_file_code": "MT-VID-0019",
+      "relative_path": "视频/MT-VID-0019_视频_酒体视频_N158_酒体.mov",
+      "checksum_sha256": "4fb6d022865a2251ef59805241717186ffd94f33891cfcd3b4bcf383df586e0c",
+      "media_kind": "video",
+      "material_roles": [
+        "supporting_video"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.98,
+      "classification_rule": "product_or_wine_video",
+      "classification_explanation": "视频目录与名称明确标注商品、酒体、开箱、讲解或品牌视频。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 37351,
+      "inventory_item_fingerprint": "9e53eb131ddb84b8bcc2c8f54970cb06bfe04acc7767949e1068f43fe8d1066f",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 2160,
+        "height": 3840,
+        "aspect_ratio": 0.5625,
+        "duration_seconds": 42.34,
+        "average_frame_rate": "50/1",
+        "audio_track_count": 1,
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2"
+      },
+      "constraint_count": 10,
+      "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.98,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 37351,
+        "maitu_source_material_id": 37351,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "9e53eb131ddb84b8bcc2c8f54970cb06bfe04acc7767949e1068f43fe8d1066f",
+        "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2"
+      }
+    },
+    {
+      "asset_code": "AG-VID-20260729-000028",
+      "local_file_code": "MT-VID-0020",
+      "relative_path": "视频/MT-VID-0020_视频_开箱视频_龙谕单一园_开箱.mov",
+      "checksum_sha256": "773080545dba0d70c29eed2c29a9e9ae3b0480a58caffdcbb125ad985b644383",
+      "media_kind": "video",
+      "material_roles": [
+        "supporting_video"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.98,
+      "classification_rule": "product_or_wine_video",
+      "classification_explanation": "视频目录与名称明确标注商品、酒体、开箱、讲解或品牌视频。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 37384,
+      "inventory_item_fingerprint": "5e7a0fedf96a9df3db41ee579e17b27d422405c0a4091c10f28348e27e1dade2",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 2160,
+        "height": 3840,
+        "aspect_ratio": 0.5625,
+        "duration_seconds": 28.62,
+        "average_frame_rate": "50/1",
+        "audio_track_count": 1,
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2"
+      },
+      "constraint_count": 10,
+      "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.98,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 37384,
+        "maitu_source_material_id": 37384,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "5e7a0fedf96a9df3db41ee579e17b27d422405c0a4091c10f28348e27e1dade2",
+        "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2"
+      }
+    },
+    {
+      "asset_code": "AG-VID-20260729-000029",
+      "local_file_code": "MT-VID-0022",
+      "relative_path": "视频/MT-VID-0022_视频_视频素材_6月25日-3436.mov",
+      "checksum_sha256": "0630f296b9b2f99fb64c30c31886eddefb87e09252e4303e2efbf5131e01b526",
+      "media_kind": "video",
+      "material_roles": [
+        "supporting_video"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.98,
+      "classification_rule": "product_or_wine_video",
+      "classification_explanation": "视频目录与名称明确标注商品、酒体、开箱、讲解或品牌视频。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 40725,
+      "inventory_item_fingerprint": "a9b01ade5e96cf4f026f5ec66c28bdaff5c7aa2bca0c55f17a3a026912648c5a",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 1080,
+        "height": 1920,
+        "aspect_ratio": 0.5625,
+        "duration_seconds": 38.421,
+        "average_frame_rate": "50/1",
+        "audio_track_count": 1,
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2"
+      },
+      "constraint_count": 10,
+      "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.98,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 40725,
+        "maitu_source_material_id": 40725,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "a9b01ade5e96cf4f026f5ec66c28bdaff5c7aa2bca0c55f17a3a026912648c5a",
+        "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2"
+      }
+    },
+    {
+      "asset_code": "AG-VID-20260729-000030",
+      "local_file_code": "MT-VID-0027",
+      "relative_path": "视频/MT-VID-0027_视频_品牌TVC_品酒大师_TVC.mp4",
+      "checksum_sha256": "29945837004e11cf6a6e2e72d7bf7edb21b96d1758c9447330b234d1e22d8155",
+      "media_kind": "video",
+      "material_roles": [
+        "supporting_video"
+      ],
+      "classification_review_status": "inferred",
+      "classification_confidence": 0.98,
+      "classification_rule": "product_or_wine_video",
+      "classification_explanation": "视频目录与名称明确标注商品、酒体、开箱、讲解或品牌视频。",
+      "execution_capability": "maitu_bound",
+      "maitu_material_id": 40778,
+      "inventory_item_fingerprint": "03da3cdeb21c7ed2d9c904f19bc2c0b9d20e4beb1a69e1f781a58689cdeaea2d",
+      "technical": {
+        "schema_version": "local-material-probe-v1",
+        "width": 3840,
+        "height": 2160,
+        "aspect_ratio": 1.777778,
+        "duration_seconds": 170.017,
+        "average_frame_rate": "30/1",
+        "audio_track_count": 1,
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2"
+      },
+      "constraint_count": 10,
+      "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2",
+      "rights_status_unchanged": "pending",
+      "before": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "review_required",
+        "classification_confidence": null,
+        "classification_fingerprint": null,
+        "execution_capability": "local_only",
+        "rights_status": "pending",
+        "maitu_material_id": null,
+        "maitu_source_material_id": null,
+        "maitu_binding_verification_source": null,
+        "maitu_binding_inventory_fingerprint": null
+      },
+      "after": {
+        "media_kind": "video",
+        "material_roles": [
+          "supporting_video"
+        ],
+        "classification_review_status": "inferred",
+        "classification_confidence": 0.98,
+        "execution_capability": "maitu_bound",
+        "rights_status": "pending",
+        "maitu_material_id": 40778,
+        "maitu_source_material_id": 40778,
+        "maitu_binding_verification_source": "worker_maitu_inventory_readback",
+        "maitu_binding_inventory_fingerprint": "03da3cdeb21c7ed2d9c904f19bc2c0b9d20e4beb1a69e1f781a58689cdeaea2d",
+        "constraint_fingerprint": "d47702e285716811e027d25b5cd6660432f8d60f95da3bc85c864d48080dbcb2"
+      }
+    }
+  ]
+}

@@ -114,6 +114,36 @@ def test_workbench_draft_heartbeat_uses_owned_job_endpoint() -> None:
     ]
 
 
+def test_refresh_functional_material_receipt_uses_owned_job_endpoint() -> None:
+    client = RecordingClient()
+    payload = {
+        "lease_token": "11111111-1111-4111-8111-111111111111",
+        "asset_code": "AG-IMG-20260709-000002",
+        "maitu_material_id": 37262,
+        "maitu_source_material_id": 37262,
+        "source_material_type": "image",
+        "source_material_url": "https://static.example/background.png?x-oss-process=style/max_width_1080",
+        "inventory_item_fingerprint": "a" * 64,
+    }
+
+    result = client.refresh_functional_draft_material_receipt(
+        "MT-WB-EXEC-20260731-000004",
+        payload,
+    )
+
+    assert result == {"asset_code": "AG-VID-20260709-000001"}
+    assert client.calls == [
+        (
+            "POST",
+            (
+                "/api/maitu/workbench/draft-execution-jobs/"
+                "MT-WB-EXEC-20260731-000004/material-binding-receipts"
+            ),
+            payload,
+        )
+    ]
+
+
 def test_write_live_room_build_plan_execution_result_uses_execution_results_endpoint() -> None:
     client = RecordingClient()
     payload = {"execution_status": "blocked", "mode": "non_destructive", "operation_results": []}

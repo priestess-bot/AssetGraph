@@ -1,0 +1,698 @@
+{
+  "schemaVersion": "assetgraph.live-room-41172-product-e2e.v1",
+  "runId": "2026-07-31T14-48-54-818Z",
+  "mode": "product_e2e",
+  "status": "passed",
+  "startedAt": "2026-07-31T14:48:54.818Z",
+  "finishedAt": "2026-07-31T14:58:11.561Z",
+  "elapsedMs": 556743,
+  "appOrigin": "http://127.0.0.1:5190",
+  "apiOrigin": "http://127.0.0.1:8000",
+  "target": {
+    "roomId": "41172",
+    "expectedTitle": "asser测试",
+    "theme": "介绍张裕品酒大师PRO",
+    "exactSceneCount": 3
+  },
+  "planCode": "LIVEPLAN-20260731-000018",
+  "projectCode": "CONTENT-20260731-000019",
+  "terminalStatus": "succeeded",
+  "selectedMaterials": [
+    {
+      "roleKey": "background",
+      "matchedLabel": "背景",
+      "title": "背景 - 直播背景 - 背景-3",
+      "assetCode": "AG-IMG-20260729-000002",
+      "materialRoles": [
+        "background"
+      ],
+      "displayedRoles": [
+        "背景"
+      ],
+      "previewVerified": "decoded_image"
+    },
+    {
+      "roleKey": "set_surface",
+      "matchedLabel": "桌面与底图",
+      "title": "图片 - 39157_底",
+      "assetCode": "AG-IMG-20260729-000028",
+      "materialRoles": [
+        "set_surface"
+      ],
+      "displayedRoles": [
+        "桌面与底图"
+      ],
+      "previewVerified": "decoded_image"
+    },
+    {
+      "roleKey": "product",
+      "matchedLabel": "商品展示",
+      "title": "装饰 - 商品贴片 - 品酒大师PRO",
+      "assetCode": "AG-IMG-20260729-000025",
+      "materialRoles": [
+        "product_display"
+      ],
+      "displayedRoles": [
+        "商品展示"
+      ],
+      "previewVerified": "decoded_image"
+    },
+    {
+      "roleKey": "video",
+      "matchedLabel": "辅助视频",
+      "title": "视频 - 商品讲解视频 - 品酒大师PRO",
+      "assetCode": "AG-VID-20260729-000019",
+      "materialRoles": [
+        "supporting_video"
+      ],
+      "displayedRoles": [
+        "辅助视频"
+      ],
+      "previewVerified": "decoded_image"
+    },
+    {
+      "roleKey": "digital_human",
+      "matchedLabel": "数字人",
+      "title": "张裕定制形象260519",
+      "assetCode": "AG-VID-20260731-000001",
+      "materialRoles": [
+        "digital_human",
+        "voice"
+      ],
+      "displayedRoles": [
+        "数字人",
+        "音色"
+      ],
+      "previewVerified": "maitu_binding"
+    },
+    {
+      "roleKey": "top",
+      "matchedLabel": "品牌标题",
+      "title": "装饰 - 品牌Logo - 标题+logo",
+      "assetCode": "AG-IMG-20260729-000021",
+      "materialRoles": [
+        "brand_title"
+      ],
+      "displayedRoles": [
+        "品牌标题"
+      ],
+      "previewVerified": "decoded_image"
+    }
+  ],
+  "clickCount": 16,
+  "errorCount": 0,
+  "workflowDurationsMs": {
+    "loadAndFill": 13087,
+    "createContentAndPlan": 2220,
+    "inspectCanvas": 597,
+    "inspectRoomAndConfirmReset": 6345,
+    "executeAndReadback": 531508,
+    "finalReadOnlyEvidence": 87,
+    "consoleRefreshVerification": 2310
+  },
+  "manualInterventionCount": 0,
+  "manualInterventionPoints": [],
+  "stageScreenshots": {
+    "preparing_materials": {
+      "filename": "execution-01-preparing_materials.png",
+      "displayMode": "response_evidence",
+      "capturedAt": "2026-07-31T14:49:19.098Z"
+    },
+    "clearing_draft": {
+      "filename": "execution-02-clearing_draft.png",
+      "displayMode": "current_stage",
+      "capturedAt": "2026-07-31T14:49:28.744Z"
+    },
+    "building_scenes": {
+      "filename": "execution-03-building_scenes.png",
+      "displayMode": "response_evidence",
+      "capturedAt": "2026-07-31T14:49:41.396Z"
+    },
+    "writing_scripts": {
+      "filename": "execution-04-writing_scripts.png",
+      "displayMode": "current_stage",
+      "capturedAt": "2026-07-31T14:51:40.766Z"
+    },
+    "verifying_readback": {
+      "filename": "execution-05-verifying_readback.png",
+      "displayMode": "current_stage",
+      "capturedAt": "2026-07-31T14:51:53.473Z"
+    },
+    "succeeded": {
+      "filename": "execution-06-succeeded.png",
+      "displayMode": "response_evidence",
+      "capturedAt": "2026-07-31T14:58:05.925Z"
+    }
+  },
+  "mutationRequests": [
+    {
+      "at": "2026-07-31T14:49:08.492Z",
+      "source": "console-page-interaction",
+      "method": "POST",
+      "path": "/api/content-projects",
+      "requestBody": {
+        "title": "介绍张裕品酒大师PRO - 直播间方案 - 202607312349",
+        "target_live_room_id": "41172",
+        "generation_goal": "生成一场恰好三段的离线测试直播草稿，完整介绍张裕品酒大师PRO的产品特点、品鉴方法与适合场景。",
+        "theme": "介绍张裕品酒大师PRO",
+        "story": "从第一次选酒的困惑切入，用看色、闻香、品味三个动作完成产品介绍，最后回顾适合人群与品鉴建议。",
+        "detailed_design": "第一段开场建立品牌和品鉴目标；第二段展示商品或酒体视频并讲解品鉴步骤；第三段总结卖点和互动问题。\n背景必须置底，桌面承托商品，商品或视频位于背景之上，数字人位于商品内容之上，品牌标题或前景装饰位于高层。\n最终只生成三个场景，只写入离线测试草稿，不排播、不开播。",
+        "target_duration_seconds": 180,
+        "platform": "maitu",
+        "secondary_template_codes": [],
+        "selected_group_codes": [],
+        "selected_asset_codes": [
+          "AG-IMG-20260729-000002",
+          "AG-IMG-20260729-000028",
+          "AG-IMG-20260729-000025",
+          "AG-VID-20260729-000019",
+          "AG-VID-20260731-000001",
+          "AG-IMG-20260729-000021"
+        ]
+      }
+    },
+    {
+      "at": "2026-07-31T14:49:09.307Z",
+      "source": "console-page-interaction",
+      "method": "POST",
+      "path": "/api/content-projects/CONTENT-20260731-000019/confirm",
+      "requestBody": {
+        "expected_revision": 1
+      }
+    },
+    {
+      "at": "2026-07-31T14:49:09.573Z",
+      "source": "console-page-interaction",
+      "method": "POST",
+      "path": "/api/content-projects/CONTENT-20260731-000019/parse-brief",
+      "requestBody": {
+        "expected_revision": 1,
+        "raw_input": "生成目标：生成一场恰好三段的离线测试直播草稿，完整介绍张裕品酒大师PRO的产品特点、品鉴方法与适合场景。\n主题：介绍张裕品酒大师PRO\n故事：从第一次选酒的困惑切入，用看色、闻香、品味三个动作完成产品介绍，最后回顾适合人群与品鉴建议。\n详细设计：第一段开场建立品牌和品鉴目标；第二段展示商品或酒体视频并讲解品鉴步骤；第三段总结卖点和互动问题。\n背景必须置底，桌面承托商品，商品或视频位于背景之上，数字人位于商品内容之上，品牌标题或前景装饰位于高层。\n最终只生成三个场景，只写入离线测试草稿，不排播、不开播。"
+      }
+    },
+    {
+      "at": "2026-07-31T14:49:09.692Z",
+      "source": "console-page-interaction",
+      "method": "POST",
+      "path": "/api/content-projects/CONTENT-20260731-000019/design-brief/confirm",
+      "requestBody": {
+        "expected_revision": 1
+      }
+    },
+    {
+      "at": "2026-07-31T14:49:09.721Z",
+      "source": "console-page-interaction",
+      "method": "POST",
+      "path": "/api/content-projects/CONTENT-20260731-000019/generate",
+      "requestBody": null
+    },
+    {
+      "at": "2026-07-31T14:49:09.850Z",
+      "source": "console-page-interaction",
+      "method": "POST",
+      "path": "/api/content-projects/CONTENT-20260731-000019/program-shot-revision",
+      "requestBody": {
+        "expected_revision": 1,
+        "segments": [
+          {
+            "semantic_goal": "建立主题和观看预期",
+            "program_phase": "opening",
+            "estimated_duration_ms": 45000,
+            "product_refs": [],
+            "interaction_actions": [],
+            "cta_actions": [],
+            "branch_applicability": [
+              "live_room",
+              "rendered_video"
+            ],
+            "metadata": {},
+            "script_block_codes": [
+              "BLOCK-20260731-000058"
+            ]
+          },
+          {
+            "semantic_goal": "解释核心故事与选择理由",
+            "program_phase": "body",
+            "estimated_duration_ms": 90000,
+            "product_refs": [],
+            "interaction_actions": [],
+            "cta_actions": [],
+            "branch_applicability": [
+              "live_room",
+              "rendered_video"
+            ],
+            "metadata": {},
+            "script_block_codes": [
+              "BLOCK-20260731-000059"
+            ]
+          },
+          {
+            "semantic_goal": "引导互动与下一步",
+            "program_phase": "conversion",
+            "estimated_duration_ms": 45000,
+            "product_refs": [],
+            "interaction_actions": [],
+            "cta_actions": [
+              {
+                "type": "comment"
+              }
+            ],
+            "branch_applicability": [
+              "live_room",
+              "rendered_video"
+            ],
+            "metadata": {},
+            "script_block_codes": [
+              "BLOCK-20260731-000060"
+            ]
+          }
+        ],
+        "shots": [
+          {
+            "program_segment_index": 0,
+            "shot_goal": "建立主题和观看预期",
+            "composition_intent": {
+              "focus": "host",
+              "style": "talking_head",
+              "user_design_direction": "第一段开场建立品牌和品鉴目标；第二段展示商品或酒体视频并讲解品鉴步骤；第三段总结卖点和互动问题。\n背景必须置底，桌面承托商品，商品或视频位于背景之上，数字人位于商品内容之上，品牌标题或前景装饰位于高层。\n最终只生成三个场景，只写入离线测试草稿，不排播、不开播。",
+              "confirmed_design_brief_ref": "DBR-51288797AC72:r1"
+            },
+            "material_role_requirements": [
+              "background",
+              "set_surface",
+              "digital_human",
+              "brand_title"
+            ],
+            "audio_actions": [],
+            "continuity": {
+              "from_previous": false
+            },
+            "acceptance_criteria": [
+              "script_visible",
+              "required_materials_present"
+            ],
+            "estimated_duration_ms": 45000,
+            "branch_applicability": [
+              "live_room",
+              "rendered_video"
+            ],
+            "must_include": [],
+            "must_avoid": [],
+            "script_block_codes": [
+              "BLOCK-20260731-000058"
+            ]
+          },
+          {
+            "program_segment_index": 1,
+            "shot_goal": "解释核心故事与选择理由",
+            "composition_intent": {
+              "focus": "product_or_message",
+              "style": "talking_head",
+              "user_design_direction": "第一段开场建立品牌和品鉴目标；第二段展示商品或酒体视频并讲解品鉴步骤；第三段总结卖点和互动问题。\n背景必须置底，桌面承托商品，商品或视频位于背景之上，数字人位于商品内容之上，品牌标题或前景装饰位于高层。\n最终只生成三个场景，只写入离线测试草稿，不排播、不开播。",
+              "confirmed_design_brief_ref": "DBR-51288797AC72:r1"
+            },
+            "material_role_requirements": [
+              "background",
+              "set_surface",
+              "digital_human",
+              "brand_title",
+              "supporting_video",
+              "product_display"
+            ],
+            "audio_actions": [],
+            "continuity": {
+              "from_previous": true
+            },
+            "acceptance_criteria": [
+              "script_visible",
+              "required_materials_present"
+            ],
+            "estimated_duration_ms": 90000,
+            "branch_applicability": [
+              "live_room",
+              "rendered_video"
+            ],
+            "must_include": [],
+            "must_avoid": [],
+            "script_block_codes": [
+              "BLOCK-20260731-000059"
+            ]
+          },
+          {
+            "program_segment_index": 2,
+            "shot_goal": "引导互动与下一步",
+            "composition_intent": {
+              "focus": "product_or_message",
+              "style": "talking_head",
+              "user_design_direction": "第一段开场建立品牌和品鉴目标；第二段展示商品或酒体视频并讲解品鉴步骤；第三段总结卖点和互动问题。\n背景必须置底，桌面承托商品，商品或视频位于背景之上，数字人位于商品内容之上，品牌标题或前景装饰位于高层。\n最终只生成三个场景，只写入离线测试草稿，不排播、不开播。",
+              "confirmed_design_brief_ref": "DBR-51288797AC72:r1"
+            },
+            "material_role_requirements": [
+              "background",
+              "set_surface",
+              "digital_human",
+              "brand_title",
+              "product_display"
+            ],
+            "audio_actions": [],
+            "continuity": {
+              "from_previous": true
+            },
+            "acceptance_criteria": [
+              "script_visible",
+              "required_materials_present"
+            ],
+            "estimated_duration_ms": 45000,
+            "branch_applicability": [
+              "live_room",
+              "rendered_video"
+            ],
+            "must_include": [],
+            "must_avoid": [],
+            "script_block_codes": [
+              "BLOCK-20260731-000060"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "at": "2026-07-31T14:49:09.944Z",
+      "source": "console-page-interaction",
+      "method": "POST",
+      "path": "/api/functional-live-room-plans",
+      "requestBody": {
+        "project_code": "CONTENT-20260731-000019",
+        "target_live_room_id": "41172",
+        "expected_title": "asser测试",
+        "secondary_template_codes": [],
+        "asset_codes": [
+          "AG-IMG-20260729-000002",
+          "AG-IMG-20260729-000028",
+          "AG-IMG-20260729-000025",
+          "AG-VID-20260729-000019",
+          "AG-VID-20260731-000001",
+          "AG-IMG-20260729-000021"
+        ],
+        "required_loose_asset_codes": [
+          "AG-IMG-20260729-000002",
+          "AG-IMG-20260729-000028",
+          "AG-VID-20260729-000019",
+          "AG-IMG-20260729-000025",
+          "AG-VID-20260731-000001",
+          "AG-IMG-20260729-000021"
+        ],
+        "group_codes": [],
+        "material_pack_codes": [],
+        "asset_gap_codes": [],
+        "material_role_overrides": {
+          "background": "AG-IMG-20260729-000002",
+          "set_surface": "AG-IMG-20260729-000028",
+          "supporting_video": "AG-VID-20260729-000019",
+          "product_display": "AG-IMG-20260729-000025",
+          "digital_human": "AG-VID-20260731-000001",
+          "brand_title": "AG-IMG-20260729-000021"
+        },
+        "material_role_modes": {},
+        "room_constraint_overrides": {},
+        "idempotency_key": "4223ab36-aa26-46de-ae91-f17b8a96ab2b"
+      }
+    },
+    {
+      "at": "2026-07-31T14:49:11.436Z",
+      "source": "console-page-interaction",
+      "method": "POST",
+      "path": "/api/functional-live-room-plans/room-inspections",
+      "requestBody": {
+        "target_live_room_id": "41172",
+        "expected_title": "asser测试",
+        "idempotency_key": "266b24ca-ef75-4ed8-81e1-13cb790b291c",
+        "authority_mode": "worker_readback"
+      }
+    },
+    {
+      "at": "2026-07-31T14:49:17.419Z",
+      "source": "console-page-interaction",
+      "method": "POST",
+      "path": "/api/functional-live-room-plans/LIVEPLAN-20260731-000018/confirm-execution",
+      "requestBody": {
+        "confirmed": true,
+        "draft_mode": "replace_test_draft",
+        "room_inspection_code": "MT-ROOM-CHECK-20260731-000025",
+        "expected_room_fingerprint": "4e9b6005acce9af9abb34925d0a8b80634f47aa734d34ac0e1e4712793f5b4fb",
+        "confirmed_scene_ids": [
+          "437569",
+          "452248"
+        ],
+        "idempotency_key": "da338c36-fcb2-442b-b801-c8ace8454296",
+        "test_use_acknowledged": true
+      }
+    }
+  ],
+  "pageErrors": [],
+  "consoleErrors": [
+    {
+      "at": "2026-07-31T14:48:55.823Z",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "url": "http://127.0.0.1:5190/favicon.ico"
+    }
+  ],
+  "ignoredConsoleErrorCount": 1,
+  "requestFailures": [],
+  "httpErrors": [],
+  "error": null,
+  "interactionLog": [
+    {
+      "at": "2026-07-31T14:48:57.333Z",
+      "kind": "fill",
+      "label": "直播间 ID",
+      "characterCount": 5
+    },
+    {
+      "at": "2026-07-31T14:48:57.435Z",
+      "kind": "fill",
+      "label": "麦兔当前标题",
+      "characterCount": 7
+    },
+    {
+      "at": "2026-07-31T14:48:57.545Z",
+      "kind": "fill",
+      "label": "生成目标",
+      "characterCount": 47
+    },
+    {
+      "at": "2026-07-31T14:48:57.657Z",
+      "kind": "fill",
+      "label": "主题",
+      "characterCount": 11
+    },
+    {
+      "at": "2026-07-31T14:48:57.701Z",
+      "kind": "fill",
+      "label": "故事",
+      "characterCount": 46
+    },
+    {
+      "at": "2026-07-31T14:48:57.747Z",
+      "kind": "fill",
+      "label": "详细设计",
+      "characterCount": 130
+    },
+    {
+      "at": "2026-07-31T14:48:58.571Z",
+      "kind": "click",
+      "label": "选择背景素材：背景 - 直播背景 - 背景-3",
+      "clickNumber": 1
+    },
+    {
+      "at": "2026-07-31T14:49:00.527Z",
+      "kind": "click",
+      "label": "选择桌面与底图素材：图片 - 39157_底",
+      "clickNumber": 2
+    },
+    {
+      "at": "2026-07-31T14:49:01.223Z",
+      "kind": "click",
+      "label": "选择商品展示素材：装饰 - 商品贴片 - 品酒大师PRO",
+      "clickNumber": 3
+    },
+    {
+      "at": "2026-07-31T14:49:05.997Z",
+      "kind": "click",
+      "label": "选择辅助视频素材：视频 - 商品讲解视频 - 品酒大师PRO",
+      "clickNumber": 4
+    },
+    {
+      "at": "2026-07-31T14:49:06.173Z",
+      "kind": "click",
+      "label": "选择数字人素材：张裕定制形象260519",
+      "clickNumber": 5
+    },
+    {
+      "at": "2026-07-31T14:49:06.841Z",
+      "kind": "click",
+      "label": "选择品牌标题素材：装饰 - 品牌Logo - 标题+logo",
+      "clickNumber": 6
+    },
+    {
+      "at": "2026-07-31T14:49:07.455Z",
+      "kind": "screenshot",
+      "name": "01-input-and-material-selection",
+      "file": "01-input-and-material-selection.png"
+    },
+    {
+      "at": "2026-07-31T14:49:08.283Z",
+      "kind": "click",
+      "label": "生成直播间方案",
+      "clickNumber": 7
+    },
+    {
+      "at": "2026-07-31T14:49:10.490Z",
+      "kind": "click",
+      "label": "查看第 1 个场景",
+      "clickNumber": 8
+    },
+    {
+      "at": "2026-07-31T14:49:10.544Z",
+      "kind": "click",
+      "label": "查看第 2 个场景",
+      "clickNumber": 9
+    },
+    {
+      "at": "2026-07-31T14:49:10.638Z",
+      "kind": "click",
+      "label": "查看第 3 个场景",
+      "clickNumber": 10
+    },
+    {
+      "at": "2026-07-31T14:49:10.735Z",
+      "kind": "click",
+      "label": "返回第一个场景",
+      "clickNumber": 11
+    },
+    {
+      "at": "2026-07-31T14:49:11.075Z",
+      "kind": "screenshot",
+      "name": "02-generated-three-scene-canvas",
+      "file": "02-generated-three-scene-canvas.png"
+    },
+    {
+      "at": "2026-07-31T14:49:11.086Z",
+      "kind": "click",
+      "label": "打开写入草稿面板",
+      "clickNumber": 12
+    },
+    {
+      "at": "2026-07-31T14:49:11.393Z",
+      "kind": "screenshot",
+      "name": "03-write-panel-before-room-inspection",
+      "file": "03-write-panel-before-room-inspection.png"
+    },
+    {
+      "at": "2026-07-31T14:49:11.406Z",
+      "kind": "click",
+      "label": "读取麦兔房间",
+      "clickNumber": 13
+    },
+    {
+      "at": "2026-07-31T14:49:16.806Z",
+      "kind": "screenshot",
+      "name": "04-room-inspection-readback",
+      "file": "04-room-inspection-readback.png"
+    },
+    {
+      "at": "2026-07-31T14:49:17.057Z",
+      "kind": "screenshot",
+      "name": "05-delete-confirmation-all-scenes",
+      "file": "05-delete-confirmation-all-scenes.png"
+    },
+    {
+      "at": "2026-07-31T14:49:17.070Z",
+      "kind": "click",
+      "label": "确认仅用于离线测试草稿",
+      "clickNumber": 14
+    },
+    {
+      "at": "2026-07-31T14:49:17.374Z",
+      "kind": "screenshot",
+      "name": "06-ready-to-replace-test-draft",
+      "file": "06-ready-to-replace-test-draft.png"
+    },
+    {
+      "at": "2026-07-31T14:49:17.393Z",
+      "kind": "click",
+      "label": "写入麦兔测试草稿（真实清空重建）",
+      "clickNumber": 15
+    },
+    {
+      "at": "2026-07-31T14:49:19.098Z",
+      "kind": "screenshot",
+      "name": "execution-01-preparing_materials",
+      "file": "execution-01-preparing_materials.png",
+      "executionStage": "preparing_materials",
+      "displayMode": "response_evidence"
+    },
+    {
+      "at": "2026-07-31T14:49:28.744Z",
+      "kind": "screenshot",
+      "name": "execution-02-clearing_draft",
+      "file": "execution-02-clearing_draft.png",
+      "executionStage": "clearing_draft",
+      "displayMode": "current_stage"
+    },
+    {
+      "at": "2026-07-31T14:49:41.396Z",
+      "kind": "screenshot",
+      "name": "execution-03-building_scenes",
+      "file": "execution-03-building_scenes.png",
+      "executionStage": "building_scenes",
+      "displayMode": "response_evidence"
+    },
+    {
+      "at": "2026-07-31T14:51:40.766Z",
+      "kind": "screenshot",
+      "name": "execution-04-writing_scripts",
+      "file": "execution-04-writing_scripts.png",
+      "executionStage": "writing_scripts",
+      "displayMode": "current_stage"
+    },
+    {
+      "at": "2026-07-31T14:51:53.473Z",
+      "kind": "screenshot",
+      "name": "execution-05-verifying_readback",
+      "file": "execution-05-verifying_readback.png",
+      "executionStage": "verifying_readback",
+      "displayMode": "current_stage"
+    },
+    {
+      "at": "2026-07-31T14:58:05.925Z",
+      "kind": "screenshot",
+      "name": "execution-06-succeeded",
+      "file": "execution-06-succeeded.png",
+      "executionStage": "succeeded",
+      "displayMode": "response_evidence"
+    },
+    {
+      "at": "2026-07-31T14:58:09.161Z",
+      "kind": "screenshot",
+      "name": "07-product-e2e-success",
+      "file": "07-product-e2e-success.png"
+    },
+    {
+      "at": "2026-07-31T14:58:11.278Z",
+      "kind": "click",
+      "label": "刷新后重新打开写入草稿结果",
+      "clickNumber": 16
+    },
+    {
+      "at": "2026-07-31T14:58:11.557Z",
+      "kind": "screenshot",
+      "name": "08-console-after-refresh",
+      "file": "08-console-after-refresh.png"
+    }
+  ],
+  "evidenceFiles": {
+    "report": "run-report.json",
+    "summary": "summary.md"
+  }
+}

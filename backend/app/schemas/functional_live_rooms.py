@@ -36,6 +36,7 @@ class FunctionalLayoutReferenceHandoff(BaseModel):
 
 
 class FunctionalLiveRoomPlanCreate(BaseModel):
+    idempotency_key: str | None = Field(default=None, min_length=1, max_length=128)
     project_code: str = Field(min_length=1, max_length=64)
     target_live_room_id: str = Field(min_length=1, max_length=128)
     expected_title: str = Field(min_length=1, max_length=255)
@@ -173,6 +174,44 @@ class FunctionalLiveRoomMaterialGapPreviewRead(BaseModel):
 
 class FunctionalLiveRoomExecutionConfirm(BaseModel):
     confirmed: bool
+    draft_mode: Literal["replace_test_draft"] = "replace_test_draft"
+    room_inspection_code: str = Field(min_length=1, max_length=80)
+    expected_room_fingerprint: str = Field(pattern="^[0-9a-f]{64}$")
+    confirmed_scene_ids: list[str] = Field(min_length=1)
+    test_use_acknowledged: Literal[True]
+    idempotency_key: str | None = Field(default=None, min_length=1, max_length=128)
+    queued_by: str | None = Field(default=None, max_length=128)
+
+    @field_validator("confirmed_scene_ids")
+    @classmethod
+    def unique_scene_ids(cls, value: list[str]) -> list[str]:
+        normalized = [str(item).strip() for item in value]
+        if any(not item for item in normalized) or len(normalized) != len(set(normalized)):
+            raise ValueError("confirmed scene ids must be unique and non-empty")
+        return normalized
+
+
+class FunctionalLiveRoomExecutionRead(BaseModel):
+    plan_code: str
+    execution_job_code: str | None = None
+    status: str
+    stage: str
+    progress_current: int
+    progress_total: int
+    stage_events: list[dict[str, Any]] = Field(default_factory=list)
+    retryable: bool = False
+    result: dict[str, Any] = Field(default_factory=dict)
+    error: dict[str, Any] | None = None
+    ready_for_go_live: Literal[False] = False
+
+
+class FunctionalLiveRoomExecutionRetry(BaseModel):
+    requested_by: str | None = Field(default=None, max_length=128)
+
+
+class FunctionalLiveRoomExecutionReconcile(BaseModel):
+    acknowledged_by: str = Field(min_length=1, max_length=128)
+    note: str = Field(min_length=1, max_length=2000)
 
 
 class MaituCapabilityRead(BaseModel):
@@ -250,6 +289,7 @@ class FunctionalLiveRoomSceneRevisionInput(BaseModel):
 
 
 class FunctionalLiveRoomBlueprintRevision(BaseModel):
+    idempotency_key: str | None = Field(default=None, min_length=1, max_length=128)
     scenes: list[FunctionalLiveRoomSceneRevisionInput] = Field(min_length=1)
 
     @model_validator(mode="after")
@@ -298,6 +338,10 @@ class FunctionalLiveRoomPlanRead(BaseModel):
     blocked_reasons: list[str]
     execution_status: str
     execution_evidence: dict[str, Any]
+    execution_job_code: str | None = None
+    room_inspection_code: str | None = None
+    execution_mode: str | None = None
+    execution_authority_mode: str | None = None
     cloned_from_plan_code: str | None = None
     clone_context: dict[str, Any] = Field(default_factory=dict)
     revised_from_plan_code: str | None = None

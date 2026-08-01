@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 import re
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import unquote, urlparse
+
+from .maitu_layer_contract import layer_media_kind, maitu_payload_type_for_layer
 
 
 class AssetBindingClient(Protocol):
@@ -15,6 +19,13 @@ class AssetBindingClient(Protocol):
 
     def update_asset_maitu_material_binding(self, asset_code: str, payload: dict[str, Any]) -> dict[str, Any]:
         """Persist a verified Maitu material binding."""
+
+    def refresh_functional_draft_material_receipt(
+        self,
+        execution_job_code: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Refresh a job-scoped worker inventory receipt without changing identity."""
 
 
 class MaituMaterialSession(Protocol):
@@ -60,6 +71,7 @@ class MaituMaterialResolver:
 
     BINDING_FIELDS = (
         "maitu_material_id",
+        "maitu_source_material_id",
         "source_material_type",
         "source_material_url",
         "source_cover_url",
@@ -84,6 +96,7 @@ class MaituMaterialResolver:
         "placeholder_required",
         "write_script",
         "verify_scene",
+        "verify_draft_persisted",
         "save_draft",
     }
 
@@ -93,10 +106,22 @@ class MaituMaterialResolver:
         asset_client: AssetBindingClient,
         session: MaituMaterialSession,
         assets_root: str | Path,
+        allow_worker_readback_binding: bool = False,
+        functional_execution_job_code: str | None = None,
+        functional_lease_token: str | None = None,
     ) -> None:
         self.asset_client = asset_client
         self.session = session
         self.assets_root = Path(assets_root)
+        self.allow_worker_readback_binding = allow_worker_readback_binding
+        self.functional_execution_job_code = str(functional_execution_job_code or "").strip()
+        self.functional_lease_token = str(functional_lease_token or "").strip()
+        if self.allow_worker_readback_binding and not (
+            self.functional_execution_job_code and self.functional_lease_token
+        ):
+            raise ValueError(
+                "functional worker readback binding requires an active execution job lease"
+            )
 
     def resolve_plan(self, operation_plan: dict[str, Any]) -> MaituMaterialResolutionResult:
         if not isinstance(operation_plan, dict):
@@ -306,6 +331,119 @@ class MaituMaterialResolver:
 
         for asset_code, layer_type in targets:
             binding, resolution_status = resolutions[asset_code]
+            if self.allow_worker_readback_binding:
+                if inventory is None:
+                    try:
+                        inventory = self._load_inventory()
+                    except Exception as exc:  # pragma: no cover - runtime boundary
+                        issues.append(
+                            self._issue(
+                                asset_code,
+                                "maitu_inventory_lookup_failed",
+                                f"Maitu inventory lookup failed safely: {exc}",
+                            )
+                        )
+                        break
+                fresh_material = self._fresh_material_for_binding(
+                    binding,
+                    layer_type=layer_type,
+                    inventory=inventory,
+                )
+                if fresh_material is None:
+                    issues.append(
+                        self._issue(
+                            asset_code,
+                            "functional_material_receipt_mismatch",
+                            "Fresh Maitu inventory no longer matches the persisted test material identity.",
+                        )
+                    )
+                    break
+                fresh_binding = self._binding_from_material(fresh_material)
+                if not self._binding_identity_matches(binding, fresh_binding):
+                    issues.append(
+                        self._issue(
+                            asset_code,
+                            "functional_material_receipt_mismatch",
+                            "Fresh Maitu inventory changed the persisted test material identity.",
+                        )
+                    )
+                    break
+                receipt_payload = {
+                    "lease_token": self.functional_lease_token,
+                    "asset_code": asset_code,
+                    **fresh_binding,
+                    "inventory_item_fingerprint": self._inventory_item_fingerprint(
+                        fresh_material
+                    ),
+                }
+                receipt_payload = {
+                    key: value
+                    for key, value in receipt_payload.items()
+                    if key
+                    in {
+                        "lease_token",
+                        "asset_code",
+                        "maitu_material_id",
+                        "maitu_source_material_id",
+                        "source_material_type",
+                        "source_material_url",
+                        "source_cover_url",
+                        "speaker_id",
+                        "digital_human_image_id",
+                        "inventory_item_fingerprint",
+                    }
+                }
+                try:
+                    persisted = self.asset_client.refresh_functional_draft_material_receipt(
+                        self.functional_execution_job_code,
+                        receipt_payload,
+                    )
+                except Exception as exc:  # pragma: no cover - runtime boundary
+                    issues.append(
+                        self._issue(
+                            asset_code,
+                            "functional_material_receipt_refresh_failed",
+                            f"Job-scoped material receipt refresh failed safely: {exc}",
+                        )
+                    )
+                    break
+                persisted_binding = (
+                    self._binding_from_asset(persisted) if isinstance(persisted, dict) else {}
+                )
+                if (
+                    not isinstance(persisted, dict)
+                    or str(persisted.get("asset_code") or "").strip() != asset_code
+                    or persisted.get("maitu_binding_verification_source")
+                    != "worker_maitu_inventory_readback"
+                    or persisted.get("maitu_binding_scope")
+                    != "assetgraph_script_layout_material_binding_v2"
+                    or not persisted.get("maitu_binding_verified_at")
+                    or not self._binding_identity_matches(fresh_binding, persisted_binding)
+                    or not self._has_executable_binding(
+                        persisted_binding,
+                        layer_type=layer_type,
+                        asset=persisted,
+                    )
+                ):
+                    issues.append(
+                        self._issue(
+                            asset_code,
+                            "functional_material_receipt_verification_failed",
+                            "Job-scoped receipt did not return the exact refreshed material identity.",
+                        )
+                    )
+                    break
+                execution_binding = dict(persisted_binding)
+                for url_field in ("source_material_url", "source_cover_url"):
+                    if fresh_binding.get(url_field):
+                        execution_binding[url_field] = fresh_binding[url_field]
+                self._apply_binding(
+                    operations,
+                    asset_code,
+                    execution_binding,
+                    "refreshed_functional_worker_inventory_readback",
+                )
+                continue
             try:
                 persisted = self.asset_client.update_asset_maitu_material_binding(asset_code, binding)
             except Exception as exc:  # pragma: no cover - runtime boundary
@@ -314,6 +452,7 @@ class MaituMaterialResolver:
             persisted_binding = self._binding_from_asset(persisted) if isinstance(persisted, dict) else {}
             critical_fields = (
                 "maitu_material_id",
+                "maitu_source_material_id",
                 "source_material_type",
                 "source_material_url",
                 "speaker_id",
@@ -322,7 +461,12 @@ class MaituMaterialResolver:
             if (
                 not isinstance(persisted, dict)
                 or str(persisted.get("asset_code") or "").strip() != asset_code
-                or persisted.get("maitu_binding_verification_source") != "backend_maitu_inventory_readback"
+                or persisted.get("maitu_binding_verification_source")
+                not in (
+                    {"backend_maitu_inventory_readback", "worker_maitu_inventory_readback"}
+                    if self.allow_worker_readback_binding
+                    else {"backend_maitu_inventory_readback"}
+                )
                 or persisted.get("maitu_binding_scope") != "assetgraph_script_layout_material_binding_v2"
                 or not persisted.get("maitu_binding_verified_at")
                 or any(persisted_binding.get(field) != binding.get(field) for field in critical_fields)
@@ -530,11 +674,16 @@ class MaituMaterialResolver:
         is_digital_human = str(source_type or "").strip().lower() == "digital_human"
         values = {
             "maitu_material_id": None if is_digital_human else material.get("id") or material.get("material_id"),
+            "maitu_source_material_id": material.get("id")
+            or material.get("material_id")
+            or material.get("maitu_source_material_id"),
             "source_material_type": source_type,
             "source_material_url": None
             if is_digital_human
             else material.get("url") or material.get("source_material_url"),
-            "source_cover_url": material.get("cover_url") or material.get("source_cover_url"),
+            "source_cover_url": material.get("cover_url")
+            or material.get("source_cover_url")
+            or (material.get("url") if is_digital_human else None),
             "speaker_id": material.get("speaker_id"),
             "digital_human_image_id": material.get("digital_human_image_id"),
         }
@@ -648,16 +797,7 @@ class MaituMaterialResolver:
 
     @classmethod
     def _layer_kind(cls, layer_type: str | None) -> str | None:
-        normalized = str(layer_type or "").strip().lower()
-        if normalized in cls.IMAGE_LAYER_TYPES:
-            return "image"
-        if normalized in cls.VISUAL_LAYER_TYPES:
-            return "visual"
-        if normalized in cls.VIDEO_LAYER_TYPES:
-            return "video"
-        if normalized in cls.DIGITAL_HUMAN_LAYER_TYPES:
-            return "digital_human"
-        return None
+        return layer_media_kind(layer_type)
 
     @classmethod
     def _is_digital_human(cls, layer_type: str | None, asset: dict[str, Any]) -> bool:
@@ -666,17 +806,8 @@ class MaituMaterialResolver:
 
     @classmethod
     def _type_compatible(cls, layer_type: str | None, material_type: Any, *, digital_human: bool) -> bool:
-        remote_type = str(material_type or "").strip().lower()
-        planned_kind = "digital_human" if digital_human else cls._layer_kind(layer_type)
-        if planned_kind == "digital_human":
-            return remote_type == "digital_human"
-        if planned_kind == "video":
-            return remote_type in {"video", "decorative_video"}
-        if planned_kind == "visual":
-            return remote_type in {"image", "video", "decorative_video"}
-        if planned_kind == "image":
-            return remote_type == "image"
-        return False
+        del digital_human
+        return maitu_payload_type_for_layer(layer_type, material_type) is not None
 
     @staticmethod
     def _select_unambiguous(matches: list[dict[str, Any]]) -> tuple[dict[str, Any] | None, bool, list[int]]:
@@ -740,7 +871,12 @@ class MaituMaterialResolver:
                 if actual_value is not None:
                     return False
                 continue
-            if field in {"maitu_material_id", "speaker_id", "digital_human_image_id"}:
+            if field in {
+                "maitu_material_id",
+                "maitu_source_material_id",
+                "speaker_id",
+                "digital_human_image_id",
+            }:
                 try:
                     if int(actual_value) != int(expected_value):
                         return False
@@ -749,6 +885,123 @@ class MaituMaterialResolver:
             elif actual_value != expected_value:
                 return False
         return True
+
+    def _can_use_test_worker_readback_receipt(
+        self,
+        asset: dict[str, Any],
+        binding: dict[str, Any],
+        *,
+        layer_type: str | None,
+    ) -> bool:
+        if not self.allow_worker_readback_binding:
+            return False
+        if (
+            asset.get("execution_capability") != "maitu_bound"
+            or asset.get("maitu_binding_verification_source") != "worker_maitu_inventory_readback"
+            or asset.get("maitu_binding_scope")
+            not in {
+                "assetgraph_test_draft_material_binding_v1",
+                "assetgraph_script_layout_material_binding_v2",
+            }
+            or not asset.get("maitu_binding_verified_at")
+        ):
+            return False
+        persisted = self._binding_from_asset(asset)
+        if not self._has_executable_binding(persisted, layer_type=layer_type, asset=asset):
+            return False
+        expected_type = binding.get("source_material_type")
+        if persisted.get("source_material_type") != expected_type:
+            return False
+        if expected_type == "digital_human":
+            return all(
+                persisted.get(field) is not None
+                and str(persisted.get(field)) == str(binding.get(field))
+                for field in (
+                    "maitu_source_material_id",
+                    "speaker_id",
+                    "digital_human_image_id",
+                )
+            )
+        return (
+            persisted.get("maitu_material_id") is not None
+            and str(persisted.get("maitu_material_id")) == str(binding.get("maitu_material_id"))
+        )
+
+    @classmethod
+    def _fresh_material_for_binding(
+        cls,
+        binding: dict[str, Any],
+        *,
+        layer_type: str | None,
+        inventory: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        digital_human = cls._layer_kind(layer_type) == "digital_human"
+        candidates: list[dict[str, Any]] = []
+        for material in inventory:
+            fresh = cls._binding_from_material(material)
+            if digital_human:
+                matches = all(
+                    str(fresh.get(field) or "") == str(binding.get(field) or "")
+                    for field in (
+                        "maitu_source_material_id",
+                        "source_material_type",
+                        "speaker_id",
+                        "digital_human_image_id",
+                    )
+                ) and cls._stable_url(fresh.get("source_cover_url")) == cls._stable_url(
+                    binding.get("source_cover_url")
+                )
+            else:
+                matches = all(
+                    str(fresh.get(field) or "") == str(binding.get(field) or "")
+                    for field in ("maitu_material_id", "source_material_type")
+                ) and cls._stable_url(fresh.get("source_material_url")) == cls._stable_url(
+                    binding.get("source_material_url")
+                )
+            if matches:
+                candidates.append(material)
+        selected, ambiguous, _ids = cls._select_unambiguous(candidates)
+        return None if ambiguous else selected
+
+    @classmethod
+    def _binding_identity_matches(
+        cls,
+        expected: dict[str, Any],
+        observed: dict[str, Any],
+    ) -> bool:
+        for field in (
+            "maitu_material_id",
+            "maitu_source_material_id",
+            "source_material_type",
+            "speaker_id",
+            "digital_human_image_id",
+        ):
+            if str(expected.get(field) or "") != str(observed.get(field) or ""):
+                return False
+        return all(
+            cls._stable_url(expected.get(field)) == cls._stable_url(observed.get(field))
+            for field in ("source_material_url", "source_cover_url")
+        )
+
+    @staticmethod
+    def _stable_url(value: Any) -> str:
+        parsed = urlparse(str(value or "").strip())
+        if not parsed.scheme and not parsed.netloc and not parsed.path:
+            return ""
+        if parsed.scheme != "https" or not parsed.netloc:
+            return "!invalid"
+        return parsed._replace(params="", query="", fragment="").geturl()
+
+    @staticmethod
+    def _inventory_item_fingerprint(material: dict[str, Any]) -> str:
+        encoded = json.dumps(
+            material,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
 
     @classmethod
     def _mark_issues_manual(cls, operations: list[Any], issues: list[MaituMaterialResolutionIssue]) -> None:

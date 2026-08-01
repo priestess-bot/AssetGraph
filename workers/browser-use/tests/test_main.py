@@ -103,6 +103,105 @@ def test_check_config_redacts_script_layout_worker_capability(monkeypatch, capsy
     assert parsed["script_layout_worker_token"] == "[CONFIGURED]"
 
 
+def test_main_executes_explicit_maitu_test_room_rebuild_spec(monkeypatch, capsys, tmp_path: Path) -> None:
+    spec_path = tmp_path / "room-rebuild.json"
+    spec_path.write_text(
+        json.dumps(
+            {
+                "target_live_room_id": "41172",
+                "expected_title": "张裕品酒大师PRO测试直播间",
+                "reference_room_id": "38336",
+                "scenes": [
+                    {
+                        "scene_name": "产品讲解",
+                        "reference_clip_id": "390069",
+                        "visual_count": 9,
+                        "script_text": "介绍张裕品酒大师PRO。",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    session = FakeBrowserUseCliSession()
+    captured: list[Any] = []
+
+    @dataclass
+    class CompletedResult:
+        status: str = "completed"
+        failure_count: int = 0
+        target_live_room_id: str = "41172"
+        go_live_clicked: bool = False
+
+    class FakeRebuildRunner:
+        def __init__(self, *, session: Any) -> None:
+            captured.append(session)
+
+        def run(self, spec: Any) -> CompletedResult:
+            captured.append(spec)
+            return CompletedResult()
+
+    monkeypatch.setattr(worker_main, "BrowserUseCliSession", lambda: session)
+    monkeypatch.setattr(worker_main, "is_trusted_browser_use_cli_session", lambda candidate: candidate is session)
+    monkeypatch.setattr(worker_main, "MaituTestRoomRebuildRunner", FakeRebuildRunner)
+
+    assert worker_main.main(["--maitu-test-room-rebuild-file", str(spec_path)]) == 0
+
+    assert captured[0] is session
+    assert captured[1].target_live_room_id == "41172"
+    assert captured[1].expected_title == "张裕品酒大师PRO测试直播间"
+    assert captured[1].scenes[0].visual_count == 9
+    output = json.loads(capsys.readouterr().out)
+    assert output["status"] == "completed"
+    assert output["go_live_clicked"] is False
+
+
+def test_main_rejects_invalid_test_room_spec_before_browser_start(monkeypatch, tmp_path: Path) -> None:
+    spec_path = tmp_path / "invalid-room-rebuild.json"
+    spec_path.write_text(
+        json.dumps(
+            {
+                "target_live_room_id": "41172",
+                "reference_room_id": "38336",
+                "scenes": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    browser_started = False
+
+    def forbidden_browser() -> Any:
+        nonlocal browser_started
+        browser_started = True
+        raise AssertionError("browser must not start for an invalid rebuild spec")
+
+    monkeypatch.setattr(worker_main, "BrowserUseCliSession", forbidden_browser)
+
+    with pytest.raises(SystemExit, match="expected_title"):
+        worker_main.main(["--maitu-test-room-rebuild-file", str(spec_path)])
+
+    assert browser_started is False
+
+
+def test_main_rejects_test_room_rebuild_dry_run_before_browser_start(monkeypatch, tmp_path: Path) -> None:
+    browser_started = False
+
+    def forbidden_browser() -> Any:
+        nonlocal browser_started
+        browser_started = True
+        raise AssertionError("browser must not start for rejected destructive dry-run")
+
+    monkeypatch.setattr(worker_main, "BrowserUseCliSession", forbidden_browser)
+
+    with pytest.raises(SystemExit, match="cannot run with --dry-run"):
+        worker_main.main(
+            ["--dry-run", "--maitu-test-room-rebuild-file", str(tmp_path / "unused.json")]
+        )
+
+    assert browser_started is False
+
+
 def test_main_captures_jd_metric_samples_with_interval(monkeypatch, capsys) -> None:
     fake_client = FakeAssetGraphClient("http://assetgraph")
     sleeps: list[float] = []
@@ -1012,12 +1111,14 @@ def test_workbench_draft_job_heartbeats_through_resolution_and_execution(monkeyp
         actions: list[Any] = field(default_factory=list)
 
     class Runner:
-        def __init__(self, *, session: Session, **_kwargs: Any) -> None:
+        def __init__(self, *, session: Session, progress_callback: Any, **_kwargs: Any) -> None:
             self.session = session
+            self.progress_callback = progress_callback
 
         def run(self, _plan: dict[str, Any], *, target_live_room_id: str) -> Result:
             assert target_live_room_id == "50003"
             assert self.session.execution_guard() is True
+            self.progress_callback(1, 2, "verify_draft_persisted")
             return Result()
 
     monkeypatch.setenv("ASSETGRAPH_WORKBENCH_DRAFT_HEARTBEAT_INTERVAL_SECONDS", "0.001")
@@ -1033,7 +1134,297 @@ def test_workbench_draft_job_heartbeats_through_resolution_and_execution(monkeyp
     assert len(captured["heartbeats"]) >= 3  # initial, periodic, final validation
     assert captured["completed"]
     assert captured["completed"][0][1]["result"]["status"] == "completed_with_manual_review"
+    assert any(
+        heartbeat[1].get("stage") == "verifying_readback"
+        for heartbeat in captured["heartbeats"]
+    )
     assert captured["failed"] == []
+    assert json.loads(capsys.readouterr().out)["status"] == "succeeded"
+
+
+def test_functional_draft_uses_outer_lease_for_final_room_readback(monkeypatch, capsys) -> None:
+    lease_token = "77777777-7777-4777-8777-777777777777"
+    captured: dict[str, Any] = {"completed": [], "failed": [], "final_readbacks": 0}
+    checkpoint_active = True
+    plan = {
+        **executable_script_layout_gate(),
+        "build_plan_code": "MT-BUILD-20260731-000020",
+        "checkpoint_source_fingerprint": "c" * 64,
+        "target_live_room_id": "41172",
+        "operations": [{"operation_type": "preflight_content_build_plan", "status": "ready"}],
+    }
+
+    class DraftClient:
+        def __init__(self, _base_url: str) -> None:
+            self.script_layout_worker_token = None
+            self.worker_id = None
+
+        @staticmethod
+        def claim_next_workbench_draft_execution(_payload: dict[str, Any]) -> dict[str, Any]:
+            return {
+                "execution_job_code": "MT-WB-EXEC-20260731-000006",
+                "source_kind": "functional_live_room_plan",
+                "lease_token": lease_token,
+                "payload": {
+                    "build_plan": {
+                        "build_plan_code": plan["build_plan_code"],
+                        "expected_title": "asser测试",
+                    }
+                },
+            }
+
+        @staticmethod
+        def get_live_room_build_plan_operation_plan(_build_plan_code: str) -> dict[str, Any]:
+            return plan
+
+        @staticmethod
+        def heartbeat_workbench_draft_execution(
+            _job_code: str, _payload: dict[str, Any]
+        ) -> dict[str, Any]:
+            return {"status": "running"}
+
+        @staticmethod
+        def complete_workbench_draft_execution(
+            job_code: str, payload: dict[str, Any]
+        ) -> dict[str, Any]:
+            captured["completed"].append((job_code, payload))
+            return {"execution_job_code": job_code, "status": "succeeded"}
+
+        @staticmethod
+        def fail_workbench_draft_execution(
+            job_code: str, payload: dict[str, Any]
+        ) -> dict[str, Any]:
+            captured["failed"].append((job_code, payload))
+            return {"execution_job_code": job_code, "status": "failed"}
+
+    class Session(FakeBrowserUseCliSession):
+        def read_live_room(self, room_id: str) -> dict[str, Any]:
+            assert room_id == "41172"
+            assert self.execution_guard() is True
+            captured["final_readbacks"] += 1
+            return {
+                "id": room_id,
+                "name": "asser测试",
+                "status": "offline",
+                "is_live": False,
+                "_assetgraph_read_environment": "working",
+                "row_id": "99999999-9999-4999-8999-999999999999",
+                "topics": [
+                    {
+                        "id": 501,
+                        "name": "张裕品酒大师PRO",
+                        "clips": [
+                            {
+                                "id": 601,
+                                "name": "开场",
+                                "clip_materials": [
+                                    {
+                                        "id": 701,
+                                        "row_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+                                        "name": "scene-00-background",
+                                        "type": "image",
+                                        "content": "",
+                                        "left": 0,
+                                        "top": 0,
+                                        "width": 1080,
+                                        "height": 1920,
+                                        "layer_n": 1,
+                                        "material_id": 37262,
+                                        "source_material_type": "image",
+                                        "sound_enabled": False,
+                                        "style_front": '{"left":0,"top":0,"width":1080,"height":1920,"zIndex":1,"fit":"cover"}',
+                                        "url": "https://cdn.example/0123456789abcdef0123456789abcdef01234567.png?token=secret",
+                                        "cover_url": "https://cdn.example/forbidden-cover.png",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            }
+
+    class Resolver:
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+        @staticmethod
+        def resolve_plan(_source_plan: dict[str, Any]) -> Any:
+            return worker_main.MaituMaterialResolutionResult(
+                status="resolved",
+                reused_binding_count=1,
+                remote_match_count=0,
+                uploaded_count=0,
+                manual_required_count=0,
+                operation_plan=plan,
+                issues=[],
+            )
+
+    class Checkpoint:
+        @classmethod
+        def start(cls, **_kwargs: Any) -> "Checkpoint":
+            return cls()
+
+        @staticmethod
+        def ensure_lease_active() -> bool:
+            return checkpoint_active
+
+        @staticmethod
+        def finalize(result: Any) -> dict[str, Any]:
+            nonlocal checkpoint_active
+            checkpoint_active = False
+            return {
+                "id": "88888888-8888-4888-8888-888888888888",
+                "execution_attempt_id": "99999999-9999-4999-8999-999999999999",
+                "execution_code": "MT-EXEC-20260731-000008",
+                "execution_status": result.status,
+                "expected_operation_count": 41,
+            }
+
+    @dataclass
+    class Result:
+        status: str = "completed_with_manual_review"
+        summary: str = "draft built and held for manual review"
+        failure_count: int = 0
+        manual_review_required: bool = True
+        actions: list[Any] = field(default_factory=list)
+
+    class Runner:
+        def __init__(self, *, session: Session, **_kwargs: Any) -> None:
+            self.session = session
+
+        def run(self, _plan: dict[str, Any], *, target_live_room_id: str) -> Result:
+            assert target_live_room_id == "41172"
+            assert self.session.execution_guard() is True
+            return Result(
+                actions=[
+                    {
+                        "operation_index": 2,
+                        "operation_type": "insert_asset_layer",
+                        "operation_name": "插入背景",
+                        "action_type": "insert_asset_layer",
+                        "status": "completed",
+                        "summary": "background inserted and verified",
+                        "scene_index": 0,
+                        "scene_name": "开场",
+                        "clip_id": 601,
+                        "layer_id": "scene-00-background",
+                        "layer_type": "background_image",
+                        "asset_code": "AG-IMG-20260729-000002",
+                        "details": {
+                            "insert_result": {
+                                "verified": True,
+                                "verification_source": "working_room_readback",
+                                "material_id": 701,
+                                "response": {
+                                    "id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+                                    "url": "https://cdn.example/abcdef0123456789abcdef0123456789abcdef01.png",
+                                    "cover_url": "https://cdn.example/forbidden.png?token=secret",
+                                },
+                            },
+                            "go_live_clicked": False,
+                        },
+                    }
+                ]
+            )
+
+    class Heartbeat:
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+        @staticmethod
+        def start() -> None:
+            pass
+
+        @staticmethod
+        def ensure_active() -> bool:
+            return True
+
+        @staticmethod
+        def stop() -> None:
+            pass
+
+        @staticmethod
+        def stop_for_writeback() -> None:
+            pass
+
+    def verify_final(session: Session, **_kwargs: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+        assert checkpoint_active is False
+        assert session.execution_guard() is True
+        return {"matched": True}, {"passed": True}
+
+    monkeypatch.setattr(worker_main, "AssetGraphClient", DraftClient)
+    monkeypatch.setattr(worker_main, "BrowserUseCliSession", Session)
+    monkeypatch.setattr(worker_main, "is_trusted_browser_use_cli_session", lambda _session: True)
+    monkeypatch.setattr(worker_main, "enable_test_pending_rights_plan", lambda value, **_kwargs: value)
+    monkeypatch.setattr(worker_main, "MaituMaterialResolver", Resolver)
+    monkeypatch.setattr(worker_main, "AssetGraphScriptLayoutCheckpointStore", Checkpoint)
+    monkeypatch.setattr(worker_main, "ScriptLayoutDraftRunner", Runner)
+    monkeypatch.setattr(worker_main, "WorkbenchDraftLeaseHeartbeat", Heartbeat)
+    monkeypatch.setattr(worker_main, "reset_allowlisted_test_room", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(worker_main, "verify_functional_draft", verify_final)
+
+    assert worker_main.main(["--run-workbench-draft-job"]) == 0
+
+    assert captured["failed"] == []
+    assert len(captured["completed"]) == 1
+    assert captured["final_readbacks"] == 1
+    result_payload = captured["completed"][0][1]["result"]
+    assert result_payload["status"] == "completed"
+    assert result_payload["verification"] == {"matched": True}
+    assert result_payload["layer_order_validation"] == {"passed": True}
+    assert result_payload["checkpoint_result"] == {
+        "execution_code": "MT-EXEC-20260731-000008",
+        "execution_status": "completed_with_manual_review",
+        "expected_operation_count": 41,
+    }
+    worker_action = result_payload["worker_result"]["actions"][0]
+    assert worker_action["operation_type"] == "insert_asset_layer"
+    assert worker_action["asset_code"] == "AG-IMG-20260729-000002"
+    assert worker_action["details"] == {
+        "go_live_clicked": False,
+        "verification": {
+            "verified": True,
+            "verification_source": "working_room_readback",
+            "material_id": 701,
+        },
+    }
+    final_readback = result_payload["final_readback"]
+    assert final_readback["id"] == "41172"
+    assert final_readback["name"] == "asser测试"
+    assert final_readback["environment"] == "working"
+    material = final_readback["topics"][0]["clips"][0]["clip_materials"][0]
+    assert material == {
+        "id": 701,
+        "name": "scene-00-background",
+        "type": "image",
+        "content": "",
+        "left": 0,
+        "top": 0,
+        "width": 1080,
+        "height": 1920,
+        "sound_enabled": False,
+        "z_index": 1,
+        "source_material_type": "image",
+        "source_material_id": 37262,
+        "style_front": {
+            "left": 0,
+            "top": 0,
+            "width": 1080,
+            "height": 1920,
+            "zIndex": 1,
+            "fit": "cover",
+        },
+    }
+    durable_result = json.dumps(result_payload)
+    assert "88888888" not in durable_result
+    assert "99999999-9999-4999-8999-999999999999" not in durable_result
+    assert "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" not in durable_result
+    assert "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" not in durable_result
+    assert "0123456789abcdef0123456789abcdef01234567" not in durable_result
+    assert "abcdef0123456789abcdef0123456789abcdef01" not in durable_result
+    assert '"response"' not in durable_result
+    assert "url" not in material
+    assert "cover_url" not in material
     assert json.loads(capsys.readouterr().out)["status"] == "succeeded"
 
 
@@ -1113,3 +1504,272 @@ def test_workbench_draft_heartbeat_failure_fences_complete_and_fail_409_preserve
 
     assert "fail: lease no longer active" not in str(error.value)
     assert captured == {"completed": 0, "failed": 1}
+
+
+def test_functional_draft_checkpoints_before_reset_and_persists_secret_free_failure(
+    monkeypatch,
+) -> None:
+    lease_token = "33333333-3333-4333-8333-333333333333"
+    captured: dict[str, Any] = {"reset_calls": 0, "failed": []}
+    plan = {
+        **executable_script_layout_gate(),
+        "build_plan_code": "MT-BUILD-20260731-000013",
+        "checkpoint_source_fingerprint": "a" * 64,
+        "target_live_room_id": "41172",
+        "operations": [
+            {
+                "operation_type": "preflight_content_build_plan",
+                "status": "ready",
+                "target_live_room_id": "41172",
+            }
+        ],
+    }
+
+    class DraftClient:
+        def __init__(self, _base_url: str) -> None:
+            self.script_layout_worker_token = None
+            self.worker_id = None
+
+        @staticmethod
+        def claim_next_workbench_draft_execution(_payload: dict[str, Any]) -> dict[str, Any]:
+            return {
+                "execution_job_code": "MT-WB-EXEC-20260731-000003",
+                "source_kind": "functional_live_room_plan",
+                "lease_token": lease_token,
+                "payload": {"build_plan": {"build_plan_code": plan["build_plan_code"]}},
+            }
+
+        @staticmethod
+        def get_live_room_build_plan_operation_plan(_build_plan_code: str) -> dict[str, Any]:
+            return plan
+
+        @staticmethod
+        def heartbeat_workbench_draft_execution(
+            _job_code: str, _payload: dict[str, Any]
+        ) -> dict[str, Any]:
+            return {"status": "running"}
+
+        @staticmethod
+        def fail_workbench_draft_execution(
+            job_code: str, payload: dict[str, Any]
+        ) -> dict[str, Any]:
+            captured["failed"].append((job_code, payload))
+            return {"status": "failed"}
+
+    class Resolver:
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+        @staticmethod
+        def resolve_plan(_source_plan: dict[str, Any]) -> Any:
+            return worker_main.MaituMaterialResolutionResult(
+                status="resolved",
+                reused_binding_count=1,
+                remote_match_count=0,
+                uploaded_count=0,
+                manual_required_count=0,
+                operation_plan=plan,
+                issues=[],
+            )
+
+    class FailingCheckpoint:
+        @staticmethod
+        def start(**_kwargs: Any) -> Any:
+            raise AssetGraphClientError(
+                "HTTP 422: claim token 44444444-4444-4444-8444-444444444444 "
+                "at https://cdn.example/item.png?signature=runtime-secret"
+            )
+
+    class Heartbeat:
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+        @staticmethod
+        def start() -> None:
+            pass
+
+        @staticmethod
+        def ensure_active() -> bool:
+            return True
+
+        @staticmethod
+        def stop() -> None:
+            pass
+
+        @staticmethod
+        def stop_for_writeback() -> None:
+            pass
+
+    def forbidden_reset(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        captured["reset_calls"] += 1
+        raise AssertionError("test draft must not reset before checkpoint start succeeds")
+
+    monkeypatch.setattr(worker_main, "AssetGraphClient", DraftClient)
+    monkeypatch.setattr(worker_main, "BrowserUseCliSession", FakeBrowserUseCliSession)
+    monkeypatch.setattr(worker_main, "is_trusted_browser_use_cli_session", lambda _session: True)
+    monkeypatch.setattr(worker_main, "enable_test_pending_rights_plan", lambda value, **_kwargs: value)
+    monkeypatch.setattr(worker_main, "MaituMaterialResolver", Resolver)
+    monkeypatch.setattr(worker_main, "AssetGraphScriptLayoutCheckpointStore", FailingCheckpoint)
+    monkeypatch.setattr(worker_main, "WorkbenchDraftLeaseHeartbeat", Heartbeat)
+    monkeypatch.setattr(worker_main, "reset_allowlisted_test_room", forbidden_reset)
+
+    with pytest.raises(AssetGraphClientError, match="HTTP 422"):
+        worker_main.main(["--run-workbench-draft-job"])
+
+    assert captured["reset_calls"] == 0
+    assert len(captured["failed"]) == 1
+    failed_payload = captured["failed"][0][1]
+    assert failed_payload == {
+        "lease_token": lease_token,
+        "error_code": "WORKBENCH_DRAFT_EXECUTION_FAILED",
+        "error_message": "草稿生成失败，请查看执行日志并在确认现场状态后重试。",
+        "reconcile_required": False,
+    }
+    assert "44444444" not in failed_payload["error_message"]
+    assert "http" not in failed_payload["error_message"].lower()
+
+
+def test_functional_draft_closes_checkpoint_when_reset_fails_after_destructive_start(
+    monkeypatch,
+) -> None:
+    lease_token = "55555555-5555-4555-8555-555555555555"
+    captured: dict[str, Any] = {
+        "reset_calls": 0,
+        "failed": [],
+        "finalized": [],
+        "events": [],
+    }
+    plan = {
+        **executable_script_layout_gate(),
+        "build_plan_code": "MT-BUILD-20260731-000014",
+        "checkpoint_source_fingerprint": "b" * 64,
+        "target_live_room_id": "41172",
+        "operations": [
+            {
+                "operation_type": "preflight_content_build_plan",
+                "status": "ready",
+                "target_live_room_id": "41172",
+            }
+        ],
+    }
+
+    class DraftClient:
+        def __init__(self, _base_url: str) -> None:
+            self.script_layout_worker_token = None
+            self.worker_id = None
+
+        @staticmethod
+        def claim_next_workbench_draft_execution(_payload: dict[str, Any]) -> dict[str, Any]:
+            return {
+                "execution_job_code": "MT-WB-EXEC-20260731-000004",
+                "source_kind": "functional_live_room_plan",
+                "lease_token": lease_token,
+                "payload": {"build_plan": {"build_plan_code": plan["build_plan_code"]}},
+            }
+
+        @staticmethod
+        def get_live_room_build_plan_operation_plan(_build_plan_code: str) -> dict[str, Any]:
+            return plan
+
+        @staticmethod
+        def heartbeat_workbench_draft_execution(
+            _job_code: str,
+            _payload: dict[str, Any],
+        ) -> dict[str, Any]:
+            return {"status": "running"}
+
+        @staticmethod
+        def fail_workbench_draft_execution(
+            job_code: str,
+            payload: dict[str, Any],
+        ) -> dict[str, Any]:
+            captured["failed"].append((job_code, payload))
+            return {"status": "failed"}
+
+    class Resolver:
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+        @staticmethod
+        def resolve_plan(_source_plan: dict[str, Any]) -> Any:
+            captured["events"].append("materials_resolved")
+            return worker_main.MaituMaterialResolutionResult(
+                status="resolved",
+                reused_binding_count=1,
+                remote_match_count=0,
+                uploaded_count=0,
+                manual_required_count=0,
+                operation_plan=plan,
+                issues=[],
+            )
+
+    class Checkpoint:
+        target_live_room_id = "41172"
+        operation_checkpoints = {0: {"operation_index": 0}}
+
+        @classmethod
+        def start(cls, **_kwargs: Any) -> "Checkpoint":
+            captured["events"].append("checkpoint_started")
+            return cls()
+
+        @staticmethod
+        def finalize(result: Any) -> dict[str, Any]:
+            captured["finalized"].append(result)
+            return {"execution_status": result.status}
+
+    class Heartbeat:
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+        @staticmethod
+        def start() -> None:
+            pass
+
+        @staticmethod
+        def ensure_active() -> bool:
+            return True
+
+        @staticmethod
+        def stop() -> None:
+            pass
+
+        @staticmethod
+        def stop_for_writeback() -> None:
+            pass
+
+    def failing_reset(
+        _session: Any,
+        *,
+        job_payload: dict[str, Any],
+        progress: Any,
+    ) -> dict[str, Any]:
+        del job_payload
+        captured["reset_calls"] += 1
+        captured["events"].append("reset_started")
+        progress("clearing_draft", 1, "正在清空测试草稿")
+        raise RuntimeError("reset failed after destructive boundary")
+
+    monkeypatch.setattr(worker_main, "AssetGraphClient", DraftClient)
+    monkeypatch.setattr(worker_main, "BrowserUseCliSession", FakeBrowserUseCliSession)
+    monkeypatch.setattr(worker_main, "is_trusted_browser_use_cli_session", lambda _session: True)
+    monkeypatch.setattr(worker_main, "enable_test_pending_rights_plan", lambda value, **_kwargs: value)
+    monkeypatch.setattr(worker_main, "MaituMaterialResolver", Resolver)
+    monkeypatch.setattr(worker_main, "AssetGraphScriptLayoutCheckpointStore", Checkpoint)
+    monkeypatch.setattr(worker_main, "WorkbenchDraftLeaseHeartbeat", Heartbeat)
+    monkeypatch.setattr(worker_main, "reset_allowlisted_test_room", failing_reset)
+
+    with pytest.raises(RuntimeError, match="reset failed"):
+        worker_main.main(["--run-workbench-draft-job"])
+
+    assert captured["reset_calls"] == 1
+    assert captured["events"] == [
+        "materials_resolved",
+        "checkpoint_started",
+        "reset_started",
+    ]
+    assert len(captured["finalized"]) == 1
+    finalized_result = captured["finalized"][0]
+    assert finalized_result.status == "failed"
+    assert finalized_result.target_live_room_id == "41172"
+    assert len(captured["failed"]) == 1
+    assert captured["failed"][0][1]["reconcile_required"] is True

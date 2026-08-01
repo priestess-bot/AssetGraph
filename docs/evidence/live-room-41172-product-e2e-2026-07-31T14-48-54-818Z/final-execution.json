@@ -1,0 +1,2039 @@
+{
+  "plan_code": "LIVEPLAN-20260731-000018",
+  "execution_job_code": "MT-WB-EXEC-20260731-000015",
+  "status": "succeeded",
+  "stage": "succeeded",
+  "progress_current": 5,
+  "progress_total": 5,
+  "stage_events": [
+    {
+      "stage": "queued",
+      "message": "草稿重建任务已进入队列",
+      "progress_total": 5,
+      "progress_current": 0
+    },
+    {
+      "stage": "preparing_materials",
+      "message": "正在解析并核对全部麦兔素材",
+      "recorded_at": "2026-07-31T23:49:18.390387+09:00",
+      "progress_total": 5,
+      "progress_current": 0
+    },
+    {
+      "stage": "clearing_draft",
+      "message": "正在清空已确认的测试草稿",
+      "recorded_at": "2026-07-31T23:49:27.761624+09:00",
+      "progress_total": 5,
+      "progress_current": 1
+    },
+    {
+      "stage": "building_scenes",
+      "message": "正在搭建场景并按顺序放置图层",
+      "recorded_at": "2026-07-31T23:49:40.971931+09:00",
+      "progress_total": 5,
+      "progress_current": 2
+    },
+    {
+      "stage": "writing_scripts",
+      "message": "正在写入每个场景的话术",
+      "recorded_at": "2026-07-31T23:51:39.833158+09:00",
+      "progress_total": 5,
+      "progress_current": 3
+    },
+    {
+      "stage": "verifying_readback",
+      "message": "正在刷新麦兔并核对最终结果",
+      "recorded_at": "2026-07-31T23:51:52.256711+09:00",
+      "progress_total": 5,
+      "progress_current": 4
+    },
+    {
+      "stage": "building_scenes",
+      "message": "正在搭建场景并按顺序放置图层",
+      "recorded_at": "2026-07-31T23:51:56.306651+09:00",
+      "progress_total": 5,
+      "progress_current": 2
+    },
+    {
+      "stage": "writing_scripts",
+      "message": "正在写入每个场景的话术",
+      "recorded_at": "2026-07-31T23:54:43.955172+09:00",
+      "progress_total": 5,
+      "progress_current": 3
+    },
+    {
+      "stage": "verifying_readback",
+      "message": "正在刷新麦兔并核对最终结果",
+      "recorded_at": "2026-07-31T23:54:57.826231+09:00",
+      "progress_total": 5,
+      "progress_current": 4
+    },
+    {
+      "stage": "building_scenes",
+      "message": "正在搭建场景并按顺序放置图层",
+      "recorded_at": "2026-07-31T23:55:01.871636+09:00",
+      "progress_total": 5,
+      "progress_current": 2
+    },
+    {
+      "stage": "writing_scripts",
+      "message": "正在写入每个场景的话术",
+      "recorded_at": "2026-07-31T23:57:31.882586+09:00",
+      "progress_total": 5,
+      "progress_current": 3
+    },
+    {
+      "stage": "verifying_readback",
+      "message": "正在刷新麦兔并核对最终结果",
+      "recorded_at": "2026-07-31T23:57:45.229211+09:00",
+      "progress_total": 5,
+      "progress_current": 4
+    },
+    {
+      "stage": "verifying_readback",
+      "message": "正在刷新麦兔并逐层核对最终结果",
+      "recorded_at": "2026-07-31T23:57:53.703562+09:00",
+      "progress_total": 5,
+      "progress_current": 4
+    },
+    {
+      "stage": "succeeded",
+      "message": "草稿已重建并完成最终回读",
+      "recorded_at": "2026-07-31T23:58:05.430969+09:00",
+      "progress_total": 5,
+      "progress_current": 5
+    }
+  ],
+  "retryable": false,
+  "result": {
+    "status": "completed",
+    "verification": {
+      "scenes": [
+        {
+          "scene_id": "437569",
+          "scene_name": "MSB-VARIANT-20260731-000018-001",
+          "scene_index": 0,
+          "visual_count": 4,
+          "layer_numbers": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "script_matched": true,
+          "highest_layer_type": "image",
+          "exact_expected_order": true,
+          "expected_layer_order": [
+            "LYR-MSB-VARIANT-20260731-000018-001-01",
+            "LYR-MSB-VARIANT-20260731-000018-001-02",
+            "LYR-MSB-VARIANT-20260731-000018-001-03",
+            "LYR-MSB-VARIANT-20260731-000018-001-04"
+          ],
+          "observed_layer_order": [
+            "LYR-MSB-VARIANT-20260731-000018-001-01",
+            "LYR-MSB-VARIANT-20260731-000018-001-02",
+            "LYR-MSB-VARIANT-20260731-000018-001-03",
+            "LYR-MSB-VARIANT-20260731-000018-001-04"
+          ]
+        },
+        {
+          "scene_id": "452249",
+          "scene_name": "MSB-VARIANT-20260731-000018-002",
+          "scene_index": 1,
+          "visual_count": 6,
+          "layer_numbers": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "script_matched": true,
+          "highest_layer_type": "image",
+          "exact_expected_order": true,
+          "expected_layer_order": [
+            "LYR-MSB-VARIANT-20260731-000018-002-01",
+            "LYR-MSB-VARIANT-20260731-000018-002-05",
+            "LYR-MSB-VARIANT-20260731-000018-002-02",
+            "LYR-MSB-VARIANT-20260731-000018-002-06",
+            "LYR-MSB-VARIANT-20260731-000018-002-03",
+            "LYR-MSB-VARIANT-20260731-000018-002-04"
+          ],
+          "observed_layer_order": [
+            "LYR-MSB-VARIANT-20260731-000018-002-01",
+            "LYR-MSB-VARIANT-20260731-000018-002-05",
+            "LYR-MSB-VARIANT-20260731-000018-002-02",
+            "LYR-MSB-VARIANT-20260731-000018-002-06",
+            "LYR-MSB-VARIANT-20260731-000018-002-03",
+            "LYR-MSB-VARIANT-20260731-000018-002-04"
+          ]
+        },
+        {
+          "scene_id": "452250",
+          "scene_name": "MSB-VARIANT-20260731-000018-003",
+          "scene_index": 2,
+          "visual_count": 5,
+          "layer_numbers": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "script_matched": true,
+          "highest_layer_type": "image",
+          "exact_expected_order": true,
+          "expected_layer_order": [
+            "LYR-MSB-VARIANT-20260731-000018-003-01",
+            "LYR-MSB-VARIANT-20260731-000018-003-02",
+            "LYR-MSB-VARIANT-20260731-000018-003-05",
+            "LYR-MSB-VARIANT-20260731-000018-003-03",
+            "LYR-MSB-VARIANT-20260731-000018-003-04"
+          ],
+          "observed_layer_order": [
+            "LYR-MSB-VARIANT-20260731-000018-003-01",
+            "LYR-MSB-VARIANT-20260731-000018-003-02",
+            "LYR-MSB-VARIANT-20260731-000018-003-05",
+            "LYR-MSB-VARIANT-20260731-000018-003-03",
+            "LYR-MSB-VARIANT-20260731-000018-003-04"
+          ]
+        }
+      ],
+      "matched": true,
+      "scene_count": 3,
+      "verification_source": "refreshed_working_room_readback"
+    },
+    "worker_result": {
+      "status": "completed",
+      "actions": [
+        {
+          "status": "completed",
+          "clip_id": 437569,
+          "details": {
+            "verification": {
+              "not_live": true,
+              "verified": true,
+              "environment": "working",
+              "default_clip_id": 437569,
+              "verification_source": "working_room_readback",
+              "expected_live_room_title": "asser测试",
+              "authoritative_live_room_title": "asser测试"
+            },
+            "go_live_clicked": false
+          },
+          "summary": "Read target draft room and confirmed a default clip is available; go-live not clicked.",
+          "action_type": "read_live_room",
+          "operation_name": "内容驱动搭建计划预检",
+          "operation_type": "preflight_content_build_plan",
+          "operation_index": 0
+        },
+        {
+          "status": "completed",
+          "clip_id": 437569,
+          "details": {
+            "verification": {
+              "not_live": true,
+              "verified": true,
+              "go_live_clicked": false,
+              "verification_source": "working_room_readback"
+            },
+            "go_live_clicked": false
+          },
+          "summary": "Mapped the first planned scene to the existing default clip and renamed it; no first-scene duplicate was created.",
+          "scene_name": "MSB-VARIANT-20260731-000018-001",
+          "action_type": "map_first_planned_scene_to_default_clip",
+          "scene_index": 0,
+          "operation_name": "填充默认第1场景：MSB-VARIANT-20260731-000018-001",
+          "operation_type": "fill_default_scene",
+          "operation_index": 1
+        },
+        {
+          "status": "completed",
+          "clip_id": 437569,
+          "details": {
+            "verification": {
+              "fit": "cover",
+              "top": 0,
+              "left": 0,
+              "loop": false,
+              "width": 1080,
+              "height": 1920,
+              "z_index": 1,
+              "rotation": 0,
+              "verified": true,
+              "material_id": 10566234,
+              "sound_enabled": false,
+              "go_live_clicked": false,
+              "source_material_id": 37262,
+              "verification_source": "working_room_readback"
+            },
+            "go_live_clicked": false
+          },
+          "summary": "Inserted asset layer LYR-MSB-VARIANT-20260731-000018-001-01 with AssetGraph asset AG-IMG-20260729-000002.",
+          "layer_id": "LYR-MSB-VARIANT-20260731-000018-001-01",
+          "asset_code": "AG-IMG-20260729-000002",
+          "layer_type": "background",
+          "scene_name": "MSB-VARIANT-20260731-000018-001",
+          "action_type": "insert_asset_layer",
+          "scene_index": 0,
+          "operation_name": "插入素材图层：background",
+          "operation_type": "insert_asset_layer",
+          "operation_index": 2
+        },
+        {
+          "status": "completed",
+          "clip_id": 437569,
+          "details": {
+            "verification": {
+              "fit": "cover",
+              "top": 0,
+              "left": 0,
+              "loop": false,
+              "width": 1080,
+              "height": 1920,
+              "z_index": 1,
+              "rotation": 0,
+              "verified": true,
+              "material_id": 10566234,
+              "sound_enabled": false,
+              "go_live_clicked": false,
+              "source_material_id": 37262,
+              "verification_source": "working_room_readback"
+            },
+            "go_live_clicked": false
+          },
+          "summary": "Positioned layer LYR-MSB-VARIANT-20260731-000018-001-01 at x=0.0, y=0.0, z=1.",
+          "layer_id": "LYR-MSB-VARIANT-20260731-000018-001-01",
+          "asset_code": "AG-IMG-20260729-000002",
+          "layer_type": "background",
+          "scene_name": "MSB-VARIANT-20260731-000018-001",
+          "action_type": "position_asset_layer",
+          "scene_index": 0,
+          "operation_name": "定位素材图层：background",
+          "operation_type": "position_asset_layer",
+          "operation_index": 3
+        },
+        {
+          "status": "completed",
+          "clip_id": 437569,
+          "details": {
+            "verification": {
+              "fit": "contain",
+              "top": 864,
+              "left": 108,
+              "loop": false,
+              "width": 324,
+              "height": 576,
+              "z_index": 2,
+              "rotation": 0,
+              "verified": true,
+              "material_id": 10566235,
+              "sound_enabled": false,
+              "go_live_clicked": false,
+              "source_material_id": 39157,
+              "verification_source": "working_room_readback"
+            },
+            "go_live_clicked": false
+          },
+          "summary": "Inserted asset layer LYR-MSB-VARIANT-20260731-000018-001-02 with AssetGraph asset AG-IMG-20260729-000028.",
+          "layer_id": "LYR-MSB-VARIANT-20260731-000018-001-02",
+          "asset_code": "AG-IMG-20260729-000028",
+          "layer_type": "set_surface",
+          "scene_name": "MSB-VARIANT-20260731-000018-001",
+          "action_type": "insert_asset_layer",
+          "scene_index": 0,
+          "operation_name": "插入素材图层：set_surface",
+          "operation_type": "insert_asset_layer",
+          "operation_index": 4
+        },
+        {
+          "status": "completed",
+          "clip_id": 437569,
+          "details": {
+            "verification": {
+              "fit": "contain",
+              "top": 864,
+              "left": 108,
+              "loop": false,
+              "width": 324,
+              "height": 576,
+              "z_index": 2,
+              "rotation": 0,
+              "verified": true,
+              "material_id": 10566235,
+              "sound_enabled": false,
+              "go_live_clicked": false,
+              "source_material_id": 39157,
+              "verification_source": "working_room_readback"
+            },
+            "go_live_clicked": false
+          },
+          "summary": "Positioned layer LYR-MSB-VARIANT-20260731-000018-001-02 at x=108.0, y=864.0, z=2.",
+          "layer_id": "LYR-MSB-VARIANT-20260731-000018-001-02",
+          "asset_code": "AG-IMG-20260729-000028",
+          "layer_type": "set_surface",
+          "scene_name": "MSB-VARIANT-20260731-000018-001",
+          "action_type": "position_asset_layer",
+          "scene_index": 0,
+          "operation_name": "定位素材图层：set_surface",
+          "operation_type": "position_asset_layer",
+          "operation_index": 5
+        },
+        {
+          "status": "completed",
+          "clip_id": 437569,
+          "details": {
+            "verification": {
+              "fit": "contain",
+              "top": 345.59999999999997,
+              "left": 86.4,
+              "loop": false,
+              "width": 388.8,
+              "height": 1228.8,
+              "z_index": 3,
+              "rotation": 0,
+              "verified": true,
+              "speaker_id": 3760,
+              "material_id": 10566236,
+              "sound_enabled": false,
+              "go_live_clicked": false,
+              "source_material_id": 37200,
+              "verification_source": "working_room_readback",
+              "digital_human_image_id": 7717
+            },
+            "go_live_clicked": false
+          },
+          "summary": "Inserted asset layer LYR-MSB-VARIANT-20260731-000018-001-03 with AssetGraph asset AG-VID-20260731-000001.",
+          "layer_id": "LYR-MSB-VARIANT-20260731-000018-001-03",
+          "asset_code": "AG-VID-20260731-000001",
+          "layer_type": "digital_human",
+          "scene_name": "MSB-VARIANT-20260731-000018-001",
+          "action_type": "insert_asset_layer",
+          "scene_index": 0,
+          "operation_name": "插入素材图层：digital_human",
+          "operation_type": "insert_asset_layer",
+          "operation_index": 6
+        },
+        {
+          "status": "completed",
+          "clip_id": 437569,
+          "details": {
+            "verification": {
+              "fit": "contain",
+              "top": 345.59999999999997,
+              "left": 86.4,
+              "loop": false,
+              "width": 388.8,
+              "height": 1228.8,
+              "z_index": 3,
+              "rotation": 0,
+              "verified": true,
+              "speaker_id": 3760,
+              "material_id": 10566236,
+              "sound_enabled": false,
+              "go_live_clicked": false,
+              "source_material_id": 37200,
+              "verification_source": "working_room_readback",
+              "digital_human_image_id": 7717
+            },
+            "go_live_clicked": false
+          },
+          "summary": "Positioned layer LYR-MSB-VARIANT-20260731-000018-001-03 at x=86.4, y=345.59999999999997, z=3.",
+          "layer_id": "LYR-MSB-VARIANT-20260731-000018-001-03",
+          "asset_code": "AG-VID-20260731-000001",
+          "layer_type": "digital_human",
+          "scene_name": "MSB-VARIANT-20260731-000018-001",
+          "action_type": "position_asset_layer",
+          "scene_index": 0,
+          "operation_name": "定位素材图层：digital_human",
+          "operation_type": "position_asset_layer",
+          "operation_index": 7
+        },
+        {
+          "status": "completed",
+          "clip_id": 437569,
+          "details": {
+            "verification": {
+              "fit": "contain",
+              "top": 192,
+              "left": 108,
+              "loop": false,
+              "width": 324,
+              "height": 576,
+              "z_index": 4,
+              "rotation": 0,
+              "verified": true,
+              "material_id": 10566237,
+              "sound_enabled": false,
+              "go_live_clicked": false,
+              "source_material_id": 40101,
+              "verification_source": "working_room_readback"
+            },
+            "go_live_clicked": false
+          },
+          "summary": "Inserted asset layer LYR-MSB-VARIANT-20260731-000018-001-04 with AssetGraph asset AG-IMG-20260729-000021.",
+          "layer_id": "LYR-MSB-VARIANT-20260731-000018-001-04",
+          "asset_code": "AG-IMG-20260729-000021",
+          "layer_type": "brand_title",
+          "scene_name": "MSB-VARIANT-20260731-000018-001",
+          "action_type": "insert_asset_layer",
+          "scene_index": 0,
+          "operation_name": "插入素材图层：brand_title",
+          "operation_type": "insert_asset_layer",
+          "operation_index": 8
+        },
+        {
+          "status": "completed",
+          "clip_id": 437569,
+          "details": {
+            "verification": {
+              "fit": "contain",
+              "top": 192,
+              "left": 108,
+              "loop": false,
+              "width": 324,
+              "height": 576,
+              "z_index": 4,
+              "rotation": 0,
+              "verified": true,
+              "material_id": 10566237,
+              "sound_enabled": false,
+              "go_live_clicked": false,
+              "source_material_id": 40101,
+              "verification_source": "working_room_readback"
+            },
+            "go_live_clicked": false
+          },
+          "summary": "Positioned layer LYR-MSB-VARIANT-20260731-000018-001-04 at x=108.0, y=192.0, z=4.",
+          "layer_id": "LYR-MSB-VARIANT-20260731-000018-001-04",
+          "asset_code": "AG-IMG-20260729-000021",
+          "layer_type": "brand_title",
+          "scene_name": "MSB-VARIANT-20260731-000018-001",
+          "action_type": "position_asset_layer",
+          "scene_index": 0,
+          "operation_name": "定位素材图层：brand_title",
+          "operation_type": "position_asset_layer",
+          "operation_index": 9
+        },
+        {
+          "status": "completed",
+          "clip_id": 437569,
+          "details": {
+            "verification": {
+              "verified": true,
+              "go_live_clicked": false,
+              "text_material_id": 10566238,
+              "verification_source": "working_room_readback",
+              "script_content_verified": true
+            },
+            "go_live_clicked": false
+          },
+          "summary": "Wrote script for scene MSB-VARIANT-20260731-000018-001; length=218.",
+          "scene_name": "MSB-VARIANT-20260731-000018-001",
+          "action_type": "write_script",
+          "scene_index": 0,
+          "operation_name": "写入脚本：MSB-VARIANT-20260731-000018-001",
+          "operation_type": "write_script",
+          "operation_index": 10
+        },
+        {
+          "status": "completed",
+          "clip_id": 437569,
+          "details": {
+            "verification": {
+              "verified": true,
+              "go_live_clicked": false,
+              "text_material_id": 10566238,
+              "expected_text_count": 1,
+              "verification_source": "working_room_readback",
+              "expected_visual_count": 4
+            },
+            "go_live_clicked": false
+          },
+          "summary": "Verified draft scene MSB-VARIANT-20260731-000018-001 after content operations.",
+          "scene_name": "MSB-VARIANT-20260731-000018-001",
+          "action_type": "verify_scene",
+          "scene_index": 0,
+          "operation_name": "回读验证场景：MSB-VARIANT-20260731-000018-001",
+          "operation_type": "verify_scene",
+          "operation_index": 11
+        },
+        {
+          "status": "completed",
+          "clip_id": 452249,
+          "details": {
+            "verification": {
+              "verified": true,
+              "go_live_clicked": false,
+              "verification_source": "working_room_readback"
+            },
+            "go_live_clicked": false
+          },
+          "summary": "Created draft scene MSB-VARIANT-20260731-000018-002; go-live not clicked.",
+          "scene_name": "MSB-VARIANT-20260731-000018-002",
+          "action_type": "create_draft_scene",
+          "scene_index": 1,
+          "operation_name": "新建场景：MSB-VARIANT-20260731-000018-002",
+          "operation_type": "create_scene",
+          "operation_index": 12
+        },
+        {
+          "status": "completed",
+          "clip_id": 452249,
+          "details": {
+            "verification": {
+              "fit": "cover",
+              "top": 0,
+              "left": 0,
+              "loop": false,
+              "width": 1080,
+              "height": 1920,
+              "z_index": 1,
+              "rotation": 0,
+              "verified": true,
+              "material_id": 10566239,
+              "sound_enabled": false,
+              "go_live_clicked": false,
+              "source_material_id": 37262,
+              "verification_source": "working_room_readback"
+            },
+            "go_live_clicked": false
+          },
+          "summary": "Inserted asset layer LYR-MSB-VARIANT-20260731-000018-002-01 with AssetGraph asset AG-IMG-20260729-000002.",
+          "layer_id": "LYR-MSB-VARIANT-20260731-000018-002-01",
+          "asset_code": "AG-IMG-20260729-000002",
+          "layer_type": "background",
+          "scene_name": "MSB-VARIANT-20260731-000018-002",
+          "action_type": "insert_asset_layer",
+          "scene_index": 1,
+          "operation_name": "插入素材图层：background",
+          "operation_type": "insert_asset_layer",
+          "operation_index": 13
+        },
+        {
+          "status": "completed",
+          "clip_id": 452249,
+          "details": {
+            "verification": {
+              "fit": "cover",
+              "top": 0,
+              "left": 0,
+              "loop": false,
+              "width": 1080,
+              "height": 1920,
+              "z_index": 1,
+              "rotation": 0,
+              "verified": true,
+              "material_id": 10566239,
+              "sound_enabled": false,
+              "go_live_clicked": false,
+              "source_material_id": 37262,
+              "verification_source": "working_room_readback"
+            },
+            "go_live_clicked": false
+          },
+          "summary": "Positioned layer LYR-MSB-VARIANT-20260731-000018-002-01 at x=0.0, y=0.0, z=1.",
+          "layer_id": "LYR-MSB-VARIANT-20260731-000018-002-01",
+          "asset_code": "AG-IMG-20260729-000002",
+          "layer_type": "background",
+          "scene_name": "MSB-VARIANT-20260731-000018-002",
+          "action_type": "position_asset_layer",
+          "scene_index": 1,
+          "operation_name": "定位素材图层：background",
+          "operation_type": "position_asset_layer",
+          "operation_index": 14
+        },
+        {
+          "status": "completed",
+          "clip_id": 452249,
+          "details": {
+            "verification": {
+              "fit": "contain",
+              "top": 192,
+              "left": 108,
+              "loop": true,
+              "width": 324,
+              "height": 576,
+              "z_index": 2,
+              "rotation": 0,
+              "verified": true,
+              "material_id": 10566240,
+              "sound_enabled": false,
+              "go_live_clicked": false,
+              "source_material_id": 40774,
+              "verification_source": "working_room_readback"
+            },
+            "go_live_clicked": false
+          },
+          "summary": "Inserted asset layer LYR-MSB-VARIANT-20260731-000018-002-05 with AssetGraph asset AG-VID-20260729-000019.",
+          "layer_id": "LYR-MSB-VARIANT-20260731-000018-002-05",
+          "asset_code": "AG-VID-20260729-000019",
+          "layer_type": "supporting_video",
+          "scene_name": "MSB-VARIANT-20260731-000018-002",
+          "action_type": "insert_asset_layer",
+          "scene_index": 1,
+          "operation_name": "插入素材图层：supporting_video",
+          "operation_type": "insert_asset_layer",
+          "operation_index": 15
+        },
+        {
+          "status": "completed",
+          "clip_id": 452249,
+          "details": {
+            "verification": {
+              "fit": "contain",
+              "top": 192,
+              "left": 108,
+              "loop": true,
+              "width": 324,
+              "height": 576,
+              "z_index": 2,
+              "rotation": 0,
+              "verified": true,
+              "material_id": 10566240,
+              "sound_enabled": false,
+              "go_live_clicked": false,
+              "source_material_id": 40774,
+              "verification_source": "working_room_readback"
+            },
+            "go_live_clicked": false
+          },
+          "summary": "Positioned layer LYR-MSB-VARIANT-20260731-000018-002-05 at x=108.0, y=192.0, z=2.",
+          "layer_id": "LYR-MSB-VARIANT-20260731-000018-002-05",
+          "asset_code": "AG-VID-20260729-000019",
+          "layer_type": "supporting_video",
+          "scene_name": "MSB-VARIANT-20260731-000018-002",
+          "action_type": "position_asset_layer",
+          "scene_index": 1,
+          "operation_name": "定位素材图层：supporting_video",
+          "operation_type": "position_asset_layer",
+          "operation_index": 16
+        },
+        {
+          "status": "completed",
+          "clip_id": 452249,
+          "details": {
+            "verification": {
+              "fit": "contain",
+              "top": 864,
+              "left": 108,
+              "loop": false,
+              "width": 324,
+              "height": 576,
+              "z_index": 3,
+              "rotation": 0,
+              "verified": true,
+              "material_id": 10566241,
+              "sound_enabled": false,
+              "go_live_clicked": false,
+              "source_material_id": 39157,
+              "verification_source": "working_room_readback"
+            },
+            "go_live_clicked": false
+          },
+          "summary": "Inserted asset layer LYR-MSB-VARIANT-20260731-000018-002-02 with AssetGraph asset AG-IMG-20260729-000028.",
+          "layer_id": "LYR-MSB-VARIANT-20260731-000018-002-02",
+          "asset_code": "AG-IMG-20260729-000028",
+          "layer_type": "set_surface",
+          "scene_name": "MSB-VARIANT-20260731-000018-002",
+          "action_type": "insert_asset_layer",
+          "scene_index": 1,
+          "operation_name": "插入素材图层：set_surface",
+          "operation_type": "insert_asset_layer",
+          "operation_index": 17
+        },
+        {
+          "status": "completed",
+          "clip_id": 452249,
+          "details": {
+            "verification": {
+              "fit": "contain",
+              "top": 864,
+              "left": 108,
+              "loop": false,
+              "width": 324,
+              "height": 576,
+              "z_index": 3,
+              "rotation": 0,
+              "verified": true,
+              "material_id": 10566241,
+              "sound_enabled": false,
+              "go_live_clicked": false,
+              "source_material_id": 39157,
+              "verification_source": "working_room_readback"
+            },
+            "go_live_clicked": false
+          },
+          "summary": "Positioned layer LYR-MSB-VARIANT-20260731-000018-002-02 at x=108.0, y=864.0, z=3.",
+          "layer_id": "LYR-MSB-VARIANT-20260731-000018-002-02",
+          "asset_code": "AG-IMG-20260729-000028",
+          "layer_type": "set_surface",
+          "scene_name": "MSB-VARIANT-20260731-000018-002",
+          "action_type": "position_asset_layer",
+          "scene_index": 1,
+          "operation_name": "定位素材图层：set_surface",
+          "operation_type": "position_asset_layer",
+          "operation_index": 18
+        },
+        {
+          "status": "completed",
+          "clip_id": 452249,
+          "details": {
+            "verification": {
+              "fit": "contain",
+              "top": 1152,
+              "left": 324,
+              "loop": false,
+              "width": 432,
+              "height": 768,
+              "z_index": 4,
+              "rotation": 0,
+              "verified": true,
+              "material_id": 10566242,
+              "sound_enabled": false,
+              "go_live_clicked": false,
+              "source_material_id": 40999,
+              "verification_source": "working_room_readback"
+            },
+            "go_live_clicked": false
+          },
+          "summary": "Inserted asset layer LYR-MSB-VARIANT-20260731-000018-002-06 with AssetGraph asset AG-IMG-20260729-000025.",
+          "layer_id": "LYR-MSB-VARIANT-20260731-000018-002-06",
+          "asset_code": "AG-IMG-20260729-000025",
+          "layer_type": "product_display",
+          "scene_name": "MSB-VARIANT-20260731-000018-002",
+          "action_type": "insert_asset_layer",
+          "scene_index": 1,
+          "operation_name": "插入素材图层：product_display",
+          "operation_type": "insert_asset_layer",
+          "operation_index": 19
+        },
+        {
+          "status": "completed",
+          "clip_id": 452249,
+          "details": {
+            "verification": {
+              "fit": "contain",
+              "top": 1152,
+              "left": 324,
+              "loop": false,
+              "width": 432,
+              "height": 768,
+              "z_index": 4,
+              "rotation": 0,
+              "verified": true,
+              "material_id": 10566242,
+              "sound_enabled": false,
+              "go_live_clicked": false,
+              "source_material_id": 40999,
+              "verification_source": "working_room_readback"
+            },
+            "go_live_clicked": false
+          },
+          "summary": "Positioned layer LYR-MSB-VARIANT-20260731-000018-002-06 at x=324.0, y=1152.0, z=4.",
+          "layer_id": "LYR-MSB-VARIANT-20260731-000018-002-06",
+          "asset_code": "AG-IMG-20260729-000025",
+          "layer_type": "product_display",
+          "scene_name": "MSB-VARIANT-20260731-000018-002",
+          "action_type": "position_asset_layer",
+          "scene_index": 1,
+          "operation_name": "定位素材图层：product_display",
+          "operation_type": "position_asset_layer",
+          "operation_index": 20
+        },
+        {
+          "status": "completed",
+          "clip_id": 452249,
+          "details": {
+            "verification": {
+              "fit": "contain",
+              "top": 345.59999999999997,
+              "left": 86.4,
+              "loop": false,
+              "width": 388.8,
+              "height": 1228.8,
+              "z_index": 5,
+              "rotation": 0,
+              "verified": true,
+              "speaker_id": 3760,
+              "material_id": 10566243,
+              "sound_enabled": false,
+              "go_live_clicked": false,
+              "source_material_id": 37200,
+              "verification_source": "working_room_readback",
+              "digital_human_image_id": 7717
+            },
+            "go_live_clicked": false
+          },
+          "summary": "Inserted asset layer LYR-MSB-VARIANT-20260731-000018-002-03 with AssetGraph asset AG-VID-20260731-000001.",
+          "layer_id": "LYR-MSB-VARIANT-20260731-000018-002-03",
+          "asset_code": "AG-VID-20260731-000001",
+          "layer_type": "digital_human",
+          "scene_name": "MSB-VARIANT-20260731-000018-002",
+          "action_type": "insert_asset_layer",
+          "scene_index": 1,
+          "operation_name": "插入素材图层：digital_human",
+          "operation_type": "insert_asset_layer",
+          "operation_index": 21
+        },
+        {
+          "status": "completed",
+          "clip_id": 452249,
+          "details": {
+            "verification": {
+              "fit": "contain",
+              "top": 345.59999999999997,
+              "left": 86.4,
+              "loop": false,
+              "width": 388.8,
+              "height": 1228.8,
+              "z_index": 5,
+              "rotation": 0,
+              "verified": true,
+              "speaker_id": 3760,
+              "material_id": 10566243,
+              "sound_enabled": false,
+              "go_live_clicked": false,
+              "source_material_id": 37200,
+              "verification_source": "working_room_readback",
+              "digital_human_image_id": 7717
+            },
+            "go_live_clicked": false
+          },
+          "summary": "Positioned layer LYR-MSB-VARIANT-20260731-000018-002-03 at x=86.4, y=345.59999999999997, z=5.",
+          "layer_id": "LYR-MSB-VARIANT-20260731-000018-002-03",
+          "asset_code": "AG-VID-20260731-000001",
+          "layer_type": "digital_human",
+          "scene_name": "MSB-VARIANT-20260731-000018-002",
+          "action_type": "position_asset_layer",
+          "scene_index": 1,
+          "operation_name": "定位素材图层：digital_human",
+          "operation_type": "position_asset_layer",
+          "operation_index": 22
+        },
+        {
+          "status": "completed",
+          "clip_id": 452249,
+          "details": {
+            "verification": {
+              "fit": "contain",
+              "top": 192,
+              "left": 108,
+              "loop": false,
+              "width": 324,
+              "height": 576,
+              "z_index": 6,
+              "rotation": 0,
+              "verified": true,
+              "material_id": 10566244,
+              "sound_enabled": false,
+              "go_live_clicked": false,
+              "source_material_id": 40101,
+              "verification_source": "working_room_readback"
+            },
+            "go_live_clicked": false
+          },
+          "summary": "Inserted asset layer LYR-MSB-VARIANT-20260731-000018-002-04 with AssetGraph asset AG-IMG-20260729-000021.",
+          "layer_id": "LYR-MSB-VARIANT-20260731-000018-002-04",
+          "asset_code": "AG-IMG-20260729-000021",
+          "layer_type": "brand_title",
+          "scene_name": "MSB-VARIANT-20260731-000018-002",
+          "action_type": "insert_asset_layer",
+          "scene_index": 1,
+          "operation_name": "插入素材图层：brand_title",
+          "operation_type": "insert_asset_layer",
+          "operation_index": 23
+        },
+        {
+          "status": "completed",
+          "clip_id": 452249,
+          "details": {
+            "verification": {
+              "fit": "contain",
+              "top": 192,
+              "left": 108,
+              "loop": false,
+              "width": 324,
+              "height": 576,
+              "z_index": 6,
+              "rotation": 0,
+              "verified": true,
+              "material_id": 10566244,
+              "sound_enabled": false,
+              "go_live_clicked": false,
+              "source_material_id": 40101,
+              "verification_source": "working_room_readback"
+            },
+            "go_live_clicked": false
+          },
+          "summary": "Positioned layer LYR-MSB-VARIANT-20260731-000018-002-04 at x=108.0, y=192.0, z=6.",
+          "layer_id": "LYR-MSB-VARIANT-20260731-000018-002-04",
+          "asset_code": "AG-IMG-20260729-000021",
+          "layer_type": "brand_title",
+          "scene_name": "MSB-VARIANT-20260731-000018-002",
+          "action_type": "position_asset_layer",
+          "scene_index": 1,
+          "operation_name": "定位素材图层：brand_title",
+          "operation_type": "position_asset_layer",
+          "operation_index": 24
+        },
+        {
+          "status": "completed",
+          "clip_id": 452249,
+          "details": {
+            "verification": {
+              "verified": true,
+              "go_live_clicked": false,
+              "text_material_id": 10566245,
+              "verification_source": "working_room_readback",
+              "script_content_verified": true
+            },
+            "go_live_clicked": false
+          },
+          "summary": "Wrote script for scene MSB-VARIANT-20260731-000018-002; length=46.",
+          "scene_name": "MSB-VARIANT-20260731-000018-002",
+          "action_type": "write_script",
+          "scene_index": 1,
+          "operation_name": "写入脚本：MSB-VARIANT-20260731-000018-002",
+          "operation_type": "write_script",
+          "operation_index": 25
+        },
+        {
+          "status": "completed",
+          "clip_id": 452249,
+          "details": {
+            "verification": {
+              "verified": true,
+              "go_live_clicked": false,
+              "text_material_id": 10566245,
+              "expected_text_count": 1,
+              "verification_source": "working_room_readback",
+              "expected_visual_count": 6
+            },
+            "go_live_clicked": false
+          },
+          "summary": "Verified draft scene MSB-VARIANT-20260731-000018-002 after content operations.",
+          "scene_name": "MSB-VARIANT-20260731-000018-002",
+          "action_type": "verify_scene",
+          "scene_index": 1,
+          "operation_name": "回读验证场景：MSB-VARIANT-20260731-000018-002",
+          "operation_type": "verify_scene",
+          "operation_index": 26
+        },
+        {
+          "status": "completed",
+          "clip_id": 452250,
+          "details": {
+            "verification": {
+              "verified": true,
+              "go_live_clicked": false,
+              "verification_source": "working_room_readback"
+            },
+            "go_live_clicked": false
+          },
+          "summary": "Created draft scene MSB-VARIANT-20260731-000018-003; go-live not clicked.",
+          "scene_name": "MSB-VARIANT-20260731-000018-003",
+          "action_type": "create_draft_scene",
+          "scene_index": 2,
+          "operation_name": "新建场景：MSB-VARIANT-20260731-000018-003",
+          "operation_type": "create_scene",
+          "operation_index": 27
+        },
+        {
+          "status": "completed",
+          "clip_id": 452250,
+          "details": {
+            "verification": {
+              "fit": "cover",
+              "top": 0,
+              "left": 0,
+              "loop": false,
+              "width": 1080,
+              "height": 1920,
+              "z_index": 1,
+              "rotation": 0,
+              "verified": true,
+              "material_id": 10566246,
+              "sound_enabled": false,
+              "go_live_clicked": false,
+              "source_material_id": 37262,
+              "verification_source": "working_room_readback"
+            },
+            "go_live_clicked": false
+          },
+          "summary": "Inserted asset layer LYR-MSB-VARIANT-20260731-000018-003-01 with AssetGraph asset AG-IMG-20260729-000002.",
+          "layer_id": "LYR-MSB-VARIANT-20260731-000018-003-01",
+          "asset_code": "AG-IMG-20260729-000002",
+          "layer_type": "background",
+          "scene_name": "MSB-VARIANT-20260731-000018-003",
+          "action_type": "insert_asset_layer",
+          "scene_index": 2,
+          "operation_name": "插入素材图层：background",
+          "operation_type": "insert_asset_layer",
+          "operation_index": 28
+        },
+        {
+          "status": "completed",
+          "clip_id": 452250,
+          "details": {
+            "verification": {
+              "fit": "cover",
+              "top": 0,
+              "left": 0,
+              "loop": false,
+              "width": 1080,
+              "height": 1920,
+              "z_index": 1,
+              "rotation": 0,
+              "verified": true,
+              "material_id": 10566246,
+              "sound_enabled": false,
+              "go_live_clicked": false,
+              "source_material_id": 37262,
+              "verification_source": "working_room_readback"
+            },
+            "go_live_clicked": false
+          },
+          "summary": "Positioned layer LYR-MSB-VARIANT-20260731-000018-003-01 at x=0.0, y=0.0, z=1.",
+          "layer_id": "LYR-MSB-VARIANT-20260731-000018-003-01",
+          "asset_code": "AG-IMG-20260729-000002",
+          "layer_type": "background",
+          "scene_name": "MSB-VARIANT-20260731-000018-003",
+          "action_type": "position_asset_layer",
+          "scene_index": 2,
+          "operation_name": "定位素材图层：background",
+          "operation_type": "position_asset_layer",
+          "operation_index": 29
+        },
+        {
+          "status": "completed",
+          "clip_id": 452250,
+          "details": {
+            "verification": {
+              "fit": "contain",
+              "top": 864,
+              "left": 108,
+              "loop": false,
+              "width": 324,
+              "height": 576,
+              "z_index": 2,
+              "rotation": 0,
+              "verified": true,
+              "material_id": 10566247,
+              "sound_enabled": false,
+              "go_live_clicked": false,
+              "source_material_id": 39157,
+              "verification_source": "working_room_readback"
+            },
+            "go_live_clicked": false
+          },
+          "summary": "Inserted asset layer LYR-MSB-VARIANT-20260731-000018-003-02 with AssetGraph asset AG-IMG-20260729-000028.",
+          "layer_id": "LYR-MSB-VARIANT-20260731-000018-003-02",
+          "asset_code": "AG-IMG-20260729-000028",
+          "layer_type": "set_surface",
+          "scene_name": "MSB-VARIANT-20260731-000018-003",
+          "action_type": "insert_asset_layer",
+          "scene_index": 2,
+          "operation_name": "插入素材图层：set_surface",
+          "operation_type": "insert_asset_layer",
+          "operation_index": 30
+        },
+        {
+          "status": "completed",
+          "clip_id": 452250,
+          "details": {
+            "verification": {
+              "fit": "contain",
+              "top": 864,
+              "left": 108,
+              "loop": false,
+              "width": 324,
+              "height": 576,
+              "z_index": 2,
+              "rotation": 0,
+              "verified": true,
+              "material_id": 10566247,
+              "sound_enabled": false,
+              "go_live_clicked": false,
+              "source_material_id": 39157,
+              "verification_source": "working_room_readback"
+            },
+            "go_live_clicked": false
+          },
+          "summary": "Positioned layer LYR-MSB-VARIANT-20260731-000018-003-02 at x=108.0, y=864.0, z=2.",
+          "layer_id": "LYR-MSB-VARIANT-20260731-000018-003-02",
+          "asset_code": "AG-IMG-20260729-000028",
+          "layer_type": "set_surface",
+          "scene_name": "MSB-VARIANT-20260731-000018-003",
+          "action_type": "position_asset_layer",
+          "scene_index": 2,
+          "operation_name": "定位素材图层：set_surface",
+          "operation_type": "position_asset_layer",
+          "operation_index": 31
+        },
+        {
+          "status": "completed",
+          "clip_id": 452250,
+          "details": {
+            "verification": {
+              "fit": "contain",
+              "top": 1152,
+              "left": 324,
+              "loop": false,
+              "width": 432,
+              "height": 768,
+              "z_index": 3,
+              "rotation": 0,
+              "verified": true,
+              "material_id": 10566248,
+              "sound_enabled": false,
+              "go_live_clicked": false,
+              "source_material_id": 40999,
+              "verification_source": "working_room_readback"
+            },
+            "go_live_clicked": false
+          },
+          "summary": "Inserted asset layer LYR-MSB-VARIANT-20260731-000018-003-05 with AssetGraph asset AG-IMG-20260729-000025.",
+          "layer_id": "LYR-MSB-VARIANT-20260731-000018-003-05",
+          "asset_code": "AG-IMG-20260729-000025",
+          "layer_type": "product_display",
+          "scene_name": "MSB-VARIANT-20260731-000018-003",
+          "action_type": "insert_asset_layer",
+          "scene_index": 2,
+          "operation_name": "插入素材图层：product_display",
+          "operation_type": "insert_asset_layer",
+          "operation_index": 32
+        },
+        {
+          "status": "completed",
+          "clip_id": 452250,
+          "details": {
+            "verification": {
+              "fit": "contain",
+              "top": 1152,
+              "left": 324,
+              "loop": false,
+              "width": 432,
+              "height": 768,
+              "z_index": 3,
+              "rotation": 0,
+              "verified": true,
+              "material_id": 10566248,
+              "sound_enabled": false,
+              "go_live_clicked": false,
+              "source_material_id": 40999,
+              "verification_source": "working_room_readback"
+            },
+            "go_live_clicked": false
+          },
+          "summary": "Positioned layer LYR-MSB-VARIANT-20260731-000018-003-05 at x=324.0, y=1152.0, z=3.",
+          "layer_id": "LYR-MSB-VARIANT-20260731-000018-003-05",
+          "asset_code": "AG-IMG-20260729-000025",
+          "layer_type": "product_display",
+          "scene_name": "MSB-VARIANT-20260731-000018-003",
+          "action_type": "position_asset_layer",
+          "scene_index": 2,
+          "operation_name": "定位素材图层：product_display",
+          "operation_type": "position_asset_layer",
+          "operation_index": 33
+        },
+        {
+          "status": "completed",
+          "clip_id": 452250,
+          "details": {
+            "verification": {
+              "fit": "contain",
+              "top": 345.59999999999997,
+              "left": 86.4,
+              "loop": false,
+              "width": 388.8,
+              "height": 1228.8,
+              "z_index": 4,
+              "rotation": 0,
+              "verified": true,
+              "speaker_id": 3760,
+              "material_id": 10566249,
+              "sound_enabled": false,
+              "go_live_clicked": false,
+              "source_material_id": 37200,
+              "verification_source": "working_room_readback",
+              "digital_human_image_id": 7717
+            },
+            "go_live_clicked": false
+          },
+          "summary": "Inserted asset layer LYR-MSB-VARIANT-20260731-000018-003-03 with AssetGraph asset AG-VID-20260731-000001.",
+          "layer_id": "LYR-MSB-VARIANT-20260731-000018-003-03",
+          "asset_code": "AG-VID-20260731-000001",
+          "layer_type": "digital_human",
+          "scene_name": "MSB-VARIANT-20260731-000018-003",
+          "action_type": "insert_asset_layer",
+          "scene_index": 2,
+          "operation_name": "插入素材图层：digital_human",
+          "operation_type": "insert_asset_layer",
+          "operation_index": 34
+        },
+        {
+          "status": "completed",
+          "clip_id": 452250,
+          "details": {
+            "verification": {
+              "fit": "contain",
+              "top": 345.59999999999997,
+              "left": 86.4,
+              "loop": false,
+              "width": 388.8,
+              "height": 1228.8,
+              "z_index": 4,
+              "rotation": 0,
+              "verified": true,
+              "speaker_id": 3760,
+              "material_id": 10566249,
+              "sound_enabled": false,
+              "go_live_clicked": false,
+              "source_material_id": 37200,
+              "verification_source": "working_room_readback",
+              "digital_human_image_id": 7717
+            },
+            "go_live_clicked": false
+          },
+          "summary": "Positioned layer LYR-MSB-VARIANT-20260731-000018-003-03 at x=86.4, y=345.59999999999997, z=4.",
+          "layer_id": "LYR-MSB-VARIANT-20260731-000018-003-03",
+          "asset_code": "AG-VID-20260731-000001",
+          "layer_type": "digital_human",
+          "scene_name": "MSB-VARIANT-20260731-000018-003",
+          "action_type": "position_asset_layer",
+          "scene_index": 2,
+          "operation_name": "定位素材图层：digital_human",
+          "operation_type": "position_asset_layer",
+          "operation_index": 35
+        },
+        {
+          "status": "completed",
+          "clip_id": 452250,
+          "details": {
+            "verification": {
+              "fit": "contain",
+              "top": 192,
+              "left": 108,
+              "loop": false,
+              "width": 324,
+              "height": 576,
+              "z_index": 5,
+              "rotation": 0,
+              "verified": true,
+              "material_id": 10566250,
+              "sound_enabled": false,
+              "go_live_clicked": false,
+              "source_material_id": 40101,
+              "verification_source": "working_room_readback"
+            },
+            "go_live_clicked": false
+          },
+          "summary": "Inserted asset layer LYR-MSB-VARIANT-20260731-000018-003-04 with AssetGraph asset AG-IMG-20260729-000021.",
+          "layer_id": "LYR-MSB-VARIANT-20260731-000018-003-04",
+          "asset_code": "AG-IMG-20260729-000021",
+          "layer_type": "brand_title",
+          "scene_name": "MSB-VARIANT-20260731-000018-003",
+          "action_type": "insert_asset_layer",
+          "scene_index": 2,
+          "operation_name": "插入素材图层：brand_title",
+          "operation_type": "insert_asset_layer",
+          "operation_index": 36
+        },
+        {
+          "status": "completed",
+          "clip_id": 452250,
+          "details": {
+            "verification": {
+              "fit": "contain",
+              "top": 192,
+              "left": 108,
+              "loop": false,
+              "width": 324,
+              "height": 576,
+              "z_index": 5,
+              "rotation": 0,
+              "verified": true,
+              "material_id": 10566250,
+              "sound_enabled": false,
+              "go_live_clicked": false,
+              "source_material_id": 40101,
+              "verification_source": "working_room_readback"
+            },
+            "go_live_clicked": false
+          },
+          "summary": "Positioned layer LYR-MSB-VARIANT-20260731-000018-003-04 at x=108.0, y=192.0, z=5.",
+          "layer_id": "LYR-MSB-VARIANT-20260731-000018-003-04",
+          "asset_code": "AG-IMG-20260729-000021",
+          "layer_type": "brand_title",
+          "scene_name": "MSB-VARIANT-20260731-000018-003",
+          "action_type": "position_asset_layer",
+          "scene_index": 2,
+          "operation_name": "定位素材图层：brand_title",
+          "operation_type": "position_asset_layer",
+          "operation_index": 37
+        },
+        {
+          "status": "completed",
+          "clip_id": 452250,
+          "details": {
+            "verification": {
+              "verified": true,
+              "go_live_clicked": false,
+              "text_material_id": 10566251,
+              "verification_source": "working_room_readback",
+              "script_content_verified": true
+            },
+            "go_live_clicked": false
+          },
+          "summary": "Wrote script for scene MSB-VARIANT-20260731-000018-003; length=30.",
+          "scene_name": "MSB-VARIANT-20260731-000018-003",
+          "action_type": "write_script",
+          "scene_index": 2,
+          "operation_name": "写入脚本：MSB-VARIANT-20260731-000018-003",
+          "operation_type": "write_script",
+          "operation_index": 38
+        },
+        {
+          "status": "completed",
+          "clip_id": 452250,
+          "details": {
+            "verification": {
+              "verified": true,
+              "go_live_clicked": false,
+              "text_material_id": 10566251,
+              "expected_text_count": 1,
+              "verification_source": "working_room_readback",
+              "expected_visual_count": 5
+            },
+            "go_live_clicked": false
+          },
+          "summary": "Verified draft scene MSB-VARIANT-20260731-000018-003 after content operations.",
+          "scene_name": "MSB-VARIANT-20260731-000018-003",
+          "action_type": "verify_scene",
+          "scene_index": 2,
+          "operation_name": "回读验证场景：MSB-VARIANT-20260731-000018-003",
+          "operation_type": "verify_scene",
+          "operation_index": 39
+        },
+        {
+          "status": "completed",
+          "details": {
+            "verification": {
+              "not_live": true,
+              "verified": true,
+              "environment": "working",
+              "scene_count": 3,
+              "save_clicked": false,
+              "go_live_clicked": false,
+              "actual_scene_names": [
+                "MSB-VARIANT-20260731-000018-001",
+                "MSB-VARIANT-20260731-000018-002",
+                "MSB-VARIANT-20260731-000018-003"
+              ],
+              "verification_source": "working_room_readback",
+              "expected_scene_names": [
+                "MSB-VARIANT-20260731-000018-001",
+                "MSB-VARIANT-20260731-000018-002",
+                "MSB-VARIANT-20260731-000018-003"
+              ]
+            },
+            "go_live_clicked": false
+          },
+          "summary": "Verified that the exact offline working-room draft was automatically persisted.",
+          "action_type": "verify_draft_persisted",
+          "operation_name": "确认直播间草稿已自动保存",
+          "operation_type": "verify_draft_persisted",
+          "operation_index": 40
+        }
+      ],
+      "summary": "Script layout draft run completed: 41 operation(s) executed, 0 placeholder(s) left for manual review; go-live not clicked.",
+      "failure_count": 0,
+      "runner_status": "completed",
+      "operation_count": 41,
+      "placeholder_count": 0,
+      "ready_for_go_live": false,
+      "target_live_room_id": "41172",
+      "skipped_action_count": 0,
+      "executed_action_count": 41,
+      "manual_review_required": false
+    },
+    "authority_mode": "worker_readback",
+    "final_readback": {
+      "id": 41172,
+      "name": "asser测试",
+      "status": 0,
+      "topics": [
+        {
+          "id": 285383,
+          "name": "未命名",
+          "clips": [
+            {
+              "id": 437569,
+              "name": "MSB-VARIANT-20260731-000018-001",
+              "clip_materials": [
+                {
+                  "id": 10566238,
+                  "type": "text",
+                  "content": "今天我们围绕介绍张裕品酒大师PRO展开，目标是生成一场恰好三段的离线测试直播草稿，完整介绍张裕品酒大师PRO的产品特点、品鉴方法与适合场景。。 整体画面与节奏按以下设计执行：第一段开场建立品牌和品鉴目标；第二段展示商品或酒体视频并讲解品鉴步骤；第三段总结卖点和互动问题。\n背景必须置底，桌面承托商品，商品或视频位于背景之上，数字人位于商品内容之上，品牌标题或前景装饰位于高层。\n最终只生成三个场景，只写入离线测试草稿，不排播、不开播。。"
+                },
+                {
+                  "id": 10566234,
+                  "top": 0,
+                  "left": 0,
+                  "name": "LYR-MSB-VARIANT-20260731-000018-001-01",
+                  "type": "image",
+                  "width": 1080,
+                  "height": 1920,
+                  "z_index": 1,
+                  "style_front": {
+                    "fit": "cover",
+                    "top": 0,
+                    "left": 0,
+                    "width": 1080,
+                    "height": 1920,
+                    "zIndex": 1,
+                    "transform": {
+                      "scale": 1,
+                      "rotation": 0
+                    }
+                  },
+                  "sound_enabled": false,
+                  "source_material_id": 37262
+                },
+                {
+                  "id": 10566235,
+                  "top": 864,
+                  "left": 108,
+                  "name": "LYR-MSB-VARIANT-20260731-000018-001-02",
+                  "type": "image",
+                  "width": 324,
+                  "height": 576,
+                  "z_index": 2,
+                  "style_front": {
+                    "fit": "contain",
+                    "top": 864,
+                    "left": 108,
+                    "width": 324,
+                    "height": 576,
+                    "zIndex": 2,
+                    "transform": {
+                      "scale": 1,
+                      "rotation": 0
+                    }
+                  },
+                  "sound_enabled": false,
+                  "source_material_id": 39157
+                },
+                {
+                  "id": 10566236,
+                  "top": 345,
+                  "left": 86,
+                  "name": "LYR-MSB-VARIANT-20260731-000018-001-03",
+                  "type": "digital_human",
+                  "width": 388,
+                  "height": 1228,
+                  "z_index": 3,
+                  "speaker_id": 3760,
+                  "style_front": {
+                    "fit": "contain",
+                    "top": 345.59999999999997,
+                    "left": 86.4,
+                    "width": 388.8,
+                    "height": 1228.8,
+                    "zIndex": 3,
+                    "transform": {
+                      "scale": 1,
+                      "rotation": 0
+                    }
+                  },
+                  "sound_enabled": false,
+                  "source_material_id": 37200,
+                  "digital_human_image_id": 7717
+                },
+                {
+                  "id": 10566237,
+                  "top": 192,
+                  "left": 108,
+                  "name": "LYR-MSB-VARIANT-20260731-000018-001-04",
+                  "type": "image",
+                  "width": 324,
+                  "height": 576,
+                  "z_index": 4,
+                  "style_front": {
+                    "fit": "contain",
+                    "top": 192,
+                    "left": 108,
+                    "width": 324,
+                    "height": 576,
+                    "zIndex": 4,
+                    "transform": {
+                      "scale": 1,
+                      "rotation": 0
+                    }
+                  },
+                  "sound_enabled": false,
+                  "source_material_id": 40101
+                }
+              ]
+            },
+            {
+              "id": 452249,
+              "name": "MSB-VARIANT-20260731-000018-002",
+              "clip_materials": [
+                {
+                  "id": 10566245,
+                  "type": "text",
+                  "content": "从第一次选酒的困惑切入，用看色、闻香、品味三个动作完成产品介绍，最后回顾适合人群与品鉴建议。"
+                },
+                {
+                  "id": 10566239,
+                  "top": 0,
+                  "left": 0,
+                  "name": "LYR-MSB-VARIANT-20260731-000018-002-01",
+                  "type": "image",
+                  "width": 1080,
+                  "height": 1920,
+                  "z_index": 1,
+                  "style_front": {
+                    "fit": "cover",
+                    "top": 0,
+                    "left": 0,
+                    "width": 1080,
+                    "height": 1920,
+                    "zIndex": 1,
+                    "transform": {
+                      "scale": 1,
+                      "rotation": 0
+                    }
+                  },
+                  "sound_enabled": false,
+                  "source_material_id": 37262
+                },
+                {
+                  "id": 10566240,
+                  "top": 192,
+                  "left": 108,
+                  "name": "LYR-MSB-VARIANT-20260731-000018-002-05",
+                  "type": "video",
+                  "width": 324,
+                  "height": 576,
+                  "z_index": 2,
+                  "style_front": {
+                    "fit": "contain",
+                    "top": 192,
+                    "left": 108,
+                    "width": 324,
+                    "height": 576,
+                    "zIndex": 2,
+                    "transform": {
+                      "scale": 1,
+                      "rotation": 0
+                    }
+                  },
+                  "sound_enabled": false,
+                  "source_material_id": 40774
+                },
+                {
+                  "id": 10566241,
+                  "top": 864,
+                  "left": 108,
+                  "name": "LYR-MSB-VARIANT-20260731-000018-002-02",
+                  "type": "image",
+                  "width": 324,
+                  "height": 576,
+                  "z_index": 3,
+                  "style_front": {
+                    "fit": "contain",
+                    "top": 864,
+                    "left": 108,
+                    "width": 324,
+                    "height": 576,
+                    "zIndex": 3,
+                    "transform": {
+                      "scale": 1,
+                      "rotation": 0
+                    }
+                  },
+                  "sound_enabled": false,
+                  "source_material_id": 39157
+                },
+                {
+                  "id": 10566242,
+                  "top": 1152,
+                  "left": 324,
+                  "name": "LYR-MSB-VARIANT-20260731-000018-002-06",
+                  "type": "image",
+                  "width": 432,
+                  "height": 768,
+                  "z_index": 4,
+                  "style_front": {
+                    "fit": "contain",
+                    "top": 1152,
+                    "left": 324,
+                    "width": 432,
+                    "height": 768,
+                    "zIndex": 4,
+                    "transform": {
+                      "scale": 1,
+                      "rotation": 0
+                    }
+                  },
+                  "sound_enabled": false,
+                  "source_material_id": 40999
+                },
+                {
+                  "id": 10566243,
+                  "top": 345,
+                  "left": 86,
+                  "name": "LYR-MSB-VARIANT-20260731-000018-002-03",
+                  "type": "digital_human",
+                  "width": 388,
+                  "height": 1228,
+                  "z_index": 5,
+                  "speaker_id": 3760,
+                  "style_front": {
+                    "fit": "contain",
+                    "top": 345.59999999999997,
+                    "left": 86.4,
+                    "width": 388.8,
+                    "height": 1228.8,
+                    "zIndex": 5,
+                    "transform": {
+                      "scale": 1,
+                      "rotation": 0
+                    }
+                  },
+                  "sound_enabled": false,
+                  "source_material_id": 37200,
+                  "digital_human_image_id": 7717
+                },
+                {
+                  "id": 10566244,
+                  "top": 192,
+                  "left": 108,
+                  "name": "LYR-MSB-VARIANT-20260731-000018-002-04",
+                  "type": "image",
+                  "width": 324,
+                  "height": 576,
+                  "z_index": 6,
+                  "style_front": {
+                    "fit": "contain",
+                    "top": 192,
+                    "left": 108,
+                    "width": 324,
+                    "height": 576,
+                    "zIndex": 6,
+                    "transform": {
+                      "scale": 1,
+                      "rotation": 0
+                    }
+                  },
+                  "sound_enabled": false,
+                  "source_material_id": 40101
+                }
+              ]
+            },
+            {
+              "id": 452250,
+              "name": "MSB-VARIANT-20260731-000018-003",
+              "clip_materials": [
+                {
+                  "id": 10566251,
+                  "type": "text",
+                  "content": "结合你的实际需求选择合适方案，欢迎在互动区留下你的使用场景。"
+                },
+                {
+                  "id": 10566246,
+                  "top": 0,
+                  "left": 0,
+                  "name": "LYR-MSB-VARIANT-20260731-000018-003-01",
+                  "type": "image",
+                  "width": 1080,
+                  "height": 1920,
+                  "z_index": 1,
+                  "style_front": {
+                    "fit": "cover",
+                    "top": 0,
+                    "left": 0,
+                    "width": 1080,
+                    "height": 1920,
+                    "zIndex": 1,
+                    "transform": {
+                      "scale": 1,
+                      "rotation": 0
+                    }
+                  },
+                  "sound_enabled": false,
+                  "source_material_id": 37262
+                },
+                {
+                  "id": 10566247,
+                  "top": 864,
+                  "left": 108,
+                  "name": "LYR-MSB-VARIANT-20260731-000018-003-02",
+                  "type": "image",
+                  "width": 324,
+                  "height": 576,
+                  "z_index": 2,
+                  "style_front": {
+                    "fit": "contain",
+                    "top": 864,
+                    "left": 108,
+                    "width": 324,
+                    "height": 576,
+                    "zIndex": 2,
+                    "transform": {
+                      "scale": 1,
+                      "rotation": 0
+                    }
+                  },
+                  "sound_enabled": false,
+                  "source_material_id": 39157
+                },
+                {
+                  "id": 10566248,
+                  "top": 1152,
+                  "left": 324,
+                  "name": "LYR-MSB-VARIANT-20260731-000018-003-05",
+                  "type": "image",
+                  "width": 432,
+                  "height": 768,
+                  "z_index": 3,
+                  "style_front": {
+                    "fit": "contain",
+                    "top": 1152,
+                    "left": 324,
+                    "width": 432,
+                    "height": 768,
+                    "zIndex": 3,
+                    "transform": {
+                      "scale": 1,
+                      "rotation": 0
+                    }
+                  },
+                  "sound_enabled": false,
+                  "source_material_id": 40999
+                },
+                {
+                  "id": 10566249,
+                  "top": 345,
+                  "left": 86,
+                  "name": "LYR-MSB-VARIANT-20260731-000018-003-03",
+                  "type": "digital_human",
+                  "width": 388,
+                  "height": 1228,
+                  "z_index": 4,
+                  "speaker_id": 3760,
+                  "style_front": {
+                    "fit": "contain",
+                    "top": 345.59999999999997,
+                    "left": 86.4,
+                    "width": 388.8,
+                    "height": 1228.8,
+                    "zIndex": 4,
+                    "transform": {
+                      "scale": 1,
+                      "rotation": 0
+                    }
+                  },
+                  "sound_enabled": false,
+                  "source_material_id": 37200,
+                  "digital_human_image_id": 7717
+                },
+                {
+                  "id": 10566250,
+                  "top": 192,
+                  "left": 108,
+                  "name": "LYR-MSB-VARIANT-20260731-000018-003-04",
+                  "type": "image",
+                  "width": 324,
+                  "height": 576,
+                  "z_index": 5,
+                  "style_front": {
+                    "fit": "contain",
+                    "top": 192,
+                    "left": 108,
+                    "width": 324,
+                    "height": 576,
+                    "zIndex": 5,
+                    "transform": {
+                      "scale": 1,
+                      "rotation": 0
+                    }
+                  },
+                  "sound_enabled": false,
+                  "source_material_id": 40101
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "environment": "working",
+      "schema_version": "maitu-final-readback-evidence.v1"
+    },
+    "non_releasable": true,
+    "reset_evidence": {
+      "clear_result": {
+        "status": "cleared",
+        "clip_id": 437569,
+        "not_live": true,
+        "verified": true,
+        "live_room_id": "41172",
+        "go_live_clicked": false,
+        "verification_source": "working_room_readback",
+        "deleted_material_ids": [
+          10566233,
+          10566229,
+          10566230,
+          10566231,
+          10566232
+        ],
+        "remaining_material_count": 0
+      },
+      "go_live_clicked": false,
+      "keeper_scene_id": "437569",
+      "deleted_scene_ids": [
+        "452248"
+      ],
+      "empty_room_readback": {
+        "scenes": [
+          {
+            "name": "MSB-VARIANT-20260731-000017-001",
+            "scene_id": "437569",
+            "order_num": 0,
+            "material_count": 0
+          }
+        ],
+        "is_live": false,
+        "captured_at": "2026-07-31T14:49:40.961167+00:00",
+        "scene_count": 1,
+        "actual_title": "asser测试",
+        "title_matches": true,
+        "expected_title": "asser测试",
+        "has_live_trace": false,
+        "schema_version": "maitu-working-room-inspection.v1",
+        "go_live_clicked": false,
+        "read_environment": "working",
+        "ready_for_go_live": false,
+        "target_live_room_id": "41172"
+      }
+    },
+    "go_live_clicked": false,
+    "checkpoint_result": {
+      "finalized_at": "2026-07-31T23:57:53.612068+09:00",
+      "execution_code": "MT-EXEC-20260731-000013",
+      "result_summary": "Script layout draft run completed: 41 operation(s) executed, 0 placeholder(s) left for manual review; go-live not clicked.",
+      "build_plan_code": "MT-BUILD-20260731-000027",
+      "execution_status": "completed",
+      "ready_for_go_live": false,
+      "manual_review_required": false,
+      "expected_operation_count": 41
+    },
+    "ready_for_go_live": false,
+    "target_live_room_id": "41172",
+    "layer_order_validation": {
+      "passed": true,
+      "scenes": [
+        {
+          "scene_id": "437569",
+          "scene_name": "MSB-VARIANT-20260731-000018-001",
+          "scene_index": 0,
+          "visual_count": 4,
+          "layer_numbers": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "script_matched": true,
+          "highest_layer_type": "image",
+          "exact_expected_order": true,
+          "expected_layer_order": [
+            "LYR-MSB-VARIANT-20260731-000018-001-01",
+            "LYR-MSB-VARIANT-20260731-000018-001-02",
+            "LYR-MSB-VARIANT-20260731-000018-001-03",
+            "LYR-MSB-VARIANT-20260731-000018-001-04"
+          ],
+          "observed_layer_order": [
+            "LYR-MSB-VARIANT-20260731-000018-001-01",
+            "LYR-MSB-VARIANT-20260731-000018-001-02",
+            "LYR-MSB-VARIANT-20260731-000018-001-03",
+            "LYR-MSB-VARIANT-20260731-000018-001-04"
+          ]
+        },
+        {
+          "scene_id": "452249",
+          "scene_name": "MSB-VARIANT-20260731-000018-002",
+          "scene_index": 1,
+          "visual_count": 6,
+          "layer_numbers": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "script_matched": true,
+          "highest_layer_type": "image",
+          "exact_expected_order": true,
+          "expected_layer_order": [
+            "LYR-MSB-VARIANT-20260731-000018-002-01",
+            "LYR-MSB-VARIANT-20260731-000018-002-05",
+            "LYR-MSB-VARIANT-20260731-000018-002-02",
+            "LYR-MSB-VARIANT-20260731-000018-002-06",
+            "LYR-MSB-VARIANT-20260731-000018-002-03",
+            "LYR-MSB-VARIANT-20260731-000018-002-04"
+          ],
+          "observed_layer_order": [
+            "LYR-MSB-VARIANT-20260731-000018-002-01",
+            "LYR-MSB-VARIANT-20260731-000018-002-05",
+            "LYR-MSB-VARIANT-20260731-000018-002-02",
+            "LYR-MSB-VARIANT-20260731-000018-002-06",
+            "LYR-MSB-VARIANT-20260731-000018-002-03",
+            "LYR-MSB-VARIANT-20260731-000018-002-04"
+          ]
+        },
+        {
+          "scene_id": "452250",
+          "scene_name": "MSB-VARIANT-20260731-000018-003",
+          "scene_index": 2,
+          "visual_count": 5,
+          "layer_numbers": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "script_matched": true,
+          "highest_layer_type": "image",
+          "exact_expected_order": true,
+          "expected_layer_order": [
+            "LYR-MSB-VARIANT-20260731-000018-003-01",
+            "LYR-MSB-VARIANT-20260731-000018-003-02",
+            "LYR-MSB-VARIANT-20260731-000018-003-05",
+            "LYR-MSB-VARIANT-20260731-000018-003-03",
+            "LYR-MSB-VARIANT-20260731-000018-003-04"
+          ],
+          "observed_layer_order": [
+            "LYR-MSB-VARIANT-20260731-000018-003-01",
+            "LYR-MSB-VARIANT-20260731-000018-003-02",
+            "LYR-MSB-VARIANT-20260731-000018-003-05",
+            "LYR-MSB-VARIANT-20260731-000018-003-03",
+            "LYR-MSB-VARIANT-20260731-000018-003-04"
+          ]
+        }
+      ],
+      "continuous_from_one": true,
+      "video_never_highest": true,
+      "exact_expected_order": true,
+      "exact_geometry_and_source": true
+    }
+  },
+  "error": null,
+  "ready_for_go_live": false
+}

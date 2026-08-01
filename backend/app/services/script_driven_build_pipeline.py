@@ -106,7 +106,7 @@ class ScriptDrivenBuildPipeline:
                 continue
             operation["status"] = "blocked_script_quality"
             operation["blocked_reason"] = "script_quality_review_required"
-            if operation.get("operation_type") == "save_draft":
+            if operation.get("operation_type") in {"save_draft", "verify_draft_persisted"}:
                 operation["instruction"] = (
                     "剧本质量或目标时长素材仍需人工复核；只允许审阅草稿，不点击正式开播。"
                 )

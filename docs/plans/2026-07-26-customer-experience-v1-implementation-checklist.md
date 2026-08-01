@@ -13,6 +13,8 @@
 - 只以客户可完成的任务作为功能完成依据。只有文档、模型或安全准备而没有可操作界面/API 时，不得勾选对应功能。
 - `Release A -> Release B -> 测试与反思` 顺序推进；不以归档清单的 Phase 门禁阻塞 v1。
 - 麦兔变更能力只有经过真实账号 canary、目标校验和刷新回读后才能标记 `verified`。模拟测试只证明契约，不证明真实可用。
+- 旧的直接脚本写入只属于 `adapter_validation`；只有从 Console 页面提交、进入真实队列、由常驻 worker 完成并刷新回读的证据才能标记 `product_e2e`。
+- 普通房间仍要求空白；仅 ADR-0003 白名单中的离线测试房允许展示待删除场景、显式确认并整房重建，首期白名单仅 `41172`。
 - 当前分母只统计本文件的 `V1-*` 条目。范围变化先更新 ADR-0003，再更新本清单。
 
 ### 范围映射
@@ -49,14 +51,14 @@
 - [x] `V1-0104` 自动草稿按钮只在全部必需能力 `verified` 时可用；否则保留方案生成并给出人工交接说明。证据：`LiveRoomPlannerPage.test.tsx` 验证人工模式、禁用写入按钮和保留 BuildPlan 提示。
 - [x] `V1-0105` 客户必须填写直播间 ID、标题并确认目标为空白未开播草稿。证据：`FunctionalLiveRoomPlanCreate` 必填 schema、表单提交条件与执行确认控件。
 - [x] `V1-0106` 为能力矩阵补齐后端契约测试和前端降级行为测试。证据：`pytest backend/tests/test_maitu_capabilities.py` 2 passed；Vitest live-room API/Page 9 passed；`npm run typecheck` passed。
-- [ ] `V1-0107` 在当前真实麦兔账号运行只读 canary，记录房间标题、状态和适配器契约指纹。
-- [ ] `V1-0108` 对每项计划启用的变更分别运行真实 canary，并保存变更前、执行后、刷新回读证据；未通过项维持人工模式。
+- [x] `V1-0107` 在当前真实麦兔账号运行只读 canary，记录房间标题、状态和适配器契约指纹。证据等级：`adapter_validation`。真实房间 `41172` 回读得到标题 `asser测试`、`status=0`、无开播会话/时间，契约 `maitu-web-working-room.internal.v1` 指纹 `c19b5ca...c1213`；详见 `docs/evidence/maitu-41172-zhangyu-pro-final-readback.json`。
+- [x] `V1-0108` 对每项计划启用的变更分别运行真实 canary，并保存变更前、执行后、刷新回读证据；未通过项维持人工模式。证据等级：`adapter_validation`。`41172` 实际完成删除旧场景、清空图层、复用/新建场景、完整替换图层和写入话术，每步回读后再刷新独立回读；详见 `docs/evidence/maitu-41172-zhangyu-pro-rebuild-attempt.md`。
 
 ### 1.2 素材库、约束、选材与缺口
 
 - [x] `V1-0201` 客户可同步/导入普通图片和视频，并看到同步状态、缩略图、来源与可执行能力。证据：素材页本地文件导入、对象存储代理预览；2026-07-29 扫描 `/DATA/Downloads/AssetGraph/素材` 得到 63 份当前本地图片/视频并导入验收库，`GET /api/assets?limit=500` 返回 131 条（含历史兼容记录），63 份当前素材预览逐条返回 206；报告见 `docs/asset-numbering/import_report_20260729_current_local_materials.json` 与 `docs/asset-numbering/import_report_20260729_local_materials.json`，后端文件/预览 2 passed，前端 76 passed、TypeScript/生产构建通过。
 - [x] `V1-0202` 每份素材独立保存 `media_kind`、多值 `material_role` 和 `execution_capability`，UI 不从文件类型推断业务角色。证据：分类编辑器与批量三轴校正测试；`AssetClassificationUpdate` 独立字段契约。
-- [x] `V1-0203` 客户可配置位置范围、宽高/缩放、是否等比、顶层/底层和层级关系约束。证据：素材约束编辑器覆盖 region/size/scale/aspect/layer/relative kinds，并保存不可变 Profile 修订。
+- [x] `V1-0203` 客户可配置位置范围、宽高/缩放、是否等比、顶层/底层和层级关系约束。证据：素材约束编辑器覆盖 region/size/scale/aspect/layer/relative kinds，并保存不可变 Profile 修订；2026-07-31 增加严格层级带和角色关系 DAG 编译，输出唯一连续 `1..N`，模板顺序不得覆盖硬约束。
 - [x] `V1-0204` 客户可表达“商品位于背景桌面区域且在背景之上”等跨素材关系，并获得可理解的冲突反馈。证据：`table_surface`、`above_role/below_role` 结构化编辑器及桌面约束页面/编译测试。
 - [x] `V1-0205` 客户可创建、编辑和删除素材分组；同一素材可加入多个分组。证据：分组设置 UI、独立成员关系、软归档 migration 098；backend 2 passed/3 DB skipped，frontend AssetLibrary 11 passed。
 - [x] `V1-0206` 客户可创建和发布素材包，配置必用、可选和角色排他规则。证据：素材包创建/发布/新修订 UI，出现次数页面测试及 material-pack route tests。
@@ -96,17 +98,37 @@
 ### 1.5 麦兔草稿与本地成片
 
 - [x] `V1-0501` 草稿执行前读取并核对目标房间 ID、标题、空白状态和未开播状态，任一不符即停止。证据：BuildPlan 冻结 `target_live_room_id/expected_title`；worker 写前读取 working room 并零副作用拒绝 ID、标题、空白或直播状态不符；后端权威回读重复核对标题；相关 backend/worker 62 passed。
-- [ ] `V1-0502` 经验证的适配器可使用已有素材、数字人和音色，并可按能力矩阵上传普通图片/视频。
-- [ ] `V1-0503` 经验证的适配器可创建场景、插入图层、设置矩形位置/层级并写入话术。
+- [x] `V1-0502` 经验证的适配器可使用已有素材、数字人和音色，并可按能力矩阵上传普通图片/视频。证据等级：`adapter_validation`。`41172` 三场景均真实复用 8 个图片/视频素材和数字人 `material_id=37200`、音色 `speaker_id=3760`，刷新回读匹配。普通图片/视频自动上传未做 canary，按能力矩阵继续为 `manual_only`。
+- [x] `V1-0503` 经验证的适配器可创建场景、插入图层、设置矩形位置/层级并写入话术。证据等级：`adapter_validation`。层序修正后复用 `437569`、创建 `451296/451297`，每场一次写入 9 个图层；三场均回读唯一连续层级 `1..9`，背景=1、全屏产品视频=2、数字人=3、标题=9，`layer_n` 与 `style_front.zIndex` 一致，三段话术逐字匹配。
 - [x] `V1-0504` 执行后刷新重读房间，并将场景、图层、话术和目标房间的对比结果展示给客户。证据：每场景 `verify_scene` 重新读取 working room；readback v2 投影目标 ID/标题、场景名、素材/矩形/层级和完整话术的 `matched/mismatch/pending` 对比；页面回读区域与差异测试通过。
 - [x] `V1-0505` 任一麦兔能力不可用时，客户可查看完整人工操作清单，且系统不把人工交接记为自动成功。证据：操作清单展示中文动作、状态、指令、房间/场景、素材绑定、矩形/层级、数字人/音色、完整话术及全部冻结字段；能力矩阵未验证时持续显示人工模式，不开放自动写入按钮。
-- [ ] `V1-0506` 使用真实空白房间完成一次完整草稿 canary；证据包含前后截图、回读和契约指纹。
+- [x] `V1-0506` 使用真实空白房间完成一次完整草稿 canary；证据包含前后截图、回读和契约指纹。证据等级：`adapter_validation`。测试房 `41172` 清空后先回读 `1 clip / 0 materials`，再完成 3 场景 / 27 视觉图层 / 3 段话术写入；前后截图、执行结果、独立刷新回读和指纹见 `docs/evidence/maitu-41172-zhangyu-pro-rebuild-attempt.md`。
 - [x] `V1-0510` video 分支与 live-room 分支使用同一已确认内容修订和素材快照。证据：live-room 派生成片固定同一 confirmed ContentProject/StoryBrief/Script/ShotList，并把来源 ProductionVariant 修订、完整 material snapshot 与指纹继承到 rendered_video snapshot；页面展示来源快照，成片本地素材作为独立分支增量。
 - [x] `V1-0511` 系统生成确定性竖屏时间轴、字幕、音频和渲染任务，不依赖交互式剪辑器。证据：固定 1080x1920/30fps RenderProfile、确定性 video/audio/subtitle 三轨时间轴、TTS/ASS/FFmpeg 本地任务；聚焦 backend 82 passed。
 - [x] `V1-0512` 客户可预览时间轴片段并调整顺序、时长、素材和字幕，然后生成新修订。证据：成片播放/镜头跳转、片段排序与时长、源素材区间/裁切/变速、叠加层、字幕/音量/海报时间编辑、不可变修订和历史恢复；frontend 6 passed。
 - [x] `V1-0513` 本地渲染产出可播放 MP4、封面、字幕和 manifest，并展示失败修复建议。证据：成片播放/封面/联系表和中文产物下载入口；按内容、素材、配音、字幕、渲染、质检阶段展示可执行修复动作；backend 83 passed、frontend 8 passed。
 - [x] `V1-0514` 相同输入与工具版本可复现相同时间轴/manifest 指纹；媒体编码差异须显式记录。证据：页面展示确定性 timeline 指纹、manifest 指纹及下载入口；manifest 固定素材/语音/字幕校验和、FFmpeg/ffprobe 版本、编码和输出校验和；重试 diff 区分固定输入下输出变化与输入/工具变化。
 - [x] `V1-0515` 用同一内容项目完成直播间方案与本地 MP4 双分支验收并保存截图/产物。证据：`CONTENT-20260725-000002 r1` 同源生成 ready 直播间方案与 QC-passed 成片；本地 MP4 为 1080x1920/H.264/AAC/30 秒，五类产物和两张完整页面截图均记录 SHA-256；详见 `docs/evidence/customer-v1-v1-0515-dual-branch.json`。
+
+### 1.6 真正端到端加速包
+
+- [x] `V1-0520` 为当前 63 份本地素材登记原文件技术记录，宽高/时长/MIME/checksum 全覆盖，扫描器排除预览与对象缓存。证据：`docs/evidence/customer-v1-v1-0520-0524-material-bootstrap-verification.json`
+- [x] `V1-0521` 对 63 份素材批量推断角色、缩放、区域和图层约束；低置信结果具有显式 `review_required` 状态且不写猜测性硬约束。证据：`docs/evidence/customer-v1-v1-0520-0524-material-bootstrap-apply.json`
+- [x] `V1-0522` 用真实麦兔 inventory 对账素材绑定，并建立来源素材 `37200`、数字人 `7717`、音色 `3760` 的复合可执行绑定；未验证对象不得提升为 `maitu_bound`。证据：`docs/evidence/customer-v1-v1-0520-0524-material-bootstrap-verification.json`
+- [x] `V1-0523` 素材分类复核、执行绑定和权利/使用状态保持独立；bootstrap 不改版权，测试草稿例外永久不可发布。证据：`docs/evidence/customer-v1-v1-0520-0524-material-bootstrap-idempotent-apply.json`
+- [x] `V1-0524` 素材 bootstrap 支持 dry-run/apply、输入指纹、重复执行不产生新修订，并保存逐素材 before/after 报告和页面抽检证据。证据：`docs/evidence/customer-v1-v1-0520-0524-material-bootstrap-idempotent-apply.json`、`docs/evidence/customer-v1-v1-0524-material-bootstrap-page.json`、`docs/evidence/screenshots/customer-v1-v1-0524-material-bootstrap-page.png`
+- [x] `V1-0530` 素材约束从保存、选材快照、Blueprint 到 BuildPlan 和 worker 完整传递，模板原始层序不得覆盖编译结果。证据：`docs/evidence/customer-v1-v1-0530-0532-layer-contract.json`
+- [x] `V1-0531` 图层 DAG 阻断硬冲突和循环，硬置顶/置底形成不可穿越层级带，结果稳定压缩为唯一连续的底到顶 `1..N`。证据：`docs/evidence/customer-v1-v1-0530-0532-layer-contract.json`
+- [x] `V1-0532` 场景编辑器不暴露可绕过硬规则的裸层级数字；用户只能在允许层级带内调整并看到中文约束原因。证据：`docs/evidence/customer-v1-v1-0530-0532-layer-contract.json`
+- [x] `V1-0533` worker 仅使用编译层序并逐层回读；层号不连续、硬关系不符或商品/酒体视频位于最高层时整次执行失败。证据：真实 41172 三场景回读层号连续、顺序/来源/几何精确匹配且视频均非最高层；故障注入覆盖层序、来源、几何和视频置顶失败，见 `docs/evidence/live-room-41172-product-e2e-2026-07-31T14-48-54-818Z/final-validation.json`、`docs/evidence/customer-v1-v1-0810-0811-live-room-test-matrix.json`。
+- [x] `V1-0540` 直播间配置页在同一入口填写房间 ID、麦兔当前标题、生成目标、主题、故事和详细设计，并支持一个主模板、多个次模板、素材组和零散素材。证据：`docs/evidence/live-room-41172-product-e2e-2026-07-31T14-48-54-818Z/run-report.json`、`docs/evidence/live-room-41172-product-e2e-2026-07-31T14-48-54-818Z/01-input-and-material-selection.png`
+- [x] `V1-0541` 一次页面提交自动创建并确认内容项目、DesignBrief、三段剧本/节目段/Shot、MaituSceneBlueprint 和 BuildPlan；刷新或重试不重复创建。证据：`docs/evidence/customer-v1-v1-0541-unified-generation-idempotency.json`
+- [x] `V1-0542` 页面通过常驻浏览器 worker 读取并展示房间实际标题、直播状态、场景清单和现场指纹；`41172` 必须精确匹配 `asser测试`。证据：权威 working-room 回读为 41172/asser测试/offline，展示 2 个原场景及指纹，见 `docs/evidence/live-room-41172-product-e2e-2026-07-31T14-48-54-818Z/04-room-inspection-readback.png`、`docs/evidence/live-room-41172-product-e2e-2026-07-31T14-48-54-818Z/runtime-reset-plan.json`。
+- [x] `V1-0543` `replace_test_draft` 只对白名单离线测试房开放，展示待删除场景并绑定显式确认；直播、未知状态或现场漂移均零删除阻断。证据：页面显式展示并确认 2 个场景，真实清空仅删除已确认对象；直播/未知/指纹漂移零副作用测试通过，见 `docs/evidence/live-room-41172-product-e2e-2026-07-31T14-48-54-818Z/runtime-reset-plan.json`、`docs/evidence/customer-v1-v1-0810-0811-live-room-test-matrix.json`。
+- [x] `V1-0544` Functional Plan 确认原子创建真实 Draft Job；常驻 worker 自动领取，页面展示真实阶段、中文失败原因、重试和对账动作。证据：真实 Job `MT-WB-EXEC-20260731-000015` 自动经历准备素材、清空、搭建、写话术、回读和成功；失败 Job 通过页面对账关闭且不可重放，见 `docs/evidence/customer-v1-v1-0533-0552-product-e2e-index.md`、`docs/evidence/live-room-41172-000014-before-reconcile.png`、`docs/evidence/live-room-41172-000014-after-reconcile.png`。
+- [x] `V1-0550` Playwright 只通过 Console 页面完成 41172 的三段内容生成、画布审核和“清空并重建测试草稿”，不得直接调用生成 API 代替点击。证据：等级为 `product_e2e`；9 个 mutation 全部标记为 Console 页面交互触发，最终 GET 只用于采证，见 `docs/evidence/live-room-41172-product-e2e-2026-07-31T14-48-54-818Z/run-report.json`。
+- [x] `V1-0551` 麦兔和工作台刷新后均回读恰好 3 个场景，素材、话术和层序一致，视频不在最高层且 `go_live=false`。证据：等级为 `product_e2e`；三场景 4/6/5 个视觉图层均连续且精确匹配，刷新后仍为 3 场景，见 `docs/evidence/live-room-41172-product-e2e-2026-07-31T14-48-54-818Z/final-validation.json`、`docs/evidence/live-room-41172-product-e2e-2026-07-31T14-48-54-818Z/console-refresh-verification.json`。
+- [x] `V1-0552` 归档页面阶段截图、素材报告、BuildPlan、runtime reset plan、Job 事件/checkpoint 和最终麦兔回读；新证据标记 `product_e2e`，旧直接脚本证据保持 `adapter_validation`。证据：等级为 `product_e2e`；完整索引和等级隔离见 `docs/evidence/customer-v1-v1-0533-0552-product-e2e-index.md`、`docs/evidence/live-room-41172-product-e2e-2026-07-31T14-48-54-818Z`。
 
 ## 2. Release B：数据反馈与复用
 
@@ -142,11 +164,38 @@
 - [x] `V1-0806` 复盘所有对外承诺与真实证据，删除或改写任何“代码存在即能力可用”的呈现。证据：逐领域对照表 `docs/evidence/customer-v1-v1-0806-promise-evidence-audit.md`；平台值守改为待验证增强项，麦兔 `read_room` 因缺少当前契约指纹从 `verified` 降为 `manual_only`；backend 2、frontend 12 项专项测试及 TypeScript 通过。
 - [x] `V1-0807` 建立未完成/已知限制清单，按客户影响排序；安全冗余不得挤占 P0/P1 客户问题。证据：`docs/evidence/customer-v1-v1-known-limitations.md` 按 P0 外部结果、P1 首用体验、P2 主动边界排序；所有待提供输入集中在 `docs/evidence/customer-v1-v1-external-acceptance-inputs.md`，不阻塞本地工作。
 - [ ] `V1-0808` 产品与实际运营用户完成最终验收，明确 Release A、Release B 的可用结论和下一轮范围。
+- [x] `V1-0810` 补齐素材约束、循环冲突、硬置顶/置底、禁止置顶、BuildPlan 确定性和任意房间覆盖不可绕过的单元/属性测试。证据：后端聚焦 43 passed/1 环境跳过，含 Hypothesis 顺序不变性和房间覆盖硬约束，见 `docs/evidence/customer-v1-v1-0810-0811-live-room-test-matrix.json`。
+- [x] `V1-0811` 补齐清空重建、素材先解析、租约失效、worker 崩溃、不确定副作用、失败恢复和 mismatch 不得成功的集成测试。证据：worker 聚焦 131 passed，并显式断言素材解析、checkpoint、reset 的执行顺序；真实破坏性失败也经页面对账关闭，见 `docs/evidence/customer-v1-v1-0810-0811-live-room-test-matrix.json`、`docs/evidence/live-room-41172-000014-after-reconcile.png`。
+- [x] `V1-0812` 执行 UI-only Playwright，保存输入、房间检查、删除确认、画布、真实执行阶段和成功回读的截图。证据：输入、画布、检查、删除、确认、六阶段、成功及刷新共 14 张截图，页面 16 次点击、0 人工介入，见 `docs/evidence/customer-v1-v1-0533-0552-product-e2e-index.md`。
+- [x] `V1-0813` 运行证据完整性检查，确保每个新勾选项都有测试、存在的证据路径和单条执行记录，且没有把适配器验证冒充产品端到端。证据：22/22 加速包条目通过路径、单条记录和证据等级审计，见 `docs/evidence/customer-v1-v1-0813-checklist-audit.json`。
+- [x] `V1-0814` 记录端到端任务耗时、点击次数、错误次数、工程师介入点、中文错误可理解性和下一轮体验改进结论。证据：最终 556743ms、16 次点击、0 错误、0 人工介入，并记录阶段回跳、执行耗时和代理预览改进，见 `docs/evidence/live-room-41172-product-e2e-2026-07-31T14-48-54-818Z/experience-baseline.json`。
 
 ## 4. 执行记录
 
 | 日期 | 条目 | 结果 | 证据 | 已知限制 |
 | --- | --- | --- | --- | --- |
+| 2026-07-31 | `V1-0520` | done | 63/63 原文件技术记录与 checksum；`docs/evidence/customer-v1-v1-0520-0524-material-bootstrap-verification.json` | 本地路径只作存储定位，不进入输入指纹 |
+| 2026-07-31 | `V1-0521` | done | 63 份确定性分类、角色与约束；`docs/evidence/customer-v1-v1-0520-0524-material-bootstrap-apply.json` | 无法可靠识别时仍保留待复核机制，本批经画面抽检后为 0 |
+| 2026-07-31 | `V1-0522` | done | 62 个本地执行绑定、1 个仅参考对象及 37200/7717/3760 复合绑定；`docs/evidence/customer-v1-v1-0520-0524-material-bootstrap-verification.json` | 绑定范围仅限当前麦兔测试草稿环境 |
+| 2026-07-31 | `V1-0523` | done | 重复 apply 前后版权状态一致；`docs/evidence/customer-v1-v1-0520-0524-material-bootstrap-idempotent-apply.json` | 64 个对象版权仍为待确认，测试例外不可发布 |
+| 2026-07-31 | `V1-0524` | done | 重复 apply 不增加修订；64 份素材页面计数一致、预览与约束无重叠；`docs/evidence/customer-v1-v1-0524-material-bootstrap-page.json` | 麦兔原生数字人没有本地图片，页面使用明确占位而不请求失效预览 |
+| 2026-07-31 | `V1-0540` | done | 同页填写六类业务输入并展示主/次模板、素材组和零散素材；页面锁定 37262/39157/40999/40774、37200+7717+3760 与 40101，且预览/绑定验证完成；`docs/evidence/live-room-41172-product-e2e-2026-07-31T14-48-54-818Z/run-report.json` | 本次真实选择为 6 份零散素材，分组和模板控件由页面测试覆盖 |
+| 2026-07-31 | `V1-0530` | done | 约束随角色选择、Blueprint、BuildPlan 操作传播，旧 z 值被编译结果覆盖；`docs/evidence/customer-v1-v1-0530-0532-layer-contract.json` | 真实麦兔逐层回读由 `V1-0533` 单独验收 |
+| 2026-07-31 | `V1-0531` | done | 硬层级带、相对 DAG、循环阻断、禁止置顶和连续 `1..N` 共纳入后端 22 条测试；`docs/evidence/customer-v1-v1-0530-0532-layer-contract.json` | 软规则仅记录偏差，不可替代硬门禁 |
+| 2026-07-31 | `V1-0532` | done | 编辑器仅允许层级带内上下移动，保存/执行前重新编译；前端 12 条测试；`docs/evidence/customer-v1-v1-0530-0532-layer-contract.json` | 场景结构增删仍通过重新生成内容链完成 |
+| 2026-07-31 | `V1-0541` | done | 统一页面命令与 PostgreSQL 方案幂等回归通过；`docs/evidence/customer-v1-v1-0541-unified-generation-idempotency.json` | 真实 41172 写入和刷新一致性由 `V1-0550`-`V1-0552` 验收 |
+| 2026-07-31 | `V1-0533` | done | 真实三场逐层回读和故障注入均通过；`docs/evidence/live-room-41172-product-e2e-2026-07-31T14-48-54-818Z/final-validation.json` | 仅验收当前麦兔 working-room 契约 |
+| 2026-07-31 | `V1-0542` | done | 页面展示 41172/asser测试/offline、2 个原场景和现场指纹；`docs/evidence/live-room-41172-product-e2e-2026-07-31T14-48-54-818Z/04-room-inspection-readback.png` | 房间读取依赖已登录的常驻浏览器会话 |
+| 2026-07-31 | `V1-0543` | done | 白名单、精确标题、离线、指纹和显式删除确认通过；`docs/evidence/live-room-41172-product-e2e-2026-07-31T14-48-54-818Z/runtime-reset-plan.json` | 只开放 41172 离线测试草稿 |
+| 2026-07-31 | `V1-0544` | done | 真 Job 自动领取、六阶段进度、失败对账关闭与不可重放通过；`docs/evidence/customer-v1-v1-0533-0552-product-e2e-index.md` | 当前常驻 worker 为单任务串行执行 |
+| 2026-07-31 | `V1-0550` | done | UI-only 三段内容生成、画布检查和清空重建通过；`docs/evidence/live-room-41172-product-e2e-2026-07-31T14-48-54-818Z/run-report.json` | 证据等级 `product_e2e`，未直接调用 mutation API |
+| 2026-07-31 | `V1-0551` | done | 麦兔与 Console 刷新后均为 3 场，话术、来源、几何和层序匹配；`docs/evidence/live-room-41172-product-e2e-2026-07-31T14-48-54-818Z/final-validation.json` | 证据等级 `product_e2e`，未开播 |
+| 2026-07-31 | `V1-0552` | done | 14 张阶段截图、素材/清空/BuildPlan/Job/checkpoint/回读证据齐备；`docs/evidence/customer-v1-v1-0533-0552-product-e2e-index.md` | 旧直接脚本证据仍为 `adapter_validation` |
+| 2026-07-31 | `V1-0810` | done | 约束、循环、层级带、禁止置顶、确定性和覆盖门禁聚焦通过；`docs/evidence/customer-v1-v1-0810-0811-live-room-test-matrix.json` | 专用 PostgreSQL checkpoint E2E 因测试 URL 未配置跳过，真实产品 E2E 使用运行库通过 |
+| 2026-07-31 | `V1-0811` | done | 清空、解析顺序、租约、不确定副作用、恢复和 mismatch 聚焦通过；`docs/evidence/customer-v1-v1-0810-0811-live-room-test-matrix.json` | 当前外部供应商断网仍需人工确认现场后再建新任务 |
+| 2026-07-31 | `V1-0812` | done | UI-only 14 张关键截图和刷新验证齐备；`docs/evidence/customer-v1-v1-0533-0552-product-e2e-index.md` | 麦兔最终权威结果以 working-room JSON 回读为准 |
+| 2026-07-31 | `V1-0813` | done | 22/22 加速包条目证据审计通过；`docs/evidence/customer-v1-v1-0813-checklist-audit.json` | 其余 5 个外部验收项不在本审计的加速包范围 |
+| 2026-07-31 | `V1-0814` | done | 9分16.743秒、16 点击、0 错误、0 人工介入及下一轮体验优先级；`docs/evidence/live-room-41172-product-e2e-2026-07-31T14-48-54-818Z/experience-baseline.json` | 真实执行耗时和阶段回跳是下一轮 P0 体验问题 |
 | 2026-07-26 | `V1-0001` | done | ADR-0003 | 单团队 v1，不代表企业生产就绪 |
 | 2026-07-26 | `V1-0002` | done | 新旧 checklist 状态与互链 | 原 577 项仍保留供后续生产化 |
 | 2026-07-26 | `V1-0101`-`V1-0102` | done | 能力矩阵 API、确定性指纹、2 条后端测试 | `verified` 不等于所有变更已通过 canary |
@@ -192,3 +241,5 @@
 | 2026-07-26 | `V1-0805` | done | loading/empty/error/partial/stale/conflict/manual 七态；frontend 45、backend 2、worker 3 | 外部供应商与真实麦兔故障仍不得以测试替代 canary |
 | 2026-07-26 | `V1-0806` | done | 全域承诺/证据审计；平台采集文案降级，麦兔读取降为 `manual_only`；真实登录页探测后修复 SPA 瞬态误判；最终 backend 904、frontend 142、browser-use 388 通过 | 历史截图保留为历史证据，但不再冒充当前契约可用性；只读尝试见 `docs/evidence/customer-v1-v1-0107-maitu-readonly-attempt.md` |
 | 2026-07-26 | `V1-0807` | done | P0/P1/P2 已知限制与一次性外部验收输入清单 | P0 外部 canary 和真实业务样例、P1 新用户测试仍保持开放 |
+| 2026-07-31 | `V1-0107`、`V1-0108`、`V1-0502`、`V1-0503`、`V1-0506` | done | 真实麦兔测试房 `41172` 只读预检、清空、3 场景/27 图层/3 话术写入、顶层与缩放坐标独立验证、页面刷新与独立回读；前后截图、指纹和中止记录已落盘 | 已有素材/数字人/音色复用已通过；普通素材自动上传和前端生产队列仍保持 `manual_only`；未开播 |
+| 2026-07-31 | `V1-0203`、`V1-0204`、`V1-0503` | done | 新增严格底层/普通/顶层带与角色关系 DAG；硬冲突阻断，成功层序压缩为唯一连续 `1..N`，同步写入 `z_order/z_index`。素材页按名称或编号搜索，层级关系可区分“必须/尽量”且保存不丢未展示规则。41172 三场真实回读均为背景=1、视频=2、数字人=3、标题=9；证据见 `docs/evidence/maitu-41172-layer-order-correction.md`。backend `782 passed, 138 skipped`，Browser-use `413 passed`，frontend `90 passed`，TypeScript/构建/Ruff 通过。 | 当前网页只能试听单段 TTS；完整动态画面仍需麦兔桌面端逐场“实时预览”。本次未点击正式开播。 |

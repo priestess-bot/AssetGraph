@@ -4,6 +4,7 @@ import hashlib
 import json
 from dataclasses import dataclass, field
 from typing import Any, Callable, Protocol, TypeVar
+from urllib.parse import urlsplit, urlunsplit
 from uuid import UUID, uuid4
 
 from .script_layout_draft_executor import (
@@ -14,6 +15,13 @@ from .script_layout_draft_executor import (
 )
 
 T = TypeVar("T")
+
+_DURABLE_URL_FIELDS = {
+    "source_material_url",
+    "source_cover_url",
+    "url",
+    "cover_url",
+}
 
 
 class ScriptLayoutCheckpointClient(Protocol):
@@ -68,11 +76,19 @@ class ScriptLayoutCheckpointClient(Protocol):
 
 def _durable_execution_value(value: Any) -> Any:
     if isinstance(value, dict):
-        return {
-            key: _durable_execution_value(item)
-            for key, item in value.items()
-            if key not in {"material_resolution_status", "material_resolution_reason"}
-        }
+        durable: dict[str, Any] = {}
+        for key, item in value.items():
+            if key in {"material_resolution_status", "material_resolution_reason"}:
+                continue
+            if key in _DURABLE_URL_FIELDS and isinstance(item, str):
+                parsed = urlsplit(item)
+                if parsed.scheme in {"http", "https"} and parsed.netloc:
+                    durable[key] = urlunsplit(
+                        (parsed.scheme, parsed.netloc, parsed.path, "", "")
+                    )
+                    continue
+            durable[key] = _durable_execution_value(item)
+        return durable
     if isinstance(value, list):
         return [_durable_execution_value(item) for item in value]
     return value
@@ -122,6 +138,7 @@ def _action_completion_verified(action: ScriptLayoutDraftActionResult) -> bool:
         "position_asset_layer": "position_result",
         "write_script": "write_result",
         "verify_scene": "verify_result",
+        "verify_draft_persisted": "draft_result",
     }.get(action.operation_type or "")
     if result_field is None:
         return action.operation_type in {"placeholder_required", "save_draft"}
@@ -188,7 +205,7 @@ class AssetGraphScriptLayoutCheckpointStore:
             "source_plan_fingerprint": source_plan_fingerprint,
             "target_live_room_id": target_live_room_id,
             "operations": [
-                {"operation_index": index, "intent": operation}
+                {"operation_index": index, "intent": _durable_execution_value(operation)}
                 for index, operation in enumerate(operations)
             ],
             "mode": "script_layout_draft",
@@ -313,7 +330,7 @@ class AssetGraphScriptLayoutCheckpointStore:
         checkpoint = self.operation_checkpoints[operation_index]
         payload = {
             **self._fenced_payload(operation_index),
-            "evidence": {
+            "evidence": _durable_execution_value({
                 **evidence,
                 "verified": True,
                 "checkpoint_invalid": True,
@@ -321,7 +338,7 @@ class AssetGraphScriptLayoutCheckpointStore:
                 "operation_type": operation.get("operation_type"),
                 "operation_fingerprint": checkpoint["operation_fingerprint"],
                 "target_live_room_id": self.target_live_room_id,
-            },
+            }),
         }
         response = _retry_idempotent(
             lambda: self.client.invalidate_script_layout_execution_operation(
@@ -365,13 +382,14 @@ class AssetGraphScriptLayoutCheckpointStore:
             "position_result",
             "write_result",
             "verify_result",
+            "draft_result",
         ):
             candidate = action_details.get(result_field)
             if isinstance(candidate, dict):
                 nested_result = candidate
                 break
         source_material_type = nested_result.get("source_material_type")
-        evidence = {
+        evidence = _durable_execution_value({
             "verified": _action_completion_verified(action),
             "operation_applied": operation_applied,
             "no_side_effect": not operation_applied,
@@ -408,6 +426,8 @@ class AssetGraphScriptLayoutCheckpointStore:
             "expected_script_sha256": nested_result.get("expected_script_sha256"),
             "verified_layers": nested_result.get("verified_layers"),
             "verified_script_text": nested_result.get("verified_script_text"),
+            "expected_scene_names": nested_result.get("expected_scene_names"),
+            "actual_scene_names": nested_result.get("actual_scene_names"),
             "left": nested_result.get("left"),
             "top": nested_result.get("top"),
             "width": nested_result.get("width"),
@@ -421,7 +441,7 @@ class AssetGraphScriptLayoutCheckpointStore:
             "action_type": action.action_type,
             "status": action.status,
             "go_live_clicked": False,
-        }
+        })
         if evidence["verified"] is not True:
             raise RuntimeError("operation completion lacks authoritative verification evidence")
         if effect_class == "mutating" and evidence["verification_source"] != "working_room_readback":
@@ -448,6 +468,28 @@ class AssetGraphScriptLayoutCheckpointStore:
         self.ensure_lease_active()
         payload = build_script_layout_draft_execution_payload(result)
         payload.pop("operation_results", None)
+        if result.status in {"failed", "blocked"}:
+            error_code = (
+                "SCRIPT_LAYOUT_DRAFT_BLOCKED"
+                if result.status == "blocked"
+                else "SCRIPT_LAYOUT_DRAFT_EXECUTION_FAILED"
+            )
+            payload = {
+                "executor": "browser_use",
+                "execution_status": result.status,
+                "mode": "script_layout_draft",
+                "failure_type": error_code.lower(),
+                "retryable": False,
+                "error_message": "草稿生成未完成，请确认测试房间现场状态后重试。",
+                "result_summary": "草稿生成未完成，执行检查点已安全关闭。",
+                "ready_for_go_live": False,
+                "manual_review_required": True,
+                "details": {
+                    "error_code": error_code,
+                    "failure_stage": "script_layout_draft_execution",
+                    "go_live_clicked": False,
+                },
+            }
         payload.update(
             {
                 "finalization_id": str(self.finalization_id),
@@ -456,6 +498,7 @@ class AssetGraphScriptLayoutCheckpointStore:
                 "lease_version": self.lease_version,
             }
         )
+        payload = _durable_execution_value(payload)
         return _retry_idempotent(
             lambda: self.client.finalize_script_layout_execution(
                 self.build_plan_code,

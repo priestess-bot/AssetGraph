@@ -35,6 +35,10 @@ class AssetRepository:
         "execution_capability",
         "rights_status",
         "rights_note",
+        "classification_review_status",
+        "classification_confidence",
+        "classification_evidence",
+        "classification_fingerprint",
         "display_code",
         "local_file_code",
         "entity_code",
@@ -60,6 +64,7 @@ class AssetRepository:
         "source_cover_url",
         "speaker_id",
         "digital_human_image_id",
+        "maitu_source_material_id",
         "maitu_scene_name",
         "maitu_scene_index",
         "maitu_layer_name",
@@ -81,6 +86,7 @@ class AssetRepository:
         tags = self._normalize_tags(payload.get("tags") or [])
         data = self._filter_writable(payload)
         data["material_roles"] = Jsonb(self._normalize_json_array(data.get("material_roles") or []))
+        data["classification_evidence"] = Jsonb(dict(data.get("classification_evidence") or {}))
         data["asset_type"] = AssetType(data["asset_type"]).value
         data["asset_code"] = self._next_asset_code(data["asset_type"])
         fields = tuple(data.keys())
@@ -378,12 +384,14 @@ class AssetRepository:
             "source_cover_url",
             "speaker_id",
             "digital_human_image_id",
+            "maitu_source_material_id",
             "maitu_binding_verification_source",
             "maitu_binding_verified_at",
             "maitu_binding_scope",
             "maitu_binding_inventory_fingerprint",
             "maitu_binding_readback_nonce",
             "maitu_binding_attestation",
+            "maitu_binding_evidence",
         )
         data = {field: payload[field] for field in fields if field in payload}
         if not data:
@@ -401,7 +409,15 @@ class AssetRepository:
             if supplied_verification != set(verification_fields):
                 raise ValueError("authoritative Maitu binding receipt fields must be supplied together")
         else:
+            data.setdefault("maitu_binding_evidence", Jsonb({}))
             data.update({field: None for field in verification_fields})
+        if "maitu_binding_evidence" in data:
+            evidence = data["maitu_binding_evidence"]
+            data["maitu_binding_evidence"] = evidence if isinstance(evidence, Jsonb) else Jsonb(dict(evidence or {}))
+        data = {
+            "execution_capability": "maitu_bound" if supplied_verification else "local_only",
+            **data,
+        }
         assignments = ", ".join(f"{field} = %s" for field in data)
         values = [data[field] for field in data]
         values.append(asset_code)

@@ -12,6 +12,20 @@ function response(body: unknown): Response {
 describe("content projects api", () => {
   beforeEach(() => vi.restoreAllMocks());
 
+  it("uses the caller's stable idempotency key when creating a project", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response({
+      project_code: "CONTENT-NEW", title: "张裕直播方案", revision_number: 1, status: "draft", generation_goal: "介绍产品", updated_at: "2026-07-31T00:00:00Z",
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await contentProjectsApi.create({ title: "张裕直播方案", generation_goal: "介绍产品" }, { idempotencyKey: "project-create-001" });
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/content-projects", expect.objectContaining({
+      method: "POST",
+      headers: expect.objectContaining({ "Idempotency-Key": "project-create-001" }),
+    }));
+  });
+
   it("gives an actionable recovery step for stale or unapproved facts", () => {
     const error = new WorkbenchApiError("Fact card is unavailable", 422, {
       detail: { code: "FACT_CARD_NOT_APPROVED", message: "Fact card is unavailable", details: {} },

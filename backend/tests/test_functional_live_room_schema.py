@@ -129,3 +129,14 @@ def test_live_room_plan_input_rejects_out_of_canvas_room_override() -> None:
                 }
             },
         )
+
+
+def test_live_room_plan_input_accepts_resumable_creation_key() -> None:
+    payload = FunctionalLiveRoomPlanCreate(
+        idempotency_key="live-room-plan-command-1",
+        project_code="CONTENT-001",
+        target_live_room_id="41172",
+        expected_title="asser测试",
+    )
+
+    assert payload.idempotency_key == "live-room-plan-command-1"

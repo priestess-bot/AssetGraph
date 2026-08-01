@@ -20,6 +20,7 @@ def _without_public_material_url_fields(value: Any) -> Any:
             not in {
                 "source_material_url",
                 "source_cover_url",
+                "fingerprint",
                 "script_sha256",
                 "expected_script_sha256",
             }
@@ -234,6 +235,8 @@ class MaituScriptAssetSelectionRead(BaseModel):
     selected_asset_audio_role: str | None = None
     selected_asset_audio_classification_status: str | None = None
     selected_asset_audio_class: str | None = None
+    selected_asset_material_roles: list[str] = Field(default_factory=list)
+    selected_asset_constraint_rules: list[dict[str, Any]] = Field(default_factory=list)
     match_score: float | None = None
     match_reasons: list[str] = Field(default_factory=list)
     selection_source: str | None = None
@@ -305,6 +308,8 @@ class MaituScriptLayoutLayerRead(BaseModel):
     layer_id: str
     layer_type: str
     need_type: str
+    role: str = ""
+    material_roles: list[str] = Field(default_factory=list)
     status: str
     required_category: str | None = None
     asset_code: str | None = None
@@ -333,6 +338,8 @@ class MaituScriptLayoutLayerRead(BaseModel):
     z_index: int
     fit: str = "contain"
     source_selection_status: str | None = None
+    constraint_rules: list[dict[str, Any]] = Field(default_factory=list)
+    constraint_evidence: dict[str, Any] = Field(default_factory=dict)
 
 
 class MaituScriptLayoutSceneRead(BaseModel):
@@ -346,6 +353,7 @@ class MaituScriptLayoutSceneRead(BaseModel):
     script_block: dict[str, Any] = Field(default_factory=dict)
     missing_placeholders: list[dict[str, Any]] = Field(default_factory=list)
     review_reasons: list[str] = Field(default_factory=list)
+    stacking_failures: list[str] = Field(default_factory=list)
 
 
 class MaituScriptLayoutPlanRead(BaseModel):

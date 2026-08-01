@@ -86,6 +86,30 @@ class AssetGraphClient:
         )
         return result or None
 
+    def claim_next_room_inspection(self, payload: dict[str, Any]) -> dict[str, Any] | None:
+        result = self._request_json(
+            "POST", "/api/maitu/workbench/room-inspection-jobs/claim-next", payload
+        )
+        return result or None
+
+    def heartbeat_room_inspection(self, inspection_code: str, payload: dict[str, Any]) -> dict[str, Any]:
+        segment = self._canonical_path_segment(inspection_code, field_name="inspection_code")
+        return self._request_json(
+            "POST", f"/api/maitu/workbench/room-inspection-jobs/{segment}/heartbeat", payload
+        )
+
+    def complete_room_inspection(self, inspection_code: str, payload: dict[str, Any]) -> dict[str, Any]:
+        segment = self._canonical_path_segment(inspection_code, field_name="inspection_code")
+        return self._request_json(
+            "POST", f"/api/maitu/workbench/room-inspection-jobs/{segment}/complete", payload
+        )
+
+    def fail_room_inspection(self, inspection_code: str, payload: dict[str, Any]) -> dict[str, Any]:
+        segment = self._canonical_path_segment(inspection_code, field_name="inspection_code")
+        return self._request_json(
+            "POST", f"/api/maitu/workbench/room-inspection-jobs/{segment}/fail", payload
+        )
+
     def claim_workbench_draft_execution(self, execution_job_code: str, payload: dict[str, Any]) -> dict[str, Any]:
         segment = self._canonical_path_segment(execution_job_code, field_name="execution_job_code")
         return self._request_json(
@@ -103,6 +127,21 @@ class AssetGraphClient:
         return self._request_json(
             "POST",
             f"/api/maitu/workbench/draft-execution-jobs/{segment}/heartbeat",
+            payload,
+        )
+
+    def refresh_functional_draft_material_receipt(
+        self,
+        execution_job_code: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        segment = self._canonical_path_segment(
+            execution_job_code,
+            field_name="execution_job_code",
+        )
+        return self._request_json(
+            "POST",
+            f"/api/maitu/workbench/draft-execution-jobs/{segment}/material-binding-receipts",
             payload,
         )
 

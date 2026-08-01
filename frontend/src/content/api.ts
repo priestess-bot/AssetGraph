@@ -170,7 +170,11 @@ export const contentProjectsApi = {
   get: (projectCode: string) => requestJson<unknown>(`${ROOT}/${projectCode}`).then(detail),
   workspaceSummary: (projectCode: string) => requestJson<unknown>(`${ROOT}/${projectCode}/workspace-summary`).then(workspaceSummary),
   listChainRevisions: (projectCode: string) => requestJson<unknown[]>(`${ROOT}/${projectCode}/content-chain-revisions`).then((rows) => rows.map(chainRevision)),
-  create: (payload: Record<string, unknown>) => postJson<unknown>(ROOT, payload).then((value) => {
+  create: (payload: Record<string, unknown>, options?: { idempotencyKey?: string }) => requestJson<unknown>(ROOT, {
+    method: "POST",
+    body: JSON.stringify(payload),
+    ...(options?.idempotencyKey ? { headers: { "Idempotency-Key": options.idempotencyKey } } : {}),
+  }).then((value) => {
     const result = summary(value);
     if (!result) throw new Error("内容项目创建响应无效");
     return result;

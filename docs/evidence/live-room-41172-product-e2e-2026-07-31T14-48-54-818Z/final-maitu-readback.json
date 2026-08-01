@@ -1,0 +1,414 @@
+{
+  "id": 41172,
+  "name": "asser测试",
+  "status": 0,
+  "topics": [
+    {
+      "id": 285383,
+      "name": "未命名",
+      "clips": [
+        {
+          "id": 437569,
+          "name": "MSB-VARIANT-20260731-000018-001",
+          "clip_materials": [
+            {
+              "id": 10566238,
+              "type": "text",
+              "content": "今天我们围绕介绍张裕品酒大师PRO展开，目标是生成一场恰好三段的离线测试直播草稿，完整介绍张裕品酒大师PRO的产品特点、品鉴方法与适合场景。。 整体画面与节奏按以下设计执行：第一段开场建立品牌和品鉴目标；第二段展示商品或酒体视频并讲解品鉴步骤；第三段总结卖点和互动问题。\n背景必须置底，桌面承托商品，商品或视频位于背景之上，数字人位于商品内容之上，品牌标题或前景装饰位于高层。\n最终只生成三个场景，只写入离线测试草稿，不排播、不开播。。"
+            },
+            {
+              "id": 10566234,
+              "top": 0,
+              "left": 0,
+              "name": "LYR-MSB-VARIANT-20260731-000018-001-01",
+              "type": "image",
+              "width": 1080,
+              "height": 1920,
+              "z_index": 1,
+              "style_front": {
+                "fit": "cover",
+                "top": 0,
+                "left": 0,
+                "width": 1080,
+                "height": 1920,
+                "zIndex": 1,
+                "transform": {
+                  "scale": 1,
+                  "rotation": 0
+                }
+              },
+              "sound_enabled": false,
+              "source_material_id": 37262
+            },
+            {
+              "id": 10566235,
+              "top": 864,
+              "left": 108,
+              "name": "LYR-MSB-VARIANT-20260731-000018-001-02",
+              "type": "image",
+              "width": 324,
+              "height": 576,
+              "z_index": 2,
+              "style_front": {
+                "fit": "contain",
+                "top": 864,
+                "left": 108,
+                "width": 324,
+                "height": 576,
+                "zIndex": 2,
+                "transform": {
+                  "scale": 1,
+                  "rotation": 0
+                }
+              },
+              "sound_enabled": false,
+              "source_material_id": 39157
+            },
+            {
+              "id": 10566236,
+              "top": 345,
+              "left": 86,
+              "name": "LYR-MSB-VARIANT-20260731-000018-001-03",
+              "type": "digital_human",
+              "width": 388,
+              "height": 1228,
+              "z_index": 3,
+              "speaker_id": 3760,
+              "style_front": {
+                "fit": "contain",
+                "top": 345.59999999999997,
+                "left": 86.4,
+                "width": 388.8,
+                "height": 1228.8,
+                "zIndex": 3,
+                "transform": {
+                  "scale": 1,
+                  "rotation": 0
+                }
+              },
+              "sound_enabled": false,
+              "source_material_id": 37200,
+              "digital_human_image_id": 7717
+            },
+            {
+              "id": 10566237,
+              "top": 192,
+              "left": 108,
+              "name": "LYR-MSB-VARIANT-20260731-000018-001-04",
+              "type": "image",
+              "width": 324,
+              "height": 576,
+              "z_index": 4,
+              "style_front": {
+                "fit": "contain",
+                "top": 192,
+                "left": 108,
+                "width": 324,
+                "height": 576,
+                "zIndex": 4,
+                "transform": {
+                  "scale": 1,
+                  "rotation": 0
+                }
+              },
+              "sound_enabled": false,
+              "source_material_id": 40101
+            }
+          ]
+        },
+        {
+          "id": 452249,
+          "name": "MSB-VARIANT-20260731-000018-002",
+          "clip_materials": [
+            {
+              "id": 10566245,
+              "type": "text",
+              "content": "从第一次选酒的困惑切入，用看色、闻香、品味三个动作完成产品介绍，最后回顾适合人群与品鉴建议。"
+            },
+            {
+              "id": 10566239,
+              "top": 0,
+              "left": 0,
+              "name": "LYR-MSB-VARIANT-20260731-000018-002-01",
+              "type": "image",
+              "width": 1080,
+              "height": 1920,
+              "z_index": 1,
+              "style_front": {
+                "fit": "cover",
+                "top": 0,
+                "left": 0,
+                "width": 1080,
+                "height": 1920,
+                "zIndex": 1,
+                "transform": {
+                  "scale": 1,
+                  "rotation": 0
+                }
+              },
+              "sound_enabled": false,
+              "source_material_id": 37262
+            },
+            {
+              "id": 10566240,
+              "top": 192,
+              "left": 108,
+              "name": "LYR-MSB-VARIANT-20260731-000018-002-05",
+              "type": "video",
+              "width": 324,
+              "height": 576,
+              "z_index": 2,
+              "style_front": {
+                "fit": "contain",
+                "top": 192,
+                "left": 108,
+                "width": 324,
+                "height": 576,
+                "zIndex": 2,
+                "transform": {
+                  "scale": 1,
+                  "rotation": 0
+                }
+              },
+              "sound_enabled": false,
+              "source_material_id": 40774
+            },
+            {
+              "id": 10566241,
+              "top": 864,
+              "left": 108,
+              "name": "LYR-MSB-VARIANT-20260731-000018-002-02",
+              "type": "image",
+              "width": 324,
+              "height": 576,
+              "z_index": 3,
+              "style_front": {
+                "fit": "contain",
+                "top": 864,
+                "left": 108,
+                "width": 324,
+                "height": 576,
+                "zIndex": 3,
+                "transform": {
+                  "scale": 1,
+                  "rotation": 0
+                }
+              },
+              "sound_enabled": false,
+              "source_material_id": 39157
+            },
+            {
+              "id": 10566242,
+              "top": 1152,
+              "left": 324,
+              "name": "LYR-MSB-VARIANT-20260731-000018-002-06",
+              "type": "image",
+              "width": 432,
+              "height": 768,
+              "z_index": 4,
+              "style_front": {
+                "fit": "contain",
+                "top": 1152,
+                "left": 324,
+                "width": 432,
+                "height": 768,
+                "zIndex": 4,
+                "transform": {
+                  "scale": 1,
+                  "rotation": 0
+                }
+              },
+              "sound_enabled": false,
+              "source_material_id": 40999
+            },
+            {
+              "id": 10566243,
+              "top": 345,
+              "left": 86,
+              "name": "LYR-MSB-VARIANT-20260731-000018-002-03",
+              "type": "digital_human",
+              "width": 388,
+              "height": 1228,
+              "z_index": 5,
+              "speaker_id": 3760,
+              "style_front": {
+                "fit": "contain",
+                "top": 345.59999999999997,
+                "left": 86.4,
+                "width": 388.8,
+                "height": 1228.8,
+                "zIndex": 5,
+                "transform": {
+                  "scale": 1,
+                  "rotation": 0
+                }
+              },
+              "sound_enabled": false,
+              "source_material_id": 37200,
+              "digital_human_image_id": 7717
+            },
+            {
+              "id": 10566244,
+              "top": 192,
+              "left": 108,
+              "name": "LYR-MSB-VARIANT-20260731-000018-002-04",
+              "type": "image",
+              "width": 324,
+              "height": 576,
+              "z_index": 6,
+              "style_front": {
+                "fit": "contain",
+                "top": 192,
+                "left": 108,
+                "width": 324,
+                "height": 576,
+                "zIndex": 6,
+                "transform": {
+                  "scale": 1,
+                  "rotation": 0
+                }
+              },
+              "sound_enabled": false,
+              "source_material_id": 40101
+            }
+          ]
+        },
+        {
+          "id": 452250,
+          "name": "MSB-VARIANT-20260731-000018-003",
+          "clip_materials": [
+            {
+              "id": 10566251,
+              "type": "text",
+              "content": "结合你的实际需求选择合适方案，欢迎在互动区留下你的使用场景。"
+            },
+            {
+              "id": 10566246,
+              "top": 0,
+              "left": 0,
+              "name": "LYR-MSB-VARIANT-20260731-000018-003-01",
+              "type": "image",
+              "width": 1080,
+              "height": 1920,
+              "z_index": 1,
+              "style_front": {
+                "fit": "cover",
+                "top": 0,
+                "left": 0,
+                "width": 1080,
+                "height": 1920,
+                "zIndex": 1,
+                "transform": {
+                  "scale": 1,
+                  "rotation": 0
+                }
+              },
+              "sound_enabled": false,
+              "source_material_id": 37262
+            },
+            {
+              "id": 10566247,
+              "top": 864,
+              "left": 108,
+              "name": "LYR-MSB-VARIANT-20260731-000018-003-02",
+              "type": "image",
+              "width": 324,
+              "height": 576,
+              "z_index": 2,
+              "style_front": {
+                "fit": "contain",
+                "top": 864,
+                "left": 108,
+                "width": 324,
+                "height": 576,
+                "zIndex": 2,
+                "transform": {
+                  "scale": 1,
+                  "rotation": 0
+                }
+              },
+              "sound_enabled": false,
+              "source_material_id": 39157
+            },
+            {
+              "id": 10566248,
+              "top": 1152,
+              "left": 324,
+              "name": "LYR-MSB-VARIANT-20260731-000018-003-05",
+              "type": "image",
+              "width": 432,
+              "height": 768,
+              "z_index": 3,
+              "style_front": {
+                "fit": "contain",
+                "top": 1152,
+                "left": 324,
+                "width": 432,
+                "height": 768,
+                "zIndex": 3,
+                "transform": {
+                  "scale": 1,
+                  "rotation": 0
+                }
+              },
+              "sound_enabled": false,
+              "source_material_id": 40999
+            },
+            {
+              "id": 10566249,
+              "top": 345,
+              "left": 86,
+              "name": "LYR-MSB-VARIANT-20260731-000018-003-03",
+              "type": "digital_human",
+              "width": 388,
+              "height": 1228,
+              "z_index": 4,
+              "speaker_id": 3760,
+              "style_front": {
+                "fit": "contain",
+                "top": 345.59999999999997,
+                "left": 86.4,
+                "width": 388.8,
+                "height": 1228.8,
+                "zIndex": 4,
+                "transform": {
+                  "scale": 1,
+                  "rotation": 0
+                }
+              },
+              "sound_enabled": false,
+              "source_material_id": 37200,
+              "digital_human_image_id": 7717
+            },
+            {
+              "id": 10566250,
+              "top": 192,
+              "left": 108,
+              "name": "LYR-MSB-VARIANT-20260731-000018-003-04",
+              "type": "image",
+              "width": 324,
+              "height": 576,
+              "z_index": 5,
+              "style_front": {
+                "fit": "contain",
+                "top": 192,
+                "left": 108,
+                "width": 324,
+                "height": 576,
+                "zIndex": 5,
+                "transform": {
+                  "scale": 1,
+                  "rotation": 0
+                }
+              },
+              "sound_enabled": false,
+              "source_material_id": 40101
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "environment": "working",
+  "schema_version": "maitu-final-readback-evidence.v1"
+}

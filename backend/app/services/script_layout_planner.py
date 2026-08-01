@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.services.layer_stacking import compile_layer_stack
 from app.services.script_asset_gap_reporter import ScriptAssetGapReporter
 
 SOURCE = "script_content_layout_plan_rule_v1"
@@ -17,6 +18,16 @@ LAYOUT_RULES: dict[str, dict[str, Any]] = {
 }
 
 DEFAULT_RULE = {"x": 80, "y": 420, "width": 920, "height": 520, "z_index": 8, "fit": "contain"}
+
+ROLE_FOR_NEED = {
+    "background_image": "background",
+    "product_video": "supporting_video",
+    "digital_human": "digital_human",
+    "supporting_visual": "decoration_foreground",
+    "product_image": "product_display",
+    "promotion_sticker": "promotion_text",
+    "brand_logo_title": "brand_title",
+}
 
 
 class ScriptLayoutPlanner:
@@ -131,7 +142,10 @@ class ScriptLayoutPlanner:
                 if build_mode == "draft_with_placeholders":
                     layers.append(placeholder)
 
-        layers.sort(key=lambda layer: (layer["z_index"], layer["layer_id"]))
+        stacking_failures = compile_layer_stack(layers)
+        if stacking_failures:
+            scene_status = "manual_review_required"
+            review_reasons.extend(stacking_failures)
         return {
             "scene_index": scene_index,
             "scene_name": str(scene.get("scene_name") or f"场景{scene_index + 1:02d}"),
@@ -147,6 +161,7 @@ class ScriptLayoutPlanner:
             },
             "missing_placeholders": missing_placeholders,
             "review_reasons": self._dedupe(review_reasons),
+            "stacking_failures": stacking_failures,
         }
 
     def _layer_from_selection(
@@ -159,10 +174,19 @@ class ScriptLayoutPlanner:
     ) -> dict[str, Any]:
         need_type = str(selection.get("need_type") or "asset_layer")
         rule = self._rule_for_need(need_type)
+        material_roles = [
+            str(role).strip()
+            for role in (selection.get("selected_asset_material_roles") or [])
+            if str(role).strip()
+        ]
+        inferred_role = ROLE_FOR_NEED.get(need_type, need_type)
+        role = inferred_role if inferred_role in material_roles or not material_roles else material_roles[0]
         return {
             "layer_id": f"scene-{scene_index:02d}-{need_type}",
             "layer_type": need_type,
             "need_type": need_type,
+            "role": role,
+            "material_roles": list(dict.fromkeys([*material_roles, role])),
             "status": status,
             "required_category": selection.get("required_category"),
             "asset_code": selection.get("selected_asset_code"),
@@ -191,6 +215,8 @@ class ScriptLayoutPlanner:
             "z_index": rule["z_index"],
             "fit": rule["fit"],
             "source_selection_status": selection.get("status"),
+            "constraint_rules": list(selection.get("selected_asset_constraint_rules") or []),
+            "constraint_evidence": {},
         }
 
     def _placeholder_from_need(

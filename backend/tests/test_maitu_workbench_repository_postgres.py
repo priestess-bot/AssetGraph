@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import threading
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -10,7 +11,11 @@ import pytest
 from psycopg import sql
 from psycopg.types.json import Jsonb
 
-from app.repositories.maitu_workbench import MaituWorkbenchConflictError, MaituWorkbenchRepository
+from app.repositories.maitu_workbench import (
+    MaituWorkbenchConflictError,
+    MaituWorkbenchLeaseConflictError,
+    MaituWorkbenchRepository,
+)
 from app.services.maitu_workbench import sanitize_reference_template
 
 
@@ -29,6 +34,9 @@ def test_postgres_workbench_version_snapshot_replan_preflight_and_execution_stat
             "025_maitu_material_analysis.sql",
             "026_maitu_reference_template_handoff.sql",
             "043_provider_neutral_producer_contracts.sql",
+            "046_functional_live_room_plans.sql",
+            "096_functional_live_room_execution_readback.sql",
+            "106_functional_live_room_execution_queue.sql",
         )
     ]
     try:
@@ -407,6 +415,449 @@ def test_postgres_workbench_version_snapshot_replan_preflight_and_execution_stat
             assert preflight["status"] == "passed"
             assert completed["status"] == "succeeded"
             assert repository.get_run(run["run_code"])["status"] == "completed"
+
+            inspection = repository.create_room_inspection_job(
+                target_live_room_id="41172",
+                expected_title="asser测试",
+                authority_mode="worker_readback",
+                input_fingerprint="5" * 64,
+                idempotency_key=f"inspection-{uuid4().hex}",
+                requested_by="integration-test",
+            )
+            claimed_inspection = repository.claim_room_inspection_job(
+                "browser-worker", 60, inspection_code=inspection["inspection_code"]
+            )
+            assert claimed_inspection is not None
+            completed_inspection = repository.complete_room_inspection_job(
+                inspection["inspection_code"],
+                "browser-worker",
+                claimed_inspection["lease_token"],
+                {
+                    "target_live_room_id": "41172",
+                    "actual_title": "asser测试",
+                    "is_live": False,
+                    "has_live_trace": False,
+                    "read_environment": "working",
+                    "scenes": [
+                        {
+                            "scene_id": "101",
+                            "name": "旧场景",
+                            "order_num": 0.0,
+                            "material_count": 2,
+                        }
+                    ],
+                    "ready_for_go_live": False,
+                    "go_live_clicked": False,
+                },
+            )
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO functional_live_room_plans (
+                        plan_code, project_code, variant_code, configuration_code,
+                        target_live_room_id, expected_title, blueprint, build_plan,
+                        status, blocked_reasons
+                    ) VALUES (
+                        'LIVEPLAN-INTEGRATION', 'CONTENT-INTEGRATION', 'VARIANT-INTEGRATION',
+                        'ROOMCFG-INTEGRATION', '41172', 'asser测试', '{}'::jsonb,
+                        '{"build_plan_code":"MT-BUILD-INTEGRATION"}'::jsonb,
+                        'ready', '[]'::jsonb
+                    )
+                    """
+                )
+            connection.commit()
+            functional_job = repository.create_functional_draft_execution_job(
+                "LIVEPLAN-INTEGRATION",
+                room_inspection_code=inspection["inspection_code"],
+                expected_room_fingerprint=completed_inspection["room_fingerprint"],
+                confirmed_scene_ids=["101"],
+                input_fingerprint="6" * 64,
+                payload={
+                    "execution_mode": "replace_test_draft",
+                    "test_use_acknowledged": True,
+                    "non_releasable": True,
+                    "build_plan": {
+                        "build_plan_code": "MT-BUILD-INTEGRATION",
+                        "target_live_room_id": "41172",
+                    },
+                    "ready_for_go_live": False,
+                },
+                idempotency_key=f"functional-execution-{uuid4().hex}",
+                queued_by="integration-test",
+            )
+            claimed_functional = repository.claim_draft_execution_job(
+                "browser-worker", 60, execution_job_code=functional_job["execution_job_code"]
+            )
+            assert claimed_functional is not None
+            heartbeat = repository.heartbeat_draft_execution_job(
+                functional_job["execution_job_code"],
+                "browser-worker",
+                claimed_functional["lease_token"],
+                60,
+                stage="clearing_draft",
+                progress_current=1,
+                progress_total=5,
+                message="正在清空测试草稿",
+            )
+            assert heartbeat is not None
+            assert heartbeat["stage"] == "clearing_draft"
+            reconciled = repository.fail_draft_execution_job(
+                functional_job["execution_job_code"],
+                "browser-worker",
+                claimed_functional["lease_token"],
+                error_code="ROOM_WRITE_UNCERTAIN",
+                error_message="写入结果无法安全确认",
+                reconcile_required=True,
+            )
+            assert reconciled["status"] == "reconcile_required"
+            with connection.cursor(row_factory=psycopg.rows.dict_row) as cursor:
+                cursor.execute(
+                    "SELECT execution_status FROM functional_live_room_plans WHERE plan_code = 'LIVEPLAN-INTEGRATION'"
+                )
+                assert cursor.fetchone()["execution_status"] == "maitu_reconcile_required"
+
+            with pytest.raises(MaituWorkbenchConflictError, match="active draft execution"):
+                repository.create_functional_draft_execution_job(
+                    "LIVEPLAN-INTEGRATION",
+                    room_inspection_code=inspection["inspection_code"],
+                    expected_room_fingerprint=completed_inspection["room_fingerprint"],
+                    confirmed_scene_ids=["101"],
+                    input_fingerprint="a" * 64,
+                    payload={
+                        "execution_mode": "replace_test_draft",
+                        "test_use_acknowledged": True,
+                        "non_releasable": True,
+                        "build_plan": {
+                            "build_plan_code": "MT-BUILD-INTEGRATION",
+                            "target_live_room_id": "41172",
+                        },
+                        "ready_for_go_live": False,
+                    },
+                    idempotency_key=f"blocked-before-reconcile-{uuid4().hex}",
+                    queued_by="integration-test",
+                )
+
+            acknowledged = repository.acknowledge_draft_reconciliation(
+                functional_job["execution_job_code"],
+                acknowledged_by="integration-operator",
+                note="已人工核对麦兔现场，旧任务关闭且不得重放。",
+            )
+            assert acknowledged is not None
+            assert acknowledged["status"] == "cancelled"
+            assert acknowledged["stage"] == "reconciled"
+            assert acknowledged["result"]["reconciliation"]["replay_allowed"] is False
+            assert acknowledged["stage_events"][-1]["stage"] == "reconciled"
+            with connection.cursor(row_factory=psycopg.rows.dict_row) as cursor:
+                cursor.execute(
+                    """
+                    SELECT execution_status, execution_job_code, room_inspection_code,
+                           execution_evidence
+                    FROM functional_live_room_plans
+                    WHERE plan_code = 'LIVEPLAN-INTEGRATION'
+                    """
+                )
+                reconciled_plan = cursor.fetchone()
+            assert reconciled_plan["execution_status"] == "not_requested"
+            assert reconciled_plan["execution_job_code"] == functional_job["execution_job_code"]
+            assert reconciled_plan["room_inspection_code"] == inspection["inspection_code"]
+            assert reconciled_plan["execution_evidence"]["closed_job_status"] == "cancelled"
+            assert reconciled_plan["execution_evidence"]["execution_history"][-1][
+                "execution_job_code"
+            ] == functional_job["execution_job_code"]
+
+            fresh_inspection = repository.create_room_inspection_job(
+                target_live_room_id="41172",
+                expected_title="asser测试",
+                authority_mode="worker_readback",
+                input_fingerprint="b" * 64,
+                idempotency_key=f"fresh-recovery-inspection-{uuid4().hex}",
+                requested_by="integration-test",
+            )
+            claimed_fresh_inspection = repository.claim_room_inspection_job(
+                "browser-worker", 60, inspection_code=fresh_inspection["inspection_code"]
+            )
+            assert claimed_fresh_inspection is not None
+            completed_fresh_inspection = repository.complete_room_inspection_job(
+                fresh_inspection["inspection_code"],
+                "browser-worker",
+                claimed_fresh_inspection["lease_token"],
+                {
+                    "target_live_room_id": "41172",
+                    "actual_title": "asser测试",
+                    "is_live": False,
+                    "has_live_trace": False,
+                    "read_environment": "working",
+                    "scenes": [
+                        {
+                            "scene_id": "101",
+                            "name": "旧场景",
+                            "order_num": 0.0,
+                            "material_count": 2,
+                        },
+                        {
+                            "scene_id": "102",
+                            "name": "人工核对后的现场场景",
+                            "order_num": 1.0,
+                            "material_count": 1,
+                        },
+                    ],
+                    "ready_for_go_live": False,
+                    "go_live_clicked": False,
+                },
+            )
+            assert (
+                completed_fresh_inspection["room_fingerprint"]
+                != completed_inspection["room_fingerprint"]
+            )
+            replacement_job = repository.create_functional_draft_execution_job(
+                "LIVEPLAN-INTEGRATION",
+                room_inspection_code=fresh_inspection["inspection_code"],
+                expected_room_fingerprint=completed_fresh_inspection["room_fingerprint"],
+                confirmed_scene_ids=["101", "102"],
+                input_fingerprint="c" * 64,
+                payload={
+                    "execution_mode": "replace_test_draft",
+                    "test_use_acknowledged": True,
+                    "non_releasable": True,
+                    "build_plan": {
+                        "build_plan_code": "MT-BUILD-INTEGRATION",
+                        "target_live_room_id": "41172",
+                    },
+                    "ready_for_go_live": False,
+                },
+                idempotency_key=f"replacement-after-reconcile-{uuid4().hex}",
+                queued_by="integration-test",
+            )
+            assert replacement_job["execution_job_code"] != functional_job["execution_job_code"]
+            assert replacement_job["room_fingerprint"] == completed_fresh_inspection["room_fingerprint"]
+            with connection.cursor(row_factory=psycopg.rows.dict_row) as cursor:
+                cursor.execute(
+                    """
+                    SELECT execution_status, execution_job_code, room_inspection_code,
+                           execution_evidence
+                    FROM functional_live_room_plans
+                    WHERE plan_code = 'LIVEPLAN-INTEGRATION'
+                    """
+                )
+                replacement_plan = cursor.fetchone()
+            assert replacement_plan["execution_status"] == "requested"
+            assert replacement_plan["execution_job_code"] == replacement_job["execution_job_code"]
+            assert replacement_plan["room_inspection_code"] == fresh_inspection["inspection_code"]
+            assert replacement_plan["execution_evidence"]["execution_history"][-1][
+                "execution_job_code"
+            ] == functional_job["execution_job_code"]
+
+            with pytest.raises(MaituWorkbenchLeaseConflictError, match="lease is not active"):
+                repository.complete_draft_execution_job(
+                    functional_job["execution_job_code"],
+                    "browser-worker",
+                    claimed_functional["lease_token"],
+                    {"stale_callback": True},
+                )
+            with connection.cursor(row_factory=psycopg.rows.dict_row) as cursor:
+                cursor.execute(
+                    """
+                    SELECT execution_status, execution_job_code, execution_evidence
+                    FROM functional_live_room_plans
+                    WHERE plan_code = 'LIVEPLAN-INTEGRATION'
+                    """
+                )
+                after_stale_callback = cursor.fetchone()
+            assert after_stale_callback["execution_status"] == "requested"
+            assert after_stale_callback["execution_job_code"] == replacement_job["execution_job_code"]
+            assert after_stale_callback["execution_evidence"]["execution_history"][-1][
+                "execution_job_code"
+            ] == functional_job["execution_job_code"]
+
+            concurrent_inspection_key = f"inspection-concurrent-{uuid4().hex}"
+            inspection_barrier = threading.Barrier(2)
+            inspection_results: list[dict] = []
+            inspection_errors: list[BaseException] = []
+
+            def create_concurrent_inspection() -> None:
+                try:
+                    with psycopg.connect(DATABASE_URL) as concurrent_connection:
+                        with concurrent_connection.cursor() as cursor:
+                            cursor.execute(
+                                sql.SQL("SET search_path TO {}, public").format(
+                                    sql.Identifier(schema)
+                                )
+                            )
+                        concurrent_repository = MaituWorkbenchRepository(concurrent_connection)
+                        inspection_barrier.wait(timeout=5)
+                        inspection_results.append(
+                            concurrent_repository.create_room_inspection_job(
+                                target_live_room_id="41172",
+                                expected_title="asser测试",
+                                authority_mode="worker_readback",
+                                input_fingerprint="7" * 64,
+                                idempotency_key=concurrent_inspection_key,
+                                requested_by="concurrency-test",
+                            )
+                        )
+                except BaseException as exc:  # captured and asserted in the parent thread
+                    inspection_errors.append(exc)
+
+            inspection_threads = [
+                threading.Thread(target=create_concurrent_inspection) for _ in range(2)
+            ]
+            for thread in inspection_threads:
+                thread.start()
+            for thread in inspection_threads:
+                thread.join(timeout=10)
+            assert all(not thread.is_alive() for thread in inspection_threads)
+            assert inspection_errors == []
+            assert len(inspection_results) == 2
+            assert len({row["inspection_code"] for row in inspection_results}) == 1
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT count(*) FROM maitu_live_room_inspection_jobs WHERE idempotency_key = %s",
+                    (concurrent_inspection_key,),
+                )
+                assert cursor.fetchone()[0] == 1
+                cursor.execute(
+                    """
+                    INSERT INTO functional_live_room_plans (
+                        plan_code, project_code, variant_code, configuration_code,
+                        target_live_room_id, expected_title, blueprint, build_plan,
+                        status, blocked_reasons
+                    ) VALUES (
+                        'LIVEPLAN-CONCURRENT', 'CONTENT-CONCURRENT', 'VARIANT-CONCURRENT',
+                        'ROOMCFG-CONCURRENT', '41172', 'asser测试', '{}'::jsonb,
+                        '{"build_plan_code":"MT-BUILD-CONCURRENT"}'::jsonb,
+                        'ready', '[]'::jsonb
+                    )
+                    """
+                )
+            connection.commit()
+
+            concurrent_execution_key = f"execution-concurrent-{uuid4().hex}"
+            execution_barrier = threading.Barrier(2)
+            execution_results: list[dict] = []
+            execution_errors: list[BaseException] = []
+            concurrent_payload = {
+                "execution_mode": "replace_test_draft",
+                "test_use_acknowledged": True,
+                "non_releasable": True,
+                "build_plan": {
+                    "build_plan_code": "MT-BUILD-CONCURRENT",
+                    "target_live_room_id": "41172",
+                },
+                "ready_for_go_live": False,
+            }
+
+            def create_concurrent_execution() -> None:
+                try:
+                    with psycopg.connect(DATABASE_URL) as concurrent_connection:
+                        with concurrent_connection.cursor() as cursor:
+                            cursor.execute(
+                                sql.SQL("SET search_path TO {}, public").format(
+                                    sql.Identifier(schema)
+                                )
+                            )
+                        concurrent_repository = MaituWorkbenchRepository(concurrent_connection)
+                        execution_barrier.wait(timeout=5)
+                        execution_results.append(
+                            concurrent_repository.create_functional_draft_execution_job(
+                                "LIVEPLAN-CONCURRENT",
+                                room_inspection_code=inspection["inspection_code"],
+                                expected_room_fingerprint=completed_inspection["room_fingerprint"],
+                                confirmed_scene_ids=["101"],
+                                input_fingerprint="8" * 64,
+                                payload=concurrent_payload,
+                                idempotency_key=concurrent_execution_key,
+                                queued_by="concurrency-test",
+                            )
+                        )
+                except BaseException as exc:  # captured and asserted in the parent thread
+                    execution_errors.append(exc)
+
+            execution_threads = [
+                threading.Thread(target=create_concurrent_execution) for _ in range(2)
+            ]
+            for thread in execution_threads:
+                thread.start()
+            for thread in execution_threads:
+                thread.join(timeout=10)
+            assert all(not thread.is_alive() for thread in execution_threads)
+            assert execution_errors == []
+            assert len(execution_results) == 2
+            assert len({row["execution_job_code"] for row in execution_results}) == 1
+            with connection.cursor(row_factory=psycopg.rows.dict_row) as cursor:
+                cursor.execute(
+                    """
+                    SELECT count(*) AS job_count
+                    FROM maitu_workbench_draft_execution_jobs
+                    WHERE functional_plan_code = 'LIVEPLAN-CONCURRENT'
+                    """
+                )
+                assert cursor.fetchone()["job_count"] == 1
+                cursor.execute(
+                    """
+                    SELECT count(*) AS index_count FROM pg_indexes
+                    WHERE schemaname = %s
+                      AND indexname = 'idx_maitu_workbench_draft_one_active_functional_plan'
+                    """,
+                    (schema,),
+                )
+                assert cursor.fetchone()["index_count"] == 1
+
+            with pytest.raises(MaituWorkbenchConflictError, match="active draft execution"):
+                repository.create_functional_draft_execution_job(
+                    "LIVEPLAN-CONCURRENT",
+                    room_inspection_code=inspection["inspection_code"],
+                    expected_room_fingerprint=completed_inspection["room_fingerprint"],
+                    confirmed_scene_ids=["101"],
+                    input_fingerprint="9" * 64,
+                    payload=concurrent_payload,
+                    idempotency_key=f"another-execution-{uuid4().hex}",
+                    queued_by="concurrency-test",
+                )
+
+            concurrent_job_code = execution_results[0]["execution_job_code"]
+            claimed_concurrent = repository.claim_draft_execution_job(
+                "expired-worker", 60, execution_job_code=concurrent_job_code
+            )
+            assert claimed_concurrent is not None
+            heartbeat_concurrent = repository.heartbeat_draft_execution_job(
+                concurrent_job_code,
+                "expired-worker",
+                claimed_concurrent["lease_token"],
+                60,
+                stage="clearing_draft",
+                progress_current=1,
+                progress_total=5,
+                message="正在清空测试草稿",
+            )
+            assert heartbeat_concurrent is not None
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE maitu_workbench_draft_execution_jobs
+                    SET lease_expires_at = now() - interval '1 second'
+                    WHERE execution_job_code = %s
+                    """,
+                    (concurrent_job_code,),
+                )
+            connection.commit()
+            assert (
+                repository.claim_draft_execution_job(
+                    "replacement-worker", 60, execution_job_code=concurrent_job_code
+                )
+                is None
+            )
+            expired_job = repository.get_draft_execution_job(concurrent_job_code)
+            assert expired_job is not None
+            assert expired_job["status"] == "reconcile_required"
+            assert expired_job["error_code"] == "LEASE_EXPIRED_AFTER_DRAFT_MUTATION"
+            with connection.cursor(row_factory=psycopg.rows.dict_row) as cursor:
+                cursor.execute(
+                    """
+                    SELECT execution_status FROM functional_live_room_plans
+                    WHERE plan_code = 'LIVEPLAN-CONCURRENT'
+                    """
+                )
+                assert cursor.fetchone()["execution_status"] == "maitu_reconcile_required"
     finally:
         if DATABASE_URL:
             with psycopg.connect(DATABASE_URL) as cleanup:

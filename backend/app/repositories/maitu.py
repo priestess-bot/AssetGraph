@@ -27,6 +27,7 @@ from app.services.maitu_asset_taxonomy import (
     product_identity_keywords,
     required_category_variants,
 )
+from app.services.maitu_binding_identity import canonical_maitu_binding_identity
 from app.services.code_generator import (
     BusinessObjectType,
     format_jd_live_metric_session_code,
@@ -65,10 +66,15 @@ class MaituMaterialSlotRepository:
         "position_asset_layer",
         "write_script",
     }
-    SCRIPT_LAYOUT_READ_ONLY_OPERATIONS = {"preflight_content_build_plan", "verify_scene"}
+    SCRIPT_LAYOUT_READ_ONLY_OPERATIONS = {
+        "preflight_content_build_plan",
+        "verify_scene",
+        "verify_draft_persisted",
+    }
     SCRIPT_LAYOUT_MANUAL_NOOP_OPERATIONS = {"placeholder_required", "save_draft"}
     SCRIPT_LAYOUT_RESOLVER_MUTABLE_FIELDS = {
         "maitu_material_id",
+        "maitu_source_material_id",
         "material_id",
         "source_material_type",
         "source_material_url",
@@ -1119,7 +1125,12 @@ class MaituMaterialSlotRepository:
         evidence: dict[str, Any],
     ) -> None:
         operation_type = checkpoint.get("operation_type")
-        if operation_type in {"preflight_content_build_plan", "placeholder_required", "save_draft"}:
+        if operation_type in {
+            "preflight_content_build_plan",
+            "verify_draft_persisted",
+            "placeholder_required",
+            "save_draft",
+        }:
             return
         intent = checkpoint.get("intent_snapshot")
         intent = intent if isinstance(intent, dict) else {}
@@ -1344,9 +1355,11 @@ class MaituMaterialSlotRepository:
                         raise BuildPlanCheckpointConflictError(
                             "native digital-human position has no matching insert intent"
                         )
-                    raw_material_id = native_source.get(
-                        "material_id"
-                    ) or native_source.get("maitu_material_id")
+                    raw_source_material_id = (
+                        native_source.get("maitu_source_material_id")
+                        or native_source.get("material_id")
+                        or native_source.get("maitu_material_id")
+                    )
                     raw_speaker_id = native_source.get("speaker_id")
                     raw_digital_human_image_id = native_source.get(
                         "digital_human_image_id"
@@ -1355,13 +1368,13 @@ class MaituMaterialSlotRepository:
                         if any(
                             isinstance(value, bool)
                             for value in (
-                                raw_material_id,
+                                raw_source_material_id,
                                 raw_speaker_id,
                                 raw_digital_human_image_id,
                             )
                         ):
                             raise ValueError("boolean identity")
-                        material_id = int(raw_material_id)
+                        source_material_id = int(raw_source_material_id)
                         speaker_id = int(raw_speaker_id)
                         digital_human_image_id = int(
                             raw_digital_human_image_id
@@ -1372,7 +1385,7 @@ class MaituMaterialSlotRepository:
                         ) from exc
                     if (
                         native_source.get("source_material_type") != "digital_human"
-                        or material_id < 1
+                        or source_material_id < 1
                         or speaker_id < 1
                         or digital_human_image_id < 1
                     ):
@@ -1381,7 +1394,8 @@ class MaituMaterialSlotRepository:
                         )
                     authoritative_binding = {
                         "maitu_material_id": None,
-                        "material_id": material_id,
+                        "maitu_source_material_id": source_material_id,
+                        "material_id": None,
                         "source_material_type": "digital_human",
                         "source_material_url": native_source.get(
                             "source_material_url"
@@ -1423,12 +1437,14 @@ class MaituMaterialSlotRepository:
                     continue
                 cursor.execute(
                     """
-                    SELECT asset_code, maitu_material_id, source_material_type,
+                    SELECT asset_code, maitu_material_id, maitu_source_material_id,
+                           source_material_type,
                            source_material_url, source_cover_url, speaker_id,
                            digital_human_image_id, maitu_binding_verification_source,
                            maitu_binding_verified_at, maitu_binding_scope,
                            maitu_binding_inventory_fingerprint,
-                           maitu_binding_readback_nonce, maitu_binding_attestation
+                           maitu_binding_readback_nonce, maitu_binding_attestation,
+                           maitu_binding_evidence
                     FROM assets
                     WHERE asset_code = %s AND deleted_at IS NULL
                     FOR SHARE
@@ -1439,8 +1455,35 @@ class MaituMaterialSlotRepository:
                 if asset is None:
                     raise BuildPlanCheckpointConflictError("resolved operation asset is absent from AssetGraph")
                 verified_at = asset.get("maitu_binding_verified_at")
+                verification_source = asset.get("maitu_binding_verification_source")
+                receipt_evidence = (
+                    asset.get("maitu_binding_evidence")
+                    if isinstance(asset.get("maitu_binding_evidence"), dict)
+                    else {}
+                )
+                worker_readback_test_job = (
+                    verification_source == "worker_maitu_inventory_readback"
+                    and receipt_evidence.get("source")
+                    == "active_functional_worker_inventory_readback"
+                    and receipt_evidence.get("build_plan_code") == build_plan_code
+                    and receipt_evidence.get("source_plan_fingerprint")
+                    == source_plan_fingerprint
+                    and self._active_functional_worker_readback_test_job(
+                        cursor,
+                        execution_job_code=str(
+                            receipt_evidence.get("execution_job_code") or ""
+                        ),
+                        build_plan_code=build_plan_code,
+                        target_live_room_id=target_live_room_id,
+                    )
+                )
                 if (
-                    asset.get("maitu_binding_verification_source") != "backend_maitu_inventory_readback"
+                    verification_source
+                    not in (
+                        {"backend_maitu_inventory_readback", "worker_maitu_inventory_readback"}
+                        if worker_readback_test_job
+                        else {"backend_maitu_inventory_readback"}
+                    )
                     or asset.get("maitu_binding_scope") != "assetgraph_script_layout_material_binding_v2"
                     or not isinstance(verified_at, datetime)
                 ):
@@ -1454,6 +1497,7 @@ class MaituMaterialSlotRepository:
                         "resolved operation requires a fresh authoritative material binding receipt"
                     )
                 material_id = asset.get("maitu_material_id")
+                source_material_id = asset.get("maitu_source_material_id")
                 source_type = asset.get("source_material_type")
                 source_url = asset.get("source_material_url")
                 speaker_id = asset.get("speaker_id")
@@ -1461,43 +1505,61 @@ class MaituMaterialSlotRepository:
                 inventory_fingerprint = asset.get("maitu_binding_inventory_fingerprint")
                 readback_nonce = asset.get("maitu_binding_readback_nonce")
                 binding_attestation = asset.get("maitu_binding_attestation")
-                if (
-                    not isinstance(inventory_fingerprint, str)
-                    or len(inventory_fingerprint) != 64
-                    or readback_nonce is None
-                ):
+                if not isinstance(inventory_fingerprint, str) or len(inventory_fingerprint) != 64:
                     raise BuildPlanCheckpointConflictError(
-                        "resolved operation material binding lacks a signed inventory receipt"
+                        "resolved operation material binding lacks an inventory receipt"
                     )
                 binding_identity = {
                     "maitu_material_id": material_id,
+                    "maitu_source_material_id": source_material_id,
                     "source_material_type": source_type,
                     "source_material_url": source_url,
                     "source_cover_url": asset.get("source_cover_url"),
                     "speaker_id": speaker_id,
                     "digital_human_image_id": digital_human_image_id,
                 }
-                self._require_readback_attestation(
-                    {
-                        "asset_code": asset_code,
-                        "binding": binding_identity,
-                        "inventory_snapshot_sha256": inventory_fingerprint,
-                        "readback_nonce": str(readback_nonce),
-                    },
-                    {
-                        "readback_attestation_algorithm": "hmac-sha256-v1",
-                        "readback_attestation": binding_attestation,
-                    },
-                )
+                if verification_source == "worker_maitu_inventory_readback" and (
+                    receipt_evidence.get("inventory_item_fingerprint")
+                    != inventory_fingerprint
+                    or receipt_evidence.get("binding_identity_fingerprint")
+                    != self._script_layout_fingerprint(
+                        canonical_maitu_binding_identity(asset_code, binding_identity)
+                    )
+                ):
+                    raise BuildPlanCheckpointConflictError(
+                        "resolved operation worker receipt does not match the frozen material identity"
+                    )
+                if verification_source == "backend_maitu_inventory_readback":
+                    if readback_nonce is None:
+                        raise BuildPlanCheckpointConflictError(
+                            "resolved operation material binding lacks a signed inventory receipt"
+                        )
+                    self._require_readback_attestation(
+                        {
+                            "asset_code": asset_code,
+                            "binding": binding_identity,
+                            "inventory_snapshot_sha256": inventory_fingerprint,
+                            "readback_nonce": str(readback_nonce),
+                        },
+                        {
+                            "readback_attestation_algorithm": "hmac-sha256-v1",
+                            "readback_attestation": binding_attestation,
+                        },
+                    )
                 regular_binding = (
                     isinstance(material_id, int)
                     and not isinstance(material_id, bool)
                     and material_id > 0
+                    and source_material_id == material_id
                     and source_type in {"image", "video", "decorative_video"}
                     and bool(source_url)
                 )
                 digital_human_binding = (
                     source_type == "digital_human"
+                    and material_id is None
+                    and isinstance(source_material_id, int)
+                    and not isinstance(source_material_id, bool)
+                    and source_material_id > 0
                     and bool(speaker_id)
                     and bool(digital_human_image_id)
                 )
@@ -1507,13 +1569,18 @@ class MaituMaterialSlotRepository:
                     )
                 authoritative_binding = {
                     "maitu_material_id": material_id,
+                    "maitu_source_material_id": source_material_id,
                     "material_id": material_id,
                     "source_material_type": source_type,
                     "source_material_url": source_url,
                     "source_cover_url": asset.get("source_cover_url"),
                     "speaker_id": speaker_id,
                     "digital_human_image_id": digital_human_image_id,
-                    "material_resolution_status": "backend_verified_asset_binding",
+                    "material_resolution_status": (
+                        "worker_verified_test_binding"
+                        if verification_source == "worker_maitu_inventory_readback"
+                        else "backend_verified_asset_binding"
+                    ),
                 }
                 for field_name, expected_value in authoritative_binding.items():
                     supplied_value = intent.get(field_name)
@@ -1551,7 +1618,9 @@ class MaituMaterialSlotRepository:
                             "asset_code": prior_intent.get("asset_code"),
                             "layer_id": prior_intent.get("layer_id"),
                             "layer_type": prior_intent.get("layer_type"),
-                            "source_material_id": prior_intent.get("material_id") or prior_intent.get("maitu_material_id"),
+                            "source_material_id": prior_intent.get("maitu_source_material_id")
+                            or prior_intent.get("material_id")
+                            or prior_intent.get("maitu_material_id"),
                             "source_material_type": "video" if source_type == "decorative_video" else source_type,
                             "source_material_url": prior_intent.get("source_material_url"),
                             "speaker_id": prior_intent.get("speaker_id"),
@@ -1809,6 +1878,98 @@ class MaituMaterialSlotRepository:
                     )
         self.connection.commit()
         return self.get_live_room_build_plan_execution_result_by_code(build_plan_code, execution_code)
+
+    @staticmethod
+    def _active_functional_worker_readback_test_job(
+        cursor: Any,
+        *,
+        execution_job_code: str,
+        build_plan_code: str,
+        target_live_room_id: str,
+    ) -> bool:
+        if not execution_job_code:
+            return False
+        cursor.execute(
+            """
+            SELECT 1
+            FROM maitu_workbench_draft_execution_jobs
+            WHERE execution_job_code = %s
+              AND source_kind = 'functional_live_room_plan'
+              AND execution_mode = 'replace_test_draft'
+              AND authority_mode = 'worker_readback'
+              AND status = 'running'
+              AND claimed_by IS NOT NULL
+              AND lease_token IS NOT NULL
+              AND lease_expires_at > now()
+              AND payload->'build_plan'->>'build_plan_code' = %s
+              AND payload->'build_plan'->>'target_live_room_id' = %s
+              AND payload->'build_plan'->>'expected_title' = 'asser测试'
+              AND payload->>'test_use_acknowledged' = 'true'
+              AND payload->>'non_releasable' = 'true'
+            LIMIT 1
+            """,
+            (execution_job_code, build_plan_code, target_live_room_id),
+        )
+        return cursor.fetchone() is not None
+
+    def get_functional_worker_readback_completion_context(
+        self,
+        *,
+        build_plan_code: str,
+        execution_code: str,
+        worker_id: str,
+    ) -> dict[str, Any] | None:
+        """Return the exact active test-only job allowed to attest worker readback."""
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT job.execution_job_code,
+                       job.claimed_by AS worker_id,
+                       execution.details->>'target_live_room_id' AS target_live_room_id,
+                       plan.expected_title,
+                       execution.details->>'source_plan_fingerprint' AS source_plan_fingerprint
+                FROM maitu_live_room_build_plan_executions AS execution
+                JOIN maitu_workbench_draft_execution_jobs AS job
+                  ON job.payload->'build_plan'->>'build_plan_code' = execution.build_plan_code
+                JOIN functional_live_room_plans AS plan
+                  ON plan.id = job.functional_plan_id
+                 AND plan.plan_code = job.functional_plan_code
+                 AND plan.execution_job_code = job.execution_job_code
+                WHERE execution.build_plan_code = %s
+                  AND execution.execution_code = %s
+                  AND execution.checkpoint_contract = 'script_layout_checkpoint_v1'
+                  AND execution.execution_status = 'in_progress'
+                  AND execution.finalized_at IS NULL
+                  AND execution.lease_owner = %s
+                  AND execution.lease_token IS NOT NULL
+                  AND execution.lease_expires_at > now()
+                  AND execution.details->>'target_live_room_id' = '41172'
+                  AND job.source_kind = 'functional_live_room_plan'
+                  AND job.execution_mode = 'replace_test_draft'
+                  AND job.authority_mode = 'worker_readback'
+                  AND job.status = 'running'
+                  AND job.claimed_by = %s
+                  AND job.lease_token IS NOT NULL
+                  AND job.lease_expires_at > now()
+                  AND job.payload->>'test_use_acknowledged' = 'true'
+                  AND job.payload->>'non_releasable' = 'true'
+                  AND job.payload->>'ready_for_go_live' = 'false'
+                  AND job.payload->'build_plan'->>'target_live_room_id' = '41172'
+                  AND job.payload->'build_plan'->>'expected_title' = 'asser测试'
+                  AND job.payload->'build_plan'->>'source_plan_fingerprint'
+                      = execution.details->>'source_plan_fingerprint'
+                  AND plan.execution_status = 'maitu_running'
+                  AND plan.target_live_room_id = '41172'
+                  AND plan.expected_title = 'asser测试'
+                  AND plan.build_plan->>'build_plan_code' = execution.build_plan_code
+                LIMIT 2
+                """,
+                (build_plan_code, execution_code, worker_id, worker_id),
+            )
+            rows = cursor.fetchall()
+        if len(rows) != 1:
+            return None
+        return dict(rows[0])
 
     @staticmethod
     def _require_functional_live_room_execution_request(cursor: Any, build_plan_code: str) -> None:
@@ -5036,16 +5197,23 @@ class MaituMaterialSlotRepository:
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
                 f"""
-                SELECT asset_code, asset_type, title, original_filename, display_code,
-                    local_file_code, local_relative_path, browser_use_hint,
-                    maitu_material_id, source_material_type, source_material_url,
-                    source_cover_url, speaker_id, digital_human_image_id,
-                    maitu_category, maitu_type, maitu_project_code, maitu_scene_name,
-                    maitu_layer_name, maitu_slot_name, subject, usage,
-                    replacement_policy, description
+                SELECT assets.asset_code, assets.asset_type, assets.title, assets.original_filename,
+                    assets.display_code, assets.local_file_code, assets.local_relative_path,
+                    assets.browser_use_hint, assets.maitu_material_id, assets.source_material_type,
+                    assets.source_material_url, assets.source_cover_url, assets.speaker_id,
+                    assets.digital_human_image_id, assets.maitu_category, assets.maitu_type,
+                    assets.maitu_project_code, assets.maitu_scene_name, assets.maitu_layer_name,
+                    assets.maitu_slot_name, assets.subject, assets.usage, assets.replacement_policy,
+                    assets.description, assets.material_roles,
+                    constraint_revision.constraints AS constraint_rules
                 FROM assets
-                WHERE {' AND '.join(where_clauses)}
-                ORDER BY created_at DESC
+                LEFT JOIN asset_constraint_profiles AS constraint_profile
+                  ON constraint_profile.asset_id = assets.id
+                LEFT JOIN asset_constraint_profile_revisions AS constraint_revision
+                  ON constraint_revision.profile_id = constraint_profile.id
+                 AND constraint_revision.revision_number = constraint_profile.current_revision
+                WHERE {' AND '.join(f'assets.{clause}' if clause == 'deleted_at IS NULL' else clause for clause in where_clauses)}
+                ORDER BY assets.created_at DESC
                 LIMIT 200
                 """,
                 tuple(values),
@@ -5096,16 +5264,23 @@ class MaituMaterialSlotRepository:
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
                 f"""
-                SELECT asset_code, asset_type, title, original_filename, display_code,
-                    local_file_code, local_relative_path, browser_use_hint,
-                    maitu_material_id, source_material_type, source_material_url,
-                    source_cover_url, speaker_id, digital_human_image_id,
-                    maitu_category, maitu_type, maitu_project_code, maitu_scene_name,
-                    maitu_layer_name, maitu_slot_name, subject, usage,
-                    replacement_policy, description
+                SELECT assets.asset_code, assets.asset_type, assets.title, assets.original_filename,
+                    assets.display_code, assets.local_file_code, assets.local_relative_path,
+                    assets.browser_use_hint, assets.maitu_material_id, assets.source_material_type,
+                    assets.source_material_url, assets.source_cover_url, assets.speaker_id,
+                    assets.digital_human_image_id, assets.maitu_category, assets.maitu_type,
+                    assets.maitu_project_code, assets.maitu_scene_name, assets.maitu_layer_name,
+                    assets.maitu_slot_name, assets.subject, assets.usage, assets.replacement_policy,
+                    assets.description, assets.material_roles,
+                    constraint_revision.constraints AS constraint_rules
                 FROM assets
-                WHERE {' AND '.join(where_clauses)}
-                ORDER BY created_at DESC
+                LEFT JOIN asset_constraint_profiles AS constraint_profile
+                  ON constraint_profile.asset_id = assets.id
+                LEFT JOIN asset_constraint_profile_revisions AS constraint_revision
+                  ON constraint_revision.profile_id = constraint_profile.id
+                 AND constraint_revision.revision_number = constraint_profile.current_revision
+                WHERE {' AND '.join(f'assets.{clause}' if clause == 'deleted_at IS NULL' else clause for clause in where_clauses)}
+                ORDER BY assets.created_at DESC
                 LIMIT 100
                 """,
                 tuple(values),
@@ -6749,6 +6924,7 @@ class MaituMaterialSlotRepository:
             "asset_browser_use_hint",
             "material_id",
             "maitu_material_id",
+            "maitu_source_material_id",
             "source_material_type",
             "source_material_url",
             "source_cover_url",

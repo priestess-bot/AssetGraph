@@ -25,7 +25,10 @@ PlanRevisionStatus = Literal["ready", "blocked", "failed", "superseded"]
 MaterialRequirementStatus = Literal["pending", "selected", "deferred", "waived", "missing"]
 MaterialDecisionValue = Literal["selected", "deferred", "waived"]
 PreflightStatus = Literal["passed", "blocked"]
-DraftExecutionJobStatus = Literal["queued", "running", "succeeded", "failed", "cancelled"]
+DraftExecutionJobStatus = Literal[
+    "queued", "running", "succeeded", "failed", "reconcile_required", "cancelled"
+]
+RoomInspectionJobStatus = Literal["queued", "running", "succeeded", "failed"]
 
 
 class StrictModel(BaseModel):
@@ -501,6 +504,57 @@ class DraftExecutionClaim(StrictModel):
 class DraftExecutionHeartbeat(StrictModel):
     lease_token: str = Field(..., min_length=1, max_length=64)
     lease_seconds: int = Field(default=300, ge=30, le=3600)
+    stage: str | None = Field(default=None, min_length=1, max_length=64)
+    progress_current: int | None = Field(default=None, ge=0)
+    progress_total: int | None = Field(default=None, ge=0)
+    message: str | None = Field(default=None, min_length=1, max_length=1000)
+
+    @model_validator(mode="after")
+    def validate_progress(self) -> "DraftExecutionHeartbeat":
+        if self.progress_current is not None and self.progress_total is None:
+            raise ValueError("progress_total is required with progress_current")
+        if self.progress_total is not None and self.progress_current is None:
+            raise ValueError("progress_current is required with progress_total")
+        if (
+            self.progress_current is not None
+            and self.progress_total is not None
+            and self.progress_current > self.progress_total
+        ):
+            raise ValueError("progress_current cannot exceed progress_total")
+        return self
+
+
+class FunctionalDraftMaterialReceiptRefresh(StrictModel):
+    lease_token: str = Field(..., min_length=1, max_length=64)
+    asset_code: str = Field(..., pattern=r"^[A-Za-z0-9_-]+$", max_length=64)
+    maitu_material_id: int | None = Field(default=None, ge=1)
+    maitu_source_material_id: int = Field(..., ge=1)
+    source_material_type: Literal["image", "video", "decorative_video", "digital_human"]
+    source_material_url: str | None = Field(default=None, max_length=4096)
+    source_cover_url: str | None = Field(default=None, max_length=4096)
+    speaker_id: int | None = Field(default=None, ge=1)
+    digital_human_image_id: int | None = Field(default=None, ge=1)
+    inventory_item_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def validate_complete_identity(self) -> "FunctionalDraftMaterialReceiptRefresh":
+        if self.source_material_type == "digital_human":
+            if (
+                self.maitu_material_id is not None
+                or self.source_material_url is not None
+                or self.source_cover_url is None
+                or self.speaker_id is None
+                or self.digital_human_image_id is None
+            ):
+                raise ValueError("digital-human receipt requires source, cover, speaker and image identity")
+        elif (
+            self.maitu_material_id != self.maitu_source_material_id
+            or self.source_material_url is None
+            or self.speaker_id is not None
+            or self.digital_human_image_id is not None
+        ):
+            raise ValueError("regular-material receipt requires matching material/source identity")
+        return self
 
 
 class DraftExecutionComplete(StrictModel):
@@ -513,6 +567,7 @@ class DraftExecutionFail(StrictModel):
     lease_token: str = Field(..., min_length=1, max_length=64)
     error_code: str = Field(..., min_length=1, max_length=64)
     error_message: str = Field(..., min_length=1, max_length=4000)
+    reconcile_required: bool = False
 
 
 class DraftExecutionRetry(StrictModel):
@@ -524,15 +579,26 @@ class DraftExecutionJobRead(BaseModel):
 
     id: str
     execution_job_code: str
-    run_code: str
-    plan_revision_number: int
-    preflight_code: str
+    source_kind: Literal["workbench_run", "functional_live_room_plan"] = "workbench_run"
+    run_code: str | None = None
+    plan_revision_number: int | None = None
+    preflight_code: str | None = None
+    functional_plan_code: str | None = None
+    execution_mode: Literal["fresh_draft", "replace_test_draft"] = "fresh_draft"
+    authority_mode: Literal["worker_readback", "independent_backend"] = "independent_backend"
+    room_inspection_code: str | None = None
+    room_snapshot: dict[str, Any] = Field(default_factory=dict)
+    room_fingerprint: str | None = None
     status: DraftExecutionJobStatus
     attempt: int
     input_fingerprint: str
     idempotency_key: str | None = None
     payload: dict[str, Any]
     result: dict[str, Any] = Field(default_factory=dict)
+    stage: str = "queued"
+    progress_current: int = 0
+    progress_total: int = 0
+    stage_events: list[dict[str, Any]] = Field(default_factory=list)
     ready_for_go_live: Literal[False] = False
     claimed_by: str | None = None
     lease_expires_at: datetime | None = None
@@ -547,4 +613,61 @@ class DraftExecutionJobRead(BaseModel):
 
 
 class DraftExecutionJobClaimedRead(DraftExecutionJobRead):
+    lease_token: str
+
+
+class RoomInspectionCreate(StrictModel):
+    target_live_room_id: str = Field(..., min_length=1, max_length=128)
+    expected_title: str | None = Field(default=None, min_length=1, max_length=255)
+    authority_mode: Literal["worker_readback", "independent_backend"] = "worker_readback"
+    idempotency_key: str | None = Field(default=None, min_length=1, max_length=128)
+    requested_by: str | None = Field(default=None, max_length=128)
+
+
+class RoomInspectionClaim(StrictModel):
+    lease_seconds: int = Field(default=120, ge=30, le=600)
+
+
+class RoomInspectionHeartbeat(RoomInspectionClaim):
+    lease_token: str = Field(..., min_length=1, max_length=64)
+
+
+class RoomInspectionComplete(StrictModel):
+    lease_token: str = Field(..., min_length=1, max_length=64)
+    result: dict[str, Any]
+
+
+class RoomInspectionFail(StrictModel):
+    lease_token: str = Field(..., min_length=1, max_length=64)
+    error_code: str = Field(..., min_length=1, max_length=64)
+    error_message: str = Field(..., min_length=1, max_length=4000)
+
+
+class RoomInspectionRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    inspection_code: str
+    target_live_room_id: str
+    expected_title: str | None = None
+    authority_mode: Literal["worker_readback", "independent_backend"]
+    status: RoomInspectionJobStatus
+    attempt: int
+    input_fingerprint: str
+    idempotency_key: str | None = None
+    result: dict[str, Any] = Field(default_factory=dict)
+    room_fingerprint: str | None = None
+    claimed_by: str | None = None
+    lease_expires_at: datetime | None = None
+    heartbeat_at: datetime | None = None
+    error_code: str | None = None
+    error_message: str | None = None
+    requested_by: str | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class RoomInspectionClaimedRead(RoomInspectionRead):
     lease_token: str

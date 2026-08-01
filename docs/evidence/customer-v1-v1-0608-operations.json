@@ -1,0 +1,136 @@
+{
+  "completed_at": "2026-07-25T20:53:05.808432+00:00",
+  "content_binding": {
+    "kind": "live_room_plan",
+    "plan_code": "LIVEPLAN-20260725-000002",
+    "scene_codes": [
+      "MSB-VARIANT-20260725-000003-001",
+      "MSB-VARIANT-20260725-000003-002",
+      "MSB-VARIANT-20260725-000003-003"
+    ],
+    "variant_code": "VARIANT-20260725-000003"
+  },
+  "import": {
+    "batch_code": "OPS-IMPORT-20260725-000014",
+    "preview_summary": {
+      "duplicate_row_count": 0,
+      "imported_session_count": 1,
+      "invalid_row_count": 0,
+      "pending_binding_row_count": 0,
+      "pending_session_count": 0,
+      "ready_row_count": 3,
+      "resolved_session_count": 1,
+      "row_count": 3,
+      "session_count": 1
+    },
+    "session_code": "OPS-20260725-000029",
+    "source_file_roundtrip_verified": true,
+    "status": "confirmed"
+  },
+  "report": {
+    "dimensions": {
+      "content_segment": {
+        "effect_eligible": false,
+        "member_count": 3
+      },
+      "material": {
+        "effect_eligible": false,
+        "member_count": 3
+      },
+      "operation_session": {
+        "effect_eligible": false,
+        "member_count": 1
+      }
+    },
+    "evidence_level": "descriptive",
+    "fingerprint_sha256": "872856f75938a0b976b9ff8ab7fbd0a08566474ac23d98e2eb7d016523bcab32",
+    "metric_key": "watchers",
+    "quality_snapshot": {
+      "active_exposure_count": 3,
+      "eligible_for_descriptive_publication": false,
+      "metric_definition_state": "metric_unpinned",
+      "observed_session_count": 1,
+      "publication_scope": "descriptive_only",
+      "reasons": [
+        "metric_definition_not_resolved",
+        "no_release_bound_exposure"
+      ],
+      "release_bound_exposure_count": 0,
+      "schema_version": "functional-attribution-quality.v1",
+      "selected_session_count": 1
+    },
+    "report_code": "ATTR-20260725-000016",
+    "status": "insufficient_data"
+  },
+  "schema_version": "customer-v1.operations-acceptance.v1",
+  "screenshots": [
+    {
+      "checksum_sha256": "f5b29fcf7fd6a34f10832e89f65439bb484a07b2bde1acd65ef378fe0a161e28",
+      "height": 8288,
+      "path": "docs/evidence/screenshots/customer-v1-v1-0608-import.png",
+      "size_bytes": 1365453,
+      "width": 1440
+    },
+    {
+      "checksum_sha256": "58f6c23d4836e7622da1119b62ac3eb8e27dbbfc361d701e040c42dd68548db6",
+      "height": 10383,
+      "path": "docs/evidence/screenshots/customer-v1-v1-0608-attribution.png",
+      "size_bytes": 1511894,
+      "width": 1440
+    }
+  ],
+  "source_file": {
+    "checksum_sha256": "b6365cd8b2662cef9508d3977fe49bef008d8aee79563cc30168967471afdd7e",
+    "external_session_id": "ASSETGRAPH-V1-0608-20260725205305",
+    "path": "docs/evidence/customer-v1-v1-0608-operations-import.csv",
+    "size_bytes": 1649
+  },
+  "tests": {
+    "all_intervals_aligned": "passed",
+    "descriptive_only_gate": "passed",
+    "explicit_time_mapping": "passed",
+    "source_file_roundtrip": "passed"
+  },
+  "time_mapping": {
+    "actor": "customer-v1-acceptance",
+    "coverage_end_ms": 180000,
+    "coverage_start_ms": 0,
+    "created_at": "2026-07-26T05:53:05.731141+09:00",
+    "drift_ppm": 0.0,
+    "evidence_note": "由运营导入文件建立；来源时钟 recording_elapsed_ms。",
+    "mapping_code": "TIME-MAP-20260725-000017",
+    "revision_number": 1,
+    "session_code": "OPS-20260725-000029",
+    "source_clock": "recording_elapsed_ms",
+    "source_kind": "platform_anchor",
+    "source_offset_ms": 250,
+    "status": "active"
+  },
+  "timeline": {
+    "alignment_coverage_ratio": 1.0,
+    "span_count": 3,
+    "spans": [
+      {
+        "alignment_status": "aligned",
+        "exposure_code": "EXPOSURE-20260725-000009",
+        "scene_code": "MSB-VARIANT-20260725-000003-001",
+        "source_end_ms": 45250,
+        "source_start_ms": 250
+      },
+      {
+        "alignment_status": "aligned",
+        "exposure_code": "EXPOSURE-20260725-000010",
+        "scene_code": "MSB-VARIANT-20260725-000003-002",
+        "source_end_ms": 135250,
+        "source_start_ms": 45250
+      },
+      {
+        "alignment_status": "aligned",
+        "exposure_code": "EXPOSURE-20260725-000011",
+        "scene_code": "MSB-VARIANT-20260725-000003-003",
+        "source_end_ms": 180250,
+        "source_start_ms": 135250
+      }
+    ]
+  }
+}

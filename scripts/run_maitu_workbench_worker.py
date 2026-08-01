@@ -35,13 +35,19 @@ def run_cycle(*, download_missing: bool = False) -> int:
     if download_missing:
         inventory.append("--download-missing-maitu-materials")
     inventory_result = subprocess.run(inventory, cwd=WORKER_ROOT, env=environment, check=False)
+    inspection_result = subprocess.run(
+        [str(PYTHON), "-m", "browser_use_worker", "--run-room-inspection-job"],
+        cwd=WORKER_ROOT,
+        env=environment,
+        check=False,
+    )
     draft_result = subprocess.run(
         [str(PYTHON), "-m", "browser_use_worker", "--run-workbench-draft-job"],
         cwd=WORKER_ROOT,
         env=environment,
         check=False,
     )
-    return max(inventory_result.returncode, draft_result.returncode)
+    return max(inventory_result.returncode, inspection_result.returncode, draft_result.returncode)
 
 
 def main() -> int:

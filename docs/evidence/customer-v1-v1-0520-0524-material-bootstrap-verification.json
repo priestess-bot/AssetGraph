@@ -1,0 +1,49 @@
+{
+  "schema_version": "material-bootstrap-verification-v1",
+  "verified_at": "2026-07-31T09:32:00Z",
+  "input_fingerprint": "58437a093e44f3e8bb230cd5ebe4c19798d4a536896671b0c2bffde34dd27523",
+  "reports": {
+    "dry_run": "docs/evidence/customer-v1-v1-0520-0524-material-bootstrap-dry-run.json",
+    "first_apply": "docs/evidence/customer-v1-v1-0520-0524-material-bootstrap-apply.json",
+    "idempotent_apply": "docs/evidence/customer-v1-v1-0520-0524-material-bootstrap-idempotent-apply.json"
+  },
+  "catalog_materials": 63,
+  "original_file_records_with_checksum": 63,
+  "maitu_bound_catalog_materials": 62,
+  "reference_only_catalog_materials": 1,
+  "maitu_native_digital_humans": 1,
+  "review_required": 0,
+  "rights_status": {
+    "pending": 64,
+    "changed_by_bootstrap": 0
+  },
+  "digital_human_binding": {
+    "maitu_source_material_id": 37200,
+    "digital_human_image_id": 7717,
+    "speaker_id": 3760
+  },
+  "constraint_revision_observations": {
+    "before_first_apply": {
+      "profile_count": 18,
+      "current_revision_sum": 22,
+      "revision_row_count": 22
+    },
+    "after_first_apply": {
+      "profile_count": 79,
+      "current_revision_sum": 86,
+      "revision_row_count": 86
+    },
+    "after_repeated_apply": {
+      "profile_count": 79,
+      "current_revision_sum": 86,
+      "revision_row_count": 86
+    }
+  },
+  "assertions": {
+    "dry_run_and_apply_fingerprint_equal": true,
+    "repeat_apply_before_equals_after": true,
+    "repeat_apply_created_constraint_revision": false,
+    "machine_local_paths_excluded_from_input_fingerprint": true,
+    "per_material_before_after_present": true
+  }
+}

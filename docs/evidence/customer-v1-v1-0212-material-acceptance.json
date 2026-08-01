@@ -1,0 +1,89 @@
+{
+  "completed_at": "2026-07-25T23:34:25.286616+00:00",
+  "group": {
+    "asset_codes": [
+      "AG-IMG-20260725-000027",
+      "AG-IMG-20260725-000045",
+      "AG-IMG-20260725-000046",
+      "AG-IMG-20260725-000047"
+    ],
+    "group_code": "AG-GRP-20260725-000005",
+    "title": "V1 四角色桌面陈列验收"
+  },
+  "relationship_assertions": [
+    "background defines product_table and is pinned to bottom",
+    "product_display requires product_table and is above background",
+    "promotion_text is pinned to top and above product_display",
+    "digital_human is above background and below promotion_text"
+  ],
+  "roles": {
+    "background": {
+      "asset_code": "AG-IMG-20260725-000046",
+      "constraint_fingerprint": "7317287604e063d865dff438159827d14cc59d235d067cb898b244932691be4f",
+      "constraint_kinds": [
+        "allowed_region",
+        "pin_layer_bottom",
+        "table_surface"
+      ],
+      "constraint_profile_code": "AG-CP-20260725-000005",
+      "constraint_revision": 1,
+      "execution_capability": "maitu_bound",
+      "rights_status": "approved",
+      "title": "background 2c8d424f10be4e6a924faf0d1671c9ad"
+    },
+    "digital_human": {
+      "asset_code": "AG-IMG-20260725-000045",
+      "constraint_fingerprint": "5697a2434f038719a9b3014cc4b9afb7c3849e9b08e2006d59d17992ddbbd45f",
+      "constraint_kinds": [
+        "allowed_region",
+        "preserve_aspect_ratio",
+        "above_role",
+        "below_role"
+      ],
+      "constraint_profile_code": "AG-CP-20260725-000007",
+      "constraint_revision": 1,
+      "execution_capability": "maitu_bound",
+      "rights_status": "approved",
+      "title": "digital_human 2c8d424f10be4e6a924faf0d1671c9ad"
+    },
+    "product_display": {
+      "asset_code": "AG-IMG-20260725-000027",
+      "constraint_fingerprint": "c9fb39d62d64e84871a5bfb3bdf5b1e058b7b93d42504e883d2cc33fcd88ee65",
+      "constraint_kinds": [
+        "require_named_region",
+        "preserve_aspect_ratio",
+        "size_range",
+        "above_role"
+      ],
+      "constraint_profile_code": "AG-CP-20260725-000003",
+      "constraint_revision": 3,
+      "execution_capability": "maitu_bound",
+      "rights_status": "approved",
+      "title": "product_display 8c3e3cb289824bfc8a451d5f378db49d"
+    },
+    "promotion_text": {
+      "asset_code": "AG-IMG-20260725-000047",
+      "constraint_fingerprint": "bea234a179ee291c74628ba738d35cc532e1b0256f48355ffdee262e00b41e92",
+      "constraint_kinds": [
+        "allowed_region",
+        "preserve_aspect_ratio",
+        "pin_layer_top",
+        "above_role"
+      ],
+      "constraint_profile_code": "AG-CP-20260725-000006",
+      "constraint_revision": 1,
+      "execution_capability": "maitu_bound",
+      "rights_status": "approved",
+      "title": "promotion_text 2c8d424f10be4e6a924faf0d1671c9ad"
+    }
+  },
+  "schema_version": "customer-v1.material-acceptance.v1",
+  "screenshot": {
+    "checksum_sha256": "753d09ecd7cdc40616a550909f43523b1702a522135dccf1ee41a7f6aa8b92a7",
+    "height": 1150,
+    "path": "docs/evidence/screenshots/customer-v1-v1-0212-material-group.png",
+    "size_bytes": 185321,
+    "width": 1440
+  },
+  "status": "passed"
+}

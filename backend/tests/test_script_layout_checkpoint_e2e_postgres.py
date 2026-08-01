@@ -185,9 +185,21 @@ class TrackingInMemorySession:
     def __getattr__(self, name: str):
         return getattr(self.delegate, name)
 
-    def rename_clip(self, *, live_room_id: str, clip_id: int, name: str) -> dict[str, Any]:
+    def rename_clip(
+        self,
+        *,
+        live_room_id: str,
+        clip_id: int,
+        name: str,
+        expected_live_room_title: str | None = None,
+    ) -> dict[str, Any]:
         self.rename_count += 1
-        result = self.delegate.rename_clip(live_room_id=live_room_id, clip_id=clip_id, name=name)
+        result = self.delegate.rename_clip(
+            live_room_id=live_room_id,
+            clip_id=clip_id,
+            name=name,
+            expected_live_room_title=expected_live_room_title,
+        )
         return {**result, "verified": True, "verification_source": "working_room_readback"}
 
 

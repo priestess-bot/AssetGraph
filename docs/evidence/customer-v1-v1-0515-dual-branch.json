@@ -1,0 +1,87 @@
+{
+  "boundaries": {
+    "go_live_requested": false,
+    "maitu_draft_write_executed": false,
+    "video_rendering": "local Kokoro TTS plus FFmpeg"
+  },
+  "content_project": {
+    "project_code": "CONTENT-20260725-000002",
+    "revision_number": 1,
+    "script_revision_code": "SCRIPT-20260725-000002",
+    "shot_list_revision_code": "SHOTLIST-20260725-000002",
+    "story_brief_code": "STORY-20260725-000002"
+  },
+  "created_at": "2026-07-25T19:48:42.649779+00:00",
+  "live_room_branch": {
+    "build_plan_code": "MT-BUILD-20260725-000002",
+    "go_live": false,
+    "plan_code": "LIVEPLAN-20260725-000002",
+    "scene_count": 3,
+    "status": "ready",
+    "target_live_room_id": "customer-v1-empty-draft-001",
+    "variant_code": "VARIANT-20260725-000003"
+  },
+  "schema_version": "customer-v1-dual-branch-acceptance.v1",
+  "screenshots": [
+    {
+      "checksum_sha256": "17ba91fa06829992d6e8b2e78192e1a2d6d25de7d251290682ebcc8350d23279",
+      "height": 4991,
+      "path": "docs/evidence/screenshots/customer-v1-v1-0515-live-room.png",
+      "size_bytes": 791133,
+      "width": 1440
+    },
+    {
+      "checksum_sha256": "b815d7c5634aaa32ce413dfc49088e95f6c047dbf1eb9f7fa5c71e3b613886e4",
+      "height": 8086,
+      "path": "docs/evidence/screenshots/customer-v1-v1-0515-video.png",
+      "size_bytes": 929725,
+      "width": 1440
+    }
+  ],
+  "shared_revision_checks": {
+    "same_content_project_revision": true,
+    "same_project": true
+  },
+  "status": "passed",
+  "video_branch": {
+    "artifacts": [
+      {
+        "artifact_key": "contact_sheet",
+        "checksum_sha256": "519710a387a9732556064d01381221a2cb8082a2154fe5050d070ee658bb504c",
+        "path": "outputs/customer-v1/v1-0515/AG-VJOB-20260725-000002/attempt-1/contact-sheet.jpg",
+        "size_bytes": 134586
+      },
+      {
+        "artifact_key": "poster",
+        "checksum_sha256": "cc2488c0f6fba5940cf5e60e46683fa63cb3b68959c04c4c045b587da0e34238",
+        "path": "outputs/customer-v1/v1-0515/AG-VJOB-20260725-000002/attempt-1/poster.jpg",
+        "size_bytes": 130427
+      },
+      {
+        "artifact_key": "render_manifest",
+        "checksum_sha256": "2fbd0b78661c90de1141a4e09556a1723199ce101ebb0a0b863d9570bd83081b",
+        "path": "outputs/customer-v1/v1-0515/AG-VJOB-20260725-000002/attempt-1/render/manifest.json",
+        "size_bytes": 29430
+      },
+      {
+        "artifact_key": "subtitles",
+        "checksum_sha256": "dbf9a143f35bb8345367592473b1708fa7f63cb6fd7b6424384ce07714f2f8ed",
+        "path": "outputs/customer-v1/v1-0515/AG-VJOB-20260725-000002/attempt-1/subtitles/subtitles.ass",
+        "size_bytes": 2196
+      },
+      {
+        "artifact_key": "video",
+        "checksum_sha256": "7a343f37c101ea4fd127af99dfc81064285da3b2cedc704cccdfd75e6a902c0b",
+        "path": "outputs/customer-v1/v1-0515/AG-VJOB-20260725-000002/attempt-1/final.mp4",
+        "size_bytes": 13393152
+      }
+    ],
+    "job_code": "AG-VJOB-20260725-000002",
+    "plan_code": "VIDPLAN-20260725-000002",
+    "quality_passed": true,
+    "status": "succeeded",
+    "timeline_fingerprint_sha256": "46a49e16196436169ec0ac6a6cacfe482f60ac9802c9083af65edf973634fe36",
+    "timeline_revision": 1,
+    "variant_code": "VARIANT-20260725-000004"
+  }
+}

@@ -33,6 +33,21 @@ logs/
 outputs/
 .run/
 
+# Product E2E raw traces and failed attempts remain local. Commit the reviewed
+# compact evidence bundle explicitly; raw network responses can contain
+# short-lived provider URLs and unnecessarily bloat repository history.
+docs/evidence/live-room-41172-product-e2e-*/
+!docs/evidence/live-room-41172-product-e2e-2026-07-31T14-48-54-818Z/
+!docs/evidence/live-room-41172-product-e2e-2026-07-31T14-48-54-818Z/**
+docs/evidence/**/network-evidence.json
+docs/evidence/live-room-41172-0000*.png
+!docs/evidence/live-room-41172-000014-before-reconcile.png
+!docs/evidence/live-room-41172-000014-after-reconcile.png
+docs/evidence/live-room-41172-recovery-*.png
+docs/evidence/frontend-product-workflows-*/
+!docs/evidence/frontend-product-workflows-2026-07-28T18-10-54-511Z/
+!docs/evidence/frontend-product-workflows-2026-07-28T18-10-54-511Z/**
+
 # Local media assets are managed outside Git. Keep metadata/manifest files under docs/ tracked.
 素材/
 

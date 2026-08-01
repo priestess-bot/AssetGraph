@@ -19,6 +19,7 @@ from app.schemas.maitu_workbench import (
     DraftExecutionComplete,
     DraftExecutionFail,
     DraftExecutionHeartbeat,
+    FunctionalDraftMaterialReceiptRefresh,
     DraftExecutionJobClaimedRead,
     DraftExecutionJobCreate,
     DraftExecutionJobRead,
@@ -52,6 +53,12 @@ from app.schemas.maitu_workbench import (
     WorkbenchRunRead,
     WorkbenchRunStatus,
     WorkbenchRunTargetUpdate,
+    RoomInspectionClaim,
+    RoomInspectionClaimedRead,
+    RoomInspectionComplete,
+    RoomInspectionFail,
+    RoomInspectionHeartbeat,
+    RoomInspectionRead,
 )
 from app.schemas.material_analysis import (
     AnalysisConflictRead,
@@ -65,6 +72,7 @@ from app.schemas.material_analysis import (
     VideoAnalysisRead,
     VideoAnalysisRetry,
 )
+from app.schemas.assets import AssetRead
 from app.services.maitu_workbench import (
     MaituWorkbenchService,
     WorkbenchModelGenerationError,
@@ -99,6 +107,7 @@ _PROTOCOL_FIELDS = {
     "attempt_id",
     "operation_fingerprint",
     "asset_fingerprint",
+    "inventory_item_fingerprint",
     "model_input_fingerprint",
     "model_output_fingerprint",
     "sha256",
@@ -739,6 +748,75 @@ def retry_video_analysis(
 # Draft execution worker protocol -------------------------------------
 
 
+@router.post(
+    "/room-inspection-jobs/claim-next",
+    response_model=RoomInspectionClaimedRead | None,
+)
+def claim_next_room_inspection_job(
+    payload: RoomInspectionClaim,
+    worker_id: Annotated[str, Depends(require_maitu_script_layout_worker)],
+    repository: Annotated[MaituWorkbenchRepository, Depends(get_maitu_workbench_repository)],
+) -> dict[str, Any] | Response:
+    row = repository.claim_room_inspection_job(worker_id, payload.lease_seconds)
+    return row if row is not None else Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/room-inspection-jobs/{inspection_code}/heartbeat",
+    response_model=RoomInspectionRead,
+)
+def heartbeat_room_inspection_job(
+    inspection_code: str,
+    payload: RoomInspectionHeartbeat,
+    worker_id: Annotated[str, Depends(require_maitu_script_layout_worker)],
+    repository: Annotated[MaituWorkbenchRepository, Depends(get_maitu_workbench_repository)],
+) -> dict[str, Any]:
+    row = repository.heartbeat_room_inspection_job(
+        inspection_code, worker_id, payload.lease_token, payload.lease_seconds
+    )
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Room inspection lease is not active")
+    return row
+
+
+@router.post(
+    "/room-inspection-jobs/{inspection_code}/complete",
+    response_model=RoomInspectionRead,
+)
+def complete_room_inspection_job(
+    inspection_code: str,
+    payload: RoomInspectionComplete,
+    worker_id: Annotated[str, Depends(require_maitu_script_layout_worker)],
+    repository: Annotated[MaituWorkbenchRepository, Depends(get_maitu_workbench_repository)],
+) -> dict[str, Any]:
+    _reject_secret(payload)
+    with _workbench_errors():
+        return repository.complete_room_inspection_job(
+            inspection_code, worker_id, payload.lease_token, payload.result
+        )
+
+
+@router.post(
+    "/room-inspection-jobs/{inspection_code}/fail",
+    response_model=RoomInspectionRead,
+)
+def fail_room_inspection_job(
+    inspection_code: str,
+    payload: RoomInspectionFail,
+    worker_id: Annotated[str, Depends(require_maitu_script_layout_worker)],
+    repository: Annotated[MaituWorkbenchRepository, Depends(get_maitu_workbench_repository)],
+) -> dict[str, Any]:
+    _reject_secret(payload)
+    with _workbench_errors():
+        return repository.fail_room_inspection_job(
+            inspection_code,
+            worker_id,
+            payload.lease_token,
+            error_code=payload.error_code,
+            error_message=payload.error_message,
+        )
+
+
 @router.post("/draft-execution-jobs/claim-next", response_model=DraftExecutionJobClaimedRead | None)
 def claim_next_draft_execution_job(
     payload: DraftExecutionClaim,
@@ -786,10 +864,33 @@ def heartbeat_draft_execution_job(
         worker_id,
         payload.lease_token,
         payload.lease_seconds,
+        stage=payload.stage,
+        progress_current=payload.progress_current,
+        progress_total=payload.progress_total,
+        message=payload.message,
     )
     if row is None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Draft execution lease is not active")
     return row
+
+
+@router.post(
+    "/draft-execution-jobs/{execution_job_code}/material-binding-receipts",
+    response_model=AssetRead,
+)
+def refresh_functional_draft_material_receipt(
+    execution_job_code: str,
+    payload: FunctionalDraftMaterialReceiptRefresh,
+    worker_id: Annotated[str, Depends(require_maitu_script_layout_worker)],
+    repository: Annotated[MaituWorkbenchRepository, Depends(get_maitu_workbench_repository)],
+) -> dict[str, Any]:
+    _reject_secret(payload)
+    with _workbench_errors():
+        return repository.refresh_functional_draft_material_receipt(
+            execution_job_code,
+            worker_id,
+            payload.model_dump(mode="json"),
+        )
 
 
 @router.post("/draft-execution-jobs/{execution_job_code}/complete", response_model=DraftExecutionJobRead)
@@ -823,6 +924,7 @@ def fail_draft_execution_job(
             payload.lease_token,
             error_code=payload.error_code,
             error_message=payload.error_message,
+            reconcile_required=payload.reconcile_required,
         )
 
 

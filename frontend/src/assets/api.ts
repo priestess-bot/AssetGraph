@@ -14,6 +14,7 @@ const ROOT = "/api/assets";
 
 export type MaterialRole =
   | "background"
+  | "set_surface"
   | "product_display"
   | "digital_human"
   | "brand_title"
@@ -30,9 +31,13 @@ export type ExecutionCapability =
   | "unavailable"
   | "unclassified";
 export type RightsStatus = "pending" | "approved" | "restricted" | "revoked";
+export type ClassificationReviewStatus = "inferred" | "review_required" | "confirmed";
 
 export interface LibraryAsset {
   assetCode: string;
+  displayCode?: string;
+  localFileCode?: string;
+  localRelativePath?: string;
   title: string;
   originalFilename: string;
   assetType: string;
@@ -44,6 +49,9 @@ export interface LibraryAsset {
   sourceSystem?: string;
   rightsStatus: RightsStatus;
   rightsNote?: string;
+  classificationReviewStatus: ClassificationReviewStatus;
+  classificationConfidence?: number;
+  classificationEvidence: Record<string, unknown>;
 }
 
 export interface AssetFile {
@@ -53,6 +61,9 @@ export interface AssetFile {
   mimeType?: string;
   fileSize?: number;
   checksumSha256?: string;
+  width?: number;
+  height?: number;
+  durationSeconds?: number;
   storageStatus: string;
 }
 
@@ -232,6 +243,9 @@ function asset(value: unknown): LibraryAsset | undefined {
   if (!assetCode) return undefined;
   return {
     assetCode,
+    displayCode: asOptionalString(value.display_code),
+    localFileCode: asOptionalString(value.local_file_code),
+    localRelativePath: asOptionalString(value.local_relative_path),
     title: productTitle(asString(value.title, asString(value.original_filename, assetCode)), "未命名素材"),
     originalFilename: asString(value.original_filename, assetCode),
     assetType: asString(value.asset_type),
@@ -246,6 +260,17 @@ function asset(value: unknown): LibraryAsset | undefined {
     sourceSystem: asOptionalString(value.source_system),
     rightsStatus: asString(value.rights_status, "pending") as RightsStatus,
     rightsNote: asOptionalString(value.rights_note),
+    classificationReviewStatus: asString(
+      value.classification_review_status,
+      "review_required",
+    ) as ClassificationReviewStatus,
+    classificationConfidence:
+      typeof value.classification_confidence === "number"
+        ? value.classification_confidence
+        : undefined,
+    classificationEvidence: isRecord(value.classification_evidence)
+      ? value.classification_evidence
+      : {},
   };
 }
 
@@ -262,6 +287,10 @@ function assetFile(value: unknown): AssetFile {
     fileSize:
       typeof value.file_size === "number" ? value.file_size : undefined,
     checksumSha256: asOptionalString(value.checksum_sha256),
+    width: typeof value.width === "number" ? value.width : undefined,
+    height: typeof value.height === "number" ? value.height : undefined,
+    durationSeconds:
+      typeof value.duration_seconds === "number" ? value.duration_seconds : undefined,
     storageStatus: asString(value.storage_status, "stored"),
   };
 }
@@ -668,7 +697,10 @@ export const assetLibraryApi = {
     payload: {
       media_kind?: string;
       material_roles: string[];
-      execution_capability: ExecutionCapability;
+      execution_capability?: Exclude<ExecutionCapability, "maitu_bound">;
+      classification_review_status?: ClassificationReviewStatus;
+      classification_confidence?: number;
+      classification_evidence?: Record<string, unknown>;
     },
   ) =>
     patchJson<unknown>(`${ROOT}/${assetCode}/classification`, payload).then(

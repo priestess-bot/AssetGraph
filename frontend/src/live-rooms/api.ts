@@ -120,6 +120,10 @@ export interface FunctionalLiveRoomPlan {
   blockedReasons: string[];
   executionStatus: string;
   executionEvidence: Record<string, unknown>;
+  executionJobCode?: string;
+  roomInspectionCode?: string;
+  executionMode?: string;
+  executionAuthorityMode?: string;
   clonedFromPlanCode?: string;
   cloneContext: Record<string, unknown>;
   revisedFromPlanCode?: string;
@@ -223,6 +227,7 @@ export interface RoomConstraintOverride {
 }
 
 export interface FunctionalLiveRoomPlanInput {
+  idempotency_key?: string;
   project_code: string;
   target_live_room_id: string;
   expected_title: string;
@@ -245,6 +250,7 @@ export interface FunctionalLiveRoomPlanInput {
 }
 
 export interface FunctionalLiveRoomBlueprintRevisionInput {
+  idempotency_key?: string;
   scenes: Array<{
     shot_code: string;
     sort_order: number;
@@ -257,6 +263,75 @@ export interface FunctionalLiveRoomBlueprintRevisionInput {
       z_order: number;
     }>;
   }>;
+}
+
+export interface LiveRoomInspectionScene {
+  sceneId: string;
+  name: string;
+  orderNumber: number;
+  materialCount: number;
+}
+
+export interface LiveRoomInspection {
+  inspectionCode: string;
+  targetLiveRoomId: string;
+  expectedTitle?: string;
+  authorityMode: string;
+  status: string;
+  attempt: number;
+  roomFingerprint?: string;
+  result?: {
+    actualTitle: string;
+    isLive: boolean;
+    hasLiveTrace: boolean;
+    readEnvironment: string;
+    sceneCount: number;
+    scenes: LiveRoomInspectionScene[];
+    capturedAt?: string;
+    readyForGoLive: false;
+    goLiveClicked: false;
+  };
+  errorMessage?: string;
+  startedAt?: string;
+  completedAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface LiveRoomDraftExecution {
+  executionJobCode: string;
+  planCode?: string;
+  sourceKind: string;
+  status: string;
+  stage: string;
+  progressCurrent: number;
+  progressTotal: number;
+  stageEvents: Array<{
+    stage: string;
+    status: string;
+    message?: string;
+    progressCurrent?: number;
+    progressTotal?: number;
+    occurredAt?: string;
+  }>;
+  result: Record<string, unknown>;
+  error?: {
+    code?: string;
+    message?: string;
+    customerMessage?: string;
+    nextStep?: string;
+  };
+  retryable: boolean;
+  updatedAt?: string;
+}
+
+export interface ConfirmLiveRoomExecutionInput {
+  draftMode: "replace_test_draft";
+  roomInspectionCode: string;
+  expectedRoomFingerprint: string;
+  confirmedSceneIds: string[];
+  idempotencyKey: string;
+  testUseAcknowledged: true;
 }
 
 export interface FunctionalLiveRoomMaterialGapPreview {
@@ -727,6 +802,10 @@ function plan(value: unknown): FunctionalLiveRoomPlan {
     executionEvidence: isRecord(value.execution_evidence)
       ? value.execution_evidence
       : {},
+    executionJobCode: asOptionalString(value.execution_job_code),
+    roomInspectionCode: asOptionalString(value.room_inspection_code),
+    executionMode: asOptionalString(value.execution_mode),
+    executionAuthorityMode: asOptionalString(value.execution_authority_mode),
     clonedFromPlanCode: asOptionalString(value.cloned_from_plan_code),
     cloneContext: isRecord(value.clone_context) ? value.clone_context : {},
     revisedFromPlanCode: asOptionalString(value.revised_from_plan_code),
@@ -753,6 +832,78 @@ function plan(value: unknown): FunctionalLiveRoomPlan {
           }
         : undefined,
     updatedAt: asString(value.updated_at),
+  };
+}
+
+function roomInspection(value: unknown): LiveRoomInspection {
+  if (!isRecord(value)) throw new Error("直播间检查响应无效");
+  const inspectionCode = asString(value.inspection_code);
+  const targetLiveRoomId = asString(value.target_live_room_id);
+  if (!inspectionCode || !targetLiveRoomId) throw new Error("直播间检查缺少必要信息");
+  const rawResult = isRecord(value.result) ? value.result : undefined;
+  return {
+    inspectionCode,
+    targetLiveRoomId,
+    expectedTitle: asOptionalString(value.expected_title),
+    authorityMode: asString(value.authority_mode, "worker_readback"),
+    status: asString(value.status, "queued"),
+    attempt: asNumber(value.attempt),
+    roomFingerprint: asOptionalString(value.room_fingerprint),
+    result: rawResult ? {
+      actualTitle: asString(rawResult.actual_title),
+      isLive: rawResult.is_live === true,
+      hasLiveTrace: rawResult.has_live_trace === true,
+      readEnvironment: asString(rawResult.read_environment),
+      sceneCount: asNumber(rawResult.scene_count),
+      scenes: asArray(rawResult.scenes).flatMap((scene, index) => isRecord(scene) && asString(scene.scene_id) ? [{
+        sceneId: asString(scene.scene_id),
+        name: asString(scene.name, `场景 ${index + 1}`),
+        orderNumber: asNumber(scene.order_num, index + 1),
+        materialCount: asNumber(scene.material_count),
+      }] : []),
+      capturedAt: asOptionalString(rawResult.captured_at),
+      readyForGoLive: false,
+      goLiveClicked: false,
+    } : undefined,
+    errorMessage: asOptionalString(value.error_message),
+    startedAt: asOptionalString(value.started_at),
+    completedAt: asOptionalString(value.completed_at),
+    createdAt: asOptionalString(value.created_at),
+    updatedAt: asOptionalString(value.updated_at),
+  };
+}
+
+function draftExecution(value: unknown): LiveRoomDraftExecution {
+  if (!isRecord(value)) throw new Error("草稿执行响应无效");
+  const error = isRecord(value.error) ? value.error : undefined;
+  const executionJobCode = asString(value.execution_job_code, asString(value.job_code));
+  if (!executionJobCode) throw new Error("草稿执行缺少任务信息");
+  const progress = isRecord(value.progress) ? value.progress : {};
+  return {
+    executionJobCode,
+    planCode: asOptionalString(value.plan_code),
+    sourceKind: asString(value.source_kind, "functional_live_room_plan"),
+    status: asString(value.status, "queued"),
+    stage: asString(value.stage, asString(value.status, "queued")),
+    progressCurrent: asNumber(value.progress_current, asNumber(progress.current)),
+    progressTotal: asNumber(value.progress_total, asNumber(progress.total)),
+    stageEvents: asArray(value.stage_events).flatMap((event) => isRecord(event) && asString(event.stage) ? [{
+      stage: asString(event.stage),
+      status: asString(event.status),
+      message: asOptionalString(event.customer_message) ?? asOptionalString(event.message),
+      progressCurrent: typeof event.progress_current === "number" ? event.progress_current : undefined,
+      progressTotal: typeof event.progress_total === "number" ? event.progress_total : undefined,
+      occurredAt: asOptionalString(event.occurred_at) ?? asOptionalString(event.created_at),
+    }] : []),
+    result: isRecord(value.result) ? value.result : {},
+    error: error ? {
+      code: asOptionalString(error.code),
+      message: asOptionalString(error.message),
+      customerMessage: asOptionalString(error.customer_message),
+      nextStep: asOptionalString(error.next_step),
+    } : undefined,
+    retryable: value.retryable === true || asString(value.status) === "failed",
+    updatedAt: asOptionalString(value.updated_at),
   };
 }
 
@@ -959,10 +1110,36 @@ export const functionalLiveRoomsApi = {
       ...payload,
       material_role_modes: payload.material_role_modes ?? {},
     }).then(materialGapPreview),
-  confirmExecution: (planCode: string) =>
+  createRoomInspection: (payload: { targetLiveRoomId: string; expectedTitle?: string; idempotencyKey: string }) =>
+    postJson<unknown>(`${ROOT}/room-inspections`, {
+      target_live_room_id: payload.targetLiveRoomId,
+      expected_title: payload.expectedTitle || undefined,
+      idempotency_key: payload.idempotencyKey,
+      authority_mode: "worker_readback",
+    }).then(roomInspection),
+  getRoomInspection: (inspectionCode: string) =>
+    requestJson<unknown>(`${ROOT}/room-inspections/${encodeURIComponent(inspectionCode)}`).then(roomInspection),
+  confirmExecution: (planCode: string, input?: ConfirmLiveRoomExecutionInput) =>
     postJson<unknown>(`${ROOT}/${planCode}/confirm-execution`, {
       confirmed: true,
+      ...(input ? {
+        draft_mode: input.draftMode,
+        room_inspection_code: input.roomInspectionCode,
+        expected_room_fingerprint: input.expectedRoomFingerprint,
+        confirmed_scene_ids: input.confirmedSceneIds,
+        idempotency_key: input.idempotencyKey,
+        test_use_acknowledged: input.testUseAcknowledged,
+      } : {}),
     }).then(plan),
+  getExecution: (planCode: string) =>
+    requestJson<unknown>(`${ROOT}/${planCode}/execution`).then(draftExecution),
+  retryExecution: (planCode: string) =>
+    postJson<unknown>(`${ROOT}/${planCode}/execution/retry`, {}).then(draftExecution),
+  reconcileExecution: (planCode: string) =>
+    postJson<unknown>(`${ROOT}/${planCode}/execution/reconcile`, {
+      acknowledged_by: "live-room-product-operator",
+      note: "从直播间配置页确认重新读取麦兔现场并继续对账。",
+    }).then(draftExecution),
   executionHandoff: (planCode: string) =>
     requestJson<unknown>(`${ROOT}/${planCode}/execution-handoff`).then(
       executionHandoff,

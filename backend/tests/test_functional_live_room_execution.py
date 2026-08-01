@@ -65,11 +65,11 @@ def _execution(*, source_fingerprint: str = "a" * 64) -> dict:
     }
 
 
-def test_completed_fenced_execution_projects_a_draft_readback_without_go_live() -> None:
+def test_completed_checkpoint_without_scene_readback_requires_reconciliation() -> None:
     status, evidence = FunctionalLiveRoomService._project_execution_readback(HANDOFF, _execution())
 
-    assert status == "maitu_complete"
-    assert evidence["status"] == "finalized_draft_readback"
+    assert status == "maitu_reconcile_required"
+    assert evidence["status"] == "final_readback_mismatch"
     assert evidence["execution"]["ready_for_go_live"] is False
     assert evidence["execution"]["operation_summary"] == {
         "total": 2,
@@ -167,6 +167,25 @@ def test_execution_readback_compares_room_scene_layer_geometry_and_script() -> N
     assert comparison["scenes"][0]["status"] == "matched"
     assert comparison["scenes"][0]["layers"][0]["observed"]["material_id"] == 201
     assert comparison["scenes"][0]["script"]["status"] == "matched"
+
+    evidence_by_index = {item["operation_index"]: item.get("completion_evidence", {}) for item in results}
+    execution = {
+        **_execution(),
+        "expected_operation_count": 6,
+        "operation_results": [
+            {
+                "operation_index": index,
+                "operation_type": operation["operation_type"],
+                "checkpoint_state": "completed",
+                "status": "completed",
+                "completion_evidence": evidence_by_index.get(index, {}),
+            }
+            for index, operation in enumerate(handoff["operations"])
+        ],
+    }
+    status, projection = FunctionalLiveRoomService._project_execution_readback(handoff, execution)
+    assert status == "maitu_complete"
+    assert projection["comparison"]["status"] == "matched"
 
 
 def test_execution_readback_marks_observed_geometry_difference() -> None:

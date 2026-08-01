@@ -4,6 +4,57 @@ from app.domain.errors import DomainValidationError
 from app.services.functional_content import FunctionalContentService
 
 
+def test_product_fact_uses_canonical_product_display_role() -> None:
+    assert FunctionalContentService._shot_material_roles(
+        "product_fact", ["digital_human", "background"], []
+    ) == ["digital_human", "product_display"]
+
+
+def test_confirmed_detailed_design_changes_script_and_shot_with_trace() -> None:
+    first = {
+        "theme": "品酒大师PRO",
+        "story": "朋友聚会选酒",
+        "detailed_design": "开场先给酒瓶特写，第二段展示酒体，结尾展示礼盒。",
+        "_confirmed_design_brief": {
+            "theme": "品酒大师PRO",
+            "story": "朋友聚会选酒",
+            "detailed_design": "开场先给酒瓶特写，第二段展示酒体，结尾展示礼盒。",
+        },
+        "_confirmed_design_brief_ref": "BRIEF-001:r1",
+    }
+    second = {
+        **first,
+        "detailed_design": "三段都以数字人口播为主，不展示礼盒。",
+        "_confirmed_design_brief": {
+            **first["_confirmed_design_brief"],
+            "detailed_design": "三段都以数字人口播为主，不展示礼盒。",
+        },
+        "_confirmed_design_brief_ref": "BRIEF-002:r1",
+    }
+
+    first_blocks = FunctionalContentService._script_blocks("介绍产品", first, [])
+    second_blocks = FunctionalContentService._script_blocks("介绍产品", second, [])
+    assert first_blocks[0]["content"] != second_blocks[0]["content"]
+    assert first["detailed_design"] in first_blocks[0]["content"]
+
+    segments = [
+        {
+            "segment_code": f"SEG-{index + 1}",
+            "semantic_goal": block["module_type"],
+        }
+        for index, block in enumerate(first_blocks)
+    ]
+    blocks = [
+        {**block, "block_code": f"BLOCK-{index + 1}"}
+        for index, block in enumerate(first_blocks)
+    ]
+    shots = FunctionalContentService._shots(segments, blocks, first)
+    assert shots[0]["composition_intent"]["user_design_direction"] == first[
+        "detailed_design"
+    ]
+    assert shots[0]["composition_intent"]["confirmed_design_brief_ref"] == "BRIEF-001:r1"
+
+
 def test_product_order_is_preserved_in_story_context_and_product_segments() -> None:
     content = {"product_order": [" PRODUCT-001 ", "PRODUCT-002"]}
     story = FunctionalContentService._story_content("Explain product choices", content, {})

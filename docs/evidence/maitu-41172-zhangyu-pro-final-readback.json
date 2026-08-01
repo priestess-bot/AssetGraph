@@ -1,0 +1,487 @@
+{
+  "target_live_room_id": "41172",
+  "title": "asser测试",
+  "status": 0,
+  "latest_live_time": null,
+  "live_session_id": null,
+  "environment": "working",
+  "verification_source": "maitu_working_room_readback",
+  "scenes": [
+    {
+      "id": 437569,
+      "topic_id": 285383,
+      "name": "开场引入",
+      "order_num": 0,
+      "visual_count": 9,
+      "text_count": 1,
+      "script_texts": [
+        "大家好，今天用三分钟认识张裕品酒大师 PRO。你平时选葡萄酒，更关心口感、聚餐搭配，还是日常饮用场景？可以打在公屏上。接下来我们结合产品画面，把它的定位和选择思路讲清楚。"
+      ],
+      "visuals": [
+        {
+          "clip_material_id": 10538629,
+          "name": "背景-3",
+          "type": "image",
+          "source_material_id": 37262,
+          "left": 0,
+          "top": 0,
+          "width": 1081,
+          "height": 1918,
+          "layer_n": 1,
+          "style_front": {
+            "top": 0,
+            "left": 0,
+            "zIndex": 1
+          }
+        },
+        {
+          "clip_material_id": 10538630,
+          "name": "100164837226 张裕 九代解百纳 品酒大师pro 酒体-2833.mov",
+          "type": "decorative_video",
+          "source_material_id": 37348,
+          "left": 0,
+          "top": 0,
+          "width": 1084,
+          "height": 1924,
+          "layer_n": 2,
+          "style_front": {
+            "top": 0,
+            "left": 0,
+            "zIndex": 2
+          }
+        },
+        {
+          "clip_material_id": 10538631,
+          "name": "张裕定制形象260519",
+          "type": "digital_human",
+          "source_material_id": 37200,
+          "left": 106,
+          "top": 464,
+          "width": 861,
+          "height": 1542,
+          "layer_n": 3,
+          "style_front": {
+            "top": 187.53333333333333,
+            "left": 43.196296296296296,
+            "zIndex": 3
+          }
+        },
+        {
+          "clip_material_id": 10538632,
+          "name": "底图",
+          "type": "image",
+          "source_material_id": 37266,
+          "left": -543,
+          "top": 1406,
+          "width": 1965,
+          "height": 531,
+          "layer_n": 4,
+          "style_front": {
+            "top": 568.2583333333333,
+            "left": -219.21111111111114,
+            "zIndex": 4
+          }
+        },
+        {
+          "clip_material_id": 10538633,
+          "name": "gif-01",
+          "type": "image",
+          "source_material_id": 37267,
+          "left": 117,
+          "top": 705,
+          "width": 195,
+          "height": 238,
+          "layer_n": 5,
+          "style_front": {
+            "top": 284.9375,
+            "left": 47.233333333333334,
+            "zIndex": 5
+          }
+        },
+        {
+          "clip_material_id": 10538634,
+          "name": "png",
+          "type": "image",
+          "source_material_id": 37268,
+          "left": 112,
+          "top": 467,
+          "width": 205,
+          "height": 252,
+          "layer_n": 6,
+          "style_front": {
+            "top": 188.74583333333334,
+            "left": 45.214814814814815,
+            "zIndex": 6
+          }
+        },
+        {
+          "clip_material_id": 10538635,
+          "name": "icon",
+          "type": "image",
+          "source_material_id": 37263,
+          "left": 94,
+          "top": 1682,
+          "width": 890,
+          "height": 107,
+          "layer_n": 7,
+          "style_front": {
+            "top": 679.8083333333334,
+            "left": 37.94814814814815,
+            "zIndex": 7
+          }
+        },
+        {
+          "clip_material_id": 10538636,
+          "name": "logo",
+          "type": "image",
+          "source_material_id": 37265,
+          "left": 472,
+          "top": 134,
+          "width": 135,
+          "height": 133,
+          "layer_n": 8,
+          "style_front": {
+            "top": 54.15833333333333,
+            "left": 190.54814814814816,
+            "zIndex": 8
+          }
+        },
+        {
+          "clip_material_id": 10538637,
+          "name": "张裕百年",
+          "type": "image",
+          "source_material_id": 37264,
+          "left": 114,
+          "top": 278,
+          "width": 849,
+          "height": 134,
+          "layer_n": 9,
+          "style_front": {
+            "top": 112.35833333333333,
+            "left": 46.022222222222226,
+            "zIndex": 9
+          }
+        }
+      ]
+    },
+    {
+      "id": 451296,
+      "topic_id": 285383,
+      "name": "产品画面与选择",
+      "order_num": 1,
+      "visual_count": 9,
+      "text_count": 1,
+      "script_texts": [
+        "现在看到的是张裕品酒大师 PRO 的产品和酒体展示。选酒时建议先看真实包装信息，再结合饮用人数、菜品和口感偏好判断。产品规格、年份、酒精度和配料请以瓶身标签和商品页为准，我们只介绍现场可核对的信息。"
+      ],
+      "visuals": [
+        {
+          "clip_material_id": 10538639,
+          "name": "背景-3",
+          "type": "image",
+          "source_material_id": 37262,
+          "left": 0,
+          "top": 0,
+          "width": 1081,
+          "height": 1918,
+          "layer_n": 1,
+          "style_front": {
+            "top": 0,
+            "left": 0,
+            "zIndex": 1
+          }
+        },
+        {
+          "clip_material_id": 10538640,
+          "name": "100164837226 张裕 九代解百纳 品酒大师pro 酒体-2833.mov",
+          "type": "decorative_video",
+          "source_material_id": 37348,
+          "left": 0,
+          "top": 0,
+          "width": 1084,
+          "height": 1924,
+          "layer_n": 2,
+          "style_front": {
+            "top": 0,
+            "left": 0,
+            "zIndex": 2
+          }
+        },
+        {
+          "clip_material_id": 10538641,
+          "name": "张裕定制形象260519",
+          "type": "digital_human",
+          "source_material_id": 37200,
+          "left": 106,
+          "top": 464,
+          "width": 861,
+          "height": 1542,
+          "layer_n": 3,
+          "style_front": {
+            "top": 187.53333333333333,
+            "left": 43.196296296296296,
+            "zIndex": 3
+          }
+        },
+        {
+          "clip_material_id": 10538642,
+          "name": "底图",
+          "type": "image",
+          "source_material_id": 37266,
+          "left": -543,
+          "top": 1406,
+          "width": 1965,
+          "height": 531,
+          "layer_n": 4,
+          "style_front": {
+            "top": 568.2583333333333,
+            "left": -219.21111111111114,
+            "zIndex": 4
+          }
+        },
+        {
+          "clip_material_id": 10538643,
+          "name": "gif-01",
+          "type": "image",
+          "source_material_id": 37267,
+          "left": 117,
+          "top": 705,
+          "width": 195,
+          "height": 238,
+          "layer_n": 5,
+          "style_front": {
+            "top": 284.9375,
+            "left": 47.233333333333334,
+            "zIndex": 5
+          }
+        },
+        {
+          "clip_material_id": 10538644,
+          "name": "png",
+          "type": "image",
+          "source_material_id": 37268,
+          "left": 112,
+          "top": 467,
+          "width": 205,
+          "height": 252,
+          "layer_n": 6,
+          "style_front": {
+            "top": 188.74583333333334,
+            "left": 45.214814814814815,
+            "zIndex": 6
+          }
+        },
+        {
+          "clip_material_id": 10538645,
+          "name": "icon",
+          "type": "image",
+          "source_material_id": 37263,
+          "left": 94,
+          "top": 1682,
+          "width": 890,
+          "height": 107,
+          "layer_n": 7,
+          "style_front": {
+            "top": 679.8083333333334,
+            "left": 37.94814814814815,
+            "zIndex": 7
+          }
+        },
+        {
+          "clip_material_id": 10538646,
+          "name": "logo",
+          "type": "image",
+          "source_material_id": 37265,
+          "left": 472,
+          "top": 134,
+          "width": 135,
+          "height": 133,
+          "layer_n": 8,
+          "style_front": {
+            "top": 54.15833333333333,
+            "left": 190.54814814814816,
+            "zIndex": 8
+          }
+        },
+        {
+          "clip_material_id": 10538647,
+          "name": "张裕百年",
+          "type": "image",
+          "source_material_id": 37264,
+          "left": 114,
+          "top": 278,
+          "width": 849,
+          "height": 134,
+          "layer_n": 9,
+          "style_front": {
+            "top": 112.35833333333333,
+            "left": 46.022222222222226,
+            "zIndex": 9
+          }
+        }
+      ]
+    },
+    {
+      "id": 451297,
+      "topic_id": 285383,
+      "name": "场景建议与互动",
+      "order_num": 2,
+      "visual_count": 9,
+      "text_count": 1,
+      "script_texts": [
+        "如果是家庭聚餐、朋友小聚或日常佐餐，可以把具体人数、菜品和偏好留在评论区，我们再按场景帮助你比较。今天先把品酒大师 PRO 的产品画面和选择方法介绍到这里，最终信息请以商品页与实物标签为准。"
+      ],
+      "visuals": [
+        {
+          "clip_material_id": 10538649,
+          "name": "背景-3",
+          "type": "image",
+          "source_material_id": 37262,
+          "left": 0,
+          "top": 0,
+          "width": 1081,
+          "height": 1918,
+          "layer_n": 1,
+          "style_front": {
+            "top": 0,
+            "left": 0,
+            "zIndex": 1
+          }
+        },
+        {
+          "clip_material_id": 10538650,
+          "name": "100164837226 张裕 九代解百纳 品酒大师pro 酒体-2833.mov",
+          "type": "decorative_video",
+          "source_material_id": 37348,
+          "left": 0,
+          "top": 0,
+          "width": 1084,
+          "height": 1924,
+          "layer_n": 2,
+          "style_front": {
+            "top": 0,
+            "left": 0,
+            "zIndex": 2
+          }
+        },
+        {
+          "clip_material_id": 10538651,
+          "name": "张裕定制形象260519",
+          "type": "digital_human",
+          "source_material_id": 37200,
+          "left": 106,
+          "top": 464,
+          "width": 861,
+          "height": 1542,
+          "layer_n": 3,
+          "style_front": {
+            "top": 187.53333333333333,
+            "left": 43.196296296296296,
+            "zIndex": 3
+          }
+        },
+        {
+          "clip_material_id": 10538652,
+          "name": "底图",
+          "type": "image",
+          "source_material_id": 37266,
+          "left": -543,
+          "top": 1406,
+          "width": 1965,
+          "height": 531,
+          "layer_n": 4,
+          "style_front": {
+            "top": 568.2583333333333,
+            "left": -219.21111111111114,
+            "zIndex": 4
+          }
+        },
+        {
+          "clip_material_id": 10538653,
+          "name": "gif-01",
+          "type": "image",
+          "source_material_id": 37267,
+          "left": 117,
+          "top": 705,
+          "width": 195,
+          "height": 238,
+          "layer_n": 5,
+          "style_front": {
+            "top": 284.9375,
+            "left": 47.233333333333334,
+            "zIndex": 5
+          }
+        },
+        {
+          "clip_material_id": 10538654,
+          "name": "png",
+          "type": "image",
+          "source_material_id": 37268,
+          "left": 112,
+          "top": 467,
+          "width": 205,
+          "height": 252,
+          "layer_n": 6,
+          "style_front": {
+            "top": 188.74583333333334,
+            "left": 45.214814814814815,
+            "zIndex": 6
+          }
+        },
+        {
+          "clip_material_id": 10538655,
+          "name": "icon",
+          "type": "image",
+          "source_material_id": 37263,
+          "left": 94,
+          "top": 1682,
+          "width": 890,
+          "height": 107,
+          "layer_n": 7,
+          "style_front": {
+            "top": 679.8083333333334,
+            "left": 37.94814814814815,
+            "zIndex": 7
+          }
+        },
+        {
+          "clip_material_id": 10538656,
+          "name": "logo",
+          "type": "image",
+          "source_material_id": 37265,
+          "left": 472,
+          "top": 134,
+          "width": 135,
+          "height": 133,
+          "layer_n": 8,
+          "style_front": {
+            "top": 54.15833333333333,
+            "left": 190.54814814814816,
+            "zIndex": 8
+          }
+        },
+        {
+          "clip_material_id": 10538657,
+          "name": "张裕百年",
+          "type": "image",
+          "source_material_id": 37264,
+          "left": 114,
+          "top": 278,
+          "width": 849,
+          "height": 134,
+          "layer_n": 9,
+          "style_front": {
+            "top": 112.35833333333333,
+            "left": 46.022222222222226,
+            "zIndex": 9
+          }
+        }
+      ]
+    }
+  ],
+  "assertions": {
+    "scene_count": 3,
+    "all_scenes_have_expected_stack": true,
+    "go_live_clicked": false
+  }
+}

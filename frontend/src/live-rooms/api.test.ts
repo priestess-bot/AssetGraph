@@ -69,10 +69,11 @@ describe("functional live room api", () => {
       plan_code: "LIVEPLAN-002", project_code: "CONTENT-001", variant_code: "VARIANT-001", configuration_code: "CONFIG-001", target_live_room_id: "room-001", expected_title: "素材选择", selected_asset_codes: [], selected_group_codes: [], selected_material_pack_codes: [], blueprint: { scenes: [] }, build_plan: { inventory_snapshot: {}, operations: [] }, gate_results: [], quality_report: {}, status: "ready", blocked_reasons: [], execution_status: "not_requested", execution_evidence: {}, clone_context: {}, updated_at: "2026-07-25T00:00:00Z",
     }));
     vi.stubGlobal("fetch", fetch);
-    await functionalLiveRoomsApi.create({ project_code: "CONTENT-001", target_live_room_id: "room-001", expected_title: "素材选择", secondary_template_codes: [], asset_codes: ["AG-IMG-001"], group_codes: [], material_pack_codes: [], asset_gap_codes: ["AG-GAP-001"], material_role_overrides: { background: "AG-IMG-001" }, room_constraint_overrides: { "AG-IMG-001": { reason: "适配当前直播间", geometry: { x: 0.1, y: 0.1, width: 0.8, height: 0.8 }, zOrder: 12 } } });
+    await functionalLiveRoomsApi.create({ idempotency_key: "plan-request-001", project_code: "CONTENT-001", target_live_room_id: "room-001", expected_title: "素材选择", secondary_template_codes: [], asset_codes: ["AG-IMG-001"], group_codes: [], material_pack_codes: [], asset_gap_codes: ["AG-GAP-001"], material_role_overrides: { background: "AG-IMG-001" }, room_constraint_overrides: { "AG-IMG-001": { reason: "适配当前直播间", geometry: { x: 0.1, y: 0.1, width: 0.8, height: 0.8 }, zOrder: 12 } } });
     expect(fetch).toHaveBeenCalledWith("/api/functional-live-room-plans", expect.objectContaining({ method: "POST", body: expect.stringContaining('"material_role_overrides":{"background":"AG-IMG-001"}') }));
     expect(fetch).toHaveBeenCalledWith("/api/functional-live-room-plans", expect.objectContaining({ method: "POST", body: expect.stringContaining('"asset_gap_codes":["AG-GAP-001"]') }));
     expect(fetch).toHaveBeenCalledWith("/api/functional-live-room-plans", expect.objectContaining({ method: "POST", body: expect.stringContaining('"room_constraint_overrides":{"AG-IMG-001":{"reason":"适配当前直播间","geometry":{"x":0.1,"y":0.1,"width":0.8,"height":0.8},"z_order":12}}') }));
+    expect(fetch).toHaveBeenCalledWith("/api/functional-live-room-plans", expect.objectContaining({ method: "POST", body: expect.stringContaining('"idempotency_key":"plan-request-001"') }));
   });
 
   it("previews live-room material gaps without creating a plan", async () => {
@@ -136,6 +137,83 @@ describe("functional live room api", () => {
       "/api/functional-live-room-plans/LIVEPLAN-003/sync-execution",
       expect.objectContaining({ method: "POST" }),
     );
+  });
+
+  it("reads a room inspection without exposing worker internals to the page model", async () => {
+    const fetch = vi.fn().mockResolvedValue(response({
+      inspection_code: "ROOMCHECK-001",
+      target_live_room_id: "41172",
+      expected_title: "asser测试",
+      authority_mode: "worker_readback",
+      status: "succeeded",
+      attempt: 1,
+      room_fingerprint: "f".repeat(64),
+      result: {
+        actual_title: "asser测试",
+        is_live: false,
+        has_live_trace: false,
+        read_environment: "working_room",
+        scene_count: 2,
+        scenes: [
+          { scene_id: "scene-a", name: "旧场景一", order_num: 1, material_count: 3 },
+          { scene_id: "scene-b", name: "旧场景二", order_num: 2, material_count: 4 },
+        ],
+        ready_for_go_live: false,
+        go_live_clicked: false,
+      },
+    }));
+    vi.stubGlobal("fetch", fetch);
+
+    const inspection = await functionalLiveRoomsApi.getRoomInspection("ROOMCHECK-001");
+
+    expect(inspection).toMatchObject({ targetLiveRoomId: "41172", status: "succeeded", roomFingerprint: "f".repeat(64) });
+    expect(inspection.result?.scenes[1]).toEqual({ sceneId: "scene-b", name: "旧场景二", orderNumber: 2, materialCount: 4 });
+  });
+
+  it("confirms replacement only with the inspected fingerprint and explicit test acknowledgement", async () => {
+    const fetch = vi.fn().mockResolvedValue(response({
+      plan_code: "LIVEPLAN-004", project_code: "CONTENT-001", variant_code: "VARIANT-001", configuration_code: "CONFIG-001", target_live_room_id: "41172", expected_title: "asser测试", selected_asset_codes: [], selected_group_codes: [], selected_material_pack_codes: [], blueprint: { scenes: [] }, build_plan: { inventory_snapshot: {}, operations: [] }, gate_results: [], quality_report: {}, status: "ready", blocked_reasons: [], execution_status: "requested", execution_job_code: "DRAFTJOB-001", execution_evidence: {}, clone_context: {}, updated_at: "2026-07-31T00:00:00Z",
+    }));
+    vi.stubGlobal("fetch", fetch);
+
+    const plan = await functionalLiveRoomsApi.confirmExecution("LIVEPLAN-004", {
+      draftMode: "replace_test_draft",
+      roomInspectionCode: "ROOMCHECK-001",
+      expectedRoomFingerprint: "f".repeat(64),
+      confirmedSceneIds: ["scene-a", "scene-b"],
+      idempotencyKey: "request-001",
+      testUseAcknowledged: true,
+    });
+
+    expect(plan.executionJobCode).toBe("DRAFTJOB-001");
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/functional-live-room-plans/LIVEPLAN-004/confirm-execution",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining('"test_use_acknowledged":true'),
+      }),
+    );
+    expect(String(fetch.mock.calls[0]?.[1]?.body)).toContain('"confirmed_scene_ids":["scene-a","scene-b"]');
+  });
+
+  it("normalizes real draft job progress and customer-facing recovery", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({
+      execution_job_code: "DRAFTJOB-002",
+      plan_code: "LIVEPLAN-004",
+      source_kind: "functional_live_room_plan",
+      status: "failed",
+      stage: "building_scenes",
+      progress_current: 4,
+      progress_total: 9,
+      stage_events: [{ stage: "preparing_materials", status: "completed" }, { stage: "building_scenes", status: "failed" }],
+      error: { code: "INTERNAL_CODE", message: "raw worker failure", customer_message: "第二个场景没有保存", next_step: "重新登录麦兔后重试失败步骤" },
+      retryable: true,
+    })));
+
+    const job = await functionalLiveRoomsApi.getExecution("LIVEPLAN-004");
+
+    expect(job).toMatchObject({ executionJobCode: "DRAFTJOB-002", status: "failed", stage: "building_scenes", progressCurrent: 4, progressTotal: 9, retryable: true });
+    expect(job.error?.customerMessage).toBe("第二个场景没有保存");
   });
 
   it("saves a blueprint revision with normalized layer geometry", async () => {

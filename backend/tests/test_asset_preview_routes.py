@@ -70,6 +70,28 @@ def test_local_only_asset_preview_streams_the_verified_file(
     assert response.headers["cache-control"] == "private, no-store"
 
 
+@pytest.mark.parametrize("capability", ["maitu_bound", "reference_only"])
+def test_verified_local_preview_is_independent_from_execution_capability(
+    preview_client: tuple[TestClient, FakeAssetRepository, Path],
+    capability: str,
+) -> None:
+    client, repository, root = preview_client
+    content = f"{capability} local image".encode()
+    candidate = root / "images" / f"{capability}.png"
+    candidate.parent.mkdir()
+    candidate.write_bytes(content)
+    repository.rows["AG-IMG-20260725-000001"] = _asset(
+        relative_path=f"images/{capability}.png",
+        checksum=hashlib.sha256(content).hexdigest(),
+        capability=capability,
+    )
+
+    response = client.get("/api/assets/AG-IMG-20260725-000001/preview")
+
+    assert response.status_code == 200
+    assert response.content == content
+
+
 def test_asset_preview_rejects_non_local_paths_and_changed_files(
     preview_client: tuple[TestClient, FakeAssetRepository, Path],
 ) -> None:
@@ -88,14 +110,6 @@ def test_asset_preview_rejects_non_local_paths_and_changed_files(
         checksum="0" * 64,
     )
     assert client.get("/api/assets/AG-IMG-20260725-000001/preview").status_code == 409
-
-    repository.rows["AG-IMG-20260725-000001"] = _asset(
-        relative_path="images/brand.png",
-        checksum=hashlib.sha256(b"changed").hexdigest(),
-        capability="reference_only",
-    )
-    assert client.get("/api/assets/AG-IMG-20260725-000001/preview").status_code == 404
-
 
 def test_local_video_preview_variant_uses_a_small_cached_rendition(
     preview_client: tuple[TestClient, FakeAssetRepository, Path],
@@ -157,3 +171,36 @@ def test_local_image_thumbnail_uses_a_compact_cached_rendition(
     assert response.content == b"thumbnail bytes"
     assert response.headers["content-type"].startswith("image/webp")
     assert response.headers["cache-control"] == "private, max-age=86400"
+
+
+def test_local_template_preview_uses_the_verified_image_thumbnail(
+    preview_client: tuple[TestClient, FakeAssetRepository, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, repository, root = preview_client
+    content = b"template preview bytes"
+    candidate = root / "templates" / "preview.png"
+    candidate.parent.mkdir()
+    candidate.write_bytes(content)
+    repository.rows["AG-IMG-20260725-000001"] = {
+        **_asset(
+            relative_path="templates/preview.png",
+            checksum=hashlib.sha256(content).hexdigest(),
+            capability="reference_only",
+        ),
+        "media_kind": "template_preview",
+    }
+    generated = root / ".asset-preview-cache" / "template-thumbnail.webp"
+    generated.parent.mkdir()
+    generated.write_bytes(b"template thumbnail bytes")
+    monkeypatch.setattr(
+        assets,
+        "ensure_image_thumbnail",
+        lambda source, cache_root, **kwargs: generated,
+    )
+
+    response = client.get("/api/assets/AG-IMG-20260725-000001/preview?variant=thumbnail")
+
+    assert response.status_code == 200
+    assert response.content == b"template thumbnail bytes"
+    assert response.headers["content-type"].startswith("image/webp")

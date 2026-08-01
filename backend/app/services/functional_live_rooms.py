@@ -5,6 +5,7 @@ from math import isfinite
 from typing import Any
 
 from psycopg import Connection
+from psycopg.errors import UniqueViolation
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
@@ -14,8 +15,13 @@ from app.domain.errors import DomainValidationError
 from app.repositories.content_production import ContentProductionRepository
 from app.repositories.material_library import MaterialLibraryRepository, MaterialLibraryValidationError
 from app.repositories.maitu import MaituMaterialSlotRepository
+from app.repositories.maitu_workbench import (
+    MaituWorkbenchConflictError,
+    MaituWorkbenchRepository,
+)
 from app.repositories.releases import ReleaseRepository
 from app.services.functional_content import FunctionalContentService
+from app.services.layer_stacking import compile_layer_stack
 from app.services.releases import ReleaseService
 from app.services.script_layout_build_plan_builder import ScriptLayoutBuildPlanBuilder
 
@@ -35,10 +41,55 @@ class FunctionalLiveRoomService:
         self.production = ContentProductionRepository(connection)
         self.materials = MaterialLibraryRepository(connection)
         self.maitu = MaituMaterialSlotRepository(connection)
+        self.workbench = MaituWorkbenchRepository(connection)
         self._release_signing_key = release_signing_key
         self._release_signing_key_id = release_signing_key_id
 
     def create_plan(self, payload: dict[str, Any], *, actor_id: str) -> dict[str, Any]:
+        idempotency_key = str(payload.get("idempotency_key") or "").strip() or None
+        if idempotency_key is None:
+            return self._create_plan_once(payload, actor_id=actor_id)
+
+        lock_identity = f"functional-live-room-plan:{idempotency_key}"
+        with self.connection.cursor() as cursor:
+            # A session lock survives the intermediate repository commits in this
+            # orchestration, so concurrent retries cannot leave orphan variants.
+            cursor.execute("SELECT pg_advisory_lock(hashtextextended(%s, 0))", (lock_identity,))
+        try:
+            return self._create_plan_once(payload, actor_id=actor_id)
+        finally:
+            try:
+                with self.connection.cursor() as cursor:
+                    cursor.execute(
+                        "SELECT pg_advisory_unlock(hashtextextended(%s, 0))",
+                        (lock_identity,),
+                    )
+            except Exception:
+                self.connection.rollback()
+                with self.connection.cursor() as cursor:
+                    cursor.execute(
+                        "SELECT pg_advisory_unlock(hashtextextended(%s, 0))",
+                        (lock_identity,),
+                    )
+
+    def _create_plan_once(self, payload: dict[str, Any], *, actor_id: str) -> dict[str, Any]:
+        idempotency_key = str(payload.get("idempotency_key") or "").strip() or None
+        creation_input_fingerprint = (
+            canonical_fingerprint(
+                {key: value for key, value in payload.items() if key != "idempotency_key"}
+            )
+            if idempotency_key
+            else None
+        )
+        if idempotency_key:
+            existing = self._get_plan_by_creation_key(idempotency_key)
+            if existing is not None:
+                if existing.get("creation_input_fingerprint") != creation_input_fingerprint:
+                    raise DomainValidationError(
+                        "LIVE_ROOM_PLAN_IDEMPOTENCY_CONFLICT",
+                        "同一次方案创建请求的输入已变化，请返回配置页重新生成。",
+                    )
+                return self._with_release(self._serialize(existing))
         detail = self.content.get_detail(payload["project_code"])
         if detail is None:
             raise KeyError(payload["project_code"])
@@ -244,6 +295,12 @@ class FunctionalLiveRoomService:
                 ]
             )
         )
+        # Rights remain a plan/release gate. They must not erase the static
+        # operation graph because the allowlisted offline test mode may execute
+        # pending (never restricted/revoked) assets after explicit acknowledgement.
+        build_blocked_reasons = self._execution_build_blocked_reasons(
+            compiler_blocked_reasons, asset_gap_refs
+        )
         blueprint["scenes"] = self.production.create_maitu_scene_blueprint_projections(
             variant_code=variant["variant_code"],
             variant_revision=int(variant["revision_number"]),
@@ -259,7 +316,7 @@ class FunctionalLiveRoomService:
             configuration=configuration,
             inventory_snapshot=snapshot,
             blueprint=blueprint,
-            blocked_reasons=blocked_reasons,
+            blocked_reasons=build_blocked_reasons,
         )
         gate_results, quality_report = self._evaluate_plan(
             detail=detail,
@@ -271,27 +328,44 @@ class FunctionalLiveRoomService:
         gate_blocked_reasons = [str(gate["rule_code"]) for gate in gate_results if gate["status"] == "blocked"]
         plan_blocked_reasons = list(dict.fromkeys([*blocked_reasons, *(build_plan.get("blocked_reasons") or []), *gate_blocked_reasons]))
         status = "blocked" if plan_blocked_reasons or not build_plan.get("can_execute") else "ready"
-        with self.connection.cursor(row_factory=dict_row) as cursor:
-            code = self._next_code(cursor, "LIVEPLAN", "functional_live_room_plan")
-            cursor.execute(
-                """
-                INSERT INTO functional_live_room_plans (
-                    plan_code, project_code, variant_code, configuration_code,
-                    target_live_room_id, expected_title, primary_template_code,
-                    secondary_template_codes, selected_asset_codes, selected_group_codes, selected_material_pack_codes,
-                    blueprint, build_plan, gate_results, quality_report, status, blocked_reasons
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                RETURNING *
-                """,
-                (
-                    code, detail["project_code"], variant["variant_code"], configuration["configuration_code"],
-                    payload["target_live_room_id"], payload["expected_title"], templates["primary_template_code"],
-                    Jsonb(templates["secondary_template_codes"]), Jsonb(snapshot["asset_codes"]),
-                    Jsonb(payload.get("group_codes") or []), Jsonb(payload.get("material_pack_codes") or []), Jsonb(blueprint), Jsonb(build_plan),
-                    Jsonb(gate_results), Jsonb(quality_report), status, Jsonb(plan_blocked_reasons),
-                ),
-            )
-            row = cursor.fetchone()
+        try:
+            with self.connection.cursor(row_factory=dict_row) as cursor:
+                code = self._next_code(cursor, "LIVEPLAN", "functional_live_room_plan")
+                cursor.execute(
+                    """
+                    INSERT INTO functional_live_room_plans (
+                        plan_code, project_code, variant_code, configuration_code,
+                        target_live_room_id, expected_title, primary_template_code,
+                        secondary_template_codes, selected_asset_codes, selected_group_codes,
+                        selected_material_pack_codes, blueprint, build_plan, gate_results,
+                        quality_report, status, blocked_reasons, creation_idempotency_key,
+                        creation_input_fingerprint
+                    ) VALUES (
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    )
+                    RETURNING *
+                    """,
+                    (
+                        code, detail["project_code"], variant["variant_code"], configuration["configuration_code"],
+                        payload["target_live_room_id"], payload["expected_title"], templates["primary_template_code"],
+                        Jsonb(templates["secondary_template_codes"]), Jsonb(snapshot["asset_codes"]),
+                        Jsonb(payload.get("group_codes") or []), Jsonb(payload.get("material_pack_codes") or []),
+                        Jsonb(blueprint), Jsonb(build_plan), Jsonb(gate_results), Jsonb(quality_report),
+                        status, Jsonb(plan_blocked_reasons), idempotency_key, creation_input_fingerprint,
+                    ),
+                )
+                row = cursor.fetchone()
+        except UniqueViolation:
+            self.connection.rollback()
+            if idempotency_key:
+                existing = self._get_plan_by_creation_key(idempotency_key)
+                if (
+                    existing is not None
+                    and existing.get("creation_input_fingerprint") == creation_input_fingerprint
+                ):
+                    return self._with_release(self._serialize(existing))
+            raise
         self._persist_operation_trace_links(
             plan_id=row["id"],
             build_plan_code=str(build_plan["build_plan_code"]),
@@ -299,6 +373,15 @@ class FunctionalLiveRoomService:
         )
         self.connection.commit()
         return self._with_release(self._serialize(row))
+
+    def _get_plan_by_creation_key(self, idempotency_key: str) -> dict[str, Any] | None:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """SELECT * FROM functional_live_room_plans
+                   WHERE creation_idempotency_key = %s""",
+                (idempotency_key,),
+            )
+            return cursor.fetchone()
 
     def preview_material_gaps(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Diagnose missing executable roles without mutating a project or plan.
@@ -455,9 +538,110 @@ class FunctionalLiveRoomService:
             row = cursor.fetchone()
         return self._with_release(self._serialize(row)) if row else None
 
-    def confirm_execution(self, plan_code: str, *, confirmed: bool) -> dict[str, Any] | None:
+    def create_room_inspection(self, payload: dict[str, Any]) -> dict[str, Any]:
+        identity = {
+            "target_live_room_id": str(payload["target_live_room_id"]),
+            "expected_title": payload.get("expected_title"),
+            "authority_mode": payload.get("authority_mode") or "worker_readback",
+        }
+        return self.workbench.create_room_inspection_job(
+            target_live_room_id=identity["target_live_room_id"],
+            expected_title=identity["expected_title"],
+            authority_mode=identity["authority_mode"],
+            input_fingerprint=canonical_fingerprint(identity),
+            idempotency_key=payload.get("idempotency_key"),
+            requested_by=payload.get("requested_by"),
+        )
+
+    def get_room_inspection(self, inspection_code: str) -> dict[str, Any] | None:
+        return self.workbench.get_room_inspection_job(inspection_code)
+
+    def confirm_execution(
+        self,
+        plan_code: str,
+        *,
+        confirmed: bool,
+        draft_mode: str | None = None,
+        room_inspection_code: str | None = None,
+        expected_room_fingerprint: str | None = None,
+        confirmed_scene_ids: list[str] | None = None,
+        test_use_acknowledged: bool = False,
+        idempotency_key: str | None = None,
+        queued_by: str | None = None,
+    ) -> dict[str, Any] | None:
         if not confirmed:
             raise DomainValidationError("LIVE_ROOM_EXECUTION_CONFIRMATION_REQUIRED", "Explicit confirmation is required before requesting draft execution")
+        # Keep direct service callers compatible while every public product
+        # request uses the durable inspection/queue protocol below.
+        if room_inspection_code is None:
+            return self._legacy_confirm_execution(plan_code)
+        if (
+            draft_mode != "replace_test_draft"
+            or not expected_room_fingerprint
+            or not confirmed_scene_ids
+            or test_use_acknowledged is not True
+        ):
+            raise DomainValidationError(
+                "LIVE_ROOM_TEST_DRAFT_CONFIRMATION_INCOMPLETE",
+                "Test draft replacement requires the room fingerprint, scene list and explicit test-use acknowledgement",
+            )
+        plan = self.get_plan(plan_code)
+        if plan is None:
+            return None
+        handoff = self._execution_handoff(plan, allow_pending_test_rights=True)
+        job_payload = {
+            "contract_version": "functional-live-room-draft-execution-v1",
+            "execution_scope": "allowlisted_offline_test_draft_only",
+            "source_kind": "functional_live_room_plan",
+            "plan_code": plan_code,
+            "execution_mode": "replace_test_draft",
+            "authority_mode": "worker_readback",
+            "room_inspection_code": room_inspection_code,
+            "expected_room_fingerprint": expected_room_fingerprint,
+            "confirmed_scene_ids": confirmed_scene_ids,
+            "test_use_acknowledged": True,
+            "non_releasable": True,
+            "build_plan": {
+                "build_plan_code": handoff["build_plan_code"],
+                "target_live_room_id": handoff["target_live_room_id"],
+                "expected_title": handoff["expected_title"],
+                "source_plan_fingerprint": handoff["source_plan_fingerprint"],
+            },
+            "ready_for_go_live": False,
+            "safety_boundary": {
+                "allowlisted_room_ids": ["41172"],
+                "expected_title": "asser测试",
+                "go_live_permitted": False,
+                "release_permitted": False,
+                "worker_must_stop_after_readback": True,
+            },
+        }
+        identity = {
+            "plan_code": plan_code,
+            "handoff": handoff,
+            "room_inspection_code": room_inspection_code,
+            "expected_room_fingerprint": expected_room_fingerprint,
+            "confirmed_scene_ids": sorted(confirmed_scene_ids),
+            "test_use_acknowledged": True,
+        }
+        try:
+            self.workbench.create_functional_draft_execution_job(
+                plan_code,
+                room_inspection_code=room_inspection_code,
+                expected_room_fingerprint=expected_room_fingerprint,
+                confirmed_scene_ids=confirmed_scene_ids,
+                input_fingerprint=canonical_fingerprint(identity),
+                payload=job_payload,
+                idempotency_key=idempotency_key,
+                queued_by=queued_by,
+            )
+        except MaituWorkbenchConflictError as exc:
+            raise DomainValidationError(
+                "LIVE_ROOM_EXECUTION_ROOM_STATE_INVALID", str(exc)
+            ) from exc
+        return self.get_plan(plan_code)
+
+    def _legacy_confirm_execution(self, plan_code: str) -> dict[str, Any] | None:
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute("SELECT * FROM functional_live_room_plans WHERE plan_code = %s FOR UPDATE", (plan_code,))
             plan = cursor.fetchone()
@@ -492,6 +676,90 @@ class FunctionalLiveRoomService:
             row = cursor.fetchone()
         self.connection.commit()
         return self._with_release(self._serialize(row))
+
+    def get_execution(self, plan_code: str) -> dict[str, Any] | None:
+        plan = self.get_plan(plan_code)
+        if plan is None:
+            return None
+        job = self.workbench.get_functional_draft_execution_job(plan_code)
+        if job is None:
+            return {
+                "plan_code": plan_code,
+                "execution_job_code": None,
+                "status": "not_requested",
+                "stage": "not_requested",
+                "progress_current": 0,
+                "progress_total": 0,
+                "stage_events": [],
+                "retryable": False,
+                "result": {},
+                "error": None,
+                "ready_for_go_live": False,
+            }
+        error = None
+        if job.get("error_code"):
+            code = str(job["error_code"])
+            message = str(job.get("error_message") or "草稿任务执行失败")
+            if job.get("status") == "reconcile_required":
+                customer_message = "麦兔中的实际结果无法安全确认，需要先刷新并核对房间。"
+                next_step = "重新检查直播间；确认现场状态后记录对账结果。"
+            elif "ROOM" in code or "DRIFT" in code:
+                customer_message = "直播间状态与确认时不同，为避免误删已停止执行。"
+                next_step = "重新检查直播间并再次确认要清空的场景。"
+            elif "MATERIAL" in code:
+                readable_detail = message.split("素材准备失败：", 1)[-1] if "素材准备失败：" in message else ""
+                customer_message = (
+                    f"素材准备失败：{readable_detail}"
+                    if readable_detail
+                    else "有素材尚未在麦兔中找到可执行绑定，原草稿未被清空。"
+                )
+                next_step = "在素材库完成麦兔绑定后重试。"
+            else:
+                customer_message = "麦兔草稿任务未完成。"
+                next_step = "查看失败阶段，修正后点击重试。"
+            error = {
+                "code": code,
+                "message": message,
+                "customer_message": customer_message,
+                "next_step": next_step,
+            }
+        return {
+            "plan_code": plan_code,
+            "execution_job_code": job["execution_job_code"],
+            "status": job["status"],
+            "stage": job.get("stage") or job["status"],
+            "progress_current": int(job.get("progress_current") or 0),
+            "progress_total": int(job.get("progress_total") or 0),
+            "stage_events": list(job.get("stage_events") or []),
+            "retryable": job.get("status") == "failed",
+            "result": job.get("result") or {},
+            "error": error,
+            "ready_for_go_live": False,
+        }
+
+    def retry_execution(self, plan_code: str, *, requested_by: str | None) -> dict[str, Any] | None:
+        job = self.workbench.get_functional_draft_execution_job(plan_code)
+        if job is None:
+            return None
+        try:
+            self.workbench.retry_draft_execution_job(job["execution_job_code"], requested_by)
+        except MaituWorkbenchConflictError as exc:
+            raise DomainValidationError("LIVE_ROOM_EXECUTION_RETRY_INVALID", str(exc)) from exc
+        return self.get_execution(plan_code)
+
+    def acknowledge_execution_reconciliation(
+        self, plan_code: str, *, acknowledged_by: str, note: str
+    ) -> dict[str, Any] | None:
+        job = self.workbench.get_functional_draft_execution_job(plan_code)
+        if job is None:
+            return None
+        try:
+            self.workbench.acknowledge_draft_reconciliation(
+                job["execution_job_code"], acknowledged_by=acknowledged_by, note=note
+            )
+        except MaituWorkbenchConflictError as exc:
+            raise DomainValidationError("LIVE_ROOM_EXECUTION_RECONCILE_INVALID", str(exc)) from exc
+        return self.get_execution(plan_code)
 
     def get_execution_handoff(self, plan_code: str) -> dict[str, Any]:
         plan = self.get_plan(plan_code)
@@ -561,7 +829,9 @@ class FunctionalLiveRoomService:
         self.connection.commit()
         return self._with_release(self._serialize(row))
 
-    def _execution_handoff(self, plan: dict[str, Any]) -> dict[str, Any]:
+    def _execution_handoff(
+        self, plan: dict[str, Any], *, allow_pending_test_rights: bool = False
+    ) -> dict[str, Any]:
         build_plan = plan.get("build_plan") if isinstance(plan.get("build_plan"), dict) else {}
         build_plan_code = str(build_plan.get("build_plan_code") or "").strip()
         if not build_plan_code:
@@ -585,11 +855,31 @@ class FunctionalLiveRoomService:
         preflight_expected_title = str(
             (operations[0] if operations else {}).get("expected_live_room_title") or ""
         ).strip()
+        plan_blockers = [str(item) for item in plan.get("blocked_reasons") or []]
+        operation_blockers = [str(item) for item in operation_plan.get("blocked_reasons") or []]
+
+        inventory = plan.get("build_plan", {}).get("inventory_snapshot") or {}
+        rights_statuses = {
+            str(item.get("asset_code")): str(item.get("rights_status") or "pending")
+            for item in inventory.get("assets") or []
+            if isinstance(item, dict)
+        }
+        test_rights_exception = (
+            allow_pending_test_rights
+            and str(plan.get("target_live_room_id")) == "41172"
+            and expected_title == "asser测试"
+            and self._pending_test_rights_eligible(
+                plan_blockers=plan_blockers,
+                operation_blockers=operation_blockers,
+                rights_statuses=rights_statuses,
+            )
+        )
         if (
-            operation_plan.get("status") != "ready"
-            or operation_plan.get("can_execute") is not True
-            or operation_plan.get("manual_review_required") is True
-            or list(operation_plan.get("blocked_reasons") or [])
+            (operation_plan.get("status") != "ready" and not test_rights_exception)
+            or (operation_plan.get("can_execute") is not True and not test_rights_exception)
+            or (operation_plan.get("manual_review_required") is True and not test_rights_exception)
+            or (operation_blockers and not test_rights_exception)
+            or (plan.get("status") != "ready" and not test_rights_exception)
             or target_live_room_id != expected_target
             or len(source_plan_fingerprint) != 64
             or not operations
@@ -619,7 +909,49 @@ class FunctionalLiveRoomService:
             "operation_count": len(operations),
             "operation_types": [str(item.get("operation_type") or "") for item in operations],
             "operations": operations,
+            "test_pending_rights_exception": test_rights_exception,
+            "non_releasable": test_rights_exception,
         }
+
+    @staticmethod
+    def _pending_test_rights_eligible(
+        *,
+        plan_blockers: list[str],
+        operation_blockers: list[str],
+        rights_statuses: dict[str, str],
+    ) -> bool:
+        def pending_rights_blocker(value: str) -> bool:
+            lowered = value.lower()
+            return (
+                value.startswith("asset_rights_not_approved:") and value.endswith(":pending")
+            ) or value == "GATE_ASSET_RIGHTS_BLOCKED" or (
+                "rights" in lowered and ("pending" in lowered or "not_approved" in lowered)
+            )
+
+        return (
+            bool(rights_statuses)
+            and all(status in {"approved", "pending"} for status in rights_statuses.values())
+            and all(pending_rights_blocker(item) for item in plan_blockers)
+            and all(pending_rights_blocker(item) for item in operation_blockers)
+        )
+
+    @staticmethod
+    def _execution_build_blocked_reasons(
+        compiler_blocked_reasons: list[str], asset_gap_refs: list[dict[str, Any]]
+    ) -> list[str]:
+        """Return structural blockers only; rights are an execution/release gate."""
+        return list(
+            dict.fromkeys(
+                [
+                    *compiler_blocked_reasons,
+                    *[
+                        f"asset_gap_unresolved:{gap['gap_code']}:{gap['status']}"
+                        for gap in asset_gap_refs
+                        if gap["status"] in {"open", "candidate_found"}
+                    ],
+                ]
+            )
+        )
 
     @staticmethod
     def _project_execution_readback(
@@ -666,6 +998,9 @@ class FunctionalLiveRoomService:
             handoff,
             operation_results,
         )
+        if projected_status == "maitu_complete" and comparison.get("status") != "matched":
+            projected_status = "maitu_reconcile_required"
+            readback_status = "final_readback_mismatch"
 
         return projected_status, {
             "schema_version": "functional-live-room-execution-readback.v2",
@@ -1185,6 +1520,7 @@ class FunctionalLiveRoomService:
                     target_live_room_id=str(source["target_live_room_id"]),
                     expected_title=str(source["expected_title"]),
                 ),
+                "idempotency_key": payload.get("idempotency_key"),
                 "scene_overrides": scene_overrides,
             },
             actor_id=actor_id,
@@ -1488,6 +1824,7 @@ class FunctionalLiveRoomService:
             "position_asset_layer": "mutates",
             "write_script": "writes",
             "verify_scene": "verifies",
+            "verify_draft_persisted": "verifies",
             "save_draft": "saves",
         }
         with self.connection.cursor(row_factory=dict_row) as cursor:
@@ -1517,7 +1854,11 @@ class FunctionalLiveRoomService:
                     targets.append(("layer_blueprint", layer_code))
                 elif scene_code and scene_code in scenes_by_code:
                     targets.append(("maitu_scene_blueprint", scene_code))
-                elif operation_type in {"preflight_content_build_plan", "save_draft"}:
+                elif operation_type in {
+                    "preflight_content_build_plan",
+                    "verify_draft_persisted",
+                    "save_draft",
+                }:
                     targets.extend(("maitu_scene_blueprint", code) for code in scenes_by_code)
                 else:
                     raise DomainValidationError(
@@ -1969,16 +2310,82 @@ class FunctionalLiveRoomService:
             layers = []
             for layer in scene["layers"]:
                 geometry = layer.get("normalized_geometry") or {}
+                role = str(layer.get("material_role") or layer.get("role") or "")
+                base_constraint_evidence = dict(layer.get("constraint_evidence") or {})
+                constraint_rules = [
+                    rule
+                    for rule in (
+                        layer.get("constraint_rules")
+                        or base_constraint_evidence.get("applied_rules")
+                        or []
+                    )
+                    if isinstance(rule, dict)
+                    and str(rule.get("kind") or "") != "room_private_override"
+                ]
+                visual_properties = (
+                    layer.get("visual_properties")
+                    if isinstance(layer.get("visual_properties"), dict)
+                    else {}
+                )
+                audio_properties = (
+                    layer.get("audio_properties")
+                    if isinstance(layer.get("audio_properties"), dict)
+                    else {}
+                )
+                fit = "cover" if role == "background" else "contain"
+                preserve_aspect_ratio = any(
+                    str(rule.get("kind") or "") == "preserve_aspect_ratio"
+                    for rule in constraint_rules
+                )
+                rotation = 0.0
+                for rule in constraint_rules:
+                    if str(rule.get("kind") or "") != "rotation_policy":
+                        continue
+                    parameters = rule.get("parameters") if isinstance(rule.get("parameters"), dict) else {}
+                    candidate = parameters.get("degrees", parameters.get("rotation_degrees"))
+                    if isinstance(candidate, (int, float)) and not isinstance(candidate, bool):
+                        rotation = float(candidate)
+                media_kind = str(base_constraint_evidence.get("media_kind") or "").lower()
+                loop_policy = str(
+                    audio_properties.get("loop_policy")
+                    or ("enabled" if media_kind == "video" else "disabled")
+                ).lower()
+                mute_policy = str(audio_properties.get("mute_policy") or "muted").lower()
+                loop = loop_policy in {"enabled", "loop", "repeat", "continuous"}
+                muted = mute_policy not in {"unmuted", "audible", "sound_on"}
+                constraint_evidence = {
+                    **base_constraint_evidence,
+                    "maitu_render_contract": {
+                        "schema_version": "maitu-layer-render-contract.v1",
+                        "material_role": role,
+                        "requested_crop_policy": visual_properties.get("crop_policy"),
+                        "resolved_fit": fit,
+                        "preserve_aspect_ratio": preserve_aspect_ratio,
+                        "rotation_policy": visual_properties.get("rotation_policy") or "locked",
+                        "rotation_degrees": rotation,
+                        "loop_policy": loop_policy,
+                        "mute_policy": mute_policy,
+                    },
+                }
                 layers.append(
                     {
                         "layer_id": layer["layer_blueprint_code"],
-                        "layer_type": layer["material_role"],
+                        "layer_type": role,
                         "asset_code": layer["asset_code"],
                         "x": float(geometry.get("x", 0.0)) * 1080,
                         "y": float(geometry.get("y", 0.0)) * 1920,
                         "width": float(geometry.get("width", 1.0)) * 1080,
                         "height": float(geometry.get("height", 1.0)) * 1920,
                         "z_index": layer["z_order"],
+                        "fit": fit,
+                        "preserve_aspect_ratio": preserve_aspect_ratio,
+                        "rotation": rotation,
+                        "loop": loop,
+                        "muted": muted,
+                        "sound_enabled": not muted,
+                        "audio_role": "source_audio" if not muted else "muted",
+                        "constraint_rules": constraint_rules,
+                        "constraint_evidence": constraint_evidence,
                         "status": "ready",
                     }
                 )
@@ -2042,7 +2449,8 @@ class FunctionalLiveRoomService:
         operations = build_plan.get("operations") or []
         allowed_operations = {
             "preflight_content_build_plan", "fill_default_scene", "create_scene",
-            "insert_asset_layer", "position_asset_layer", "write_script", "verify_scene", "save_draft",
+            "insert_asset_layer", "position_asset_layer", "write_script", "verify_scene",
+            "verify_draft_persisted", "save_draft",
         }
         operation_types = {str(operation.get("operation_type") or "") for operation in operations if isinstance(operation, dict)}
         role_needs = sorted({str(role) for shot in shots for role in shot.get("material_role_requirements") or []})
@@ -2752,6 +3160,7 @@ class FunctionalLiveRoomService:
                 constraint_evidence = {
                     **constraint_evidence,
                     "material_selection": selection_decision,
+                    "media_kind": asset.get("media_kind"),
                 }
                 blocked.extend(f"{failure}:shot:{shot['shot_code']}" for failure in failures)
                 layers.append(
@@ -2868,7 +3277,7 @@ class FunctionalLiveRoomService:
                     failures.append(f"constraint_named_region_conflict:{name}")
                     continue
                 regions.setdefault(name, rect)
-                if kind == "table_surface":
+                if kind == "table_surface" or name == "table_surface":
                     policy = {
                         "product_role": str(parameters.get("product_role") or "product_display").strip(),
                         "product_anchor": str(parameters.get("product_anchor") or "bottom_center").strip(),
@@ -2898,7 +3307,15 @@ class FunctionalLiveRoomService:
         z_order = (
             int(room_override["z_order"])
             if isinstance(room_override, dict) and isinstance(room_override.get("z_order"), int)
-            else (100 if role == "digital_human" else 10)
+            else {
+                "background": 10,
+                "supporting_video": 20,
+                "digital_human": 30,
+                "product_display": 40,
+                "promotion_text": 50,
+                "brand_title": 60,
+                "decoration_foreground": 70,
+            }.get(role, 40)
         )
         visual_properties: dict[str, Any] = {}
         audio_properties: dict[str, Any] = {}
@@ -2946,16 +3363,29 @@ class FunctionalLiveRoomService:
                     if hard:
                         failures.append(f"constraint_named_region_missing:{name or asset['asset_code']}")
                     continue
-                if kind == "align_anchor":
+                if kind == "require_named_region":
+                    geometry = FunctionalLiveRoomService._fit_inside(geometry, region)
+                    if role == "product_display":
+                        surface_policy = table_surfaces.get(name) or {}
+                        geometry = FunctionalLiveRoomService._align_anchor(
+                            geometry,
+                            region,
+                            str(
+                                parameters.get("anchor")
+                                or surface_policy.get("product_anchor")
+                                or "bottom_center"
+                            ),
+                        )
+                else:
                     geometry = FunctionalLiveRoomService._align_anchor(
                         FunctionalLiveRoomService._fit_inside(geometry, region),
                         region,
                         str(parameters.get("anchor") or "bottom_center"),
                     )
             elif kind == "pin_layer_top":
-                z_order = 1000
+                visual_properties["layer_pin"] = "top"
             elif kind == "pin_layer_bottom":
-                z_order = -1000
+                visual_properties["layer_pin"] = "bottom"
             elif kind == "crop_policy":
                 visual_properties["crop_policy"] = parameters.get("policy") or parameters.get("value") or "contain"
             elif kind == "rotation_policy":
@@ -3004,38 +3434,25 @@ class FunctionalLiveRoomService:
 
     @staticmethod
     def _resolve_scene_layer_relationships(layers: list[dict[str, Any]]) -> list[str]:
-        failures: list[str] = []
+        failures = compile_layer_stack(layers)
         by_role: dict[str, list[dict[str, Any]]] = {}
         for layer in layers:
             by_role.setdefault(str(layer["role"]), []).append(layer)
         for layer in layers:
-            z_order = int(layer["z_order"])
             for rule in layer.get("constraint_rules") or []:
                 kind = str(rule.get("kind") or "")
+                if kind != "avoid_overlap":
+                    continue
                 parameters = rule.get("parameters") if isinstance(rule.get("parameters"), dict) else {}
                 target_role = str(parameters.get("role") or parameters.get("target_role") or "").strip()
-                targets = by_role.get(target_role) or []
-                if kind in {"above_role", "below_role"}:
-                    if not targets:
-                        if bool(rule.get("hard", True)):
-                            failures.append(f"constraint_related_role_missing:{target_role or layer['asset_code']}")
+                for target in by_role.get(target_role) or []:
+                    if target is layer:
                         continue
-                    target_z = max(int(target["z_order"]) for target in targets) if kind == "above_role" else min(int(target["z_order"]) for target in targets)
-                    requested = target_z + 1 if kind == "above_role" else target_z - 1
-                    if (z_order == -1000 and kind == "above_role") or (z_order == 1000 and kind == "below_role"):
-                        if bool(rule.get("hard", True)):
-                            failures.append(f"constraint_layer_order_conflict:{layer['asset_code']}")
-                    else:
-                        layer["z_order"] = requested
-                        z_order = requested
-                if kind == "avoid_overlap" and targets:
-                    for target in targets:
-                        if target is layer:
-                            continue
-                        if FunctionalLiveRoomService._intersects(layer["normalized_geometry"], target["normalized_geometry"]):
-                            if bool(rule.get("hard", True)):
-                                failures.append(f"constraint_overlap:{layer['asset_code']}:{target['asset_code']}")
-        return failures
+                    if FunctionalLiveRoomService._intersects(
+                        layer["normalized_geometry"], target["normalized_geometry"]
+                    ) and bool(rule.get("hard", True)):
+                        failures.append(f"constraint_overlap:{layer['asset_code']}:{target['asset_code']}")
+        return list(dict.fromkeys(failures))
 
     @staticmethod
     def _constraint_rect(parameters: dict[str, Any]) -> dict[str, float] | None:

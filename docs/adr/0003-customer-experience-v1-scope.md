@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-07-26
 - Owners: product and engineering
-- Checklist: `V1-0001` through `V1-0808`
+- Checklist: `V1-0001` through `V1-0814`
 - Supersedes: the 577-item production-grade checklist as the active v1 delivery denominator; it does not supersede ADR-0001 invariants
 
 ## Context
@@ -45,14 +45,40 @@ permission-management UI. Only three customer-facing hard gates are required:
 
 - facts used in generated claims must be approved or explicitly marked absent;
 - selected materials must have an acceptable rights/usage state;
-- a Maitu target must be the exact customer-supplied room and be confirmed blank,
-  non-live and title-matched before any mutation.
+- a Maitu target must be the exact customer-supplied room, non-live and
+  title-matched before any mutation. Normal rooms must be blank. A separately
+  allowlisted test room may use the replacement mode defined below.
 
 The customer creates the blank Maitu room and supplies its ID and title. AssetGraph
 does not create rooms, train digital humans or voices, configure commerce/live
 interaction, schedule, authorize go-live or click go-live. It may use existing
 Maitu materials, digital humans and voices, and may upload ordinary image/video
 files after those capabilities pass a real-account canary.
+
+For the customer-visible end-to-end acceptance only, v1 adds a narrow
+`replace_test_draft` mode. It is available solely for room IDs listed in local
+configuration; the initial and only allowlisted room is `41172`, whose expected
+current title is `asser测试`. The UI must first show the authoritative scene list,
+obtain an explicit deletion confirmation and bind that confirmation to a fresh
+room fingerprint. The worker must resolve every selected material before any
+deletion, must stop on a live, unknown or drifted room, and must never expose a
+schedule or go-live operation. This exception does not enable incremental updates
+or destructive replacement for ordinary rooms.
+
+The local v1 executor may use `worker_readback` authority: the leased, logged-in
+Browser-use worker supplies room and per-operation readback evidence instead of a
+second independently authenticated backend Maitu session. The independent
+backend authority mode remains available for a later production deployment. The
+test mode keeps target identity, room fingerprint, worker lease, operation
+fingerprint and `go_live=false` checks; it does not add enterprise authorization
+or approval UI.
+
+Material classification, execution binding and rights remain separate facts.
+Classification/bootstrap work never changes rights. Pending-rights material may
+be used only in the allowlisted offline test-draft mode after an explicit
+test-use acknowledgement, and the resulting plan is permanently non-releasable;
+restricted or revoked material remains blocked. Normal draft delivery and every
+release continue to require approved usage rights.
 
 Maitu layout output promises editable rectangular layers and reload/readback
 evidence, not pixel-perfect reconstruction from a recording. Uploaded recordings
@@ -91,6 +117,11 @@ internal workflow states.
 Automatic Maitu draft writing may initially be unavailable. This is an explicit
 product state, not a hidden failure. The interface still generates the blueprint,
 operation plan and a manual handoff that an operator can execute.
+
+Existing direct 41172 rebuild artifacts prove only `adapter_validation`. They do
+not prove that the AssetGraph product entry, queue and worker are connected. Only
+the UI-only Playwright journey and its final refreshed readback may be labelled
+`product_e2e`.
 
 V1 does not claim pixel-perfect layout, autonomous platform capture, formal
 causal attribution, unattended production operations or readiness for multiple

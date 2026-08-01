@@ -10,6 +10,9 @@ from app.domain.errors import DomainValidationError
 from app.schemas.functional_live_rooms import (
     FunctionalLiveRoomBlueprintRevision,
     FunctionalLiveRoomExecutionConfirm,
+    FunctionalLiveRoomExecutionRead,
+    FunctionalLiveRoomExecutionReconcile,
+    FunctionalLiveRoomExecutionRetry,
     FunctionalLiveRoomExecutionHandoffRead,
     FunctionalLiveRoomMaterialGapPreviewRead,
     FunctionalLiveRoomMaterialGapPreviewRequest,
@@ -19,6 +22,7 @@ from app.schemas.functional_live_rooms import (
     FunctionalLiveRoomTraceRead,
     MaituCapabilityMatrixRead,
 )
+from app.schemas.maitu_workbench import RoomInspectionCreate, RoomInspectionRead
 from app.services.functional_live_rooms import FunctionalLiveRoomService
 from app.services.maitu_capabilities import maitu_capability_matrix
 
@@ -40,7 +44,12 @@ def create_live_room_plan(
     except KeyError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Content project not found") from exc
     except DomainValidationError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=exc.message) from exc
+        error_status = (
+            status.HTTP_409_CONFLICT
+            if exc.code == "LIVE_ROOM_PLAN_IDEMPOTENCY_CONFLICT"
+            else status.HTTP_422_UNPROCESSABLE_CONTENT
+        )
+        raise HTTPException(status_code=error_status, detail=exc.message) from exc
 
 
 @router.post("/material-gap-preview", response_model=FunctionalLiveRoomMaterialGapPreviewRead)
@@ -64,6 +73,32 @@ def list_live_room_plans(service: Annotated[FunctionalLiveRoomService, Depends(g
 @router.get("/maitu-capabilities", response_model=MaituCapabilityMatrixRead)
 def get_maitu_capabilities() -> dict:
     return maitu_capability_matrix()
+
+
+@router.post(
+    "/room-inspections",
+    response_model=RoomInspectionRead,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def create_live_room_inspection(
+    payload: RoomInspectionCreate,
+    service: Annotated[FunctionalLiveRoomService, Depends(get_service)],
+) -> dict:
+    try:
+        return service.create_room_inspection(payload.model_dump(mode="json"))
+    except DomainValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=exc.message) from exc
+
+
+@router.get("/room-inspections/{inspection_code}", response_model=RoomInspectionRead)
+def get_live_room_inspection(
+    inspection_code: str,
+    service: Annotated[FunctionalLiveRoomService, Depends(get_service)],
+) -> dict:
+    row = service.get_room_inspection(inspection_code)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Room inspection not found")
+    return row
 
 
 @router.get("/{plan_code}", response_model=FunctionalLiveRoomPlanRead)
@@ -92,12 +127,57 @@ def confirm_live_room_execution(
     service: Annotated[FunctionalLiveRoomService, Depends(get_service)],
 ) -> dict:
     try:
-        plan = service.confirm_execution(plan_code, confirmed=payload.confirmed)
+        plan = service.confirm_execution(plan_code, **payload.model_dump(mode="json"))
     except DomainValidationError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=exc.message) from exc
     if plan is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Live-room plan not found")
     return plan
+
+
+@router.get("/{plan_code}/execution", response_model=FunctionalLiveRoomExecutionRead)
+def get_live_room_execution(
+    plan_code: str,
+    service: Annotated[FunctionalLiveRoomService, Depends(get_service)],
+) -> dict:
+    result = service.get_execution(plan_code)
+    if result is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Live-room plan not found")
+    return result
+
+
+@router.post("/{plan_code}/execution/retry", response_model=FunctionalLiveRoomExecutionRead)
+def retry_live_room_execution(
+    plan_code: str,
+    payload: FunctionalLiveRoomExecutionRetry,
+    service: Annotated[FunctionalLiveRoomService, Depends(get_service)],
+) -> dict:
+    try:
+        result = service.retry_execution(plan_code, requested_by=payload.requested_by)
+    except DomainValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.message) from exc
+    if result is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Draft execution not found")
+    return result
+
+
+@router.post("/{plan_code}/execution/reconcile", response_model=FunctionalLiveRoomExecutionRead)
+def reconcile_live_room_execution(
+    plan_code: str,
+    payload: FunctionalLiveRoomExecutionReconcile,
+    service: Annotated[FunctionalLiveRoomService, Depends(get_service)],
+) -> dict:
+    try:
+        result = service.acknowledge_execution_reconciliation(
+            plan_code,
+            acknowledged_by=payload.acknowledged_by,
+            note=payload.note,
+        )
+    except DomainValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.message) from exc
+    if result is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Draft execution not found")
+    return result
 
 
 @router.get("/{plan_code}/execution-handoff", response_model=FunctionalLiveRoomExecutionHandoffRead)

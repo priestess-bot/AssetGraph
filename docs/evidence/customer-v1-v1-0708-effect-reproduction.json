@@ -1,0 +1,197 @@
+{
+  "completed_at": "2026-07-25T22:04:18.695240+00:00",
+  "effect": {
+    "effect_code": "EFFECT-20260725-000009",
+    "eligibility_snapshot": {
+      "association_blockers": [
+        "REPORT_NOT_PUBLISHED_DESCRIPTIVE",
+        "EFFECT_SAMPLE_SIZE_BELOW_MINIMUM",
+        "OBSERVED_SAMPLE_SIZE_BELOW_MINIMUM",
+        "METRIC_DEFINITION_NOT_PINNED"
+      ],
+      "evidence_level": "descriptive",
+      "has_groups": true,
+      "metric_definition_state": "metric_unpinned",
+      "minimum_recommendation_session_count": 3,
+      "observed_session_count": 1,
+      "qualification": "descriptive_hint_only",
+      "recommendation_eligible": false,
+      "report_code": "ATTR-20260725-000016",
+      "report_created_at": "2026-07-26T05:53:05.776389+09:00",
+      "selected_session_count": 1
+    },
+    "evidence_level": "descriptive",
+    "recommendation_hint": {
+      "blockers": [
+        "REPORT_NOT_PUBLISHED_DESCRIPTIVE",
+        "EFFECT_SAMPLE_SIZE_BELOW_MINIMUM",
+        "OBSERVED_SAMPLE_SIZE_BELOW_MINIMUM",
+        "METRIC_DEFINITION_NOT_PINNED",
+        "EFFECT_EVIDENCE_NOT_ASSOCIATIONAL"
+      ],
+      "contribution": 0.0,
+      "effect_code": "EFFECT-20260725-000009",
+      "eligible": false,
+      "evidence_level": "descriptive",
+      "revision_number": 1,
+      "selected_session_count": 1,
+      "status": "approved"
+    },
+    "status": "approved"
+  },
+  "explicit_choices": {
+    "material_choices": [
+      {
+        "action": "preserve",
+        "source_asset_code": "AG-IMG-20260725-000004"
+      },
+      {
+        "action": "preserve",
+        "source_asset_code": "AG-IMG-20260725-000005"
+      },
+      {
+        "action": "preserve",
+        "source_asset_code": "AG-IMG-20260725-000006"
+      }
+    ],
+    "paragraph_choices": [
+      {
+        "action": "preserve",
+        "field_key": "theme"
+      },
+      {
+        "action": "preserve",
+        "field_key": "story"
+      },
+      {
+        "action": "preserve",
+        "source_block_code": "BLOCK-20260725-000004"
+      },
+      {
+        "action": "preserve",
+        "source_block_code": "BLOCK-20260725-000005"
+      },
+      {
+        "action": "preserve",
+        "source_block_code": "BLOCK-20260725-000006"
+      }
+    ],
+    "template_choices": []
+  },
+  "imported_evidence": {
+    "attribution_report_code": "ATTR-20260725-000016",
+    "quality_snapshot": {
+      "active_exposure_count": 3,
+      "eligible_for_descriptive_publication": false,
+      "metric_definition_state": "metric_unpinned",
+      "observed_session_count": 1,
+      "publication_scope": "descriptive_only",
+      "reasons": [
+        "metric_definition_not_resolved",
+        "no_release_bound_exposure"
+      ],
+      "release_bound_exposure_count": 0,
+      "schema_version": "functional-attribution-quality.v1",
+      "selected_session_count": 1
+    },
+    "report_evidence_level": "descriptive",
+    "report_status": "insufficient_data",
+    "session_code": "OPS-20260725-000029"
+  },
+  "result": {
+    "applied_choices": {
+      "material_choices": [
+        {
+          "action": "preserve",
+          "result_asset_code": "AG-IMG-20260725-000004",
+          "source_asset_code": "AG-IMG-20260725-000004"
+        },
+        {
+          "action": "preserve",
+          "result_asset_code": "AG-IMG-20260725-000005",
+          "source_asset_code": "AG-IMG-20260725-000005"
+        },
+        {
+          "action": "preserve",
+          "result_asset_code": "AG-IMG-20260725-000006",
+          "source_asset_code": "AG-IMG-20260725-000006"
+        }
+      ],
+      "paragraph_choices": [
+        {
+          "action": "preserve",
+          "field_key": "theme"
+        },
+        {
+          "action": "preserve",
+          "field_key": "story"
+        },
+        {
+          "action": "preserve",
+          "source_block_code": "BLOCK-20260725-000004"
+        },
+        {
+          "action": "preserve",
+          "source_block_code": "BLOCK-20260725-000005"
+        },
+        {
+          "action": "preserve",
+          "source_block_code": "BLOCK-20260725-000006"
+        }
+      ],
+      "schema_version": "effect-reproduction-choices.v1",
+      "template_choices": []
+    },
+    "content_chain_types": [
+      "content_project",
+      "design_brief",
+      "program",
+      "script",
+      "shot_list",
+      "story_brief"
+    ],
+    "content_status": "confirmed",
+    "decision_code": "DEC-20260725-000016",
+    "effect_code": "EFFECT-20260725-000009",
+    "generated": true,
+    "production_boundary": "draft_non_executable",
+    "production_variant_code": "VARIANT-20260725-000012",
+    "production_variant_revision_number": 1,
+    "reproduced_project_code": "CONTENT-20260725-000016",
+    "reproduced_project_revision_number": 1,
+    "source_project_code": "CONTENT-20260725-000002",
+    "source_project_revision_number": 1
+  },
+  "schema_version": "customer-v1.learning-acceptance.v1",
+  "screenshots": [
+    {
+      "checksum_sha256": "dbcfc145da185562333a21013d5542e51201b6ff07be83441f2f3728fcc1c417",
+      "height": 4151,
+      "path": "docs/evidence/screenshots/customer-v1-v1-0708-learning.png",
+      "size_bytes": 531013,
+      "width": 1440
+    },
+    {
+      "checksum_sha256": "05e28a4318b073618646e93adc36c8c33a8845ddcfcd7d66987f49d794b575d6",
+      "height": 11274,
+      "path": "docs/evidence/screenshots/customer-v1-v1-0708-content-project.png",
+      "size_bytes": 1091464,
+      "width": 1440
+    }
+  ],
+  "source": {
+    "generated": true,
+    "project_code": "CONTENT-20260725-000002",
+    "revision_number": 1,
+    "title": "客户 V1 双分支验收 - 品酒大师 PRO"
+  },
+  "tests": {
+    "decision_lineage_complete": "passed",
+    "descriptive_hint_only": "passed",
+    "draft_production_revision_created": "passed",
+    "effect_score_contribution_zero": "passed",
+    "explicit_choices_frozen": "passed",
+    "imported_session_bound": "passed",
+    "new_content_chain_complete": "passed"
+  }
+}

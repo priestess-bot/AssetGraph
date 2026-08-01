@@ -27,6 +27,7 @@ class ContentCoreRepository:
         actor_id: str,
         producer_strategy_revision: str = "human_input.v1",
         source_revision_refs: list[dict[str, Any]] | None = None,
+        idempotency_key: str | None = None,
         commit: bool = True,
     ) -> dict[str, Any]:
         if not title.strip() or not generation_goal.strip():
@@ -34,9 +35,13 @@ class ContentCoreRepository:
                 "CONTENT_PROJECT_REQUIRED_FIELD_MISSING",
                 "Content project title and generation goal are required",
             )
-        with self.connection.cursor(row_factory=dict_row) as cursor:
-            project_code = self._next_code(cursor, prefix="CONTENT", object_type="content_project")
-            fingerprint = canonical_fingerprint(
+        normalized_idempotency_key = str(idempotency_key or "").strip() or None
+        if normalized_idempotency_key is not None and len(normalized_idempotency_key) > 128:
+            raise DomainValidationError(
+                "CONTENT_PROJECT_IDEMPOTENCY_KEY_INVALID",
+                "Content project idempotency key must be at most 128 characters",
+            )
+        fingerprint = canonical_fingerprint(
                 {
                     "title": title.strip(),
                     "generation_goal": generation_goal.strip(),
@@ -45,15 +50,52 @@ class ContentCoreRepository:
                     "producer_strategy_revision": producer_strategy_revision,
                 }
             )
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            if normalized_idempotency_key is not None:
+                cursor.execute(
+                    "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                    (f"content-project:{normalized_idempotency_key}",),
+                )
+                cursor.execute(
+                    """
+                    SELECT revision.*, project.title,
+                           project.creation_input_fingerprint
+                    FROM content_projects AS project
+                    JOIN content_project_revisions AS revision
+                      ON revision.project_id = project.id
+                     AND revision.revision_number = project.current_revision_number
+                    WHERE project.creation_idempotency_key = %s
+                    """,
+                    (normalized_idempotency_key,),
+                )
+                existing = cursor.fetchone()
+                if existing is not None:
+                    if existing["creation_input_fingerprint"] != fingerprint:
+                        raise DomainConflictError(
+                            "CONTENT_PROJECT_IDEMPOTENCY_CONFLICT",
+                            "The idempotency key was already used with different project input",
+                        )
+                    if commit:
+                        self.connection.commit()
+                    return self._project_revision_view(existing, title=str(existing["title"]))
+
+            project_code = self._next_code(cursor, prefix="CONTENT", object_type="content_project")
             cursor.execute(
                 """
                 INSERT INTO content_projects (
-                    project_code, title, current_revision_number, status, owner_principal
+                    project_code, title, current_revision_number, status, owner_principal,
+                    creation_idempotency_key, creation_input_fingerprint
                 )
-                VALUES (%s, %s, 1, 'draft', %s)
+                VALUES (%s, %s, 1, 'draft', %s, %s, %s)
                 RETURNING id
                 """,
-                (project_code, title.strip(), actor_id),
+                (
+                    project_code,
+                    title.strip(),
+                    actor_id,
+                    normalized_idempotency_key,
+                    fingerprint if normalized_idempotency_key is not None else None,
+                ),
             )
             project_id = cursor.fetchone()["id"]
             cursor.execute(

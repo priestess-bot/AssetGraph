@@ -6,7 +6,7 @@ import logging
 import os
 import time
 from collections.abc import Sequence
-from dataclasses import asdict
+from dataclasses import asdict, is_dataclass
 from pathlib import Path
 
 from .browser_cli_session import BrowserUseCliSession, is_trusted_browser_use_cli_session
@@ -21,11 +21,19 @@ from .maitu_material_resolver import MaituMaterialResolutionResult, MaituMateria
 from .maitu_inventory_sync import MaituInventoryCollector
 from .preflight import ReplacementPlanPreflight
 from .runner import BrowserUseWorker, DryRunBrowserUseExecutor
-from .script_layout_checkpoint import AssetGraphScriptLayoutCheckpointStore
+from .room_inspection import inspect_working_room
+from .functional_draft_verification import verify_functional_draft
+from .functional_test_draft import enable_test_pending_rights_plan, reset_allowlisted_test_room
+from .script_layout_checkpoint import (
+    AssetGraphScriptLayoutCheckpointStore,
+    _durable_execution_value,
+)
 from .script_layout_draft_executor import (
     InMemoryScriptLayoutDraftSession,
+    ScriptLayoutDraftResult,
     ScriptLayoutDraftRunner,
 )
+from .maitu_test_room_rebuild import MaituTestRoomRebuildRunner, MaituTestRoomRebuildSpec
 from .workbench_draft_lease import WorkbenchDraftLeaseHeartbeat
 
 
@@ -44,20 +52,307 @@ def _workbench_draft_heartbeat_interval_seconds(lease_seconds: int) -> float:
     return min(configured, lease_seconds / 3)
 
 
+def _checkpoint_completion_evidence(checkpoint_result: dict) -> dict:
+    public_fields = {
+        "execution_code",
+        "build_plan_code",
+        "execution_status",
+        "status",
+        "expected_operation_count",
+        "result_summary",
+        "ready_for_go_live",
+        "manual_review_required",
+        "finalized_at",
+    }
+    return _durable_execution_value(
+        {
+            key: value
+            for key, value in checkpoint_result.items()
+            if key in public_fields
+        }
+    )
+
+
+def _worker_result_evidence(result: object) -> dict:
+    """Keep runner outcomes without persisting raw provider responses."""
+
+    if not is_dataclass(result):
+        raise TypeError("worker result evidence requires a dataclass result")
+    raw_result = asdict(result)
+    evidence = {
+        key: raw_result[key]
+        for key in (
+            "status",
+            "target_live_room_id",
+            "ready_for_go_live",
+            "manual_review_required",
+            "summary",
+            "operation_count",
+            "executed_action_count",
+            "skipped_action_count",
+            "placeholder_count",
+            "failure_count",
+        )
+        if key in raw_result
+    }
+
+    def numeric_id(value: object) -> int | str | None:
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, int) and value > 0:
+            return value
+        if isinstance(value, str) and value.isdigit() and int(value) > 0:
+            return value
+        return None
+
+    result_fields = (
+        "preflight_result",
+        "rename_result",
+        "create_result",
+        "insert_result",
+        "position_result",
+        "write_result",
+        "verify_result",
+        "draft_result",
+    )
+    verification_scalar_fields = (
+        "verified",
+        "verification_source",
+        "environment",
+        "not_live",
+        "save_clicked",
+        "go_live_clicked",
+        "script_content_verified",
+        "sound_enabled",
+        "expected_visual_count",
+        "expected_text_count",
+        "scene_count",
+        "left",
+        "top",
+        "width",
+        "height",
+        "z_index",
+        "fit",
+        "rotation",
+        "loop",
+        "expected_live_room_title",
+        "authoritative_live_room_title",
+    )
+    verification_id_fields = (
+        "default_clip_id",
+        "material_id",
+        "text_material_id",
+        "source_material_id",
+        "speaker_id",
+        "digital_human_image_id",
+    )
+    actions: list[dict] = []
+    for raw_action in raw_result.get("actions") or []:
+        if not isinstance(raw_action, dict):
+            continue
+        action = {
+            key: raw_action[key]
+            for key in (
+                "operation_index",
+                "operation_type",
+                "operation_name",
+                "action_type",
+                "status",
+                "summary",
+                "scene_index",
+                "scene_name",
+                "layer_id",
+                "layer_type",
+                "asset_code",
+            )
+            if key in raw_action and raw_action[key] is not None
+        }
+        clip_id = numeric_id(raw_action.get("clip_id"))
+        if clip_id is not None:
+            action["clip_id"] = clip_id
+        raw_details = raw_action.get("details")
+        raw_details = raw_details if isinstance(raw_details, dict) else {}
+        details = {"go_live_clicked": raw_details.get("go_live_clicked") is True}
+        nested_result = next(
+            (
+                raw_details[field_name]
+                for field_name in result_fields
+                if isinstance(raw_details.get(field_name), dict)
+            ),
+            None,
+        )
+        if isinstance(nested_result, dict):
+            verification = {
+                key: nested_result[key]
+                for key in verification_scalar_fields
+                if key in nested_result and nested_result[key] is not None
+            }
+            for field_name in verification_id_fields:
+                public_id = numeric_id(nested_result.get(field_name))
+                if public_id is not None:
+                    verification[field_name] = public_id
+            for field_name in ("expected_scene_names", "actual_scene_names"):
+                value = nested_result.get(field_name)
+                if isinstance(value, list) and all(isinstance(item, str) for item in value):
+                    verification[field_name] = list(value)
+            if verification:
+                details["verification"] = verification
+        action["details"] = details
+        actions.append(action)
+    evidence["actions"] = actions
+    return _durable_execution_value(evidence)
+
+
+def _final_readback_evidence(room: dict) -> dict:
+    """Project a Maitu room into stable, credential-free product evidence."""
+
+    def numeric_id(value: object) -> int | str | None:
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, int) and value > 0:
+            return value
+        if isinstance(value, str) and value.isdigit() and int(value) > 0:
+            return value
+        return None
+
+    def optional_field(source: dict, target: dict, key: str, *aliases: str) -> None:
+        for candidate in (key, *aliases):
+            if candidate in source and source[candidate] is not None:
+                target[key] = source[candidate]
+                return
+
+    def public_style(value: object) -> dict:
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except json.JSONDecodeError:
+                return {}
+        if not isinstance(value, dict):
+            return {}
+        result = {
+            key: value[key]
+            for key in ("left", "top", "width", "height", "zIndex", "fit", "opacity")
+            if key in value and isinstance(value[key], (int, float, bool))
+            or key == "fit" and isinstance(value.get(key), str)
+        }
+        transform = value.get("transform")
+        if isinstance(transform, dict):
+            public_transform = {
+                key: transform[key]
+                for key in ("rotation", "scale", "scaleX", "scaleY")
+                if key in transform and isinstance(transform[key], (int, float))
+            }
+            if public_transform:
+                result["transform"] = public_transform
+        return result
+
+    evidence: dict = {"schema_version": "maitu-final-readback-evidence.v1"}
+    room_id = numeric_id(room.get("id") if room.get("id") is not None else room.get("live_room_id"))
+    if room_id is not None:
+        evidence["id"] = room_id
+    optional_field(room, evidence, "name", "title")
+    optional_field(room, evidence, "status", "live_status", "room_status")
+    optional_field(room, evidence, "is_live", "living", "is_living")
+    optional_field(room, evidence, "environment", "_assetgraph_read_environment")
+    topics: list[dict] = []
+    for raw_topic in room.get("topics") or []:
+        if not isinstance(raw_topic, dict):
+            continue
+        topic: dict = {}
+        topic_id = numeric_id(raw_topic.get("id"))
+        if topic_id is not None:
+            topic["id"] = topic_id
+        optional_field(raw_topic, topic, "name")
+        clips: list[dict] = []
+        for raw_clip in raw_topic.get("clips") or []:
+            if not isinstance(raw_clip, dict):
+                continue
+            clip: dict = {}
+            clip_id = numeric_id(raw_clip.get("id"))
+            if clip_id is not None:
+                clip["id"] = clip_id
+            optional_field(raw_clip, clip, "name")
+            materials: list[dict] = []
+            for raw_material in raw_clip.get("clip_materials") or []:
+                if not isinstance(raw_material, dict):
+                    continue
+                material: dict = {}
+                material_id = numeric_id(raw_material.get("id"))
+                if material_id is not None:
+                    material["id"] = material_id
+                for field_name in (
+                    "name",
+                    "type",
+                    "content",
+                    "left",
+                    "top",
+                    "width",
+                    "height",
+                    "sound_enabled",
+                ):
+                    optional_field(raw_material, material, field_name)
+                optional_field(raw_material, material, "z_index", "layer_n")
+                optional_field(raw_material, material, "source_material_type")
+                for field_name, aliases in (
+                    ("source_material_id", ("material_id",)),
+                    ("speaker_id", ()),
+                    ("digital_human_image_id", ()),
+                ):
+                    source_value = next(
+                        (
+                            raw_material[candidate]
+                            for candidate in (field_name, *aliases)
+                            if raw_material.get(candidate) is not None
+                        ),
+                        None,
+                    )
+                    public_id = numeric_id(source_value)
+                    if public_id is not None:
+                        material[field_name] = public_id
+                style_front = public_style(raw_material.get("style_front"))
+                if style_front:
+                    material["style_front"] = style_front
+                materials.append(material)
+            clip["clip_materials"] = materials
+            clips.append(clip)
+        topic["clips"] = clips
+        topics.append(topic)
+    evidence["topics"] = topics
+    return evidence
+
+
 def _best_effort_fail_workbench_draft_job(
     api: AssetGraphClient,
     *,
     job_code: str,
     lease_token: str,
     error: Exception,
+    reconcile_required: bool = False,
 ) -> None:
+    logging.getLogger(__name__).error(
+        "Workbench draft job %s failed before durable write-back",
+        job_code,
+        exc_info=(type(error), error, error.__traceback__),
+    )
     try:
+        raw_error_text = f"{type(error).__name__}: {error}"
+        error_code = (
+            "MATERIAL_RESOLUTION_FAILED"
+            if "素材准备失败" in raw_error_text or "material resolution" in raw_error_text.lower()
+            else "WORKBENCH_DRAFT_EXECUTION_FAILED"
+        )
+        error_message = (
+            "素材准备失败，请检查素材绑定后重试。"
+            if error_code == "MATERIAL_RESOLUTION_FAILED"
+            else "草稿生成失败，请查看执行日志并在确认现场状态后重试。"
+        )
         api.fail_workbench_draft_execution(
             job_code,
             {
                 "lease_token": lease_token,
-                "error_code": "WORKBENCH_DRAFT_EXECUTION_FAILED",
-                "error_message": f"{type(error).__name__}: {error}"[:4000],
+                "error_code": error_code,
+                "error_message": error_message,
+                "reconcile_required": reconcile_required,
             },
         )
     except AssetGraphClientError as fail_error:
@@ -88,6 +383,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--run-workbench-draft-job",
         action="store_true",
         help="Claim and execute one preflight-passed workbench draft job",
+    )
+    parser.add_argument(
+        "--run-room-inspection-job",
+        action="store_true",
+        help="Claim one read-only Maitu working-room inspection job",
     )
     parser.add_argument("--workbench-draft-job-code", help="Claim one specific workbench draft job")
     parser.add_argument(
@@ -121,6 +421,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--resolve-maitu-materials", action="store_true", help="Resolve selected AssetGraph assets against Maitu and upload only when no existing material matches")
     parser.add_argument("--resolved-plan-file", help="Optional path for the BuildPlan JSON after Maitu material resolution")
     parser.add_argument("--target-live-room-id", help="Target Maitu draft liveRoomId for --live-scene-fill or --script-layout-draft-execute")
+    parser.add_argument(
+        "--maitu-test-room-rebuild-file",
+        help="Destructively reset and rebuild the one explicit offline Maitu test draft described by this JSON spec",
+    )
     parser.add_argument("--write-result", action="store_true", help="Write direct-plan execution/evidence result back to AssetGraph")
     parser.add_argument("--capture-jd-metrics", action="store_true", help="Capture JD live dashboard metrics and write samples to AssetGraph")
     parser.add_argument("--jd-metric-session-code", help="JD live metric capture session code (JD-METRIC-*)")
@@ -146,8 +450,10 @@ def _selected_cli_modes(args: argparse.Namespace) -> list[str]:
             ("observe_maitu", args.observe_maitu),
             ("sync_maitu_inventory", args.sync_maitu_inventory),
             ("workbench_draft_job", args.run_workbench_draft_job),
+            ("room_inspection_job", args.run_room_inspection_job),
             ("capture_jd_metrics", args.capture_jd_metrics),
             ("script_layout", args.resolve_maitu_materials or args.script_layout_draft_execute),
+            ("maitu_test_room_rebuild", bool(args.maitu_test_room_rebuild_file)),
             ("live_scene_fill", args.live_scene_fill),
             ("non_destructive_build", args.non_destructive_build),
             ("preflight_build", args.preflight_build),
@@ -228,6 +534,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise SystemExit("--sync-maitu-inventory cannot run with --dry-run because it writes an immutable inventory snapshot")
     if args.dry_run and args.run_workbench_draft_job:
         raise SystemExit("--run-workbench-draft-job cannot run with --dry-run")
+    if args.dry_run and args.run_room_inspection_job:
+        raise SystemExit("--run-room-inspection-job cannot run with --dry-run")
+    if args.dry_run and args.maitu_test_room_rebuild_file:
+        raise SystemExit("--maitu-test-room-rebuild-file cannot run with --dry-run because it clears a real test draft")
     if args.dry_run and args.non_destructive_build:
         raise SystemExit("--non-destructive-build cannot run with --dry-run because it opens and operates a real browser session")
     if args.dry_run and not any(
@@ -267,6 +577,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         state = BrowserUseCliSession().read_current_state(open_if_needed=True)
         print(json.dumps(asdict(state), ensure_ascii=False, indent=2))
         return 0 if state.logged_in and not state.login_required else 2
+    if args.maitu_test_room_rebuild_file:
+        spec_path = Path(args.maitu_test_room_rebuild_file)
+        try:
+            raw_spec = json.loads(spec_path.read_text(encoding="utf-8"))
+            spec = MaituTestRoomRebuildSpec.from_dict(raw_spec)
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            raise SystemExit(f"Invalid Maitu test-room rebuild spec: {exc}") from exc
+        session = BrowserUseCliSession()
+        if not is_trusted_browser_use_cli_session(session):
+            raise SystemExit("Maitu test-room rebuild requires the sealed Browser-use CLI session")
+        result = MaituTestRoomRebuildRunner(session=session).run(spec)
+        print(json.dumps(asdict(result), ensure_ascii=False, indent=2))
+        return 0 if result.status == "completed" and result.failure_count == 0 else 2
 
     client: AssetGraphClient | None = None
 
@@ -293,6 +616,48 @@ def main(argv: Sequence[str] | None = None) -> int:
                     str(args.build_plan_code)
                 )
         return source_operation_plan
+
+    if args.run_room_inspection_job:
+        api = assetgraph_client()
+        lease_seconds = 120
+        claimed = api.claim_next_room_inspection({"lease_seconds": lease_seconds})
+        if claimed is None:
+            print(json.dumps({"status": "idle", "summary": "No queued room inspection job."}, ensure_ascii=False))
+            return 0
+        inspection_code = str(claimed["inspection_code"])
+        lease_token = str(claimed["lease_token"])
+        try:
+            session = BrowserUseCliSession()
+            if not is_trusted_browser_use_cli_session(session):
+                raise RuntimeError("room inspection requires the sealed Browser-use CLI session")
+            api.heartbeat_room_inspection(
+                inspection_code,
+                {"lease_token": lease_token, "lease_seconds": lease_seconds},
+            )
+            result = inspect_working_room(
+                session,
+                target_live_room_id=str(claimed["target_live_room_id"]),
+                expected_title=claimed.get("expected_title"),
+            )
+            completed = api.complete_room_inspection(
+                inspection_code,
+                {"lease_token": lease_token, "result": result},
+            )
+        except Exception as exc:
+            try:
+                api.fail_room_inspection(
+                    inspection_code,
+                    {
+                        "lease_token": lease_token,
+                        "error_code": "MAITU_ROOM_INSPECTION_FAILED",
+                        "error_message": f"{type(exc).__name__}: {exc}"[:4000],
+                    },
+                )
+            except Exception:
+                logging.getLogger(__name__).exception("Failed to persist room inspection failure")
+            raise
+        print(json.dumps(completed, ensure_ascii=False, indent=2, default=str))
+        return 0
 
     if args.sync_maitu_inventory:
         api = assetgraph_client()
@@ -360,6 +725,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             configured_interval_seconds=_workbench_draft_heartbeat_interval_seconds(lease_seconds),
         )
         browser_session: BrowserUseCliSession | None = None
+        checkpoint_store: AssetGraphScriptLayoutCheckpointStore | None = None
+        checkpoint_finalized = False
+        destructive_started = False
+        source_kind = str(claimed.get("source_kind") or "workbench_run")
         try:
             heartbeat.start()
             embedded = claimed.get("payload") if isinstance(claimed.get("payload"), dict) else {}
@@ -368,18 +737,51 @@ def main(argv: Sequence[str] | None = None) -> int:
             if not build_plan_code:
                 raise RuntimeError("workbench draft job has no persisted build_plan_code")
             source_plan = api.get_live_room_build_plan_operation_plan(build_plan_code)
+            if source_kind == "functional_live_room_plan":
+                source_plan = enable_test_pending_rights_plan(source_plan, job_payload=embedded)
             _require_executable_script_layout_plan(source_plan)
             browser_session = BrowserUseCliSession()
             browser_session.set_execution_guard(heartbeat.ensure_active)
+
+            def report_stage(stage: str, current: int, message: str) -> None:
+                nonlocal destructive_started
+                heartbeat.ensure_active()
+                if stage == "clearing_draft":
+                    destructive_started = True
+                api.heartbeat_workbench_draft_execution(
+                    job_code,
+                    {
+                        "lease_token": lease_token,
+                        "lease_seconds": lease_seconds,
+                        "stage": stage,
+                        "progress_current": current,
+                        "progress_total": 5,
+                        "message": message,
+                    },
+                )
+
+            report_stage("preparing_materials", 0, "正在解析并核对全部麦兔素材")
             resolution = MaituMaterialResolver(
                 asset_client=api,
                 session=browser_session,
                 assets_root=args.assets_root,
+                allow_worker_readback_binding=(source_kind == "functional_live_room_plan"),
+                functional_execution_job_code=(
+                    job_code if source_kind == "functional_live_room_plan" else None
+                ),
+                functional_lease_token=(
+                    lease_token if source_kind == "functional_live_room_plan" else None
+                ),
             ).resolve_plan(source_plan)
             if resolution.status != "resolved" or resolution.issues or resolution.manual_required_count:
+                issue_text = "、".join(
+                    f"{issue.asset_code or '未知素材'}（{issue.reason}）"
+                    for issue in resolution.issues
+                )
                 raise RuntimeError(
-                    "workbench material resolution blocked: "
-                    f"issues={len(resolution.issues)}, manual_required={resolution.manual_required_count}"
+                    "素材准备失败："
+                    f"{issue_text or '存在未解析素材'}；"
+                    f"共 {len(resolution.issues)} 项需处理"
                 )
             heartbeat.ensure_active()
             operation_plan = resolution.operation_plan
@@ -391,20 +793,66 @@ def main(argv: Sequence[str] | None = None) -> int:
                 operation_plan=operation_plan,
                 target_live_room_id=target_live_room_id,
             )
+            reset_evidence: dict = {}
+            if source_kind == "functional_live_room_plan":
+                reset_evidence = reset_allowlisted_test_room(
+                    browser_session,
+                    job_payload=embedded,
+                    progress=report_stage,
+                )
 
             def combined_execution_guard() -> bool:
                 heartbeat.ensure_active()
                 return checkpoint_store.ensure_lease_active()
 
             browser_session.set_execution_guard(combined_execution_guard)
+            last_reported_stage: str | None = None
+
+            def report_operation_progress(_index: int, _total: int, operation_type: str) -> None:
+                nonlocal last_reported_stage
+                if operation_type == "write_script":
+                    stage, current, message = "writing_scripts", 3, "正在写入每个场景的话术"
+                elif operation_type in {"verify_scene", "verify_draft_persisted", "save_draft"}:
+                    stage, current, message = "verifying_readback", 4, "正在刷新麦兔并核对最终结果"
+                else:
+                    stage, current, message = "building_scenes", 2, "正在搭建场景并按顺序放置图层"
+                if stage != last_reported_stage:
+                    report_stage(stage, current, message)
+                    last_reported_stage = stage
+
             result = ScriptLayoutDraftRunner(
                 session=browser_session,
                 checkpoint_store=checkpoint_store,
+                progress_callback=report_operation_progress,
             ).run(operation_plan, target_live_room_id=target_live_room_id)
             heartbeat.ensure_active()
             checkpoint_result = checkpoint_store.finalize(result)
+            checkpoint_finalized = True
             if result.status not in {"completed", "completed_with_manual_review"} or result.failure_count:
                 raise RuntimeError(f"draft execution did not complete cleanly: {result.summary}")
+            # Finalizing the inner checkpoint closes its lease. Whole-room readback is
+            # still part of the active outer workbench job, so fence it with that lease.
+            browser_session.set_execution_guard(heartbeat.ensure_active)
+            verification: dict = {"matched": True, "verification_source": "checkpoint_readback"}
+            layer_order_validation: dict = {"passed": True}
+            final_readback: dict = {}
+            worker_result = _worker_result_evidence(result)
+            if source_kind == "functional_live_room_plan":
+                report_stage("verifying_readback", 4, "正在刷新麦兔并逐层核对最终结果")
+                expected_title = str(embedded.get("build_plan", {}).get("expected_title") or "")
+                verification, layer_order_validation = verify_functional_draft(
+                    browser_session,
+                    operation_plan=operation_plan,
+                    target_live_room_id=target_live_room_id,
+                    expected_title=expected_title,
+                )
+                final_readback = browser_session.read_live_room(target_live_room_id)
+                worker_result = {
+                    **worker_result,
+                    "runner_status": result.status,
+                    "status": "completed",
+                    "failure_count": 0,
+                }
             browser_session.set_execution_guard(None)
             heartbeat.stop_for_writeback()
             completed = api.complete_workbench_draft_execution(
@@ -412,24 +860,54 @@ def main(argv: Sequence[str] | None = None) -> int:
                 {
                     "lease_token": lease_token,
                     "ready_for_go_live": False,
-                    "result": {
-                        "status": result.status,
+                    "result": _durable_execution_value({
+                        "status": "completed" if source_kind == "functional_live_room_plan" else result.status,
                         "target_live_room_id": target_live_room_id,
-                        "worker_result": asdict(result),
-                        "checkpoint_result": checkpoint_result,
+                        "worker_result": worker_result,
+                        "checkpoint_result": _checkpoint_completion_evidence(checkpoint_result),
+                        "reset_evidence": reset_evidence,
+                        "verification": verification,
+                        "layer_order_validation": layer_order_validation,
+                        "final_readback": _final_readback_evidence(final_readback),
+                        "authority_mode": "worker_readback" if source_kind == "functional_live_room_plan" else "independent_backend",
+                        "non_releasable": source_kind == "functional_live_room_plan",
+                        "go_live_clicked": False,
                         "ready_for_go_live": False,
-                    },
+                    }),
                 },
             )
         except Exception as exc:
             if browser_session is not None:
                 browser_session.set_execution_guard(None)
+            if checkpoint_store is not None and not checkpoint_finalized:
+                try:
+                    checkpoint_store.finalize(
+                        ScriptLayoutDraftResult(
+                            status="failed",
+                            target_live_room_id=checkpoint_store.target_live_room_id,
+                            ready_for_go_live=False,
+                            manual_review_required=True,
+                            summary="Workbench draft preparation failed before runner completion.",
+                            operation_count=len(checkpoint_store.operation_checkpoints),
+                            executed_action_count=0,
+                            skipped_action_count=0,
+                            placeholder_count=0,
+                            failure_count=1,
+                            actions=[],
+                        )
+                    )
+                    checkpoint_finalized = True
+                except Exception:
+                    logging.getLogger(__name__).exception(
+                        "Failed to close script-layout checkpoint after workbench failure"
+                    )
             heartbeat.stop()
             _best_effort_fail_workbench_draft_job(
                 api,
                 job_code=job_code,
                 lease_token=lease_token,
                 error=exc,
+                reconcile_required=(source_kind == "functional_live_room_plan" and destructive_started),
             )
             raise
         finally:

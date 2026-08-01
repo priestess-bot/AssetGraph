@@ -1,0 +1,32 @@
+{
+  "schema_version": "customer-v1-layer-contract-evidence.v1",
+  "executed_at": "2026-07-31T19:16:00+09:00",
+  "scope": ["V1-0530", "V1-0531", "V1-0532"],
+  "backend": {
+    "command": ".venv/bin/pytest -q tests/test_layer_stacking.py tests/test_script_layout_constraints.py tests/test_functional_live_room_constraints.py tests/test_functional_live_room_blueprint_revision.py",
+    "result": "22 passed",
+    "assertions": [
+      "constraint roles and rules survive selection, layout planning and BuildPlan projection",
+      "legacy z values are replaced by a unique contiguous bottom-to-top order",
+      "hard top/bottom conflicts and relative cycles block compilation",
+      "supporting video cannot become the highest layer",
+      "table surface policy constrains product geometry and stacking"
+    ]
+  },
+  "frontend": {
+    "command": "npx vitest run src/live-rooms/model.test.ts src/live-rooms/LiveRoomEditorProductPage.test.tsx --testTimeout=20000",
+    "result": "12 passed",
+    "assertions": [
+      "the editor exposes constrained up/down movement rather than a raw z-index input",
+      "hard layer bands are recompiled into a contiguous order",
+      "dirty scene edits are saved and recompiled before draft execution"
+    ]
+  },
+  "source_refs": [
+    "backend/app/services/layer_stacking.py",
+    "backend/app/services/functional_live_rooms.py",
+    "backend/app/services/script_layout_build_plan_builder.py",
+    "frontend/src/live-rooms/model.ts",
+    "frontend/src/live-rooms/LiveRoomEditorProductPage.tsx"
+  ]
+}
