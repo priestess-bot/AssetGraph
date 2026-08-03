@@ -21,6 +21,21 @@ class Session:
         return [row, dict(row)]
 
 
+class OptimizedImageSession:
+    def list_maitu_materials(self):
+        return [
+            {
+                "id": 202,
+                "name": "background.png",
+                "type": "image",
+                "url": (
+                    "https://cdn.example/background.png?signature=temporary&"
+                    "x-oss-process=image/resize,w_720#download"
+                ),
+            }
+        ]
+
+
 class Response(io.BytesIO):
     def __enter__(self):
         return self
@@ -80,6 +95,28 @@ def test_collector_deduplicates_downloads_and_adds_reference_template(tmp_path: 
     assert observation.is_file()
     if os.name != "nt":
         assert stat.S_IMODE(observation.stat().st_mode) == 0o600
+
+
+def test_collector_downloads_original_oss_image_without_reencoding_other_query_params(
+    tmp_path: Path,
+) -> None:
+    opened_urls: list[str] = []
+
+    def open_material(request, **_kwargs):
+        opened_urls.append(request.full_url)
+        return Response(b"image-bytes")
+
+    collector = MaituInventoryCollector(
+        session=OptimizedImageSession(),
+        mirror_root=tmp_path / "mirror",
+        opener=open_material,
+        legacy_mapping_path=tmp_path / "missing-mapping.json",
+    )
+
+    result = collector.collect(download_missing=True)
+
+    assert opened_urls == ["https://cdn.example/background.png?signature=temporary#download"]
+    assert result.items[0]["source_material_url"] == "https://cdn.example/background.png"
 
 
 def test_existing_catalog_material_is_reused_without_download(tmp_path: Path) -> None:

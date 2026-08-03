@@ -8,6 +8,8 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+$runRoot = Join-Path $repoRoot ".run\windows"
+New-Item -ItemType Directory -Force -Path $runRoot | Out-Null
 $debugEndpoint = "http://127.0.0.1:$DebugPort/json/version"
 
 function Test-DebugEndpoint {
@@ -40,14 +42,21 @@ if (-not $browser) {
 
 $profile = Join-Path $repoRoot "data\maitu-browser-profile"
 New-Item -ItemType Directory -Force -Path $profile | Out-Null
-Start-Process -FilePath $browser -ArgumentList @(
+$process = Start-Process -FilePath $browser -ArgumentList @(
     "--remote-debugging-address=127.0.0.1",
     "--remote-debugging-port=$DebugPort",
     "--user-data-dir=`"$profile`"",
     "--no-first-run",
     "--no-default-browser-check",
     $Url
-) | Out-Null
+) -PassThru
+
+[ordered]@{
+    name = "maitu-browser"
+    process_id = $process.Id
+    started_at = $process.StartTime.ToUniversalTime().ToString("O")
+    executable = $browser
+} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $runRoot "maitu-browser.json") -Encoding UTF8
 
 $deadline = [DateTime]::UtcNow.AddSeconds(20)
 while ([DateTime]::UtcNow -lt $deadline) {

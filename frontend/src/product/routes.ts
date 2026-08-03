@@ -5,6 +5,7 @@ import {
   FolderKanban,
   Images,
   LayoutDashboard,
+  MessageSquareText,
   PanelsTopLeft,
 } from "lucide-react";
 import type { ComponentType } from "react";
@@ -23,6 +24,7 @@ export const PRODUCT_ROUTES: ProductRoute[] = [
   { path: "/knowledge", label: "知识库", description: "事实、来源与引用", icon: BookOpen },
   { path: "/projects", label: "内容项目", description: "从目标到交付", icon: FolderKanban },
   { path: "/operations", label: "运营分析", description: "场次、归因与指标", icon: ChartNoAxesCombined },
+  { path: "/interactions", label: "用户互动", description: "采集、意图与应答", icon: MessageSquareText },
   { path: "/learning", label: "效果学习", description: "证据与再生产", icon: BrainCircuit },
 ];
 

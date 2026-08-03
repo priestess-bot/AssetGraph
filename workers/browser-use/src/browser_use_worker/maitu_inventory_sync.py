@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable, Protocol
-from urllib.parse import unquote, urlparse
+from urllib.parse import unquote, unquote_plus, urlparse
 from uuid import uuid4
 
 
@@ -230,7 +230,10 @@ class MaituInventoryCollector:
         if destination.is_file():
             return destination, self._sha256_file(destination)
         temporary = destination.with_suffix(destination.suffix + ".part")
-        request = urllib.request.Request(source_url, headers={"User-Agent": "AssetGraph-Maitu-Mirror/1"})
+        request = urllib.request.Request(
+            self._original_material_url(source_url),
+            headers={"User-Agent": "AssetGraph-Maitu-Mirror/1"},
+        )
         digest = hashlib.sha256()
         size = 0
         try:
@@ -388,6 +391,16 @@ class MaituInventoryCollector:
             return None
         parsed = urlparse(value)
         return parsed._replace(params="", query="", fragment="").geturl()
+
+    @staticmethod
+    def _original_material_url(value: str) -> str:
+        parsed = urlparse(value)
+        query = "&".join(
+            part
+            for part in parsed.query.split("&")
+            if unquote_plus(part.partition("=")[0]).lower() != "x-oss-process"
+        )
+        return parsed._replace(query=query).geturl()
 
     @staticmethod
     def _positive_int(value: Any) -> int | None:

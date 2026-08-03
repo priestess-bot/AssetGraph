@@ -635,15 +635,45 @@ def get_asset_preview(
 
     root = settings.asset_materials_root.expanduser().resolve()
     if str(asset.get("local_relative_path") or "").strip():
-        candidate = _local_preview_path(asset, root=root)
         media_kind = str(asset.get("media_kind") or "")
+        checksum = str(asset.get("checksum_sha256") or "") or None
+        # Generated previews are keyed by the verified inventory checksum, so a
+        # cache hit does not need to scan the original media again.
+        if variant == "thumbnail" and media_kind in _IMAGE_PREVIEW_MEDIA_KINDS | {"video"}:
+            cached = cached_preview_path(
+                root,
+                asset_code=asset_code,
+                checksum=checksum,
+                variant=variant,
+            )
+            if cached.is_file() and cached.stat().st_size > 0:
+                return FileResponse(
+                    cached,
+                    media_type="image/webp",
+                    headers={"Cache-Control": "private, max-age=86400"},
+                )
+        if variant in {"poster", "hover"} and media_kind == "video":
+            cached = cached_preview_path(
+                root,
+                asset_code=asset_code,
+                checksum=checksum,
+                variant=variant,
+            )
+            if cached.is_file() and cached.stat().st_size > 0:
+                return FileResponse(
+                    cached,
+                    media_type="image/jpeg" if variant == "poster" else "video/mp4",
+                    headers={"Cache-Control": "private, max-age=86400"},
+                )
+
+        candidate = _local_preview_path(asset, root=root)
         if variant == "thumbnail" and media_kind in _IMAGE_PREVIEW_MEDIA_KINDS | {"video"}:
             try:
                 candidate = ensure_image_thumbnail(
                     candidate,
                     root,
                     asset_code=asset_code,
-                    checksum=str(asset.get("checksum_sha256") or "") or None,
+                    checksum=checksum,
                 )
             except AssetPreviewError as exc:
                 raise HTTPException(
@@ -661,7 +691,7 @@ def get_asset_preview(
                     candidate,
                     root,
                     asset_code=asset_code,
-                    checksum=str(asset.get("checksum_sha256") or "") or None,
+                    checksum=checksum,
                     variant=variant,
                 )
             except AssetPreviewError as exc:

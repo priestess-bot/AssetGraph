@@ -628,6 +628,15 @@ def test_named_session_process_lock_rejects_a_second_worker_process() -> None:
     browser_cli_session_module._acquire_process_session_lock(session_name, 0.5)
 
 
+def test_worker_can_release_current_process_browser_session_locks() -> None:
+    session_name = f"assetgraph-release-lock-test-{os.getpid()}"
+    browser_cli_session_module._acquire_process_session_lock(session_name, 0.5)
+
+    BrowserUseCliSession.release_current_process_locks()
+
+    assert session_name not in browser_cli_session_module._HELD_SESSION_LOCKS
+
+
 @pytest.mark.skipif(not hasattr(os, "fork"), reason="POSIX fork semantics")
 def test_fork_child_cannot_reuse_parent_process_lock_ownership() -> None:
     session_name = f"assetgraph-fork-lock-test-{os.getpid()}"
@@ -1564,6 +1573,69 @@ def test_list_maitu_materials_rejects_malformed_inventory_record() -> None:
         session.list_maitu_materials()
 
     assert "invalid record" in str(exc_info.value)
+
+
+def test_maitu_account_identity_caches_api_token_without_returning_it() -> None:
+    session, runner = make_session(
+        [
+            "result: "
+            + json.dumps(
+                {"external_account_id": 88, "account_name": "operator", "token": "secret-token"}
+            )
+        ]
+    )
+
+    identity = session.read_maitu_account_identity()
+
+    assert identity == {"external_account_id": 88, "account_name": "operator"}
+    assert session._maitu_api_token == "secret-token"
+    assert len(runner.commands) == 1
+
+
+def test_maitu_interaction_api_uses_cached_browser_token_and_fixed_api_origin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session, runner = make_session([])
+    session._maitu_api_token = "secret-token"
+    requests = []
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self, limit: int) -> bytes:
+            assert limit == 16 * 1024 * 1024 + 1
+            return json.dumps({"success": True, "data": {"items": [], "total": 0}}).encode()
+
+    def fake_urlopen(request, *, timeout):
+        requests.append((request, timeout))
+        return FakeResponse()
+
+    monkeypatch.setattr(browser_cli_session_module.urllib.request, "urlopen", fake_urlopen)
+
+    payload = session.get_maitu_interaction_api_page(
+        "live_session/?offset=0&limit=100&status=2&live_room_platform=4"
+    )
+
+    assert payload == {"items": [], "total": 0}
+    assert len(requests) == 1
+    request, timeout = requests[0]
+    assert request.full_url.startswith("https://api.maituai.com/live_session/")
+    assert request.get_header("Authorization") == "secret-token"
+    assert timeout == 12
+    assert runner.commands == []
+
+
+def test_maitu_interaction_api_rejects_untrusted_path_before_browser_or_network() -> None:
+    session, runner = make_session([])
+
+    with pytest.raises(ValueError, match="unsupported"):
+        session.get_maitu_interaction_api_page("users/me")
+
+    assert runner.commands == []
 
 
 def test_upload_maitu_material_uses_visible_material_page_file_input_and_reads_back(monkeypatch, tmp_path) -> None:

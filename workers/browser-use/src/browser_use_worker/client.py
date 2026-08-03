@@ -78,6 +78,76 @@ class AssetGraphClient:
             payload,
         )
 
+    def claim_next_maitu_interaction_sync(self, payload: dict[str, Any]) -> dict[str, Any] | None:
+        result = self._request_json(
+            "POST",
+            "/api/maitu/interactions/sync-jobs/claim-next",
+            payload,
+        )
+        return result or None
+
+    def heartbeat_maitu_interaction_sync(
+        self,
+        run_code: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        segment = self._canonical_path_segment(run_code, field_name="run_code")
+        return self._request_json(
+            "POST",
+            f"/api/maitu/interactions/sync-jobs/{segment}/heartbeat",
+            payload,
+        )
+
+    def write_maitu_interaction_catalog(
+        self,
+        run_code: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        segment = self._canonical_path_segment(run_code, field_name="run_code")
+        return self._request_json(
+            "POST",
+            f"/api/maitu/interactions/sync-jobs/{segment}/catalog",
+            payload,
+            timeout_seconds=max(self.timeout_seconds, 120.0),
+        )
+
+    def write_maitu_interaction_batch(
+        self,
+        run_code: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        segment = self._canonical_path_segment(run_code, field_name="run_code")
+        return self._request_json(
+            "POST",
+            f"/api/maitu/interactions/sync-jobs/{segment}/interaction-batches",
+            payload,
+            timeout_seconds=max(self.timeout_seconds, 120.0),
+        )
+
+    def complete_maitu_interaction_sync(
+        self,
+        run_code: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        segment = self._canonical_path_segment(run_code, field_name="run_code")
+        return self._request_json(
+            "POST",
+            f"/api/maitu/interactions/sync-jobs/{segment}/complete",
+            payload,
+        )
+
+    def fail_maitu_interaction_sync(
+        self,
+        run_code: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        segment = self._canonical_path_segment(run_code, field_name="run_code")
+        return self._request_json(
+            "POST",
+            f"/api/maitu/interactions/sync-jobs/{segment}/fail",
+            payload,
+        )
+
     def claim_next_workbench_draft_execution(self, payload: dict[str, Any]) -> dict[str, Any] | None:
         result = self._request_json(
             "POST",

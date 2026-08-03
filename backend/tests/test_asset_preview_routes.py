@@ -173,6 +173,39 @@ def test_local_image_thumbnail_uses_a_compact_cached_rendition(
     assert response.headers["cache-control"] == "private, max-age=86400"
 
 
+def test_local_cached_thumbnail_skips_source_checksum_scan(
+    preview_client: tuple[TestClient, FakeAssetRepository, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, repository, root = preview_client
+    candidate = root / "videos" / "large.mov"
+    candidate.parent.mkdir()
+    candidate.write_bytes(b"source bytes")
+    checksum = "0" * 64
+    repository.rows["AG-IMG-20260725-000001"] = {
+        **_asset(relative_path="videos/large.mov", checksum=checksum),
+        "media_kind": "video",
+    }
+    cached = assets.cached_preview_path(
+        root,
+        asset_code="AG-IMG-20260725-000001",
+        checksum=checksum,
+        variant="thumbnail",
+    )
+    cached.parent.mkdir(parents=True)
+    cached.write_bytes(b"cached thumbnail")
+    monkeypatch.setattr(
+        assets,
+        "_local_preview_path",
+        lambda *args, **kwargs: pytest.fail("cached thumbnails must not scan the source file"),
+    )
+
+    response = client.get("/api/assets/AG-IMG-20260725-000001/preview?variant=thumbnail")
+
+    assert response.status_code == 200
+    assert response.content == b"cached thumbnail"
+
+
 def test_local_template_preview_uses_the_verified_image_thumbnail(
     preview_client: tuple[TestClient, FakeAssetRepository, Path],
     monkeypatch: pytest.MonkeyPatch,

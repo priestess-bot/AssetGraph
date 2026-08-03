@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
@@ -18,7 +19,31 @@ from app.services.material_bootstrap import (
     constraints_for,
     fingerprint,
     infer_classification,
+    probe_local_media,
 )
+
+
+def test_local_media_probe_decodes_ffprobe_json_as_utf8(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def run_ffprobe(*_args, **kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(
+            returncode=0,
+            stdout='{"format":{"filename":"背景.png"},"streams":[]}',
+            stderr="",
+        )
+
+    monkeypatch.setattr("app.services.material_bootstrap.subprocess.run", run_ffprobe)
+
+    result = probe_local_media(tmp_path / "背景.png")
+
+    assert captured["encoding"] == "utf-8"
+    assert captured["errors"] == "replace"
+    assert result["schema_version"] == "local-material-probe-v1"
 
 
 def test_deterministic_roles_keep_ambiguous_assets_for_review() -> None:

@@ -141,6 +141,8 @@ def probe_local_media(path: Path, *, timeout_seconds: float = 120.0) -> dict[str
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=timeout_seconds,
     )
     if result.returncode != 0:

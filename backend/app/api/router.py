@@ -17,6 +17,7 @@ from app.api.routes import (
     live_observations,
     lives,
     maitu,
+    maitu_interactions,
     maitu_workbench,
     policy,
     products,
@@ -50,6 +51,7 @@ api_router.include_router(scripts.router)
 api_router.include_router(video_segments.router)
 api_router.include_router(video_productions.router)
 api_router.include_router(maitu.router)
+api_router.include_router(maitu_interactions.router)
 api_router.include_router(maitu_workbench.router)
 api_router.include_router(live_observations.router)
 api_router.include_router(rag.router)

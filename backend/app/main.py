@@ -40,6 +40,7 @@ if console_dist.is_dir():
         "/content",
         "/production",
         "/operations",
+        "/interactions",
         "/learning",
     ):
         app.mount(

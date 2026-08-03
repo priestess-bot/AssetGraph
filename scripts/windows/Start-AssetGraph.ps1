@@ -2,7 +2,8 @@
 param(
     [switch]$Production,
     [switch]$NoBrowser,
-    [switch]$SkipMinio
+    [switch]$SkipMinio,
+    [switch]$SkipMaituInteractions
 )
 
 Set-StrictMode -Version Latest
@@ -89,6 +90,31 @@ function Start-TrackedProcess {
     $record | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $runRoot "$Name.json") -Encoding UTF8
 }
 
+function Test-TrackedProcess {
+    param([Parameter(Mandatory = $true)][string]$Name)
+    $recordPath = Join-Path $runRoot "$Name.json"
+    if (-not (Test-Path -LiteralPath $recordPath)) {
+        return $false
+    }
+    try {
+        $record = Get-Content -Raw -LiteralPath $recordPath -Encoding UTF8 | ConvertFrom-Json
+        $process = Get-Process -Id ([int]$record.process_id) -ErrorAction SilentlyContinue
+        if ($null -eq $process) {
+            Remove-Item -LiteralPath $recordPath -Force
+            return $false
+        }
+        $expectedStart = [DateTime]::Parse([string]$record.started_at).ToUniversalTime()
+        if ([Math]::Abs(($process.StartTime.ToUniversalTime() - $expectedStart).TotalSeconds) -gt 2) {
+            Remove-Item -LiteralPath $recordPath -Force
+            return $false
+        }
+        return $true
+    } catch {
+        Remove-Item -LiteralPath $recordPath -Force -ErrorAction SilentlyContinue
+        return $false
+    }
+}
+
 $postgresService = Get-Service -Name "postgresql*" -ErrorAction SilentlyContinue |
     Sort-Object Name -Descending |
     Select-Object -First 1
@@ -130,11 +156,11 @@ if (-not $SkipMinio) {
 }
 
 $backendHealth = "http://127.0.0.1:8000/health"
+$backendPython = Join-Path $repoRoot "backend\.venv\Scripts\python.exe"
 if (-not (Test-HttpEndpoint -Uri $backendHealth)) {
     if (Test-TcpPort -Port 8000) {
         throw "Port 8000 is occupied by a service that is not AssetGraph."
     }
-    $backendPython = Join-Path $repoRoot "backend\.venv\Scripts\python.exe"
     if (-not (Test-Path -LiteralPath $backendPython)) {
         throw "The backend environment is missing. Run Setup-AssetGraph.ps1 first."
     }
@@ -170,11 +196,37 @@ if ($Production) {
     $applicationUrl = $frontendUrl
 }
 
+if (-not $SkipMaituInteractions) {
+    & (Join-Path $PSScriptRoot "Start-MaituBrowser.ps1") -DebugPort 9223
+
+    $browserWorkerPython = Join-Path $repoRoot "workers\browser-use\.venv\Scripts\python.exe"
+    if (-not (Test-Path -LiteralPath $browserWorkerPython)) {
+        throw "The Browser-use worker environment is missing. Run Setup-AssetGraph.ps1 first."
+    }
+    if (-not (Test-TrackedProcess -Name "maitu-interaction-sync")) {
+        Start-TrackedProcess `
+            -Name "maitu-interaction-sync" `
+            -FilePath $browserWorkerPython `
+            -ArgumentList @("scripts\run_maitu_interaction_sync_worker.py") `
+            -WorkingDirectory $repoRoot
+    }
+    if (-not (Test-TrackedProcess -Name "maitu-interaction-analysis")) {
+        Start-TrackedProcess `
+            -Name "maitu-interaction-analysis" `
+            -FilePath $backendPython `
+            -ArgumentList @("scripts\run_maitu_interaction_analysis_worker.py") `
+            -WorkingDirectory $repoRoot
+    }
+}
+
 Write-Host "AssetGraph is running."
 Write-Host "  Console: $applicationUrl"
 Write-Host "  API:     http://127.0.0.1:8000/docs"
 Write-Host "  MinIO:   http://127.0.0.1:9001"
 Write-Host "  Logs:    $logRoot"
+if (-not $SkipMaituInteractions) {
+    Write-Host "  Maitu:   visible browser on http://127.0.0.1:9223"
+}
 
 if (-not $NoBrowser) {
     Start-Process $applicationUrl

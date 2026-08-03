@@ -21,6 +21,7 @@ import { OperationsProductPage } from "../operations/OperationsProductPage";
 import { LearningProductPage } from "../learning/LearningProductPage";
 import { KnowledgeProductPage } from "../knowledge/KnowledgeProductPage";
 import { TemplateLibraryProductPage } from "../live-research/TemplateLibraryProductPage";
+import { InteractionProductPage } from "../interactions/InteractionProductPage";
 import {
   WorkbenchApiError,
   hasWorkbenchAccessToken,
@@ -140,6 +141,7 @@ export function Workspace({ pathname, search, demoMode = false, consoleDataAvail
     const next = view === "attribution" ? "analysis" : view === "bindings" || view === "settings" ? view : "imports";
     return <OperationsProductPage initialView={next} />;
   }
+  if (pathname.startsWith("/interactions")) return <InteractionProductPage />;
   if (pathname.startsWith("/learning")) return <LearningProductPage />;
   if (pathname.startsWith("/production/live-rooms")) {
     return <LiveRoomEditorProductPage search={search} />;

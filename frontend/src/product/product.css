@@ -153,6 +153,17 @@ button, a { -webkit-tap-highlight-color: transparent; }
   .console-main { padding-inline: 36px; }
 }
 
+@media (max-width: 860px) {
+  body { min-width: 320px; }
+  .console-body { margin-left: 0; }
+  .console-topbar { grid-template-columns: 34px minmax(120px, .5fr) minmax(180px, 1fr) auto; gap: 12px; padding: 8px 12px; }
+}
+
+@media (max-width: 640px) {
+  .console-topbar { grid-template-columns: 34px minmax(0, 1fr) auto; gap: 8px; padding: 8px; }
+  .console-main { padding: 14px 11px 32px; }
+}
+
 .business-period { display: inline-flex; height: 36px; padding: 3px; border: 1px solid var(--product-line); border-radius: 5px; background: #edf1ef; }
 .business-period button { min-width: 70px; border: 0; border-radius: 3px; background: transparent; color: var(--product-muted); font-size: 12px; font-weight: 600; cursor: pointer; }
 .business-period button.active { background: #fff; color: var(--product-text); box-shadow: var(--product-shadow-sm); }

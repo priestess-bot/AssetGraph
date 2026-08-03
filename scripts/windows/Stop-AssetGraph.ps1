@@ -22,7 +22,7 @@ if (-not (Test-Path -LiteralPath $runRoot)) {
     return
 }
 
-foreach ($name in @("frontend", "backend", "minio")) {
+foreach ($name in @("maitu-interaction-sync", "maitu-interaction-analysis", "frontend", "backend", "minio", "maitu-browser")) {
     $recordPath = Join-Path $runRoot "$name.json"
     if (-not (Test-Path -LiteralPath $recordPath)) {
         continue

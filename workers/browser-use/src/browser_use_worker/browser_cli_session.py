@@ -9,6 +9,8 @@ import subprocess
 import tempfile
 import threading
 import time
+import urllib.error
+import urllib.request
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -198,6 +200,7 @@ class BrowserUseCliSession:
         "_session_lock_acquired",
         "_session_checked",
         "_cdp_initialized",
+        "_maitu_api_token",
         "last_probe",
     )
 
@@ -255,6 +258,7 @@ class BrowserUseCliSession:
         self._session_lock_acquired = False
         self._session_checked = False
         self._cdp_initialized = False
+        self._maitu_api_token: str | None = None
         self.last_probe: MaituPageProbe | None = None
 
     @staticmethod
@@ -300,6 +304,11 @@ class BrowserUseCliSession:
 
     def set_execution_guard(self, guard: Callable[[], bool] | None) -> None:
         self._execution_guard = guard
+
+    @staticmethod
+    def release_current_process_locks() -> None:
+        """Release named browser-session ownership after a bounded worker job."""
+        _release_process_session_locks()
 
     def ensure_ready(self, *, maitu_project_code: str | None, scene_name: str | None) -> None:
         probe = self.probe_current_page(open_if_needed=True)
@@ -457,6 +466,132 @@ class BrowserUseCliSession:
             collection_name="digital_humans",
         )
         return [*materials, *digital_humans]
+
+    def read_maitu_account_identity(self) -> dict[str, Any]:
+        script = """
+(() => {
+  if (location.origin !== 'https://live2.maituai.com') throw new Error('unexpected Maitu origin: ' + location.origin);
+  const token = (localStorage.getItem('token') || '').trim();
+  if (!token) throw new Error('missing authenticated Maitu token');
+  let user = null;
+  try { user = JSON.parse(localStorage.getItem('user_info') || 'null'); } catch (e) {}
+  if (!user || !Number.isInteger(user.id) || user.id < 1) throw new Error('missing authenticated Maitu account identity');
+  return JSON.stringify({
+    external_account_id: user.id,
+    account_name: typeof user.username === 'string' ? user.username : null,
+    token
+  });
+})()
+""".strip()
+        payload = self._eval_json(script)
+        account_id = payload.get("external_account_id")
+        if not isinstance(account_id, int) or isinstance(account_id, bool) or account_id < 1:
+            raise MaituBrowserExecutionError(
+                "Maitu account identity response is invalid.",
+                retryable=True,
+                retry_instruction="Complete login in the visible Maitu browser and retry.",
+            )
+        token = payload.get("token")
+        if isinstance(token, str) and token.strip():
+            self._maitu_api_token = token.strip()
+        account_name = payload.get("account_name")
+        return {
+            "external_account_id": account_id,
+            "account_name": str(account_name)[:255] if account_name else None,
+        }
+
+    def get_maitu_interaction_api_page(self, path: str) -> dict[str, Any]:
+        normalized = str(path or "").lstrip("/")
+        if not normalized.startswith(("live_session/", "live_room_comment/")):
+            raise ValueError("Interaction collector requested an unsupported Maitu API path")
+        if ".." in normalized or any(char in normalized for char in ("\r", "\n", "#")):
+            raise ValueError("Interaction collector requested an unsafe Maitu API path")
+        token = self._maitu_api_token or self._read_maitu_api_token()
+        payload = self._request_maitu_api_page(normalized, token=token)
+        if not isinstance(payload, dict):
+            raise MaituBrowserExecutionError(
+                "Maitu interaction API response is not an object.",
+                retryable=True,
+                retry_instruction="Reload the visible Maitu page and retry the interaction sync.",
+            )
+        return payload
+
+    def _read_maitu_api_token(self) -> str:
+        payload = self._eval_json(
+            "(() => { if (location.origin !== 'https://live2.maituai.com') "
+            "throw new Error('unexpected Maitu origin'); const token = "
+            "(localStorage.getItem('token') || '').trim(); if (!token) "
+            "throw new Error('missing authenticated Maitu token'); "
+            "return JSON.stringify({token}); })()"
+        )
+        token = payload.get("token")
+        if not isinstance(token, str) or not token.strip():
+            raise MaituBrowserExecutionError(
+                "Maitu API token response is invalid.",
+                retryable=True,
+                retry_instruction="Complete login in the visible Maitu browser and retry.",
+            )
+        self._maitu_api_token = token.strip()
+        return self._maitu_api_token
+
+    def _request_maitu_api_page(self, path: str, *, token: str) -> dict[str, Any]:
+        endpoint_name = path.split("?", 1)[0]
+        request = urllib.request.Request(
+            "https://api.maituai.com/" + path,
+            headers={
+                "Accept": "application/json",
+                "Authorization": token,
+                "Origin": "https://live2.maituai.com",
+                "Referer": "https://live2.maituai.com/",
+                "User-Agent": "AssetGraph-Maitu-Interaction-Sync/1",
+            },
+            method="GET",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=min(self.config.timeout_seconds, 60.0)) as response:
+                body = response.read(16 * 1024 * 1024 + 1)
+        except urllib.error.HTTPError as exc:
+            if exc.code in {401, 403}:
+                self._maitu_api_token = None
+            raise MaituBrowserExecutionError(
+                f"Maitu API GET {endpoint_name} failed with HTTP {exc.code}.",
+                retryable=exc.code in {401, 403, 408, 409, 425, 429} or exc.code >= 500,
+                retry_instruction="Verify the visible Maitu login and retry the interaction sync.",
+            ) from exc
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            raise MaituBrowserExecutionError(
+                f"Maitu API GET {endpoint_name} failed: {type(exc).__name__}.",
+                retryable=True,
+                retry_instruction="Verify network access to api.maituai.com and retry the interaction sync.",
+            ) from exc
+        if len(body) > 16 * 1024 * 1024:
+            raise MaituBrowserExecutionError(
+                f"Maitu API GET {endpoint_name} exceeded the 16 MiB response limit.",
+                retryable=False,
+                retry_instruction="Reduce the collector page size before retrying.",
+            )
+        try:
+            response_payload = json.loads(body.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise MaituBrowserExecutionError(
+                f"Maitu API GET {endpoint_name} returned invalid JSON.",
+                retryable=True,
+                retry_instruction="Retry after confirming the Maitu API is healthy.",
+            ) from exc
+        payload = (
+            response_payload.get("data")
+            if isinstance(response_payload, dict)
+            and response_payload.get("success") is True
+            and "data" in response_payload
+            else response_payload
+        )
+        if not isinstance(payload, dict):
+            raise MaituBrowserExecutionError(
+                f"Maitu API GET {endpoint_name} returned an unexpected object schema.",
+                retryable=True,
+                retry_instruction="Verify the Maitu API contract before retrying.",
+            )
+        return payload
 
     def upload_maitu_material(
         self,

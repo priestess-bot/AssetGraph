@@ -373,6 +373,9 @@ def test_migration_discovery_is_contiguous() -> None:
                 "functional_live_room_execution_queue.sql",
                 "content_project_creation_idempotency.sql",
                 "functional_live_room_plan_idempotency.sql",
+                "maitu_live_interactions.sql",
+                "maitu_fixed_interaction_filter.sql",
+                "maitu_fixed_interaction_analysis_cleanup.sql",
             ],
             start=1,
         )
