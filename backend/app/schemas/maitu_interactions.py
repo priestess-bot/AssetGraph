@@ -18,17 +18,15 @@ InteractionForm = Literal[
     "other",
 ]
 BusinessIntent = Literal[
-    "product_attributes",
-    "product_lookup",
-    "recommendation",
-    "price_promotion_gift",
-    "inventory_shipping",
-    "order_purchase",
-    "after_sales_invoice",
-    "live_room_operation",
-    "social_feedback",
-    "off_topic_noise",
-    "other",
+    "product_consultation",
+    "promotion",
+    "non_inquiry",
+    "order_fulfillment",
+    "after_sales",
+    "account_membership",
+    "purchase_conversion",
+    "review_complaint",
+    "small_talk",
 ]
 QualityGrade = Literal["good", "fair", "poor"]
 
@@ -149,12 +147,29 @@ class AnalysisComplete(StrictModel):
     invocation_evidence_ref: str = Field(..., min_length=1, max_length=512)
     interaction_form: InteractionForm
     business_intent: BusinessIntent
-    relevance_grade: QualityGrade
-    completeness_grade: QualityGrade
-    resolution_grade: QualityGrade
-    overall_grade: QualityGrade
+    topic_summary: str = Field(..., min_length=1, max_length=255)
+    classification_reason: str = Field(..., min_length=1, max_length=1000)
+    quality_applicable: bool
+    relevance_grade: QualityGrade | None = None
+    completeness_grade: QualityGrade | None = None
+    resolution_grade: QualityGrade | None = None
+    overall_grade: QualityGrade | None = None
     confidence: float = Field(..., ge=0, le=1)
-    reason: str = Field(..., min_length=1, max_length=1000)
+    reason: str | None = Field(default=None, min_length=1, max_length=1000)
+
+    @model_validator(mode="after")
+    def validate_quality(self) -> "AnalysisComplete":
+        grades = (
+            self.relevance_grade,
+            self.completeness_grade,
+            self.resolution_grade,
+            self.overall_grade,
+        )
+        if self.quality_applicable and (any(value is None for value in grades) or not self.reason):
+            raise ValueError("answered interactions require complete quality analysis")
+        if not self.quality_applicable and (any(value is not None for value in grades) or self.reason):
+            raise ValueError("unanswered interactions must not contain quality analysis")
+        return self
 
 
 class AnalysisFail(StrictModel):
@@ -256,12 +271,15 @@ class InteractionAnalysisRead(BaseModel):
     analyzer_version: str
     interaction_form: InteractionForm
     business_intent: BusinessIntent
-    relevance_grade: QualityGrade
-    completeness_grade: QualityGrade
-    resolution_grade: QualityGrade
-    overall_grade: QualityGrade
+    topic_summary: str
+    classification_reason: str
+    quality_applicable: bool
+    relevance_grade: QualityGrade | None = None
+    completeness_grade: QualityGrade | None = None
+    resolution_grade: QualityGrade | None = None
+    overall_grade: QualityGrade | None = None
     confidence: float
-    reason: str
+    reason: str | None = None
     created_at: datetime
 
 
@@ -286,6 +304,9 @@ class InteractionRead(BaseModel):
     bullet_replied_at: datetime | None = None
     is_answered: bool
     analysis_status: str
+    topic_status: str
+    topic_code: str | None = None
+    topic_title: str | None = None
     analysis: InteractionAnalysisRead | None = None
 
 
@@ -307,6 +328,51 @@ class AnalysisSummaryRead(BaseModel):
     forms: dict[str, int] = Field(default_factory=dict)
     intents: dict[str, int] = Field(default_factory=dict)
     grades: dict[str, int] = Field(default_factory=dict)
+
+
+class IntentBreakdown(BaseModel):
+    business_intent: BusinessIntent
+    label: str
+    total: int
+    answered: int
+    unanswered: int
+    answer_rate: float
+    good: int
+    fair: int
+    poor: int
+
+
+class AnalysisDashboardRead(BaseModel):
+    analyzer_version: str
+    analysis_configured: bool
+    total: int
+    classified: int
+    classification_pending: int
+    topic_pending: int
+    answered: int
+    unanswered: int
+    quality_evaluated: int
+    intents: list[IntentBreakdown]
+
+
+class InteractionTopicRead(BaseModel):
+    topic_code: str
+    title: str
+    business_intent: BusinessIntent
+    total: int
+    answered: int
+    unanswered: int
+    answer_rate: float
+    good: int
+    fair: int
+    poor: int
+
+
+class InteractionTopicPage(BaseModel):
+    items: list[InteractionTopicRead]
+    total: int
+    limit: int
+    offset: int
 
 
 class SyncCatalogResult(BaseModel):

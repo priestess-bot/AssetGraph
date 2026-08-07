@@ -46,6 +46,47 @@ def verifier_for(monkeypatch, responses: dict[str, Any]) -> MaituAuthorityVerifi
     return MaituAuthorityVerifier(client=client)
 
 
+def test_read_room_host_configuration_returns_safe_ready_host_metadata(monkeypatch) -> None:
+    verifier = verifier_for(
+        monkeypatch,
+        {
+            "/live_rooms/47000002?env=working&include_qa_clips=true": {
+                "id": 47000002,
+                "name": "Working room",
+                "environment": "working",
+                "is_live": False,
+                "topics": [
+                    {
+                        "clips": [
+                            {
+                                "id": 1,
+                                "name": "Scene A",
+                                "clip_materials": [
+                                    {
+                                        "id": 10,
+                                        "material_id": 20,
+                                        "type": "digital_human",
+                                        "speaker_id": 30,
+                                        "digital_human_image_id": 40,
+                                    }
+                                ],
+                            }
+                        ]
+                    }
+                ],
+            }
+        },
+    )
+
+    result = verifier.read_room_host_configuration("47000002")
+
+    assert result["status"] == "ready"
+    assert result["has_ready_host"] is True
+    assert result["digital_human"] == {"name": "40", "material_id": "20"}
+    assert result["voice"] == {"name": "30"}
+    assert len(result["fingerprint_sha256"]) == 64
+
+
 def test_reconciliation_attests_confirmed_not_applied_when_effect_is_absent(monkeypatch) -> None:
     verifier = verifier_for(
         monkeypatch,

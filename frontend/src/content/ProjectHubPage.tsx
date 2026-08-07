@@ -31,6 +31,7 @@ import { knowledgeApi } from "../knowledge/api";
 import { EmptyBlock, InlineNotice, LoadingBlock, StatusBadge, formatDate } from "../workbench/components";
 import { productCopy, productLabel, productTitle } from "../workbench/productLanguage";
 import { contentProjectsApi, type ContentProjectDetail, type ContentProjectSummary } from "./api";
+import { GuidedProjectCreateDialog, GuidedProjectWorkspace } from "./GuidedProjectWorkspace";
 
 const projectSchema = z.object({
   title: z.string().trim().min(1, "请填写直播间标题").max(255),
@@ -68,7 +69,7 @@ function SelectionRow({ checked, primary, title, detail, onChange }: { checked: 
   </button>;
 }
 
-function ProjectCreateDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function ProjectCreateDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const queryClient = useQueryClient();
   const [step, setStep] = useState(0);
   const [primaryTemplate, setPrimaryTemplate] = useState("");
@@ -188,7 +189,9 @@ function ProjectWorkspace({ projectCode, tab }: { projectCode: string; tab: stri
   const project = useQuery({ queryKey: ["content-project", projectCode], queryFn: () => contentProjectsApi.get(projectCode) });
   const summary = useQuery({ queryKey: ["content-project", projectCode, "workspace-summary"], queryFn: () => contentProjectsApi.workspaceSummary(projectCode) });
   const refresh = () => { void queryClient.invalidateQueries({ queryKey: ["content-project", projectCode] }); };
-  if (project.isLoading || summary.isLoading) return <LoadingBlock label="正在打开项目工作区" />;
+  if (project.isLoading) return <LoadingBlock label="正在打开项目工作区" />;
+  if (project.data?.content.workflow_version === "guided-live.v1") return <GuidedProjectWorkspace projectCode={projectCode} tab={tab} />;
+  if (summary.isLoading) return <LoadingBlock label="正在打开项目工作区" />;
   if (!project.data || !summary.data) return <EmptyBlock title="项目无法打开" detail="该项目不存在或暂时无法读取。" />;
   const activeTab = PROJECT_TABS.some((item) => item.value === tab) ? tab : "brief";
   const outputByTab = { brief: summary.data.brief, script: summary.data.script, "live-room": summary.data.liveRoom, video: summary.data.video, delivery: summary.data.delivery, activity: summary.data.operations };
@@ -204,5 +207,5 @@ export function ProjectHubPage({ search }: { search: string }) {
   const tab = params.get("tab") ?? (params.get("view") === "activity" ? "activity" : params.get("view") === "delivery" ? "delivery" : "brief");
   const [createOpen, setCreateOpen] = useState(params.get("create") === "1");
   const projects = useQuery({ queryKey: ["content-projects"], queryFn: contentProjectsApi.list, enabled: !selected });
-  return <><ProjectCreateDialog open={createOpen} onClose={() => { setCreateOpen(false); replaceProjectQuery({ create: undefined }); }} />{selected ? <ProjectWorkspace projectCode={selected} tab={tab} /> : projects.isLoading ? <LoadingBlock label="正在读取内容项目" /> : projects.error ? <EmptyBlock title="项目列表暂时无法读取" detail="请检查服务连接后刷新页面。" /> : <ProjectList projects={projects.data ?? []} onCreate={() => setCreateOpen(true)} />}</>;
+  return <><GuidedProjectCreateDialog open={createOpen} onClose={() => { setCreateOpen(false); replaceProjectQuery({ create: undefined }); }} />{selected ? <ProjectWorkspace projectCode={selected} tab={tab} /> : projects.isLoading ? <LoadingBlock label="正在读取内容项目" /> : projects.error ? <EmptyBlock title="项目列表暂时无法读取" detail="请检查服务连接后刷新页面。" /> : <ProjectList projects={projects.data ?? []} onCreate={() => setCreateOpen(true)} />}</>;
 }

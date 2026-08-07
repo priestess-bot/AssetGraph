@@ -36,11 +36,16 @@ PostgreSQL 且 `postgres` 密码不同，请显式传入：
 powershell -ExecutionPolicy Bypass -File .\scripts\windows\Start-AssetGraph.ps1
 ```
 
-该命令在后台启动 MinIO、支持热重载的 FastAPI 和 Vite，并使用默认浏览器打开：
+日常启动会先应用尚未执行的数据库 migration、补齐 DeepSeek 处理器策略，并确认直播内容生成 Worker 没有在启动阶段退出。因此拉取新代码后可直接运行该命令，不必重复执行完整初始化。
+
+该命令在后台启动 MinIO、支持热重载的 FastAPI、Vite 和直播内容生成 Worker，并使用默认浏览器打开：
 
 - 工作台：`http://127.0.0.1:5173/console/`
 - 后端 API：`http://127.0.0.1:8000/docs`
 - MinIO 控制台：`http://127.0.0.1:9001`
+
+直播内容生成 Worker 消费“直播大纲 / 直播脚本 / 麦兔分镜”持久化任务。只启动页面、不消费生成任务时可增加
+`-SkipContentGeneration`。Worker 日志位于 `.run/windows/logs/guided-content-generation.*.log`。
 
 进程记录和日志位于 `.run/windows/`。停止本次启动的进程：
 

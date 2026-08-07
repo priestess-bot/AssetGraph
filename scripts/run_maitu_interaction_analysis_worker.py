@@ -74,6 +74,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--poll-seconds", type=float, default=5.0)
     parser.add_argument("--lease-seconds", type=int, default=600)
     parser.add_argument("--heartbeat-seconds", type=float, default=30.0)
+    parser.add_argument("--topic-batch-size", type=int, default=50)
     parser.add_argument(
         "--worker-id",
         default=f"interaction-analysis-{socket.gethostname()}-{os.getpid()}",
@@ -92,6 +93,19 @@ def _renew(job: dict[str, Any], worker_id: str, lease_seconds: int) -> bool:
         )
 
 
+def _renew_topic_batch(
+    batch: dict[str, Any],
+    worker_id: str,
+    lease_seconds: int,
+) -> bool:
+    with connect(settings.postgres_dsn, connect_timeout=5) as connection:
+        return MaituInteractionsRepository(connection).heartbeat_topic_batch(
+            worker_id,
+            str(batch["lease_token"]),
+            lease_seconds,
+        )
+
+
 def main(argv: list[str] | None = None) -> int:
     load_dotenv(REPO_ROOT / ".env", override=False)
     args = build_parser().parse_args(argv)
@@ -101,6 +115,8 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("--lease-seconds must be between 30 and 3600")
     if args.heartbeat_seconds <= 0 or args.heartbeat_seconds > args.lease_seconds / 3:
         raise SystemExit("--heartbeat-seconds must be positive and no more than one third of the lease")
+    if not 1 <= args.topic_batch_size <= 50:
+        raise SystemExit("--topic-batch-size must be between 1 and 50")
     logging.basicConfig(
         level=getattr(logging, args.log_level.upper()),
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
@@ -124,6 +140,7 @@ def main(argv: list[str] | None = None) -> int:
                 analyzer_version,
                 INTERACTION_ANALYSIS_STRATEGY_REVISION,
             )
+            repository.synchronize_topic_jobs(analyzer_version)
             if analyzer is None:
                 if not warned_unconfigured:
                     LOGGER.warning(
@@ -139,42 +156,101 @@ def main(argv: list[str] | None = None) -> int:
                 args.worker_id,
                 args.lease_seconds,
             )
-            if job is None:
+            if job is not None:
+                try:
+                    interaction = job["interaction"]
+                    with AnalysisLeaseHeartbeat(
+                        lambda: _renew(job, args.worker_id, args.lease_seconds),
+                        args.heartbeat_seconds,
+                    ) as heartbeat:
+                        result = analyzer.analyze(
+                            content=str(interaction.get("content") or ""),
+                            digital_reply_content=interaction.get("digital_reply_content"),
+                        )
+                        heartbeat.ensure_active()
+                        repository.complete_analysis_job(
+                            str(job["analysis_code"]),
+                            args.worker_id,
+                            str(job["lease_token"]),
+                            result,
+                        )
+                    LOGGER.info("completed interaction analysis code=%s", job["analysis_code"])
+                except Exception as exc:
+                    connection.rollback()
+                    try:
+                        repository.fail_analysis_job(
+                            str(job["analysis_code"]),
+                            args.worker_id,
+                            str(job["lease_token"]),
+                            error_code="INTERACTION_ANALYSIS_FAILED",
+                            error_message=f"{type(exc).__name__}: {exc}"[:4000],
+                        )
+                    except MaituInteractionLeaseError:
+                        LOGGER.warning("analysis failure write-back was fenced code=%s", job["analysis_code"])
+                    LOGGER.exception("interaction analysis failed code=%s", job["analysis_code"])
+                if args.once:
+                    return 0
+                continue
+
+            topic_batch = repository.claim_topic_batch(
+                analyzer_version,
+                args.worker_id,
+                args.lease_seconds,
+                batch_size=args.topic_batch_size,
+            )
+            if topic_batch is None:
                 if args.once:
                     return 0
                 time.sleep(args.poll_seconds)
                 continue
             try:
-                interaction = job["interaction"]
+                business_intent = str(topic_batch["business_intent"])
+                known_topics = repository.list_topic_catalog(analyzer_version, business_intent)
+                items = [
+                    {
+                        "item_key": str(item["analysis_result_id"]),
+                        "content": str(item.get("content") or ""),
+                        "topic_summary": str(item.get("topic_summary") or ""),
+                    }
+                    for item in topic_batch["jobs"]
+                ]
                 with AnalysisLeaseHeartbeat(
-                    lambda: _renew(job, args.worker_id, args.lease_seconds),
+                    lambda: _renew_topic_batch(topic_batch, args.worker_id, args.lease_seconds),
                     args.heartbeat_seconds,
                 ) as heartbeat:
-                    result = analyzer.analyze(
-                        content=str(interaction.get("content") or ""),
-                        digital_reply_content=interaction.get("digital_reply_content"),
+                    topic_result = analyzer.assign_topics(
+                        business_intent=business_intent,
+                        items=items,
+                        known_topics=known_topics,
                     )
                     heartbeat.ensure_active()
-                    repository.complete_analysis_job(
-                        str(job["analysis_code"]),
+                    completed = repository.complete_topic_batch(
                         args.worker_id,
-                        str(job["lease_token"]),
-                        result,
+                        str(topic_batch["lease_token"]),
+                        business_intent=business_intent,
+                        assignments=topic_result["assignments"],
+                        invocation_evidence_ref=topic_result["invocation_evidence_ref"],
                     )
-                LOGGER.info("completed interaction analysis code=%s", job["analysis_code"])
+                LOGGER.info(
+                    "completed interaction topic batch intent=%s items=%s",
+                    business_intent,
+                    completed,
+                )
             except Exception as exc:
                 connection.rollback()
                 try:
-                    repository.fail_analysis_job(
-                        str(job["analysis_code"]),
+                    repository.fail_topic_batch(
                         args.worker_id,
-                        str(job["lease_token"]),
-                        error_code="INTERACTION_ANALYSIS_FAILED",
+                        str(topic_batch["lease_token"]),
+                        error_code="INTERACTION_TOPIC_ASSIGNMENT_FAILED",
                         error_message=f"{type(exc).__name__}: {exc}"[:4000],
                     )
                 except MaituInteractionLeaseError:
-                    LOGGER.warning("analysis failure write-back was fenced code=%s", job["analysis_code"])
-                LOGGER.exception("interaction analysis failed code=%s", job["analysis_code"])
+                    LOGGER.warning("topic batch failure write-back was fenced")
+                LOGGER.exception(
+                    "interaction topic assignment failed intent=%s",
+                    topic_batch.get("business_intent"),
+                )
             if args.once:
                 return 0
     return 0

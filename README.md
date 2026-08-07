@@ -48,7 +48,7 @@ AssetGraph 是一个面向麦兔软件与数字人直播业务的多模态视频
 - 麦兔 BuildPlan 剧本上下文自动选材：`strategy=script_context_best_match` / `auto_select_assets=true` 会按 `script_blocks`、图层角色、`required_category`、`accepted_asset_types` 从素材库选 Top-1，写入 `selected_asset_code`、Browser-use 友好编号、本地文件码、匹配分和原因；模板预览 `MT-TPL-*` 只作为风格/结构索引，不能作为背景/装饰等直接图层素材；仍只进入 dry-run/预检，不真实上传替换
 - 直播剧本生成 Stage 0：`POST /api/maitu/livestream-script-drafts` 从结构化、已核验的商品事实生成24小时循环纯口播、结构化段落与质量报告；不推断直播间商品总数，不使用未核验促销，不为目标时长重复内容
 - 剧本驱动完整自动化：`POST /api/maitu/script-driven-build-pipelines` 一次运行剧本生成/质量门禁 → 场景计划 → 素材需求 → 真实素材选择 → 缺口报告 → 布局 → BuildPlan；质量未过时保留审阅产物但强制 `can_execute=false`，始终不授权正式开播
-- 直播内容项目工作台：`/console/projects` 固定已批准事实版本和资源快照，组织简报、剧本、直播间、成片、交付与项目动态；参考房间只读，永不排播或开播
+- 直播内容项目工作台：`/console/projects` 的新项目采用“主题与素材 -> 直播大纲 -> 直播脚本 -> 麦兔分镜 -> 成片 -> 交付 -> 动态”固定流程；大纲、脚本和分镜逐级人工确认，旧项目继续使用原工作区
 - 素材多模型分析：视频分析结果绑定 `asset_code` 与内容指纹，支持 OpenAI 视觉结果、Gemini 人工 JSON、冲突检测和人工裁决；当前计划选用素材的未裁决关键冲突会阻断 preflight
 - 直播模板工作台：`/console/templates` 承接固定版本 StreamCap/douyinLive 的录屏、解析、清洗和人工模板发布；采集仍维持单路 720p、600 秒 TS 分片和原始互动事件契约
 - 麦兔模板场景组件索引：导入 LiveRoomBlueprint 时同步物化 `TemplateScene / TemplateComponent` 索引，提供 `/api/maitu/live-room-template-scenes`、`/api/maitu/live-room-template-scenes/{scene_template_code}/components`，并让 `scene-components/by-script` 走正式组件索引返回单场景组件详情，不再依赖临时解析大 JSON

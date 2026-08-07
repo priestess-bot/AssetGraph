@@ -3,7 +3,8 @@ param(
     [switch]$Production,
     [switch]$NoBrowser,
     [switch]$SkipMinio,
-    [switch]$SkipMaituInteractions
+    [switch]$SkipMaituInteractions,
+    [switch]$SkipContentGeneration
 )
 
 Set-StrictMode -Version Latest
@@ -126,6 +127,21 @@ if ($postgresService.Status -ne "Running") {
     $postgresService.WaitForStatus("Running", [TimeSpan]::FromSeconds(30))
 }
 
+$backendPython = Join-Path $repoRoot "backend\.venv\Scripts\python.exe"
+if (-not (Test-Path -LiteralPath $backendPython)) {
+    throw "The backend environment is missing. Run Setup-AssetGraph.ps1 first."
+}
+& $backendPython (Join-Path $repoRoot "scripts\apply_migrations.py")
+if ($LASTEXITCODE -ne 0) {
+    throw "Database migrations failed. Start was stopped before launching AssetGraph."
+}
+if (-not $SkipContentGeneration -or -not $SkipMaituInteractions) {
+    & $backendPython (Join-Path $repoRoot "scripts\register_maitu_interaction_processor.py")
+    if ($LASTEXITCODE -ne 0) {
+        throw "DeepSeek processor policy registration failed."
+    }
+}
+
 $env:NO_PROXY = "127.0.0.1,localhost,$env:NO_PROXY".TrimEnd(",")
 $env:no_proxy = $env:NO_PROXY
 
@@ -156,13 +172,9 @@ if (-not $SkipMinio) {
 }
 
 $backendHealth = "http://127.0.0.1:8000/health"
-$backendPython = Join-Path $repoRoot "backend\.venv\Scripts\python.exe"
 if (-not (Test-HttpEndpoint -Uri $backendHealth)) {
     if (Test-TcpPort -Port 8000) {
         throw "Port 8000 is occupied by a service that is not AssetGraph."
-    }
-    if (-not (Test-Path -LiteralPath $backendPython)) {
-        throw "The backend environment is missing. Run Setup-AssetGraph.ps1 first."
     }
     $backendArguments = @("-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8000")
     if (-not $Production) {
@@ -196,6 +208,18 @@ if ($Production) {
     $applicationUrl = $frontendUrl
 }
 
+if (-not $SkipContentGeneration -and -not (Test-TrackedProcess -Name "guided-content-generation")) {
+    Start-TrackedProcess `
+        -Name "guided-content-generation" `
+        -FilePath $backendPython `
+        -ArgumentList @("scripts\run_guided_content_generation_worker.py") `
+        -WorkingDirectory $repoRoot
+    Start-Sleep -Seconds 1
+    if (-not (Test-TrackedProcess -Name "guided-content-generation")) {
+        throw "Guided content generation worker exited during startup. Check $logRoot\guided-content-generation.stderr.log."
+    }
+}
+
 if (-not $SkipMaituInteractions) {
     & (Join-Path $PSScriptRoot "Start-MaituBrowser.ps1") -DebugPort 9223
 
@@ -224,6 +248,9 @@ Write-Host "  Console: $applicationUrl"
 Write-Host "  API:     http://127.0.0.1:8000/docs"
 Write-Host "  MinIO:   http://127.0.0.1:9001"
 Write-Host "  Logs:    $logRoot"
+if (-not $SkipContentGeneration) {
+    Write-Host "  Content: guided generation worker"
+}
 if (-not $SkipMaituInteractions) {
     Write-Host "  Maitu:   visible browser on http://127.0.0.1:9223"
 }

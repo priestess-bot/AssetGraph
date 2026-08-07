@@ -68,6 +68,12 @@ class OpenAICompatibleStructuredAdapter:
                 "MODEL_ADAPTER_INPUT_INVALID",
                 "Structured generation requires non-empty messages",
             )
+        thinking = inputs.get("thinking")
+        if thinking is not None and not isinstance(thinking, bool):
+            raise DomainValidationError(
+                "MODEL_ADAPTER_INPUT_INVALID",
+                "Structured generation thinking control must be boolean",
+            )
         invocation = self.client.generate_json(
             provider=self.provider_code,
             model=model,
@@ -78,6 +84,7 @@ class OpenAICompatibleStructuredAdapter:
                 if inputs.get("max_tokens") is not None
                 else None
             ),
+            thinking=thinking,
         )
         return ProviderInvocationOutput(
             content=invocation.content,

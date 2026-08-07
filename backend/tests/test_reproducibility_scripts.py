@@ -27,6 +27,39 @@ def test_repository_verifier_accepts_committed_core_contract() -> None:
     assert verifier.validate_repository(REPO_ROOT) == []
 
 
+def test_deepseek_registration_preserves_legacy_model_inference_purpose() -> None:
+    registration = load_script(
+        "scripts/register_maitu_interaction_processor.py",
+        "assetgraph_register_deepseek_processor",
+    )
+    minimum_fields = {
+        registration.INTERACTION_PROCESSING_PURPOSE: {
+            "allowed": sorted(registration.INTERACTION_PROCESSOR_FIELDS)
+        },
+        registration.CONTENT_GENERATION_PURPOSE: {
+            "allowed": sorted(registration.CONTENT_GENERATION_PROCESSOR_FIELDS)
+        },
+        registration.MODEL_INFERENCE_PURPOSE: {
+            "allowed": sorted(registration.MODEL_INFERENCE_FIELDS)
+        },
+    }
+    processor = {
+        "status": "active",
+        "region": "cn",
+        "purposes": list(minimum_fields),
+        "data_classes": ["confidential"],
+        "minimum_fields": minimum_fields,
+    }
+
+    assert registration._matches_policy(processor, "cn") is True
+    processor["purposes"] = [
+        purpose
+        for purpose in processor["purposes"]
+        if purpose != registration.MODEL_INFERENCE_PURPOSE
+    ]
+    assert registration._matches_policy(processor, "cn") is False
+
+
 def test_bootstrap_generates_distinct_phase_d_secrets(tmp_path: Path) -> None:
     bootstrap = load_script("scripts/bootstrap_reproducible.py", "assetgraph_bootstrap_reproducible")
     (tmp_path / ".env.example").write_text(
@@ -374,9 +407,11 @@ def test_migration_discovery_is_contiguous() -> None:
                 "content_project_creation_idempotency.sql",
                 "functional_live_room_plan_idempotency.sql",
                 "maitu_live_interactions.sql",
-                "maitu_fixed_interaction_filter.sql",
-                "maitu_fixed_interaction_analysis_cleanup.sql",
-            ],
+                    "maitu_fixed_interaction_filter.sql",
+                    "maitu_fixed_interaction_analysis_cleanup.sql",
+                    "maitu_interaction_analysis_v2.sql",
+                    "guided_live_project_workflow.sql",
+                ],
             start=1,
         )
     ]

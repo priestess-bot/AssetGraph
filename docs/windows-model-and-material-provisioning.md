@@ -300,7 +300,7 @@ python scripts\asset_corpus_bundle.py create `
 
 ```dotenv
 DEEPSEEK_API_KEY=
-DEEPSEEK_PROCESSING_REGION=
+DEEPSEEK_PROCESSING_REGION=cn
 OPENAI_API_KEY=
 OPENAI_PROCESSING_REGION=
 ```
@@ -309,6 +309,17 @@ OPENAI_PROCESSING_REGION=
 新数据库除了 API key 还需要已批准的外部处理方、处理区域、保留条款、secret-reference 凭据和
 可写 evidence 存储；缺少任一项时在线生成和素材多模态分析会保持不可用，这是预期的 fail-closed
 状态，不代表本地模型下载失败。
+
+用户互动的意图、语义问题组和数字人回复质量分析还需要登记最小字段处理授权。密钥和地区配置完成后，
+在仓库根目录执行：
+
+```powershell
+backend\.venv\Scripts\python.exe scripts\register_maitu_interaction_processor.py `
+  --approved-by workspace-owner --region cn
+backend\.venv\Scripts\python.exe scripts\run_maitu_interaction_analysis_worker.py
+```
+
+注册命令不读取或保存密钥内容；发送给分析模型的字段不包含用户名、用户 ID 或麦兔原始载荷。
 
 ## 9. Windows 端回传证据
 

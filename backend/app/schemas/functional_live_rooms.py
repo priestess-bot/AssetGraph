@@ -346,6 +346,10 @@ class FunctionalLiveRoomPlanRead(BaseModel):
     clone_context: dict[str, Any] = Field(default_factory=dict)
     revised_from_plan_code: str | None = None
     revision_context: dict[str, Any] = Field(default_factory=dict)
+    review_status: str = "confirmed"
+    confirmed_by: str | None = None
+    confirmed_at: datetime | None = None
+    superseded_at: datetime | None = None
     release_code: str | None = None
     release_snapshot_artifact_code: str | None = None
     release_manifest_fingerprint: str | None = None

@@ -68,12 +68,15 @@ export interface InteractionAnalysis {
   analyzerVersion: string;
   interactionForm: string;
   businessIntent: string;
-  relevanceGrade: string;
-  completenessGrade: string;
-  resolutionGrade: string;
-  overallGrade: string;
+  topicSummary: string;
+  classificationReason: string;
+  qualityApplicable: boolean;
+  relevanceGrade?: string;
+  completenessGrade?: string;
+  resolutionGrade?: string;
+  overallGrade?: string;
   confidence: number;
-  reason: string;
+  reason?: string;
   createdAt: string;
 }
 
@@ -98,6 +101,9 @@ export interface LiveInteraction {
   bulletRepliedAt?: string;
   answered: boolean;
   analysisStatus: string;
+  topicStatus: string;
+  topicCode?: string;
+  topicTitle?: string;
   analysis?: InteractionAnalysis;
 }
 
@@ -127,6 +133,44 @@ export interface AnalysisSummary {
   forms: Record<string, number>;
   intents: Record<string, number>;
   grades: Record<string, number>;
+}
+
+export interface IntentBreakdown {
+  businessIntent: string;
+  label: string;
+  total: number;
+  answered: number;
+  unanswered: number;
+  answerRate: number;
+  good: number;
+  fair: number;
+  poor: number;
+}
+
+export interface AnalysisDashboard {
+  analyzerVersion: string;
+  analysisConfigured: boolean;
+  total: number;
+  classified: number;
+  classificationPending: number;
+  topicPending: number;
+  answered: number;
+  unanswered: number;
+  qualityEvaluated: number;
+  intents: IntentBreakdown[];
+}
+
+export interface InteractionTopic {
+  topicCode: string;
+  title: string;
+  businessIntent: string;
+  total: number;
+  answered: number;
+  unanswered: number;
+  answerRate: number;
+  good: number;
+  fair: number;
+  poor: number;
 }
 
 export interface Page<T> {
@@ -216,12 +260,15 @@ function analysis(value: unknown): InteractionAnalysis | undefined {
     analyzerVersion: asString(value.analyzer_version),
     interactionForm: asString(value.interaction_form),
     businessIntent: asString(value.business_intent),
-    relevanceGrade: asString(value.relevance_grade),
-    completenessGrade: asString(value.completeness_grade),
-    resolutionGrade: asString(value.resolution_grade),
-    overallGrade: asString(value.overall_grade),
+    topicSummary: asString(value.topic_summary),
+    classificationReason: asString(value.classification_reason),
+    qualityApplicable: asBoolean(value.quality_applicable),
+    relevanceGrade: asOptionalString(value.relevance_grade),
+    completenessGrade: asOptionalString(value.completeness_grade),
+    resolutionGrade: asOptionalString(value.resolution_grade),
+    overallGrade: asOptionalString(value.overall_grade),
     confidence: asNumber(value.confidence),
-    reason: asString(value.reason),
+    reason: asOptionalString(value.reason),
     createdAt: asString(value.created_at),
   };
 }
@@ -250,7 +297,41 @@ function interaction(value: unknown): LiveInteraction {
     bulletRepliedAt: asOptionalString(value.bullet_replied_at),
     answered: asBoolean(value.is_answered),
     analysisStatus: asString(value.analysis_status, "pending"),
+    topicStatus: asString(value.topic_status, "pending"),
+    topicCode: asOptionalString(value.topic_code),
+    topicTitle: asOptionalString(value.topic_title),
     analysis: analysis(value.analysis),
+  };
+}
+
+function intentBreakdown(value: unknown): IntentBreakdown {
+  if (!isRecord(value)) throw new Error("意图统计响应无效");
+  return {
+    businessIntent: asString(value.business_intent),
+    label: asString(value.label),
+    total: asNumber(value.total),
+    answered: asNumber(value.answered),
+    unanswered: asNumber(value.unanswered),
+    answerRate: asNumber(value.answer_rate),
+    good: asNumber(value.good),
+    fair: asNumber(value.fair),
+    poor: asNumber(value.poor),
+  };
+}
+
+function interactionTopic(value: unknown): InteractionTopic {
+  if (!isRecord(value)) throw new Error("问题组响应无效");
+  return {
+    topicCode: asString(value.topic_code),
+    title: asString(value.title),
+    businessIntent: asString(value.business_intent),
+    total: asNumber(value.total),
+    answered: asNumber(value.answered),
+    unanswered: asNumber(value.unanswered),
+    answerRate: asNumber(value.answer_rate),
+    good: asNumber(value.good),
+    fair: asNumber(value.fair),
+    poor: asNumber(value.poor),
   };
 }
 
@@ -331,6 +412,43 @@ export const interactionsApi = {
         grades: numberMap(value.grades),
       } satisfies AnalysisSummary;
     }),
+  analysisDashboard: (params: { platformId?: number; externalSessionId?: number } = {}) =>
+    requestJson<unknown>(
+      `${ROOT}/analysis/dashboard${queryString({
+        platform_id: params.platformId,
+        external_session_id: params.externalSessionId,
+      })}`,
+    ).then((value) => {
+      if (!isRecord(value)) throw new Error("互动分析仪表盘响应无效");
+      return {
+        analyzerVersion: asString(value.analyzer_version),
+        analysisConfigured: asBoolean(value.analysis_configured),
+        total: asNumber(value.total),
+        classified: asNumber(value.classified),
+        classificationPending: asNumber(value.classification_pending),
+        topicPending: asNumber(value.topic_pending),
+        answered: asNumber(value.answered),
+        unanswered: asNumber(value.unanswered),
+        qualityEvaluated: asNumber(value.quality_evaluated),
+        intents: asArray(value.intents).map(intentBreakdown),
+      } satisfies AnalysisDashboard;
+    }),
+  analysisTopics: (params: {
+    businessIntent?: string;
+    platformId?: number;
+    externalSessionId?: number;
+    limit?: number;
+    offset?: number;
+  } = {}) =>
+    requestJson<unknown>(
+      `${ROOT}/analysis/topics${queryString({
+        business_intent: params.businessIntent,
+        platform_id: params.platformId,
+        external_session_id: params.externalSessionId,
+        limit: params.limit ?? 50,
+        offset: params.offset ?? 0,
+      })}`,
+    ).then((value) => page(value, interactionTopic)),
   analysisItems: (params: {
     platformId?: number;
     externalSessionId?: number;
@@ -338,6 +456,7 @@ export const interactionsApi = {
     interactionForm?: string;
     businessIntent?: string;
     overallGrade?: string;
+    topicCode?: string;
     search?: string;
     limit?: number;
     offset?: number;
@@ -350,6 +469,7 @@ export const interactionsApi = {
         interaction_form: params.interactionForm,
         business_intent: params.businessIntent,
         overall_grade: params.overallGrade,
+        topic_code: params.topicCode,
         search: params.search,
         limit: params.limit ?? 50,
         offset: params.offset ?? 0,

@@ -5,6 +5,7 @@ import hmac
 import json
 import math
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import parse_qsl, urlsplit
 from uuid import uuid4
@@ -262,6 +263,52 @@ class MaituAuthorityVerifier:
         if room.get("is_live") is not False and (isinstance(status_value, bool) or status_value != 0):
             raise MaituAuthorityError("authoritative Maitu target is not positively confirmed non-live")
         return room
+
+    def read_room_host_configuration(self, live_room_id: str) -> dict[str, Any]:
+        """Return only safe, read-only host metadata for a Maitu working room."""
+        room = self._read_working_room(str(live_room_id).strip())
+        hosts: list[dict[str, Any]] = []
+        for clip in self._clips(room):
+            for material in self._materials(clip):
+                if material.get("type") != "digital_human":
+                    continue
+                speaker_id = material.get("speaker_id")
+                image_id = material.get("digital_human_image_id")
+                hosts.append(
+                    {
+                        "clip_id": str(clip.get("id") or ""),
+                        "clip_name": str(clip.get("name") or ""),
+                        "material_id": str(material.get("material_id") or material.get("id") or ""),
+                        "speaker_id": str(speaker_id) if speaker_id is not None else None,
+                        "digital_human_image_id": str(image_id) if image_id is not None else None,
+                        "ready": speaker_id is not None and image_id is not None,
+                    }
+                )
+        payload = {
+            "live_room_id": str(room.get("id") or live_room_id),
+            "room_title": str(room.get("name") or room.get("title") or ""),
+            "environment": str(room.get("environment") or room.get("env") or "working"),
+            "hosts": hosts,
+        }
+        ready_hosts = [host for host in hosts if host["ready"]]
+        status = "ready" if len(ready_hosts) == 1 else "ambiguous" if len(ready_hosts) > 1 else "unconfigured"
+        selected = ready_hosts[0] if len(ready_hosts) == 1 else {}
+        return {
+            **payload,
+            "status": status,
+            "ready": status == "ready",
+            "has_ready_host": status == "ready",
+            "digital_human": {
+                "name": selected.get("digital_human_image_id"),
+                "material_id": selected.get("material_id"),
+            }
+            if selected
+            else None,
+            "voice": {"name": selected.get("speaker_id")} if selected else None,
+            "scene_name": selected.get("clip_name") if selected else None,
+            "checked_at": datetime.now(UTC).isoformat(),
+            "fingerprint_sha256": hashlib.sha256(self._canonical(payload)).hexdigest(),
+        }
 
     def attest_fresh_blank_room(
         self,

@@ -113,6 +113,7 @@ class OpenAICompatibleChatClient(_RetryingJSONClient):
         messages: list[dict[str, Any]],
         temperature: float = 0.2,
         max_tokens: int | None = None,
+        thinking: bool | None = None,
     ) -> ModelInvocation:
         payload: dict[str, Any] = {
             "model": model,
@@ -122,6 +123,8 @@ class OpenAICompatibleChatClient(_RetryingJSONClient):
         }
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
+        if thinking is not None:
+            payload["thinking"] = {"type": "enabled" if thinking else "disabled"}
         data, latency_ms = self._post_json("/chat/completions", payload)
         choices = data.get("choices")
         content = None

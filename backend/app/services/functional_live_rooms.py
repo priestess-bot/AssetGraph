@@ -93,6 +93,14 @@ class FunctionalLiveRoomService:
         detail = self.content.get_detail(payload["project_code"])
         if detail is None:
             raise KeyError(payload["project_code"])
+        if (
+            (detail.get("content") or {}).get("workflow_version") == "guided-live.v1"
+            and payload.get("_guided_workflow_authorized") is not True
+        ):
+            raise DomainValidationError(
+                "GUIDED_LIVE_ROOM_WORKFLOW_REQUIRED",
+                "Guided live-room plans can only be created through the guided storyboard workflow",
+            )
         if not detail["generated"]:
             raise DomainValidationError("LIVE_ROOM_SHOT_LIST_REQUIRED", "Generate the ContentProject before planning a live room")
         try:
@@ -339,10 +347,11 @@ class FunctionalLiveRoomService:
                         secondary_template_codes, selected_asset_codes, selected_group_codes,
                         selected_material_pack_codes, blueprint, build_plan, gate_results,
                         quality_report, status, blocked_reasons, creation_idempotency_key,
-                        creation_input_fingerprint
+                        creation_input_fingerprint, review_status, confirmed_by, confirmed_at
                     ) VALUES (
                         %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s
                     )
                     RETURNING *
                     """,
@@ -353,6 +362,9 @@ class FunctionalLiveRoomService:
                         Jsonb(payload.get("group_codes") or []), Jsonb(payload.get("material_pack_codes") or []),
                         Jsonb(blueprint), Jsonb(build_plan), Jsonb(gate_results), Jsonb(quality_report),
                         status, Jsonb(plan_blocked_reasons), idempotency_key, creation_input_fingerprint,
+                        str(payload.get("_review_status") or "confirmed"),
+                        None if payload.get("_review_status") == "draft" else actor_id,
+                        None if payload.get("_review_status") == "draft" else datetime.now(UTC),
                     ),
                 )
                 row = cursor.fetchone()
@@ -648,6 +660,7 @@ class FunctionalLiveRoomService:
             if plan is None:
                 self.connection.rollback()
                 return None
+            self._require_confirmed_review(plan)
             if plan["status"] == "blocked":
                 cursor.execute(
                     """UPDATE functional_live_room_plans
@@ -832,6 +845,7 @@ class FunctionalLiveRoomService:
     def _execution_handoff(
         self, plan: dict[str, Any], *, allow_pending_test_rights: bool = False
     ) -> dict[str, Any]:
+        self._require_confirmed_review(plan)
         build_plan = plan.get("build_plan") if isinstance(plan.get("build_plan"), dict) else {}
         build_plan_code = str(build_plan.get("build_plan_code") or "").strip()
         if not build_plan_code:
@@ -1299,6 +1313,7 @@ class FunctionalLiveRoomService:
         plan = self._releaseable_plan(plan_code)
         if plan is None:
             raise KeyError(plan_code)
+        self._require_confirmed_review(plan)
         if plan["status"] != "ready":
             raise DomainValidationError(
                 "LIVE_ROOM_RELEASE_PLAN_BLOCKED",
@@ -1521,6 +1536,8 @@ class FunctionalLiveRoomService:
                     expected_title=str(source["expected_title"]),
                 ),
                 "idempotency_key": payload.get("idempotency_key"),
+                "_review_status": payload.get("_review_status"),
+                "_guided_workflow_authorized": payload.get("_guided_workflow_authorized"),
                 "scene_overrides": scene_overrides,
             },
             actor_id=actor_id,
@@ -1933,6 +1950,18 @@ class FunctionalLiveRoomService:
             return cursor.fetchone()
 
     @staticmethod
+    def _require_confirmed_review(plan: dict[str, Any]) -> None:
+        if str(plan.get("review_status") or "confirmed") != "confirmed":
+            raise DomainValidationError(
+                "LIVE_ROOM_PLAN_REVIEW_REQUIRED",
+                "Confirm the current live-room storyboard before execution or release",
+                details={
+                    "plan_code": plan.get("plan_code"),
+                    "review_status": plan.get("review_status"),
+                },
+            )
+
+    @staticmethod
     def _release_subject_refs(plan: dict[str, Any]) -> dict[str, Any]:
         return {
             "content_project_revision": {
@@ -2266,6 +2295,26 @@ class FunctionalLiveRoomService:
         compatibility, but may only repeat the already pinned selection.
         """
         content = detail.get("content") or {}
+        layout_handoff = payload.get("layout_reference_handoff") or {}
+        if content.get("workflow_version") == "guided-live.v1" and layout_handoff:
+            template_code = str(layout_handoff.get("template_code") or "").strip()
+            requested_primary = str(payload.get("primary_template_code") or "").strip() or None
+            if not template_code or (requested_primary is not None and requested_primary != template_code):
+                raise DomainValidationError(
+                    "LIVE_ROOM_TEMPLATE_SELECTION_MISMATCH",
+                    "The guided storyboard must use its selected published layout template",
+                )
+            return {
+                "primary_template_code": template_code,
+                "secondary_template_codes": [],
+                "primary_template_ref": {
+                    "template_code": template_code,
+                    "revision": int(layout_handoff["revision"]),
+                    "projection_fingerprint": layout_handoff["projection_fingerprint"],
+                    "selection_role": "storyboard_layout",
+                },
+                "secondary_template_refs": [],
+            }
         primary_ref = content.get("primary_template_ref")
         secondary_refs = content.get("secondary_template_refs") or []
         primary_code = primary_ref.get("template_code") if isinstance(primary_ref, dict) else None
@@ -3119,6 +3168,14 @@ class FunctionalLiveRoomService:
                     continue
                 layer_override = layer_overrides.get(role)
                 selection_overrides = dict(material_role_overrides)
+                composition_intent = (
+                    shot.get("composition_intent")
+                    if isinstance(shot.get("composition_intent"), dict)
+                    else {}
+                )
+                shot_bindings = composition_intent.get("material_asset_bindings")
+                if isinstance(shot_bindings, dict) and shot_bindings.get(role):
+                    selection_overrides[role] = str(shot_bindings[role])
                 if layer_override:
                     selection_overrides[role] = str(layer_override.get("asset_code") or "")
                 asset, selection_decision = FunctionalLiveRoomService._choose_material_for_role(

@@ -15,6 +15,7 @@ def test_deepseek_compatible_client_returns_audited_json() -> None:
         body = json.loads(request.content)
         assert body["model"] == "deepseek-v4-pro"
         assert body["response_format"] == {"type": "json_object"}
+        assert body["thinking"] == {"type": "disabled"}
         return httpx.Response(
             200,
             json={
@@ -36,6 +37,7 @@ def test_deepseek_compatible_client_returns_audited_json() -> None:
         provider="deepseek",
         model="deepseek-v4-pro",
         messages=[{"role": "user", "content": "generate"}],
+        thinking=False,
     )
 
     assert result.content == {"title": "draft"}

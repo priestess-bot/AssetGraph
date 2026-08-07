@@ -164,6 +164,7 @@ class ContentProductionRepository:
         generation_run_code: str | None = None,
         validation_result: dict[str, Any] | None = None,
         producer_role: str = "writer",
+        commit: bool = True,
     ) -> dict[str, Any]:
         if not title.strip() or not blocks:
             raise DomainValidationError(
@@ -283,7 +284,8 @@ class ContentProductionRepository:
                 input_fingerprint=source["fingerprint_sha256"],
                 output_fingerprint=fingerprint,
             )
-        self.connection.commit()
+        if commit:
+            self.connection.commit()
         return {**self._serialize(revision), "project_code": project_code, "blocks": stored_blocks}
 
     def confirm_script_revision(

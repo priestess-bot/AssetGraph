@@ -10,6 +10,8 @@ from psycopg import Connection
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
+from app.domain.contracts import canonical_fingerprint
+
 
 class MaituInteractionConflictError(RuntimeError):
     pass
@@ -865,6 +867,21 @@ class MaituInteractionsRepository:
             ) AS analysis ON TRUE
         """
 
+    @staticmethod
+    def _topic_join() -> str:
+        return """
+            LEFT JOIN LATERAL (
+                SELECT assignment.id AS assignment_id, topic.id AS topic_id,
+                       topic.topic_code, topic.title AS topic_title
+                FROM maitu_interaction_topic_assignments AS assignment
+                JOIN maitu_interaction_topics AS topic ON topic.id = assignment.topic_id
+                WHERE assignment.interaction_id = interaction.id
+                  AND assignment.analyzer_version = %s
+                  AND assignment.input_fingerprint = interaction.analysis_input_fingerprint
+                ORDER BY assignment.created_at DESC LIMIT 1
+            ) AS topic ON TRUE
+        """
+
     def list_interactions(
         self,
         *,
@@ -879,6 +896,7 @@ class MaituInteractionsRepository:
         search: str | None,
         limit: int,
         offset: int,
+        topic_code: str | None = None,
     ) -> dict[str, Any]:
         clauses: list[str] = []
         params: list[Any] = []
@@ -902,6 +920,9 @@ class MaituInteractionsRepository:
         if overall_grade:
             clauses.append("analysis.overall_grade = %s")
             params.append(overall_grade)
+        if topic_code:
+            clauses.append("topic.topic_code = %s")
+            params.append(topic_code)
         if search:
             clauses.append(
                 "(interaction.content ILIKE %s OR interaction.publisher_name ILIKE %s OR interaction.digital_reply_content ILIKE %s)"
@@ -910,17 +931,19 @@ class MaituInteractionsRepository:
             params.extend((pattern, pattern, pattern))
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         analysis_join = self._analysis_join()
+        topic_join = self._topic_join()
         base = f"""
             FROM maitu_live_interactions AS interaction
             JOIN maitu_live_sessions AS session ON session.id = interaction.session_id
             JOIN maitu_interaction_platforms AS platform ON platform.id = session.platform_id
             {analysis_join}
+            {topic_join}
             {where}
         """
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
                 f"SELECT count(*)::integer AS total {base}",
-                tuple([analyzer_version, *params]),
+                tuple([analyzer_version, analyzer_version, *params]),
             )
             total = cursor.fetchone()["total"]
             cursor.execute(
@@ -947,10 +970,26 @@ class MaituInteractionsRepository:
                            ) THEN 'failed'
                            ELSE 'pending'
                        END AS analysis_status,
+                       CASE
+                           WHEN interaction.is_arrival THEN 'excluded'
+                           WHEN analysis.id IS NULL THEN 'pending'
+                           WHEN topic.assignment_id IS NOT NULL THEN 'succeeded'
+                           WHEN EXISTS (
+                               SELECT 1 FROM maitu_interaction_topic_jobs AS topic_job
+                               WHERE topic_job.analysis_result_id = analysis.id
+                                 AND topic_job.analyzer_version = %s
+                                 AND topic_job.status = 'failed'
+                           ) THEN 'failed'
+                           ELSE 'pending'
+                       END AS topic_status,
+                       topic.topic_code, topic.topic_title,
                        CASE WHEN analysis.id IS NULL THEN NULL ELSE jsonb_build_object(
                            'analyzer_version', analysis.analyzer_version,
                            'interaction_form', analysis.interaction_form,
                            'business_intent', analysis.business_intent,
+                           'topic_summary', analysis.topic_summary,
+                           'classification_reason', analysis.classification_reason,
+                           'quality_applicable', analysis.quality_applicable,
                            'relevance_grade', analysis.relevance_grade,
                            'completeness_grade', analysis.completeness_grade,
                            'resolution_grade', analysis.resolution_grade,
@@ -963,7 +1002,17 @@ class MaituInteractionsRepository:
                 ORDER BY interaction.published_at DESC NULLS LAST, interaction.id DESC
                 LIMIT %s OFFSET %s
                 """,
-                tuple([analyzer_version, analyzer_version, *params, limit, offset]),
+                tuple(
+                    [
+                        analyzer_version,
+                        analyzer_version,
+                        analyzer_version,
+                        analyzer_version,
+                        *params,
+                        limit,
+                        offset,
+                    ]
+                ),
             )
             rows = cursor.fetchall()
         return self._serialize({"items": rows, "total": total, "limit": limit, "offset": offset})
@@ -1008,8 +1057,155 @@ class MaituInteractionsRepository:
                 dimensions[name] = {row["key"]: row["count"] for row in cursor.fetchall()}
         return self._serialize({**summary, **dimensions})
 
+    def analysis_dashboard(
+        self,
+        analyzer_version: str,
+        *,
+        platform_id: int | None,
+        external_session_id: int | None,
+    ) -> dict[str, Any]:
+        clauses = ["NOT interaction.is_arrival"]
+        params: list[Any] = []
+        if platform_id is not None:
+            clauses.append("platform.external_platform_id = %s")
+            params.append(platform_id)
+        if external_session_id is not None:
+            clauses.append("session.external_session_id = %s")
+            params.append(external_session_id)
+        where = f"WHERE {' AND '.join(clauses)}"
+        base = f"""
+            FROM maitu_live_interactions AS interaction
+            JOIN maitu_live_sessions AS session ON session.id = interaction.session_id
+            JOIN maitu_interaction_platforms AS platform ON platform.id = session.platform_id
+            {self._analysis_join()}
+            {self._topic_join()}
+            {where}
+        """
+        base_params = [analyzer_version, analyzer_version, *params]
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                f"""
+                SELECT count(*)::integer AS total,
+                       count(analysis.id)::integer AS classified,
+                       (count(*) - count(analysis.id))::integer AS classification_pending,
+                       count(*) FILTER (
+                           WHERE analysis.id IS NOT NULL AND topic.assignment_id IS NULL
+                       )::integer AS topic_pending,
+                       count(*) FILTER (
+                           WHERE NULLIF(btrim(COALESCE(interaction.digital_reply_content, '')), '') IS NOT NULL
+                       )::integer AS answered,
+                       count(*) FILTER (
+                           WHERE NULLIF(btrim(COALESCE(interaction.digital_reply_content, '')), '') IS NULL
+                       )::integer AS unanswered,
+                       count(*) FILTER (
+                           WHERE analysis.quality_applicable AND analysis.overall_grade IS NOT NULL
+                       )::integer AS quality_evaluated
+                {base}
+                """,
+                tuple(base_params),
+            )
+            summary = cursor.fetchone()
+            cursor.execute(
+                f"""
+                SELECT analysis.business_intent,
+                       count(*)::integer AS total,
+                       count(*) FILTER (
+                           WHERE NULLIF(btrim(COALESCE(interaction.digital_reply_content, '')), '') IS NOT NULL
+                       )::integer AS answered,
+                       count(*) FILTER (
+                           WHERE NULLIF(btrim(COALESCE(interaction.digital_reply_content, '')), '') IS NULL
+                       )::integer AS unanswered,
+                       count(*) FILTER (WHERE analysis.overall_grade = 'good')::integer AS good,
+                       count(*) FILTER (WHERE analysis.overall_grade = 'fair')::integer AS fair,
+                       count(*) FILTER (WHERE analysis.overall_grade = 'poor')::integer AS poor
+                {base}
+                  AND analysis.id IS NOT NULL
+                GROUP BY analysis.business_intent
+                """,
+                tuple(base_params),
+            )
+            intents = cursor.fetchall()
+        return self._serialize({**summary, "intents": intents})
+
+    def list_topics(
+        self,
+        analyzer_version: str,
+        *,
+        business_intent: str | None,
+        platform_id: int | None,
+        external_session_id: int | None,
+        limit: int,
+        offset: int,
+    ) -> dict[str, Any]:
+        clauses = [
+            "assignment.analyzer_version = %s",
+            "topic.analyzer_version = %s",
+            "assignment.input_fingerprint = interaction.analysis_input_fingerprint",
+            "NOT interaction.is_arrival",
+        ]
+        params: list[Any] = [analyzer_version, analyzer_version]
+        if business_intent:
+            clauses.append("topic.business_intent = %s")
+            params.append(business_intent)
+        if platform_id is not None:
+            clauses.append("platform.external_platform_id = %s")
+            params.append(platform_id)
+        if external_session_id is not None:
+            clauses.append("session.external_session_id = %s")
+            params.append(external_session_id)
+        where = f"WHERE {' AND '.join(clauses)}"
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                f"""
+                WITH grouped AS (
+                    SELECT topic.topic_code, topic.title, topic.business_intent,
+                           count(*)::integer AS total,
+                           count(*) FILTER (
+                               WHERE NULLIF(btrim(COALESCE(interaction.digital_reply_content, '')), '') IS NOT NULL
+                           )::integer AS answered,
+                           count(*) FILTER (
+                               WHERE NULLIF(btrim(COALESCE(interaction.digital_reply_content, '')), '') IS NULL
+                           )::integer AS unanswered,
+                           count(*) FILTER (WHERE result.overall_grade = 'good')::integer AS good,
+                           count(*) FILTER (WHERE result.overall_grade = 'fair')::integer AS fair,
+                           count(*) FILTER (WHERE result.overall_grade = 'poor')::integer AS poor
+                    FROM maitu_interaction_topic_assignments AS assignment
+                    JOIN maitu_interaction_topics AS topic ON topic.id = assignment.topic_id
+                    JOIN maitu_interaction_analysis_results AS result
+                      ON result.id = assignment.analysis_result_id
+                    JOIN maitu_live_interactions AS interaction ON interaction.id = assignment.interaction_id
+                    JOIN maitu_live_sessions AS session ON session.id = interaction.session_id
+                    JOIN maitu_interaction_platforms AS platform ON platform.id = session.platform_id
+                    {where}
+                    GROUP BY topic.id
+                )
+                SELECT grouped.*, count(*) OVER()::integer AS total_rows
+                FROM grouped
+                ORDER BY grouped.total DESC, grouped.title
+                LIMIT %s OFFSET %s
+                """,
+                tuple([*params, limit, offset]),
+            )
+            rows = cursor.fetchall()
+        total = rows[0]["total_rows"] if rows else 0
+        for row in rows:
+            row.pop("total_rows", None)
+        return self._serialize({"items": rows, "total": total, "limit": limit, "offset": offset})
+
     def synchronize_analysis_jobs(self, analyzer_version: str, strategy_revision: str) -> int:
         with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                UPDATE maitu_interaction_analysis_jobs
+                SET status = 'superseded', claimed_by = NULL, lease_token = NULL,
+                    lease_expires_at = NULL, heartbeat_at = NULL, retry_after = NULL,
+                    error_code = 'ANALYZER_VERSION_SUPERSEDED',
+                    error_message = 'A newer interaction analyzer version is active',
+                    completed_at = COALESCE(completed_at, now()), updated_at = now()
+                WHERE analyzer_version <> %s AND status IN ('queued', 'running', 'failed')
+                """,
+                (analyzer_version,),
+            )
             cursor.execute(
                 """
                 INSERT INTO maitu_interaction_analysis_jobs (
@@ -1063,7 +1259,8 @@ class MaituInteractionsRepository:
                     (job.status = 'queued' AND (job.retry_after IS NULL OR job.retry_after <= now()))
                     OR (job.status = 'running' AND job.lease_expires_at < now())
                 )
-                ORDER BY CASE WHEN job.status = 'running' THEN 0 ELSE 1 END, job.created_at
+                ORDER BY CASE WHEN job.status = 'running' THEN 0 ELSE 1 END,
+                         interaction.published_at ASC NULLS FIRST, job.created_at
                 FOR UPDATE SKIP LOCKED LIMIT 1
                 """,
                 (analyzer_version,),
@@ -1158,15 +1355,22 @@ class MaituInteractionsRepository:
                 INSERT INTO maitu_interaction_analysis_results (
                     analysis_code, interaction_id, analyzer_version, strategy_revision,
                     input_fingerprint, output_fingerprint, invocation_evidence_ref,
-                    interaction_form, business_intent, relevance_grade,
+                    interaction_form, business_intent, topic_summary,
+                    classification_reason, quality_applicable, relevance_grade,
                     completeness_grade, resolution_grade, overall_grade,
                     confidence, reason
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ) VALUES (
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s, %s, %s
+                )
                 ON CONFLICT (interaction_id, analyzer_version, input_fingerprint) DO UPDATE SET
                     output_fingerprint = EXCLUDED.output_fingerprint,
                     invocation_evidence_ref = EXCLUDED.invocation_evidence_ref,
                     interaction_form = EXCLUDED.interaction_form,
                     business_intent = EXCLUDED.business_intent,
+                    topic_summary = EXCLUDED.topic_summary,
+                    classification_reason = EXCLUDED.classification_reason,
+                    quality_applicable = EXCLUDED.quality_applicable,
                     relevance_grade = EXCLUDED.relevance_grade,
                     completeness_grade = EXCLUDED.completeness_grade,
                     resolution_grade = EXCLUDED.resolution_grade,
@@ -1186,6 +1390,9 @@ class MaituInteractionsRepository:
                     payload["invocation_evidence_ref"],
                     payload["interaction_form"],
                     payload["business_intent"],
+                    payload["topic_summary"],
+                    payload["classification_reason"],
+                    payload["quality_applicable"],
                     payload["relevance_grade"],
                     payload["completeness_grade"],
                     payload["resolution_grade"],
@@ -1238,5 +1445,336 @@ class MaituInteractionsRepository:
                     retry,
                     job["id"],
                 ),
+            )
+        self.connection.commit()
+
+    @staticmethod
+    def _normalize_topic_title(title: str) -> str:
+        return " ".join(str(title or "").strip().casefold().split())
+
+    def synchronize_topic_jobs(self, analyzer_version: str) -> int:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                UPDATE maitu_interaction_topic_jobs
+                SET status = 'superseded', claimed_by = NULL, lease_token = NULL,
+                    lease_expires_at = NULL, heartbeat_at = NULL, retry_after = NULL,
+                    error_code = 'ANALYZER_VERSION_SUPERSEDED',
+                    error_message = 'A newer interaction analyzer version is active',
+                    completed_at = COALESCE(completed_at, now()), updated_at = now()
+                WHERE analyzer_version <> %s AND status IN ('queued', 'running', 'failed')
+                """,
+                (analyzer_version,),
+            )
+            cursor.execute(
+                """
+                INSERT INTO maitu_interaction_topic_jobs (
+                    topic_job_code, analysis_result_id, analyzer_version, status
+                )
+                SELECT 'MT-INT-TOPIC-JOB-' || upper(replace(gen_random_uuid()::text, '-', '')),
+                       result.id, result.analyzer_version, 'queued'
+                FROM maitu_interaction_analysis_results AS result
+                JOIN maitu_live_interactions AS interaction ON interaction.id = result.interaction_id
+                WHERE result.analyzer_version = %s
+                  AND result.input_fingerprint = interaction.analysis_input_fingerprint
+                  AND NOT interaction.is_arrival
+                  AND NOT EXISTS (
+                      SELECT 1 FROM maitu_interaction_topic_assignments AS assignment
+                      WHERE assignment.analysis_result_id = result.id
+                  )
+                ON CONFLICT (analysis_result_id) DO NOTHING
+                """,
+                (analyzer_version,),
+            )
+            inserted = cursor.rowcount
+            cursor.execute(
+                """
+                UPDATE maitu_interaction_topic_jobs
+                SET status = 'queued', retry_after = NULL, error_code = NULL,
+                    error_message = NULL, updated_at = now()
+                WHERE analyzer_version = %s AND status = 'failed' AND attempt < 3
+                  AND (retry_after IS NULL OR retry_after <= now())
+                """,
+                (analyzer_version,),
+            )
+        self.connection.commit()
+        return inserted
+
+    def claim_topic_batch(
+        self,
+        analyzer_version: str,
+        worker_id: str,
+        lease_seconds: int,
+        *,
+        batch_size: int = 50,
+    ) -> dict[str, Any] | None:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT result.business_intent
+                FROM maitu_interaction_topic_jobs AS job
+                JOIN maitu_interaction_analysis_results AS result
+                  ON result.id = job.analysis_result_id
+                WHERE job.analyzer_version = %s AND (
+                    (job.status = 'queued' AND (job.retry_after IS NULL OR job.retry_after <= now()))
+                    OR (job.status = 'running' AND job.lease_expires_at < now())
+                )
+                ORDER BY CASE WHEN job.status = 'running' THEN 0 ELSE 1 END, job.created_at
+                FOR UPDATE OF job SKIP LOCKED LIMIT 1
+                """,
+                (analyzer_version,),
+            )
+            candidate = cursor.fetchone()
+            if candidate is None:
+                self.connection.commit()
+                return None
+            business_intent = candidate["business_intent"]
+            cursor.execute(
+                """
+                SELECT job.id
+                FROM maitu_interaction_topic_jobs AS job
+                JOIN maitu_interaction_analysis_results AS result
+                  ON result.id = job.analysis_result_id
+                WHERE job.analyzer_version = %s AND result.business_intent = %s AND (
+                    (job.status = 'queued' AND (job.retry_after IS NULL OR job.retry_after <= now()))
+                    OR (job.status = 'running' AND job.lease_expires_at < now())
+                )
+                ORDER BY CASE WHEN job.status = 'running' THEN 0 ELSE 1 END, job.created_at
+                FOR UPDATE OF job SKIP LOCKED LIMIT %s
+                """,
+                (analyzer_version, business_intent, batch_size),
+            )
+            job_ids = [row["id"] for row in cursor.fetchall()]
+            if not job_ids:
+                self.connection.commit()
+                return None
+            lease_token = uuid4()
+            cursor.execute(
+                """
+                UPDATE maitu_interaction_topic_jobs
+                SET status = 'running', claimed_by = %s, lease_token = %s,
+                    lease_expires_at = now() + (%s * interval '1 second'),
+                    heartbeat_at = now(), attempt = attempt + 1,
+                    started_at = COALESCE(started_at, now()), completed_at = NULL,
+                    error_code = NULL, error_message = NULL, updated_at = now()
+                WHERE id = ANY(%s)
+                """,
+                (worker_id, lease_token, lease_seconds, job_ids),
+            )
+            cursor.execute(
+                """
+                SELECT job.id AS topic_job_id, job.topic_job_code,
+                       result.id AS analysis_result_id, result.business_intent,
+                       result.topic_summary, result.input_fingerprint,
+                       interaction.id AS interaction_id, interaction.content
+                FROM maitu_interaction_topic_jobs AS job
+                JOIN maitu_interaction_analysis_results AS result
+                  ON result.id = job.analysis_result_id
+                JOIN maitu_live_interactions AS interaction ON interaction.id = result.interaction_id
+                WHERE job.id = ANY(%s)
+                ORDER BY interaction.published_at ASC NULLS FIRST, interaction.id
+                """,
+                (job_ids,),
+            )
+            jobs = cursor.fetchall()
+        self.connection.commit()
+        return self._serialize(
+            {
+                "lease_token": lease_token,
+                "business_intent": business_intent,
+                "jobs": jobs,
+            }
+        )
+
+    def list_topic_catalog(self, analyzer_version: str, business_intent: str) -> list[dict[str, Any]]:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT topic_code, title
+                FROM maitu_interaction_topics
+                WHERE analyzer_version = %s AND business_intent = %s
+                ORDER BY created_at, topic_code
+                """,
+                (analyzer_version, business_intent),
+            )
+            rows = cursor.fetchall()
+        return self._serialize(rows)
+
+    def _lock_topic_batch(
+        self,
+        cursor: Any,
+        worker_id: str,
+        lease_token: str,
+    ) -> list[dict[str, Any]]:
+        try:
+            token = UUID(lease_token)
+        except ValueError as exc:
+            raise MaituInteractionLeaseError("Topic batch lease token is invalid") from exc
+        cursor.execute(
+            """
+            SELECT job.*, result.business_intent, result.interaction_id,
+                   result.input_fingerprint, result.id AS analysis_result_id
+            FROM maitu_interaction_topic_jobs AS job
+            JOIN maitu_interaction_analysis_results AS result
+              ON result.id = job.analysis_result_id
+            WHERE job.status = 'running' AND job.claimed_by = %s
+              AND job.lease_token = %s AND job.lease_expires_at > now()
+            ORDER BY job.created_at
+            FOR UPDATE OF job
+            """,
+            (worker_id, token),
+        )
+        jobs = cursor.fetchall()
+        if not jobs:
+            raise MaituInteractionLeaseError("Topic batch lease is not active")
+        return jobs
+
+    def heartbeat_topic_batch(
+        self,
+        worker_id: str,
+        lease_token: str,
+        lease_seconds: int,
+    ) -> bool:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            jobs = self._lock_topic_batch(cursor, worker_id, lease_token)
+            cursor.execute(
+                """
+                UPDATE maitu_interaction_topic_jobs
+                SET lease_expires_at = now() + (%s * interval '1 second'),
+                    heartbeat_at = now(), updated_at = now()
+                WHERE id = ANY(%s)
+                """,
+                (lease_seconds, [job["id"] for job in jobs]),
+            )
+        self.connection.commit()
+        return True
+
+    def complete_topic_batch(
+        self,
+        worker_id: str,
+        lease_token: str,
+        *,
+        business_intent: str,
+        assignments: list[dict[str, Any]],
+        invocation_evidence_ref: str,
+    ) -> int:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            jobs = self._lock_topic_batch(cursor, worker_id, lease_token)
+            expected = {str(job["analysis_result_id"]): job for job in jobs}
+            received = {str(item.get("item_key")): item for item in assignments}
+            if len(received) != len(assignments) or set(received) != set(expected):
+                raise ValueError("Topic assignments do not match the active batch")
+            if any(job["business_intent"] != business_intent for job in jobs):
+                raise ValueError("Topic batch contains mixed business intents")
+            completed_ids: list[UUID] = []
+            for item_key, assignment in received.items():
+                job = expected[item_key]
+                topic_code = str(assignment.get("topic_code") or "").strip() or None
+                title = str(assignment.get("topic_title") or "").strip()
+                if not title or len(title) > 80:
+                    raise ValueError("Topic title must contain between 1 and 80 characters")
+                if topic_code:
+                    cursor.execute(
+                        """
+                        SELECT * FROM maitu_interaction_topics
+                        WHERE topic_code = %s AND analyzer_version = %s
+                          AND business_intent = %s
+                        FOR SHARE
+                        """,
+                        (topic_code, job["analyzer_version"], business_intent),
+                    )
+                    topic = cursor.fetchone()
+                    if topic is None:
+                        raise ValueError("Topic assignment references an unknown topic")
+                else:
+                    normalized_title = self._normalize_topic_title(title)
+                    cursor.execute(
+                        """
+                        INSERT INTO maitu_interaction_topics (
+                            topic_code, analyzer_version, business_intent,
+                            title, normalized_title
+                        ) VALUES (%s, %s, %s, %s, %s)
+                        ON CONFLICT (analyzer_version, business_intent, normalized_title)
+                        DO UPDATE SET updated_at = now()
+                        RETURNING *
+                        """,
+                        (
+                            self._code("MT-INT-TOPIC"),
+                            job["analyzer_version"],
+                            business_intent,
+                            title,
+                            normalized_title,
+                        ),
+                    )
+                    topic = cursor.fetchone()
+                assignment_fingerprint = canonical_fingerprint(
+                    {
+                        "analysis_result_id": item_key,
+                        "topic_code": topic["topic_code"],
+                        "topic_title": topic["title"],
+                    }
+                )
+                cursor.execute(
+                    """
+                    INSERT INTO maitu_interaction_topic_assignments (
+                        interaction_id, analysis_result_id, topic_id, analyzer_version,
+                        input_fingerprint, assignment_fingerprint, invocation_evidence_ref
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (analysis_result_id) DO UPDATE SET
+                        topic_id = EXCLUDED.topic_id,
+                        assignment_fingerprint = EXCLUDED.assignment_fingerprint,
+                        invocation_evidence_ref = EXCLUDED.invocation_evidence_ref,
+                        created_at = now()
+                    """,
+                    (
+                        job["interaction_id"],
+                        job["analysis_result_id"],
+                        topic["id"],
+                        job["analyzer_version"],
+                        job["input_fingerprint"],
+                        assignment_fingerprint,
+                        invocation_evidence_ref,
+                    ),
+                )
+                completed_ids.append(job["id"])
+            cursor.execute(
+                """
+                UPDATE maitu_interaction_topic_jobs
+                SET status = 'succeeded', claimed_by = NULL, lease_token = NULL,
+                    lease_expires_at = NULL, heartbeat_at = NULL,
+                    error_code = NULL, error_message = NULL,
+                    completed_at = now(), updated_at = now()
+                WHERE id = ANY(%s)
+                """,
+                (completed_ids,),
+            )
+        self.connection.commit()
+        return len(completed_ids)
+
+    def fail_topic_batch(
+        self,
+        worker_id: str,
+        lease_token: str,
+        *,
+        error_code: str,
+        error_message: str,
+    ) -> None:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            jobs = self._lock_topic_batch(cursor, worker_id, lease_token)
+            cursor.execute(
+                """
+                UPDATE maitu_interaction_topic_jobs
+                SET status = CASE WHEN attempt < 3 THEN 'queued' ELSE 'failed' END,
+                    retry_after = CASE
+                        WHEN attempt < 3 THEN now() + (attempt * interval '1 minute')
+                        ELSE NULL
+                    END,
+                    claimed_by = NULL, lease_token = NULL, lease_expires_at = NULL,
+                    heartbeat_at = NULL, error_code = %s, error_message = %s,
+                    completed_at = CASE WHEN attempt < 3 THEN NULL ELSE now() END,
+                    updated_at = now()
+                WHERE id = ANY(%s)
+                """,
+                (error_code, error_message, [job["id"] for job in jobs]),
             )
         self.connection.commit()

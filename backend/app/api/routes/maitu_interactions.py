@@ -14,12 +14,14 @@ from app.repositories.maitu_interactions import (
     MaituInteractionsRepository,
 )
 from app.schemas.maitu_interactions import (
+    AnalysisDashboardRead,
     AnalysisSummaryRead,
     BusinessIntent,
     InteractionBatchWrite,
     InteractionForm,
     InteractionPage,
     InteractionSourceRead,
+    InteractionTopicPage,
     LiveSessionPage,
     LiveSessionRead,
     PlatformSummary,
@@ -35,6 +37,8 @@ from app.schemas.maitu_interactions import (
     WorkerHeartbeat,
 )
 from app.services.maitu_interactions import (
+    BUSINESS_INTENTS,
+    BUSINESS_INTENT_LABELS,
     interaction_analysis_configured,
     interaction_analyzer_version,
     prepare_interaction_for_storage,
@@ -173,6 +177,67 @@ def get_analysis_summary(
     }
 
 
+@router.get("/analysis/dashboard", response_model=AnalysisDashboardRead)
+def get_analysis_dashboard(
+    store: Annotated[MaituInteractionsRepository, Depends(repository)],
+    platform_id: Annotated[int | None, Query(ge=1)] = None,
+    external_session_id: Annotated[int | None, Query(ge=1)] = None,
+) -> dict[str, Any]:
+    analyzer_version = interaction_analyzer_version()
+    dashboard = store.analysis_dashboard(
+        analyzer_version,
+        platform_id=platform_id,
+        external_session_id=external_session_id,
+    )
+    by_intent = {row["business_intent"]: row for row in dashboard.pop("intents")}
+    intents = []
+    for business_intent in BUSINESS_INTENTS:
+        row = by_intent.get(business_intent) or {
+            "business_intent": business_intent,
+            "total": 0,
+            "answered": 0,
+            "unanswered": 0,
+            "good": 0,
+            "fair": 0,
+            "poor": 0,
+        }
+        intents.append(
+            {
+                **row,
+                "label": BUSINESS_INTENT_LABELS[business_intent],
+                "answer_rate": row["answered"] / row["total"] if row["total"] else 0.0,
+            }
+        )
+    return {
+        "analyzer_version": analyzer_version,
+        "analysis_configured": interaction_analysis_configured(store.connection),
+        **dashboard,
+        "intents": intents,
+    }
+
+
+@router.get("/analysis/topics", response_model=InteractionTopicPage)
+def list_analysis_topics(
+    store: Annotated[MaituInteractionsRepository, Depends(repository)],
+    business_intent: BusinessIntent | None = None,
+    platform_id: Annotated[int | None, Query(ge=1)] = None,
+    external_session_id: Annotated[int | None, Query(ge=1)] = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> dict[str, Any]:
+    result = store.list_topics(
+        interaction_analyzer_version(),
+        business_intent=business_intent,
+        platform_id=platform_id,
+        external_session_id=external_session_id,
+        limit=limit,
+        offset=offset,
+    )
+    for item in result["items"]:
+        item["answer_rate"] = item["answered"] / item["total"] if item["total"] else 0.0
+    return result
+
+
 @router.get("/analysis/items", response_model=InteractionPage)
 def list_analysis_items(
     store: Annotated[MaituInteractionsRepository, Depends(repository)],
@@ -182,6 +247,7 @@ def list_analysis_items(
     interaction_form: InteractionForm | None = None,
     business_intent: BusinessIntent | None = None,
     overall_grade: QualityGrade | None = None,
+    topic_code: Annotated[str | None, Query(max_length=80)] = None,
     search: Annotated[str | None, Query(max_length=200)] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
@@ -198,6 +264,7 @@ def list_analysis_items(
         search=search.strip() if search else None,
         limit=limit,
         offset=offset,
+        topic_code=topic_code.strip() if topic_code else None,
     )
 
 

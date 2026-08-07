@@ -39,6 +39,7 @@ export interface LibraryAsset {
   localFileCode?: string;
   localRelativePath?: string;
   title: string;
+  description?: string;
   originalFilename: string;
   assetType: string;
   mediaKind?: string;
@@ -247,6 +248,7 @@ function asset(value: unknown): LibraryAsset | undefined {
     localFileCode: asOptionalString(value.local_file_code),
     localRelativePath: asOptionalString(value.local_relative_path),
     title: productTitle(asString(value.title, asString(value.original_filename, assetCode)), "未命名素材"),
+    description: asOptionalString(value.description),
     originalFilename: asString(value.original_filename, assetCode),
     assetType: asString(value.asset_type),
     mediaKind: asOptionalString(value.media_kind),

@@ -17,6 +17,7 @@ import {
   MessageSquareText,
   RefreshCw,
   Search,
+  X,
 } from "lucide-react";
 import { interactionsApi, type LiveInteraction, type LiveSession } from "./api";
 import "./interactions.css";
@@ -33,17 +34,15 @@ const FORM_LABELS: Record<string, string> = {
 };
 
 const INTENT_LABELS: Record<string, string> = {
-  product_attributes: "商品属性",
-  product_lookup: "商品 / 链接查询",
-  recommendation: "选购推荐",
-  price_promotion_gift: "价格促销赠品",
-  inventory_shipping: "库存物流",
-  order_purchase: "下单订单",
-  after_sales_invoice: "售后发票",
-  live_room_operation: "直播间操作",
-  social_feedback: "社交反馈",
-  off_topic_noise: "无关 / 噪声",
-  other: "其他",
+  product_consultation: "商品咨询",
+  promotion: "优惠活动",
+  non_inquiry: "非问询",
+  order_fulfillment: "订单履约",
+  after_sales: "售后服务",
+  account_membership: "账户与会员",
+  purchase_conversion: "下单转化",
+  review_complaint: "评价与投诉",
+  small_talk: "闲聊",
 };
 
 const GRADE_LABELS: Record<string, string> = {
@@ -105,7 +104,8 @@ function StatusPill({ value }: { value: string }) {
 }
 
 
-function Grade({ value }: { value?: string }) {
+function Grade({ value, notApplicable = false }: { value?: string; notApplicable?: boolean }) {
+  if (notApplicable) return <span className="interaction-grade is-na">不适用</span>;
   if (!value) return <span className="interaction-grade is-pending">待分析</span>;
   return <span className={`interaction-grade is-${value}`}>{GRADE_LABELS[value] ?? value}</span>;
 }
@@ -284,83 +284,165 @@ function AnalysisRow({ item, expanded, onToggle }: {
       <td><button type="button" className="interaction-expand" title={expanded ? "收起详情" : "展开详情"} onClick={onToggle}>{expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</button></td>
       <td><strong>{item.publisherName ?? "匿名用户"}</strong><small>{item.platformName} · {formatDate(item.publishedAt)}</small></td>
       <td className="interaction-copy"><strong>{item.content || "--"}</strong><small>{item.sessionTitle}</small></td>
-      <td>{result ? FORM_LABELS[result.interactionForm] ?? result.interactionForm : <StatusPill value={item.analysisStatus} />}</td>
-      <td>{result ? INTENT_LABELS[result.businessIntent] ?? result.businessIntent : "--"}</td>
+      <td>{result ? <><strong>{INTENT_LABELS[result.businessIntent] ?? result.businessIntent}</strong><small>{item.topicTitle ?? result.topicSummary ?? <StatusPill value={item.topicStatus} />}</small></> : <StatusPill value={item.analysisStatus} />}</td>
       <td>{item.answered ? <span className="interaction-answer is-answered">已应答</span> : <span className="interaction-answer is-unanswered">未应答</span>}</td>
-      <td><Grade value={result?.overallGrade} /></td>
+      <td><Grade value={result?.overallGrade} notApplicable={!item.answered && item.analysisStatus === "succeeded"} /></td>
     </tr>
-    {expanded ? <tr className="interaction-analysis-detail"><td colSpan={7}>
+    {expanded ? <tr className="interaction-analysis-detail"><td colSpan={6}>
       <div className="interaction-analysis-grid">
         <section><span>用户互动</span><p>{item.content || "--"}</p></section>
         <section><span>数字人回复</span><p>{item.digitalReplyContent ?? "--"}</p></section>
         <section><span>弹幕回复 · 仅展示</span><p>{item.bulletReplyContent ?? "--"}</p></section>
       </div>
-      {result ? <div className="interaction-quality-line">
-        <span>相关性 <Grade value={result.relevanceGrade} /></span>
-        <span>完整性 <Grade value={result.completenessGrade} /></span>
-        <span>解决程度 <Grade value={result.resolutionGrade} /></span>
-        <p>{result.reason}</p>
-        <small>置信度 {Math.round(result.confidence * 100)}% · {result.analyzerVersion}</small>
-      </div> : <div className="interaction-analysis-wait"><Clock3 size={15} />等待分析</div>}
+      {result ? <>
+        <div className="interaction-classification-line">
+          <span>{FORM_LABELS[result.interactionForm] ?? result.interactionForm}</span>
+          <strong>{item.topicTitle ?? result.topicSummary}</strong>
+          <p>{result.classificationReason}</p>
+          <small>分类置信度 {Math.round(result.confidence * 100)}% · {result.analyzerVersion}</small>
+        </div>
+        {result.qualityApplicable ? <div className="interaction-quality-line">
+          <span>相关性 <Grade value={result.relevanceGrade} /></span>
+          <span>完整性 <Grade value={result.completenessGrade} /></span>
+          <span>解决程度 <Grade value={result.resolutionGrade} /></span>
+          <p>{result.reason ?? "--"}</p>
+        </div> : <div className="interaction-analysis-wait"><CircleSlash2 size={15} />未应答，回复质量不适用</div>}
+      </> : <div className="interaction-analysis-wait"><Clock3 size={15} />等待分析</div>}
     </td></tr> : null}
   </>;
 }
 
 
 function InteractionAnalysisView() {
+  const [mode, setMode] = useState<"hotspots" | "answered" | "unanswered">("hotspots");
   const [platformId, setPlatformId] = useState<number>();
-  const [answeredFilter, setAnsweredFilter] = useState<"all" | "answered" | "unanswered">("all");
-  const [form, setForm] = useState("");
+  const [sessionId, setSessionId] = useState<number>();
   const [intent, setIntent] = useState("");
+  const [topicCode, setTopicCode] = useState("");
   const [grade, setGrade] = useState("");
   const [search, setSearch] = useState("");
   const [offset, setOffset] = useState(0);
   const [expandedId, setExpandedId] = useState<string>();
   const platformsQuery = useQuery({ queryKey: ["interactions", "platforms"], queryFn: interactionsApi.platforms });
-  const summaryQuery = useQuery({ queryKey: ["interactions", "analysis-summary"], queryFn: interactionsApi.analysisSummary, refetchInterval: 15_000 });
+  const sessionsQuery = useQuery({
+    queryKey: ["interactions", "analysis-sessions", platformId],
+    queryFn: () => interactionsApi.sessions({ platformId, limit: 100, offset: 0 }),
+  });
+  const dashboardQuery = useQuery({
+    queryKey: ["interactions", "analysis-dashboard", platformId, sessionId],
+    queryFn: () => interactionsApi.analysisDashboard({ platformId, externalSessionId: sessionId }),
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      return data && (data.classificationPending || data.topicPending) ? 10_000 : false;
+    },
+  });
+  const topicsQuery = useQuery({
+    queryKey: ["interactions", "analysis-topics", platformId, sessionId, intent],
+    queryFn: () => interactionsApi.analysisTopics({
+      platformId,
+      externalSessionId: sessionId,
+      businessIntent: intent || undefined,
+      limit: 100,
+      offset: 0,
+    }),
+    refetchInterval: dashboardQuery.data?.topicPending ? 10_000 : false,
+  });
   const itemsQuery = useQuery({
-    queryKey: ["interactions", "analysis-items", platformId, answeredFilter, form, intent, grade, search, offset],
+    queryKey: ["interactions", "analysis-items", platformId, sessionId, mode, intent, topicCode, grade, search, offset],
     queryFn: () => interactionsApi.analysisItems({
       platformId,
-      answered: answeredFilter === "all" ? undefined : answeredFilter === "answered",
-      interactionForm: form || undefined,
+      externalSessionId: sessionId,
+      answered: mode === "hotspots" ? undefined : mode === "answered",
       businessIntent: intent || undefined,
+      topicCode: topicCode || undefined,
       overallGrade: grade || undefined,
       search,
       limit: 50,
       offset,
     }),
-    refetchInterval: summaryQuery.data?.pending ? 15_000 : false,
+    refetchInterval: dashboardQuery.data?.classificationPending ? 10_000 : false,
   });
-  const summary = summaryQuery.data;
-  const resetPage = () => setOffset(0);
+  const dashboard = dashboardQuery.data;
+  const resetItems = () => { setOffset(0); setExpandedId(undefined); };
+  const sortedIntents = useMemo(() => [...(dashboard?.intents ?? [])].sort((left, right) => {
+    const leftCount = mode === "answered" ? left.answered : mode === "unanswered" ? left.unanswered : left.total;
+    const rightCount = mode === "answered" ? right.answered : mode === "unanswered" ? right.unanswered : right.total;
+    return rightCount - leftCount || left.label.localeCompare(right.label, "zh-CN");
+  }), [dashboard?.intents, mode]);
+  const goodAnswers = dashboard?.intents.reduce((total, item) => total + item.good, 0) ?? 0;
+
+  useEffect(() => {
+    if (mode === "unanswered" && grade) setGrade("");
+  }, [grade, mode]);
+
+  useEffect(() => {
+    if (sessionId && !(sessionsQuery.data?.items ?? []).some((item) => item.externalSessionId === sessionId)) {
+      setSessionId(undefined);
+    }
+  }, [sessionId, sessionsQuery.data?.items]);
 
   return <div className="interaction-analysis-view">
-    {!summary?.analysisConfigured ? <div className="interaction-config-state"><Bot size={17} aria-hidden="true" /><span>分析模型或处理授权尚未配置，采集数据会继续保存。</span></div> : null}
+    {!dashboard?.analysisConfigured ? <div className="interaction-config-state"><Bot size={17} aria-hidden="true" /><span>分析模型或处理授权尚未配置，采集数据会继续保存。</span></div> : null}
+    {dashboard?.analysisConfigured && (dashboard.classificationPending || dashboard.topicPending) ? <div className="interaction-config-state is-running"><RefreshCw size={17} className="is-spinning" aria-hidden="true" /><span>分析进行中：{dashboard.classificationPending} 条待分类，{dashboard.topicPending} 条待归并</span></div> : null}
     <section className="interaction-summary-band">
-      <div><span>有效互动</span><strong>{summary?.total ?? 0}</strong><small>{summary?.pending ?? 0} 条待分析</small></div>
-      <div><span>已应答</span><strong>{summary?.answered ?? 0}</strong><small>仅数字人回复</small></div>
-      <div><span>未应答</span><strong>{summary?.unanswered ?? 0}</strong><small>{summary?.total ? Math.round(((summary.unanswered ?? 0) / summary.total) * 100) : 0}%</small></div>
-      <div><span>回答质量好</span><strong>{summary?.grades.good ?? 0}</strong><small>{summary?.analyzed ?? 0} 条已分析</small></div>
+      <div><span>有效互动</span><strong>{dashboard?.total ?? 0}</strong><small>{dashboard?.classified ?? 0} 条已分类</small></div>
+      <div><span>已应答</span><strong>{dashboard?.answered ?? 0}</strong><small>{dashboard?.total ? Math.round((dashboard.answered / dashboard.total) * 100) : 0}% 应答率</small></div>
+      <div><span>未应答</span><strong>{dashboard?.unanswered ?? 0}</strong><small>{dashboard?.total ? Math.round((dashboard.unanswered / dashboard.total) * 100) : 0}%</small></div>
+      <div><span>回答质量好</span><strong>{goodAnswers}</strong><small>{dashboard?.qualityEvaluated ?? 0} 条已评价</small></div>
     </section>
-    <section className="interaction-analysis-panel">
+    <div className="interaction-analysis-modes" role="tablist" aria-label="互动分析范围">
+      {(["hotspots", "answered", "unanswered"] as const).map((value) => <button type="button" role="tab" aria-selected={mode === value} key={value} className={mode === value ? "is-selected" : ""} onClick={() => { setMode(value); resetItems(); }}>{value === "hotspots" ? "关注热点" : value === "answered" ? "已回答" : "未回答"}</button>)}
+    </div>
+    <section className="interaction-analysis-panel interaction-hotspot-panel">
       <div className="interaction-filterbar">
-        <label className="interaction-search"><Search size={15} aria-hidden="true" /><input aria-label="搜索互动分析" placeholder="搜索互动或回复" value={search} onChange={(event) => { setSearch(event.target.value); resetPage(); }} /></label>
-        <select aria-label="直播平台" value={platformId ?? ""} onChange={(event) => { setPlatformId(event.target.value ? Number(event.target.value) : undefined); resetPage(); }}>
+        <select aria-label="直播平台" value={platformId ?? ""} onChange={(event) => { setPlatformId(event.target.value ? Number(event.target.value) : undefined); setSessionId(undefined); setIntent(""); setTopicCode(""); resetItems(); }}>
           <option value="">全部平台</option>
           {(platformsQuery.data ?? []).map((item) => <option key={item.externalPlatformId} value={item.externalPlatformId}>{item.platformName}</option>)}
         </select>
-        <select aria-label="互动形式" value={form} onChange={(event) => { setForm(event.target.value); resetPage(); }}><option value="">全部形式</option>{Object.entries(FORM_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
-        <select aria-label="业务意图" value={intent} onChange={(event) => { setIntent(event.target.value); resetPage(); }}><option value="">全部意图</option>{Object.entries(INTENT_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
-        <select aria-label="回答质量" value={grade} onChange={(event) => { setGrade(event.target.value); resetPage(); }}><option value="">全部质量</option>{Object.entries(GRADE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
-        <div className="interaction-segments" aria-label="应答状态">
-          {(["all", "answered", "unanswered"] as const).map((value) => <button type="button" key={value} className={answeredFilter === value ? "is-selected" : ""} onClick={() => { setAnsweredFilter(value); resetPage(); }}>{value === "all" ? "全部" : value === "answered" ? "已应答" : "未应答"}</button>)}
+        <select aria-label="直播场次" value={sessionId ?? ""} onChange={(event) => { setSessionId(event.target.value ? Number(event.target.value) : undefined); setIntent(""); setTopicCode(""); resetItems(); }}><option value="">全部场次</option>{(sessionsQuery.data?.items ?? []).map((item) => <option key={item.externalSessionId} value={item.externalSessionId}>{item.title}</option>)}</select>
+        {mode !== "unanswered" ? <select aria-label="回答质量" value={grade} onChange={(event) => { setGrade(event.target.value); resetItems(); }}><option value="">全部质量</option>{Object.entries(GRADE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select> : null}
+      </div>
+      <ErrorLine error={dashboardQuery.error ?? topicsQuery.error} />
+      <div className="interaction-hotspot-layout">
+        <div className="interaction-intent-list" aria-label="意图分类">
+          {sortedIntents.map((item) => {
+            const visibleCount = mode === "answered" ? item.answered : mode === "unanswered" ? item.unanswered : item.total;
+            return <button type="button" key={item.businessIntent} className={intent === item.businessIntent ? "is-selected" : ""} onClick={() => { const next = intent === item.businessIntent ? "" : item.businessIntent; setIntent(next); setTopicCode(""); resetItems(); }}>
+              <span><strong>{item.label}</strong><small>{item.total} 条互动</small></span>
+              <b>{visibleCount}</b>
+              <span><small>应答率</small><strong>{Math.round(item.answerRate * 100)}%</strong></span>
+              <span><small>质量好</small><strong>{item.good}</strong></span>
+            </button>;
+          })}
+        </div>
+        <div className="interaction-topic-pane">
+          <header><div><span>高频问题 / 互动主题</span><strong>{intent ? INTENT_LABELS[intent] : "全部意图"}</strong></div><small>{topicsQuery.data?.total ?? 0} 个问题组</small></header>
+          <div className="interaction-table-wrap">
+            <table className="interaction-table is-topics">
+              <thead><tr><th>问题组</th><th>次数</th><th>已答 / 未答</th><th>应答率</th><th>好 / 一般 / 差</th></tr></thead>
+              <tbody>{(topicsQuery.data?.items ?? []).map((topic) => <tr key={topic.topicCode} className={topicCode === topic.topicCode ? "is-selected" : undefined}>
+                <td><button type="button" onClick={() => { setTopicCode(topicCode === topic.topicCode ? "" : topic.topicCode); resetItems(); }}>{topic.title}</button></td>
+                <td><strong>{topic.total}</strong></td>
+                <td>{topic.answered} / {topic.unanswered}</td>
+                <td>{Math.round(topic.answerRate * 100)}%</td>
+                <td>{topic.good} / {topic.fair} / {topic.poor}</td>
+              </tr>)}</tbody>
+            </table>
+            {!topicsQuery.isLoading && !topicsQuery.data?.items.length ? <div className="interaction-empty"><MessageSquareText size={22} aria-hidden="true" /><span>{dashboard?.topicPending ? "问题归并处理中" : "暂无问题组"}</span></div> : null}
+          </div>
         </div>
       </div>
-      <ErrorLine error={summaryQuery.error ?? itemsQuery.error} />
+    </section>
+    <section className="interaction-analysis-panel">
+      <div className="interaction-filterbar interaction-detail-filters">
+        <label className="interaction-search"><Search size={15} aria-hidden="true" /><input aria-label="搜索互动分析" placeholder="搜索互动或回复" value={search} onChange={(event) => { setSearch(event.target.value); resetItems(); }} /></label>
+        <span>{intent ? INTENT_LABELS[intent] : "全部意图"}{topicCode ? ` · ${(topicsQuery.data?.items ?? []).find((item) => item.topicCode === topicCode)?.title ?? "问题组"}` : ""}</span>
+        {topicCode ? <button type="button" className="interaction-clear-topic" title="清除问题组筛选" onClick={() => { setTopicCode(""); resetItems(); }}><X size={16} aria-hidden="true" /></button> : null}
+      </div>
+      <ErrorLine error={itemsQuery.error} />
       <div className="interaction-table-wrap">
         <table className="interaction-table is-analysis">
-          <thead><tr><th aria-label="展开" /><th>用户 / 平台</th><th>互动内容 / 场次</th><th>互动形式</th><th>业务意图</th><th>应答</th><th>整体质量</th></tr></thead>
+          <thead><tr><th aria-label="展开" /><th>用户 / 平台</th><th>互动内容 / 场次</th><th>意图 / 问题组</th><th>应答</th><th>回复质量</th></tr></thead>
           <tbody>{(itemsQuery.data?.items ?? []).map((item) => <AnalysisRow key={item.id} item={item} expanded={expandedId === item.id} onToggle={() => setExpandedId(expandedId === item.id ? undefined : item.id)} />)}</tbody>
         </table>
         {!itemsQuery.isLoading && !itemsQuery.data?.items.length ? <div className="interaction-empty"><MessageSquareText size={22} aria-hidden="true" /><span>没有符合条件的互动分析</span></div> : null}

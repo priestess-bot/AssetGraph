@@ -241,6 +241,30 @@ class FunctionalKnowledgeService:
             reverse=True,
         )[:60]
 
+    def resolve_approved_fact_card(
+        self, fact_card_code: str, *, version_number: int | None = None
+    ) -> dict[str, Any] | None:
+        """Return the exact currently approved fact-card version for a content pin."""
+        with self.c.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """
+                SELECT card.fact_card_code, card.title, card.status AS fact_card_status,
+                       version.version_code, version.version_number, version.status AS version_status,
+                       version.content, version.content_sha256, version.approved_at, version.created_at
+                FROM maitu_workbench_product_fact_cards AS card
+                JOIN maitu_workbench_product_fact_card_versions AS version
+                  ON version.fact_card_id = card.id
+                 AND version.version_number = card.current_approved_version
+                WHERE card.fact_card_code = %s
+                  AND card.status = 'active'
+                  AND version.status = 'approved'
+                  AND (%s IS NULL OR version.version_number = %s)
+                """,
+                (fact_card_code, version_number, version_number),
+            )
+            row = cur.fetchone()
+        return dict(row) if row else None
+
     def create_content_rule(self, payload: dict[str, Any]) -> dict[str, Any]:
         try:
             with self.c.cursor(row_factory=dict_row) as cur:
