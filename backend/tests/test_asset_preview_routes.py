@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +34,47 @@ def _asset(*, relative_path: str, checksum: str, capability: str = "local_only")
         "checksum_sha256": checksum,
         "mime_type": "image/png",
     }
+
+
+def test_preview_metadata_releases_database_connection_before_return(monkeypatch: pytest.MonkeyPatch) -> None:
+    lifecycle: list[str] = []
+    connection = object()
+
+    @contextmanager
+    def connection_context() -> Iterator[object]:
+        lifecycle.append("open")
+        try:
+            yield connection
+        finally:
+            lifecycle.append("closed")
+
+    class Repository:
+        def __init__(self, candidate: object) -> None:
+            assert candidate is connection
+
+        def get_by_code(self, asset_code: str) -> dict[str, str]:
+            lifecycle.append(f"asset:{asset_code}")
+            return {"asset_code": asset_code}
+
+        def list_file_records(self, asset_code: str) -> list[dict[str, str]]:
+            lifecycle.append(f"files:{asset_code}")
+            return [{"asset_code": asset_code}]
+
+    monkeypatch.setattr(assets, "database_connection", connection_context)
+    monkeypatch.setattr(assets, "AssetRepository", Repository)
+
+    metadata = assets.get_asset_preview_metadata("AG-IMG-20260725-000001")
+
+    assert lifecycle == [
+        "open",
+        "asset:AG-IMG-20260725-000001",
+        "files:AG-IMG-20260725-000001",
+        "closed",
+    ]
+    assert metadata == (
+        {"asset_code": "AG-IMG-20260725-000001"},
+        [{"asset_code": "AG-IMG-20260725-000001"}],
+    )
 
 
 @pytest.fixture

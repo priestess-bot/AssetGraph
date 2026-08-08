@@ -1489,7 +1489,8 @@ class ContentProductionRepository:
         cursor.execute(
             """
             SELECT * FROM content_project_revisions
-            WHERE project_code = %s AND revision_number = %s AND status = 'confirmed'
+            WHERE project_code = %s AND revision_number = %s
+              AND status IN ('confirmed', 'superseded') AND confirmed_at IS NOT NULL
             """,
             (project_code, revision_number),
         )
@@ -1509,7 +1510,8 @@ class ContentProductionRepository:
             FROM story_brief_revisions AS revision
             JOIN story_briefs AS brief ON brief.id = revision.story_brief_id
             WHERE revision.story_brief_code = %s AND revision.revision_number = %s
-              AND revision.status = 'confirmed'
+              AND revision.status IN ('confirmed', 'superseded')
+              AND revision.confirmed_at IS NOT NULL
             """,
             (code, revision_number),
         )
@@ -1521,7 +1523,10 @@ class ContentProductionRepository:
     @staticmethod
     def _confirmed_revision_by_code(cursor: Any, table: str, code_column: str, code: str) -> dict[str, Any]:
         cursor.execute(
-            sql.SQL("SELECT * FROM {} WHERE {} = %s AND status = 'confirmed'").format(
+            sql.SQL(
+                "SELECT * FROM {} WHERE {} = %s "
+                "AND status IN ('confirmed', 'superseded') AND confirmed_at IS NOT NULL"
+            ).format(
                 sql.Identifier(table), sql.Identifier(code_column)
             ),
             (code,),

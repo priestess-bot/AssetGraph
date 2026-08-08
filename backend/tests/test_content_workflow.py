@@ -168,7 +168,7 @@ def test_outline_citations_are_limited_to_pinned_knowledge_sources() -> None:
     assert "user_payload.knowledge" in OUTLINE_INSTRUCTIONS
 
 
-def test_storyboard_groups_only_consecutive_blocks_with_the_same_material_signature() -> None:
+def test_storyboard_keeps_one_scene_per_script_block() -> None:
     script = {
         "blocks": [
             {"block_code": "B-1", "sort_order": 0, "interaction_intent": {"outline_section_key": "section-1"}},
@@ -185,12 +185,13 @@ def test_storyboard_groups_only_consecutive_blocks_with_the_same_material_signat
 
     segments, shots = GuidedContentGenerationWorker._program_and_shots(script)
 
-    assert len(segments) == 2
-    assert [item["block_code"] for item in segments[0]["script_block_adoptions"]] == ["B-1", "B-2"]
-    assert [item["block_code"] for item in shots[0]["script_block_sources"]] == ["B-1", "B-2"]
+    assert len(segments) == 3
+    assert len(shots) == 3
+    assert [item["block_code"] for item in segments[0]["script_block_adoptions"]] == ["B-1"]
+    assert [item["block_code"] for item in shots[0]["script_block_sources"]] == ["B-1"]
     assert shots[0]["material_role_requirements"] == ["background"]
     assert shots[0]["composition_intent"]["material_asset_bindings"] == {"background": "AG-BG"}
-    assert segments[1]["metadata"]["outline_section_keys"] == ["section-3"]
+    assert segments[2]["metadata"]["outline_section_keys"] == ["section-3"]
 
 
 def test_script_can_bind_an_additive_material_pool_without_invalidating_the_outline() -> None:

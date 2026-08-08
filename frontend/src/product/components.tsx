@@ -37,17 +37,18 @@ export function SegmentedTabs({ value, onValueChange, items, children }: {
   </Tabs.Root>;
 }
 
-export function Inspector({ open, title, description, onClose, children }: {
+export function Inspector({ open, title, description, onClose, children, className }: {
   open: boolean;
   title: string;
   description?: string;
   onClose: () => void;
   children: ReactNode;
+  className?: string;
 }) {
   return <Dialog.Root open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
     <Dialog.Portal>
       <Dialog.Overlay className="product-dialog-overlay" />
-      <Dialog.Content className="product-inspector">
+      <Dialog.Content className={`product-inspector${className ? ` ${className}` : ""}`}>
         <header><div><Dialog.Title>{title}</Dialog.Title>{description ? <Dialog.Description>{description}</Dialog.Description> : null}</div><Dialog.Close className="product-icon-button" title="关闭"><X size={18} aria-hidden="true" /></Dialog.Close></header>
         <div className="product-inspector-body">{children}</div>
       </Dialog.Content>

@@ -12,8 +12,11 @@ from app.domain.errors import (
     DomainValidationError,
 )
 from app.schemas.content_workflow import (
+    GuidedBranchSelect,
+    GuidedBranchUpdate,
     GuidedContentProjectCreate,
     GuidedGenerationJobRead,
+    GuidedItemVersionSelect,
     GuidedMaterialPoolUpdate,
     GuidedMaterialWaiver,
     GuidedOutlineSectionRegenerate,
@@ -79,6 +82,51 @@ def get_guided_workflow(
     return _call(lambda: service.get_workflow(project_code))
 
 
+@router.get("/{project_code}/guided-workflow/tree")
+def get_guided_workflow_tree(
+    project_code: str,
+    service: Annotated[GuidedContentWorkflowService, Depends(get_service)],
+) -> dict[str, Any]:
+    return _call(lambda: service.workflow_tree(project_code))
+
+
+@router.post("/{project_code}/guided-workflow/tree/select", response_model=GuidedWorkflowRead)
+def select_guided_workflow_branch(
+    project_code: str,
+    payload: GuidedBranchSelect,
+    service: Annotated[GuidedContentWorkflowService, Depends(get_service)],
+) -> dict[str, Any]:
+    return _call(
+        lambda: service.select_branch(
+            project_code,
+            node_code=payload.node_code,
+            expected_head_revision=payload.expected_head_revision,
+            actor_id=ACTOR_ID,
+        )
+    )
+
+
+@router.patch(
+    "/{project_code}/guided-workflow/tree/nodes/{node_code}",
+    response_model=GuidedWorkflowRead,
+)
+def update_guided_workflow_branch(
+    project_code: str,
+    node_code: str,
+    payload: GuidedBranchUpdate,
+    service: Annotated[GuidedContentWorkflowService, Depends(get_service)],
+) -> dict[str, Any]:
+    return _call(
+        lambda: service.update_branch(
+            project_code,
+            node_code,
+            label=payload.label,
+            archived=payload.archived,
+            actor_id=ACTOR_ID,
+        )
+    )
+
+
 @router.patch("/{project_code}/guided-workflow/setup", response_model=GuidedWorkflowRead)
 def update_guided_setup(
     project_code: str,
@@ -94,6 +142,64 @@ def update_guided_setup(
             selected_asset_codes=payload.selected_asset_codes,
             actor_id=ACTOR_ID,
             selected_knowledge_refs=[item.model_dump(mode="json") for item in payload.selected_knowledge_refs],
+        )
+    )
+
+
+@router.get("/{project_code}/guided-workflow/{stage}/confirm-preview")
+def preview_guided_confirmation(
+    project_code: str,
+    stage: str,
+    service: Annotated[GuidedContentWorkflowService, Depends(get_service)],
+) -> dict[str, Any]:
+    return _call(lambda: service.confirmation_preview(project_code, stage))
+
+
+@router.post("/{project_code}/guided-workflow/setup/confirm", response_model=GuidedWorkflowRead)
+def confirm_guided_setup(
+    project_code: str,
+    payload: GuidedRevisionAction,
+    service: Annotated[GuidedContentWorkflowService, Depends(get_service)],
+) -> dict[str, Any]:
+    return _call(
+        lambda: service.confirm_setup(
+            project_code,
+            expected_revision=payload.expected_revision,
+            preview_fingerprint=payload.preview_fingerprint,
+            actor_id=ACTOR_ID,
+        )
+    )
+
+
+@router.get("/{project_code}/guided-workflow/{stage}/items/{item_key}/versions")
+def list_guided_item_versions(
+    project_code: str,
+    stage: str,
+    item_key: str,
+    service: Annotated[GuidedContentWorkflowService, Depends(get_service)],
+) -> list[dict[str, Any]]:
+    return _call(lambda: service.item_versions(project_code, stage, item_key))
+
+
+@router.post(
+    "/{project_code}/guided-workflow/{stage}/items/{item_key}/versions/select",
+    response_model=GuidedWorkflowRead,
+)
+def select_guided_item_version(
+    project_code: str,
+    stage: str,
+    item_key: str,
+    payload: GuidedItemVersionSelect,
+    service: Annotated[GuidedContentWorkflowService, Depends(get_service)],
+) -> dict[str, Any]:
+    return _call(
+        lambda: service.select_item_version(
+            project_code,
+            stage,
+            item_key,
+            version_number=payload.version_number,
+            expected_revision=payload.expected_revision,
+            actor_id=ACTOR_ID,
         )
     )
 
@@ -217,7 +323,10 @@ def confirm_guided_outline(
 ) -> dict[str, Any]:
     return _call(
         lambda: service.confirm_outline(
-            project_code, expected_revision=payload.expected_revision, actor_id=ACTOR_ID
+            project_code,
+            expected_revision=payload.expected_revision,
+            preview_fingerprint=payload.preview_fingerprint,
+            actor_id=ACTOR_ID,
         )
     )
 
@@ -245,6 +354,48 @@ def generate_guided_script(
     service: Annotated[GuidedContentWorkflowService, Depends(get_service)],
 ) -> dict[str, Any]:
     return _call(lambda: service.enqueue_script(project_code, actor_id=ACTOR_ID))
+
+
+@router.post(
+    "/{project_code}/guided-workflow/script/blocks/{section_key}/regenerate",
+    response_model=GuidedGenerationJobRead,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def regenerate_guided_script_block(
+    project_code: str,
+    section_key: str,
+    payload: GuidedOutlineSectionRegenerate,
+    service: Annotated[GuidedContentWorkflowService, Depends(get_service)],
+) -> dict[str, Any]:
+    return _call(
+        lambda: service.enqueue_script_block_regeneration(
+            project_code,
+            section_key,
+            expected_revision=payload.expected_revision,
+            guidance=payload.guidance,
+            actor_id=ACTOR_ID,
+        )
+    )
+
+
+@router.post(
+    "/{project_code}/guided-workflow/script/blocks/{section_key}/reaffirm",
+    response_model=GuidedWorkflowRead,
+)
+def reaffirm_guided_script_block(
+    project_code: str,
+    section_key: str,
+    payload: GuidedRevisionAction,
+    service: Annotated[GuidedContentWorkflowService, Depends(get_service)],
+) -> dict[str, Any]:
+    return _call(
+        lambda: service.reaffirm_script_block(
+            project_code,
+            section_key,
+            expected_revision=payload.expected_revision,
+            actor_id=ACTOR_ID,
+        )
+    )
 
 
 @router.put("/{project_code}/guided-workflow/script", response_model=GuidedWorkflowRead)
@@ -291,7 +442,10 @@ def confirm_guided_script(
 ) -> dict[str, Any]:
     return _call(
         lambda: service.confirm_script(
-            project_code, expected_revision=payload.expected_revision, actor_id=ACTOR_ID
+            project_code,
+            expected_revision=payload.expected_revision,
+            preview_fingerprint=payload.preview_fingerprint,
+            actor_id=ACTOR_ID,
         )
     )
 
@@ -360,6 +514,48 @@ def generate_guided_storyboard(
     )
 
 
+@router.post(
+    "/{project_code}/guided-workflow/storyboard/scenes/{section_key}/regenerate",
+    response_model=GuidedGenerationJobRead,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def regenerate_guided_storyboard_scene(
+    project_code: str,
+    section_key: str,
+    payload: GuidedOutlineSectionRegenerate,
+    service: Annotated[GuidedContentWorkflowService, Depends(get_service)],
+) -> dict[str, Any]:
+    return _call(
+        lambda: service.enqueue_storyboard_scene_regeneration(
+            project_code,
+            section_key,
+            expected_revision=payload.expected_revision,
+            guidance=payload.guidance,
+            actor_id=ACTOR_ID,
+        )
+    )
+
+
+@router.post(
+    "/{project_code}/guided-workflow/storyboard/scenes/{section_key}/reaffirm",
+    response_model=GuidedWorkflowRead,
+)
+def reaffirm_guided_storyboard_scene(
+    project_code: str,
+    section_key: str,
+    payload: GuidedRevisionAction,
+    service: Annotated[GuidedContentWorkflowService, Depends(get_service)],
+) -> dict[str, Any]:
+    return _call(
+        lambda: service.reaffirm_storyboard_scene(
+            project_code,
+            section_key,
+            expected_revision=payload.expected_revision,
+            actor_id=ACTOR_ID,
+        )
+    )
+
+
 @router.put("/{project_code}/guided-workflow/storyboard", response_model=GuidedWorkflowRead)
 def revise_guided_storyboard(
     project_code: str,
@@ -384,7 +580,10 @@ def confirm_guided_storyboard(
 ) -> dict[str, Any]:
     return _call(
         lambda: service.confirm_storyboard(
-            project_code, expected_plan_code=payload.expected_plan_code, actor_id=ACTOR_ID
+            project_code,
+            expected_plan_code=payload.expected_plan_code,
+            preview_fingerprint=payload.preview_fingerprint,
+            actor_id=ACTOR_ID,
         )
     )
 

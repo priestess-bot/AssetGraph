@@ -120,6 +120,7 @@ def test_functional_live_room_plan_compiles_and_only_requests_maitu_execution() 
             "position_asset_layer",
             "write_script",
             "verify_scene",
+            "verify_draft_persisted",
             "save_draft",
         }
         assert {gate["gate"]: gate["status"] for gate in plan["gate_results"]} == {

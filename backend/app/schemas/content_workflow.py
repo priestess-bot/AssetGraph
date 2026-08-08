@@ -82,7 +82,6 @@ class GuidedOutlineKeyPointInput(BaseModel):
     text: str = Field(min_length=1, max_length=1000)
     citation_source_ids: list[str] = Field(default_factory=list, max_length=20)
     citations: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
-    citations: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
 
     @field_validator("citation_source_ids")
     @classmethod
@@ -144,11 +143,33 @@ class GuidedOutlineRevisionUpdate(BaseModel):
 
 class GuidedRevisionAction(BaseModel):
     expected_revision: int = Field(ge=1)
+    preview_fingerprint: str | None = Field(default=None, pattern="^[0-9a-f]{64}$")
 
 
 class GuidedOutlineSectionRegenerate(BaseModel):
-    expected_revision: int | None = Field(default=None, ge=1)
+    expected_revision: int = Field(ge=1)
     guidance: str = Field(default="", max_length=4000)
+
+
+class GuidedBranchSelect(BaseModel):
+    node_code: str = Field(min_length=1, max_length=80)
+    expected_head_revision: int = Field(ge=1)
+
+
+class GuidedBranchUpdate(BaseModel):
+    label: str | None = Field(default=None, min_length=1, max_length=255)
+    archived: bool | None = None
+
+    @model_validator(mode="after")
+    def has_change(self) -> "GuidedBranchUpdate":
+        if self.label is None and self.archived is None:
+            raise ValueError("branch update requires a label or archived state")
+        return self
+
+
+class GuidedItemVersionSelect(BaseModel):
+    version_number: int = Field(ge=1)
+    expected_revision: int = Field(ge=1)
 
 
 class GuidedScriptRestore(BaseModel):
@@ -212,13 +233,13 @@ class GuidedStoryboardUpdate(BaseModel):
 
 class GuidedStoryboardConfirm(BaseModel):
     expected_plan_code: str = Field(min_length=1, max_length=64)
+    preview_fingerprint: str | None = Field(default=None, pattern="^[0-9a-f]{64}$")
 
 
 class GuidedGenerationJobRead(BaseModel):
     job_code: str
     stage: str
     operation: str = "generate"
-    target_section_key: str | None = None
     target_section_key: str | None = None
     status: str
     total_items: int
@@ -240,7 +261,13 @@ class GuidedWorkflowRead(BaseModel):
     outline: dict[str, Any] | None = None
     script: dict[str, Any] | None = None
     storyboard: dict[str, Any] | None = None
+    tree: dict[str, Any] = Field(default_factory=dict)
+    active_path: list[str] = Field(default_factory=list)
     jobs: dict[str, GuidedGenerationJobRead] = Field(default_factory=dict)
     revisions: dict[str, Any] = Field(default_factory=dict)
+    script_archives: list[dict[str, Any]] = Field(default_factory=list)
     history: list[dict[str, Any]] = Field(default_factory=list)
     gates: dict[str, Any] = Field(default_factory=dict)
+    setup_branch: dict[str, Any] | None = None
+    confirmation: dict[str, Any] | None = None
+    navigation: dict[str, Any] | None = None

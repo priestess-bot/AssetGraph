@@ -179,6 +179,9 @@ class AssetRead(AssetCreate):
 
     id: str
     asset_code: str
+    # Source-side compatibility rows can contain historical Maitu categories.
+    # Keep writes canonical without making one legacy row break the whole list.
+    maitu_category: str | None = None
     maitu_binding_verification_source: str | None = None
     maitu_binding_verified_at: datetime | None = None
     maitu_binding_scope: str | None = None

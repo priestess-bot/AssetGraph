@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from collections.abc import Iterator
 
 from psycopg import Connection
@@ -21,7 +22,13 @@ def ensure_pool_open() -> None:
         open_pool()
 
 
-def get_db() -> Iterator[Connection]:
+@contextmanager
+def database_connection() -> Iterator[Connection]:
     ensure_pool_open()
     with pool.connection() as connection:
+        yield connection
+
+
+def get_db() -> Iterator[Connection]:
+    with database_connection() as connection:
         yield connection

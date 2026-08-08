@@ -13,7 +13,7 @@ from starlette.background import BackgroundTask
 
 from app.core.config import settings
 from app.api.auth import reject_maitu_durable_secret, require_maitu_script_layout_worker
-from app.core.database import get_db
+from app.core.database import database_connection, get_db
 from app.repositories.assets import (
     AssetBindingLeaseConflictError,
     AssetBindingReceiptReplayError,
@@ -610,13 +610,14 @@ def asset_candidates(
 
 def get_asset_preview_metadata(
     asset_code: str,
-    connection: Annotated[Connection, Depends(get_db, scope="function")],
 ) -> tuple[dict | None, list[dict]]:
-    repository = AssetRepository(connection)
-    asset = repository.get_by_code(asset_code)
-    if asset is None:
-        return None, []
-    return asset, repository.list_file_records(asset_code)
+    # Return the connection before checksum scans or FFmpeg preview generation.
+    with database_connection() as connection:
+        repository = AssetRepository(connection)
+        asset = repository.get_by_code(asset_code)
+        if asset is None:
+            return None, []
+        return asset, repository.list_file_records(asset_code)
 
 
 @router.get("/{asset_code}/preview")

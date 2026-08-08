@@ -50,6 +50,10 @@ export interface GuidedOutlineSection {
   title: string;
   objective: string;
   keyPoints: GuidedOutlineKeyPoint[];
+  itemVersionId?: string;
+  versionNumber?: number;
+  stale?: boolean;
+  missing?: boolean;
 }
 
 export interface GuidedScriptBlock {
@@ -57,6 +61,10 @@ export interface GuidedScriptBlock {
   sortOrder: number;
   sectionKey: string;
   content: string;
+  itemVersionId?: string;
+  versionNumber?: number;
+  stale?: boolean;
+  missing?: boolean;
 }
 
 export interface GuidedMaterialRequirement {
@@ -81,10 +89,59 @@ export interface GuidedStoryboardLayer {
 }
 
 export interface GuidedStoryboardScene {
+  itemKey?: string;
   shotCode: string;
   title: string;
   script: string;
   layers: GuidedStoryboardLayer[];
+  itemVersionId?: string;
+  versionNumber?: number;
+  stale?: boolean;
+  missing?: boolean;
+}
+
+export type GuidedWorkflowStage = "setup" | "outline" | "script" | "storyboard";
+
+export interface GuidedWorkflowTreeNode {
+  nodeCode: string;
+  parentNodeCode?: string;
+  stage: GuidedWorkflowStage;
+  label: string;
+  status: string;
+  currentRevisionNumber: number;
+  confirmedRevisionNumber: number;
+  hasDraft: boolean;
+}
+
+export interface GuidedWorkflowTree {
+  headRevision: number;
+  activePath: string[];
+  nodes: GuidedWorkflowTreeNode[];
+}
+
+export interface GuidedItemVersionRecord {
+  id: string;
+  versionNumber: number;
+  content: Record<string, unknown>;
+  producerKind: string;
+  producerRef?: string;
+  guidance?: string;
+  createdAt: string;
+}
+
+export interface GuidedConfirmationPreview {
+  nodeCode?: string;
+  stage: GuidedWorkflowStage;
+  expectedRevision: number;
+  changed: boolean;
+  previewFingerprint: string;
+  initial: boolean;
+  added: string[];
+  removed: string[];
+  changedItems: string[];
+  reordered: boolean;
+  contentChanged: boolean;
+  affectedDownstream: string[];
 }
 
 export interface GuidedKnowledgeReference {
@@ -177,6 +234,7 @@ export interface GuidedWorkflow {
     themeCandidate?: GuidedThemeCandidate;
     recommendations?: GuidedSetupRecommendations;
   };
+  tree: GuidedWorkflowTree;
   revisions: GuidedRevisions;
   outline?: {
     storyBriefCode: string;
@@ -214,6 +272,7 @@ export interface GuidedWorkflow {
   history: GuidedHistoryItem[];
   gates: {
     setupEditable: boolean;
+    setupConfirmed: boolean;
     outlineCurrent: boolean;
     outlineConfirmed: boolean;
     scriptCurrent: boolean;
@@ -266,6 +325,78 @@ function outlineSection(value: unknown, index: number): GuidedOutlineSection | u
     title: asString(value.title),
     objective: asString(value.objective),
     keyPoints: asArray(value.key_points).flatMap((item) => keyPoint(item) ?? []),
+    itemVersionId: asOptionalString(value.item_version_id),
+    versionNumber: asNumber(value.version_number) || undefined,
+    stale: value.stale === true,
+    missing: value.missing === true,
+  };
+}
+
+function normalizeWorkflowTree(value: unknown): GuidedWorkflowTree {
+  const source = isRecord(value) && isRecord(value.tree) ? value.tree : value;
+  if (!isRecord(source)) return { headRevision: 0, activePath: [], nodes: [] };
+  return {
+    headRevision: asNumber(source.head_revision),
+    activePath: strings(source.active_path),
+    nodes: asArray(source.nodes).flatMap((item) => {
+      if (!isRecord(item)) return [];
+      const nodeCode = asString(item.node_code);
+      const stage = asString(item.stage) as GuidedWorkflowStage;
+      if (!nodeCode || !["setup", "outline", "script", "storyboard"].includes(stage)) return [];
+      return [{
+        nodeCode,
+        parentNodeCode: asOptionalString(item.parent_node_code),
+        stage,
+        label: asString(item.label, nodeCode),
+        status: asString(item.status, "draft"),
+        currentRevisionNumber: asNumber(item.current_revision_number),
+        confirmedRevisionNumber: asNumber(item.confirmed_revision_number),
+        hasDraft: item.has_draft === true,
+      }];
+    }),
+  };
+}
+
+export function normalizeGuidedItemVersions(value: unknown): GuidedItemVersionRecord[] {
+  const source = isRecord(value) ? value.versions ?? value.items ?? value : value;
+  return asArray(source).flatMap((item) => {
+    if (!isRecord(item)) return [];
+    const id = asString(item.id);
+    if (!id) return [];
+    return [{
+      id,
+      versionNumber: asNumber(item.version_number),
+      content: isRecord(item.content) ? item.content : {},
+      producerKind: asString(item.producer_kind, "unknown"),
+      producerRef: asOptionalString(item.producer_ref),
+      guidance: asOptionalString(item.guidance),
+      createdAt: asString(item.created_at),
+    }];
+  });
+}
+
+export function normalizeConfirmationPreview(value: unknown, fallbackStage: GuidedWorkflowStage): GuidedConfirmationPreview {
+  const source = isRecord(value) ? value : {};
+  const diff = isRecord(source.diff) ? source.diff : {};
+  const changedItems = strings(diff.changed ?? source.changed_items);
+  const added = strings(diff.added ?? source.added);
+  const removed = strings(diff.removed ?? source.removed);
+  const reordered = asBoolean(diff.reordered ?? source.reordered);
+  const contentChanged = asBoolean(diff.content_changed ?? source.content_changed);
+  const changed = asBoolean(source.changed, Boolean(added.length || removed.length || changedItems.length || reordered || contentChanged));
+  return {
+    nodeCode: asOptionalString(source.node_code),
+    stage: (asString(source.stage, fallbackStage) as GuidedWorkflowStage),
+    expectedRevision: asNumber(source.expected_revision),
+    changed,
+    previewFingerprint: asString(source.preview_fingerprint),
+    initial: asBoolean(diff.initial ?? source.initial),
+    added,
+    removed,
+    changedItems,
+    reordered,
+    contentChanged,
+    affectedDownstream: strings(source.affected_downstream ?? diff.affected_downstream),
   };
 }
 
@@ -359,9 +490,14 @@ function storyboardScene(value: unknown): GuidedStoryboardScene | undefined {
   const shotCode = asString(value.shot_code);
   if (!shotCode) return undefined;
   return {
+    itemKey: asOptionalString(value.item_key),
     shotCode,
     title: asString(value.title, shotCode),
     script: asString(value.script),
+    itemVersionId: asOptionalString(value.item_version_id),
+    versionNumber: asNumber(value.version_number) || undefined,
+    stale: value.stale === true,
+    missing: value.missing === true,
     layers: asArray(value.layers).flatMap((raw) => {
       if (!isRecord(raw)) return [];
       const geometry = isRecord(raw.normalized_geometry) ? raw.normalized_geometry : isRecord(raw.geometry) ? raw.geometry : {};
@@ -437,6 +573,7 @@ export function normalizeGuidedWorkflow(value: unknown): GuidedWorkflow {
       themeCandidate: themeCandidate(rawSetup) ?? themeCandidate(value),
       recommendations: recommendations(rawSetup) ?? recommendations(value),
     },
+    tree: normalizeWorkflowTree(value.tree),
     revisions: normalizeGuidedRevisions({
       ...(isRecord(value.revisions) ? value.revisions : {}),
       ...(value.script_archives !== undefined ? { script: value.script_archives } : {}),
@@ -461,6 +598,10 @@ export function normalizeGuidedWorkflow(value: unknown): GuidedWorkflow {
         sortOrder: asNumber(item.sort_order),
         sectionKey: asString(item.section_key),
         content: asString(item.content),
+        itemVersionId: asOptionalString(item.item_version_id),
+        versionNumber: asNumber(item.version_number) || undefined,
+        stale: item.stale === true,
+        missing: item.missing === true,
       }] : []),
       requirements: asArray(rawScript.requirements).flatMap((item) => isRecord(item) ? [{
         requirementCode: asString(item.requirement_code),
@@ -508,6 +649,7 @@ export function normalizeGuidedWorkflow(value: unknown): GuidedWorkflow {
     }),
     gates: {
       setupEditable: gates.setup_editable === true,
+      setupConfirmed: gates.setup_confirmed === true,
       outlineCurrent: gates.outline_current === true,
       outlineConfirmed: gates.outline_confirmed === true,
       scriptCurrent: gates.script_current === true,
@@ -593,6 +735,22 @@ export const guidedContentApi = {
       ...(idempotencyKey ? { headers: { "Idempotency-Key": idempotencyKey } } : {}),
     }).then(normalizeGuidedWorkflow),
   get: (projectCode: string) => requestJson<unknown>(`${ROOT}/${encodeURIComponent(projectCode)}/guided-workflow`).then(normalizeGuidedWorkflow),
+  selectTreeNode: (projectCode: string, nodeCode: string, expectedHeadRevision: number) =>
+    postJson<unknown>(`${ROOT}/${encodeURIComponent(projectCode)}/guided-workflow/tree/select`, {
+      node_code: nodeCode,
+      expected_head_revision: expectedHeadRevision,
+    }).then(normalizeWorkflowTree),
+  updateTreeNode: (projectCode: string, nodeCode: string, payload: { label?: string; archived?: boolean }) =>
+    patchJson<unknown>(`${ROOT}/${encodeURIComponent(projectCode)}/guided-workflow/tree/nodes/${encodeURIComponent(nodeCode)}`, payload).then(normalizeWorkflowTree),
+  getItemVersions: (projectCode: string, stage: Exclude<GuidedWorkflowStage, "setup">, itemKey: string) =>
+    requestJson<unknown>(`${ROOT}/${encodeURIComponent(projectCode)}/guided-workflow/${stage}/items/${encodeURIComponent(itemKey)}/versions`).then(normalizeGuidedItemVersions),
+  selectItemVersion: (projectCode: string, stage: Exclude<GuidedWorkflowStage, "setup">, itemKey: string, versionNumber: number, expectedRevision: number) =>
+    postJson<unknown>(`${ROOT}/${encodeURIComponent(projectCode)}/guided-workflow/${stage}/items/${encodeURIComponent(itemKey)}/versions/select`, {
+      version_number: versionNumber,
+      expected_revision: expectedRevision,
+    }).then(normalizeGuidedWorkflow),
+  getConfirmationPreview: (projectCode: string, stage: GuidedWorkflowStage) =>
+    requestJson<unknown>(`${ROOT}/${encodeURIComponent(projectCode)}/guided-workflow/${stage}/confirm-preview`).then((value) => normalizeConfirmationPreview(value, stage)),
   updateSetup: (projectCode: string, payload: {
     expected_project_revision: number;
     expected_material_pool_revision: number;
@@ -628,9 +786,15 @@ export const guidedContentApi = {
         })) }) : point.text),
       })),
     }),
-  confirmOutline: (projectCode: string, expectedRevision: number) => postJson<unknown>(`${ROOT}/${encodeURIComponent(projectCode)}/guided-workflow/outline/confirm`, { expected_revision: expectedRevision }).then(normalizeGuidedWorkflow),
+  confirmSetup: (projectCode: string, expectedRevision: number, previewFingerprint?: string) =>
+    postJson<unknown>(`${ROOT}/${encodeURIComponent(projectCode)}/guided-workflow/setup/confirm`, { expected_revision: expectedRevision, ...(previewFingerprint ? { preview_fingerprint: previewFingerprint } : {}) }).then(normalizeGuidedWorkflow),
+  confirmOutline: (projectCode: string, expectedRevision: number, previewFingerprint?: string) => postJson<unknown>(`${ROOT}/${encodeURIComponent(projectCode)}/guided-workflow/outline/confirm`, { expected_revision: expectedRevision, ...(previewFingerprint ? { preview_fingerprint: previewFingerprint } : {}) }).then(normalizeGuidedWorkflow),
   reopenOutline: (projectCode: string, expectedRevision: number) => postJson<unknown>(`${ROOT}/${encodeURIComponent(projectCode)}/guided-workflow/outline/reopen`, { expected_revision: expectedRevision }).then(normalizeGuidedWorkflow),
   generateScript: (projectCode: string) => postJson<unknown>(`${ROOT}/${encodeURIComponent(projectCode)}/guided-workflow/script/generate`).then((value) => normalizeGuidedJob(value)),
+  regenerateScriptBlock: (projectCode: string, sectionKey: string, expectedRevision: number, guidance?: string) =>
+    postJson<unknown>(`${ROOT}/${encodeURIComponent(projectCode)}/guided-workflow/script/blocks/${encodeURIComponent(sectionKey)}/regenerate`, { expected_revision: expectedRevision, ...(guidance?.trim() ? { guidance: guidance.trim() } : {}) }).then((value) => normalizeGuidedJob(value)),
+  reaffirmScriptBlock: (projectCode: string, sectionKey: string, expectedRevision: number) =>
+    postJson<unknown>(`${ROOT}/${encodeURIComponent(projectCode)}/guided-workflow/script/blocks/${encodeURIComponent(sectionKey)}/reaffirm`, { expected_revision: expectedRevision }).then(normalizeGuidedWorkflow),
   reviseScript: (projectCode: string, expectedRevision: number, blocks: GuidedScriptBlock[]) =>
     put(`${ROOT}/${encodeURIComponent(projectCode)}/guided-workflow/script`, {
       expected_revision: expectedRevision,
@@ -638,7 +802,7 @@ export const guidedContentApi = {
     }),
   waiveRequirement: (projectCode: string, requirementCode: string, expectedScriptRevision: number) =>
     postJson<unknown>(`${ROOT}/${encodeURIComponent(projectCode)}/guided-workflow/script/requirements/${encodeURIComponent(requirementCode)}/waive`, { expected_script_revision: expectedScriptRevision }).then(normalizeGuidedWorkflow),
-  confirmScript: (projectCode: string, expectedRevision: number) => postJson<unknown>(`${ROOT}/${encodeURIComponent(projectCode)}/guided-workflow/script/confirm`, { expected_revision: expectedRevision }).then(normalizeGuidedWorkflow),
+  confirmScript: (projectCode: string, expectedRevision: number, previewFingerprint?: string) => postJson<unknown>(`${ROOT}/${encodeURIComponent(projectCode)}/guided-workflow/script/confirm`, { expected_revision: expectedRevision, ...(previewFingerprint ? { preview_fingerprint: previewFingerprint } : {}) }).then(normalizeGuidedWorkflow),
   reopenScript: (projectCode: string, expectedRevision: number) => postJson<unknown>(`${ROOT}/${encodeURIComponent(projectCode)}/guided-workflow/script/reopen`, { expected_revision: expectedRevision }).then(normalizeGuidedWorkflow),
   getRevisions: async (projectCode: string) => {
     const path = `${ROOT}/${encodeURIComponent(projectCode)}/guided-workflow`;
@@ -657,6 +821,10 @@ export const guidedContentApi = {
   restoreScriptRevision: (projectCode: string, revisionNumber: number, expectedCurrentRevision?: number) =>
     postJson<unknown>(`${ROOT}/${encodeURIComponent(projectCode)}/guided-workflow/script/revisions/${encodeURIComponent(String(revisionNumber))}/restore`, expectedCurrentRevision ? { expected_current_revision: expectedCurrentRevision } : undefined).then(normalizeGuidedWorkflow),
   generateStoryboard: (projectCode: string, template: { template_code: string; revision: number; projection_fingerprint: string }) => postJson<unknown>(`${ROOT}/${encodeURIComponent(projectCode)}/guided-workflow/storyboard/generate`, template).then((value) => normalizeGuidedJob(value)),
+  regenerateStoryboardScene: (projectCode: string, sectionKey: string, expectedRevision: number, guidance?: string) =>
+    postJson<unknown>(`${ROOT}/${encodeURIComponent(projectCode)}/guided-workflow/storyboard/scenes/${encodeURIComponent(sectionKey)}/regenerate`, { expected_revision: expectedRevision, ...(guidance?.trim() ? { guidance: guidance.trim() } : {}) }).then((value) => normalizeGuidedJob(value)),
+  reaffirmStoryboardScene: (projectCode: string, sectionKey: string, expectedRevision: number) =>
+    postJson<unknown>(`${ROOT}/${encodeURIComponent(projectCode)}/guided-workflow/storyboard/scenes/${encodeURIComponent(sectionKey)}/reaffirm`, { expected_revision: expectedRevision }).then(normalizeGuidedWorkflow),
   reviseStoryboard: (projectCode: string, expectedPlanCode: string, scenes: GuidedStoryboardScene[]) => put(`${ROOT}/${encodeURIComponent(projectCode)}/guided-workflow/storyboard`, {
     expected_plan_code: expectedPlanCode,
     scenes: scenes.map((scene, sortOrder) => ({
@@ -667,6 +835,6 @@ export const guidedContentApi = {
       layers: scene.layers.map((layer) => ({ role: layer.role, asset_code: layer.assetCode, geometry: layer.geometry, z_order: layer.zOrder })),
     })),
   }),
-  confirmStoryboard: (projectCode: string, expectedPlanCode: string) => postJson<unknown>(`${ROOT}/${encodeURIComponent(projectCode)}/guided-workflow/storyboard/confirm`, { expected_plan_code: expectedPlanCode }).then(normalizeGuidedWorkflow),
+  confirmStoryboard: (projectCode: string, expectedPlanCode: string, previewFingerprint?: string) => postJson<unknown>(`${ROOT}/${encodeURIComponent(projectCode)}/guided-workflow/storyboard/confirm`, { expected_plan_code: expectedPlanCode, ...(previewFingerprint ? { preview_fingerprint: previewFingerprint } : {}) }).then(normalizeGuidedWorkflow),
   retryJob: (projectCode: string, jobCode: string) => postJson<unknown>(`${ROOT}/${encodeURIComponent(projectCode)}/guided-workflow/jobs/${encodeURIComponent(jobCode)}/retry`).then(normalizeGuidedWorkflow),
 };

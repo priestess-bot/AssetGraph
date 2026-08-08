@@ -251,6 +251,23 @@ def test_create_and_get_asset(client: TestClient) -> None:
     assert get_response.json()["original_filename"] == "live-full.mp4"
 
 
+def test_list_assets_preserves_historical_maitu_category(client: TestClient) -> None:
+    repository = app.dependency_overrides[assets.get_asset_repository]()
+    row = repository.create(
+        {
+            "asset_type": "IMG",
+            "original_filename": "legacy-product.png",
+            "maitu_category": "product",
+        }
+    )
+
+    response = client.get("/api/assets")
+
+    assert response.status_code == 200
+    legacy = next(item for item in response.json() if item["asset_code"] == row["asset_code"])
+    assert legacy["maitu_category"] == "product"
+
+
 def test_create_maitu_asset_metadata_and_filter_for_agent_lookup(client: TestClient) -> None:
     response = client.post(
         "/api/assets",

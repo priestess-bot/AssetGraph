@@ -120,6 +120,20 @@ class ContentWorkflowRepository:
             row = cursor.fetchone()
         return dict(row) if row else None
 
+    def material_pool_revision(
+        self, project_id: UUID, revision_number: int
+    ) -> dict[str, Any] | None:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT * FROM content_project_material_pool_revisions
+                WHERE project_id = %s AND revision_number = %s
+                """,
+                (project_id, revision_number),
+            )
+            row = cursor.fetchone()
+        return dict(row) if row else None
+
     def load_assets(
         self,
         asset_codes: list[str],
@@ -260,6 +274,24 @@ class ContentWorkflowRepository:
                 ORDER BY revision.revision_number DESC LIMIT 1
                 """,
                 (project_id,),
+            )
+            row = cursor.fetchone()
+        return dict(row) if row else None
+
+    def outline_revision(
+        self, project_id: UUID, revision_number: int
+    ) -> dict[str, Any] | None:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT revision.*, project_revision.revision_number AS source_project_revision
+                FROM story_brief_revisions AS revision
+                JOIN story_briefs AS brief ON brief.id = revision.story_brief_id
+                JOIN content_project_revisions AS project_revision
+                  ON project_revision.id = revision.source_project_revision_id
+                WHERE brief.project_id = %s AND revision.revision_number = %s
+                """,
+                (project_id, revision_number),
             )
             row = cursor.fetchone()
         return dict(row) if row else None
@@ -555,6 +587,9 @@ class ContentWorkflowRepository:
         source_script_revision: int | None = None,
         template_ref: dict[str, Any] | None = None,
         items: list[dict[str, Any]] | None = None,
+        target_node_id: UUID | None = None,
+        target_node_revision: int | None = None,
+        target_item_id: UUID | None = None,
         commit: bool = True,
     ) -> dict[str, Any]:
         resolved_operation = operation or {
@@ -571,6 +606,9 @@ class ContentWorkflowRepository:
                 "source_outline_revision": source_outline_revision,
                 "source_script_revision": source_script_revision,
                 "template_ref": template_ref or {},
+                "target_node_id": str(target_node_id or ""),
+                "target_node_revision": target_node_revision,
+                "target_item_id": str(target_item_id or ""),
             }
         )
         idempotency_key = f"{resolved_operation}:{fingerprint}"
@@ -591,29 +629,40 @@ class ContentWorkflowRepository:
             if existing is not None:
                 self.connection.rollback()
                 return dict(existing)
-            active_scope = "stage = %s AND operation = %s" if stage == "setup" else "stage = %s"
-            active_params: tuple[Any, ...] = (
-                (project["project_id"], stage, resolved_operation)
-                if stage == "setup"
-                else (project["project_id"], stage)
-            )
-            cursor.execute(
-                f"""
-                UPDATE content_generation_jobs
-                SET status = 'stale', finished_at = now(), updated_at = now(),
-                    error_code = 'INPUT_SUPERSEDED', error_message = 'A newer generation request replaced this job'
-                WHERE project_id = %s AND {active_scope} AND status IN ('queued', 'running')
-                """,
-                active_params,
-            )
+            if target_item_id is not None:
+                cursor.execute(
+                    """
+                    UPDATE content_generation_jobs
+                    SET status = 'stale', finished_at = now(), updated_at = now(),
+                        error_code = 'INPUT_SUPERSEDED',
+                        error_message = 'A newer generation request replaced this item job'
+                    WHERE target_item_id = %s AND operation = %s
+                      AND status IN ('queued', 'running')
+                    """,
+                    (target_item_id, resolved_operation),
+                )
+            else:
+                cursor.execute(
+                    """
+                    UPDATE content_generation_jobs
+                    SET status = 'stale', finished_at = now(), updated_at = now(),
+                        error_code = 'INPUT_SUPERSEDED',
+                        error_message = 'A newer generation request replaced this branch job'
+                    WHERE project_id = %s AND stage = %s AND operation = %s
+                      AND target_item_id IS NULL AND status IN ('queued', 'running')
+                    """,
+                    (project["project_id"], stage, resolved_operation),
+                )
             cursor.execute(
                 """
                 INSERT INTO content_generation_jobs (
                     job_code, project_id, project_code, stage, operation, status, idempotency_key,
                     source_project_revision, source_material_pool_revision,
                     source_outline_revision, source_script_revision, template_ref,
-                    input_snapshot, input_fingerprint, total_items, requested_by
-                ) VALUES (%s, %s, %s, %s, %s, 'queued', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    input_snapshot, input_fingerprint, total_items, requested_by,
+                    target_node_id, target_node_revision, target_item_id
+                ) VALUES (%s, %s, %s, %s, %s, 'queued', %s, %s, %s, %s, %s, %s,
+                          %s, %s, %s, %s, %s, %s, %s)
                 RETURNING *
                 """,
                 (
@@ -632,6 +681,9 @@ class ContentWorkflowRepository:
                     fingerprint,
                     len(job_items),
                     requested_by,
+                    target_node_id,
+                    target_node_revision,
+                    target_item_id,
                 ),
             )
             job = cursor.fetchone()
@@ -657,10 +709,10 @@ class ContentWorkflowRepository:
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
                 """
-                SELECT DISTINCT ON (stage, operation) *
+                SELECT DISTINCT ON (stage, operation, target_node_id, target_item_id) *
                 FROM content_generation_jobs
                 WHERE project_id = %s
-                ORDER BY stage, operation, created_at DESC
+                ORDER BY stage, operation, target_node_id, target_item_id, created_at DESC
                 """,
                 (project_id,),
             )

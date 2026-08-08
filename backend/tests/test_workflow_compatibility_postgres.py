@@ -193,7 +193,7 @@ def _insert_legacy_asset(connection: psycopg.Connection, suffix: str) -> str:
                 duplicate_rank, duplicate_count
             ) VALUES (
                 %s, 'IMG', 'Compatibility asset', %s, 'ready',
-                'legacy-import', 'product', 'Scene 1', 1, 'Product', 2,
+                'legacy-import', 'product_image', 'Scene 1', 1, 'Product', 2,
                 10, 20, 300, 400, 8, %s, 1, 2
             )
             """,
@@ -343,40 +343,46 @@ def test_legacy_asset_geometry_and_duplicate_group_remain_read_only_observations
     suffix = uuid4().hex
     with psycopg.connect(DATABASE_URL) as connection:
         asset_code = _insert_legacy_asset(connection, suffix)
-        repository = WorkflowCompatibilityRepository(connection)
+        try:
+            repository = WorkflowCompatibilityRepository(connection)
 
-        projection = next(
-            row
-            for row in repository.list_asset_observations(limit=100)
-            if row["asset_code"] == asset_code
-        )
-        assert projection["observed_geometry"] == {
-            "left": 10.000,
-            "top": 20.000,
-            "width": 300.000,
-            "height": 400.000,
-            "z_index": 8,
-        }
-        assert projection["geometry_semantics"] == "observed_legacy_placement"
-        assert projection["duplicate_group_semantics"] == "legacy_duplicate_candidate"
-        assert projection["is_constraint"] is False
-        assert projection["is_user_group"] is False
-        assert projection["read_only"] is True
+            projection = next(
+                row
+                for row in repository.list_asset_observations(limit=100)
+                if row["asset_code"] == asset_code
+            )
+            assert projection["observed_geometry"] == {
+                "left": 10.000,
+                "top": 20.000,
+                "width": 300.000,
+                "height": 400.000,
+                "z_index": 8,
+            }
+            assert projection["geometry_semantics"] == "observed_legacy_placement"
+            assert projection["duplicate_group_semantics"] == "legacy_duplicate_candidate"
+            assert projection["is_constraint"] is False
+            assert projection["is_user_group"] is False
+            assert projection["read_only"] is True
 
-        with pytest.raises(
-            psycopg.Error, match="legacy compatibility projections are read-only"
-        ):
+            with pytest.raises(
+                psycopg.Error, match="legacy compatibility projections are read-only"
+            ):
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "UPDATE legacy_asset_observations_v1 SET title = 'mutated' WHERE asset_code = %s",
+                        (asset_code,),
+                    )
+            connection.rollback()
             with connection.cursor() as cursor:
                 cursor.execute(
-                    "UPDATE legacy_asset_observations_v1 SET title = 'mutated' WHERE asset_code = %s",
-                    (asset_code,),
+                    "SELECT title FROM assets WHERE asset_code = %s", (asset_code,)
                 )
-        connection.rollback()
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT title FROM assets WHERE asset_code = %s", (asset_code,)
-            )
-            assert cursor.fetchone()[0] == "Compatibility asset"
+                assert cursor.fetchone()[0] == "Compatibility asset"
+        finally:
+            connection.rollback()
+            with connection.cursor() as cursor:
+                cursor.execute("DELETE FROM assets WHERE asset_code = %s", (asset_code,))
+            connection.commit()
 
 
 def test_legacy_content_variant_and_delivery_projections_do_not_fabricate_new_facts() -> (

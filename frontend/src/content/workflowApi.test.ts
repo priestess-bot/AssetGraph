@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { guidedContentApi, normalizeGuidedRevisions, normalizeGuidedWorkflow, normalizeMaituRoomConfiguration } from "./workflowApi";
+import { guidedContentApi, normalizeConfirmationPreview, normalizeGuidedItemVersions, normalizeGuidedRevisions, normalizeGuidedWorkflow, normalizeMaituRoomConfiguration } from "./workflowApi";
 
 
 const rawWorkflow = {
@@ -169,5 +169,50 @@ describe("guided content workflow api", () => {
         }],
       },
     });
+  });
+
+  it("normalizes the branch tree, item metadata, versions and confirmation preview", () => {
+    const workflow = normalizeGuidedWorkflow({
+      ...rawWorkflow,
+      tree: {
+        head_revision: 9,
+        active_path: ["SETUP-A", "OUTLINE-A"],
+        nodes: [{ node_code: "OUTLINE-A", parent_node_code: "SETUP-A", stage: "outline", label: "方案 A", status: "confirmed", current_revision_number: 3, confirmed_revision_number: 2, has_draft: true }],
+      },
+      outline: { ...rawWorkflow.outline, sections: [{ ...rawWorkflow.outline.sections[0], item_version_id: "VERSION-2", version_number: 2, stale: true }] },
+    });
+    expect(workflow.tree).toMatchObject({ headRevision: 9, activePath: ["SETUP-A", "OUTLINE-A"] });
+    expect(workflow.tree.nodes[0]).toMatchObject({ nodeCode: "OUTLINE-A", parentNodeCode: "SETUP-A", hasDraft: true });
+    expect(workflow.outline?.sections[0]).toMatchObject({ itemVersionId: "VERSION-2", versionNumber: 2, stale: true });
+    expect(normalizeGuidedItemVersions([{ id: "VERSION-1", version_number: 1, content: { title: "开场" }, producer_kind: "manual", producer_ref: "operator", guidance: "更精简", created_at: "2026-08-06T02:00:00Z" }])[0]).toMatchObject({ id: "VERSION-1", versionNumber: 1, producerKind: "manual", guidance: "更精简" });
+    expect(normalizeConfirmationPreview({ stage: "outline", expected_revision: 3, changed: false, preview_fingerprint: "fp", diff: { initial: false, added: [], removed: [], changed: [], reordered: false, content_changed: false } }, "outline")).toMatchObject({ changed: false, previewFingerprint: "fp", expectedRevision: 3 });
+  });
+
+  it("uses only the documented tree, item-version and confirmation endpoints", async () => {
+    const calls: Array<{ path: string; method?: string; body?: unknown }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      calls.push({ path, method: init?.method, body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined });
+      if (path.endsWith("/versions") && !path.endsWith("/versions/select")) return Response.json([{ id: "VERSION-1", version_number: 1, content: {}, producer_kind: "manual", created_at: "2026-08-06T02:00:00Z" }]);
+      if (path.endsWith("/confirm-preview")) return Response.json({ stage: "outline", expected_revision: 4, changed: false, preview_fingerprint: "fp", diff: {} });
+      if (path.endsWith("/tree/select") || path.includes("/tree/nodes/")) return Response.json({ head_revision: 3, active_path: ["OUTLINE-A"], nodes: [] });
+      return Response.json(rawWorkflow);
+    }));
+
+    await guidedContentApi.selectTreeNode("CONTENT-001", "OUTLINE-A", 3);
+    await guidedContentApi.updateTreeNode("CONTENT-001", "OUTLINE-A", { label: "大纲 A", archived: false });
+    await guidedContentApi.getItemVersions("CONTENT-001", "outline", "section-1");
+    await guidedContentApi.selectItemVersion("CONTENT-001", "outline", "section-1", 2, 4);
+    await guidedContentApi.getConfirmationPreview("CONTENT-001", "outline");
+    await guidedContentApi.confirmSetup("CONTENT-001", 2, "setup-fp");
+
+    expect(calls).toEqual([
+      { path: "/api/content-projects/CONTENT-001/guided-workflow/tree/select", method: "POST", body: { node_code: "OUTLINE-A", expected_head_revision: 3 } },
+      { path: "/api/content-projects/CONTENT-001/guided-workflow/tree/nodes/OUTLINE-A", method: "PATCH", body: { label: "大纲 A", archived: false } },
+      { path: "/api/content-projects/CONTENT-001/guided-workflow/outline/items/section-1/versions", method: undefined, body: undefined },
+      { path: "/api/content-projects/CONTENT-001/guided-workflow/outline/items/section-1/versions/select", method: "POST", body: { version_number: 2, expected_revision: 4 } },
+      { path: "/api/content-projects/CONTENT-001/guided-workflow/outline/confirm-preview", method: undefined, body: undefined },
+      { path: "/api/content-projects/CONTENT-001/guided-workflow/setup/confirm", method: "POST", body: { expected_revision: 2, preview_fingerprint: "setup-fp" } },
+    ]);
   });
 });

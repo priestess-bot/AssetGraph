@@ -16,7 +16,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -27,6 +27,7 @@ import {
   Clapperboard,
   Clock3,
   FileText,
+  FilePenLine,
   GripVertical,
   Image,
   Layers3,
@@ -35,7 +36,6 @@ import {
   PackageCheck,
   Plus,
   RefreshCw,
-  RotateCcw,
   Save,
   Sparkles,
   Trash2,
@@ -43,7 +43,7 @@ import {
 } from "lucide-react";
 import { assetLibraryApi, type LibraryAsset } from "../assets/api";
 import { liveResearchApi } from "../live-research/api";
-import { PageHeader } from "../product/components";
+import { IconButton, Inspector, PageHeader } from "../product/components";
 import { DeliveryProductPanel } from "../releases/DeliveryProductPanel";
 import { VideoEditorProductPage } from "../videos/VideoEditorProductPage";
 import {
@@ -60,10 +60,15 @@ import {
   type GuidedCitation,
   type GuidedJob,
   type GuidedMaituRoomConfiguration,
+  type GuidedConfirmationPreview,
+  type GuidedItemVersionRecord,
   type GuidedOutlineSection,
   type GuidedStoryboardScene,
   type GuidedWorkflow,
+  type GuidedWorkflowStage,
 } from "./workflowApi";
+import { GuidedVersionControls, type GuidedItemVersion } from "./GuidedVersionControls";
+import { GuidedVersionTree, type GuidedVersionNodeStatus } from "./GuidedVersionTree";
 
 
 const TABS = [
@@ -103,6 +108,8 @@ function jobLabel(job: GuidedJob): string {
   if (source.includes("theme")) return "正在优化主题";
   if (source.includes("recommend")) return "正在推荐知识与素材";
   if (source.includes("section")) return "正在重生成大纲段落";
+  if (source.includes("script_block")) return "正在重生成脚本段落";
+  if (source.includes("storyboard_scene")) return "正在重生成分镜片段";
   if (source.includes("outline")) return "正在生成直播大纲";
   if (source.includes("script")) return "正在生成直播脚本";
   if (source.includes("storyboard")) return "正在生成麦兔分镜";
@@ -157,6 +164,177 @@ function useWorkflowRefresh(projectCode: string) {
     void client.invalidateQueries({ queryKey: ["content-project", projectCode, "workspace-summary"] });
     void client.invalidateQueries({ queryKey: ["content-projects"] });
   }, [client, projectCode]);
+}
+
+function activeStageNode(workflow: GuidedWorkflow, stage: GuidedWorkflowStage) {
+  const active = new Set(workflow.tree.activePath);
+  return [...workflow.tree.nodes].reverse().find((node) => node.stage === stage && active.has(node.nodeCode));
+}
+
+function treeNodeStatus(status: string, hasDraft: boolean): GuidedVersionNodeStatus {
+  if (hasDraft && status === "confirmed") return "draft";
+  if (status === "stale" || status === "needs_update") return "needs_update";
+  if (["draft", "confirmed", "generating", "failed", "archived"].includes(status)) return status as GuidedVersionNodeStatus;
+  return "draft";
+}
+
+function stageRevision(workflow: GuidedWorkflow, stage: Exclude<GuidedWorkflowStage, "setup">): number {
+  return activeStageNode(workflow, stage)?.currentRevisionNumber
+    ?? (stage === "outline" ? workflow.outline?.revisionNumber : stage === "script" ? workflow.script?.revisionNumber : 0)
+    ?? 0;
+}
+
+function stageBranchIdentity(workflow: GuidedWorkflow, stage: GuidedWorkflowStage): string {
+  const node = activeStageNode(workflow, stage);
+  return [
+    workflow.tree.activePath.join("\u0000"),
+    stage,
+    node?.nodeCode ?? "",
+    node?.currentRevisionNumber ?? 0,
+  ].join(":");
+}
+
+function versionSourceLabel(version: GuidedItemVersionRecord): string {
+  if (version.guidance) return "引导重生成";
+  const kind = version.producerKind.toLowerCase();
+  if (kind.includes("manual") || kind.includes("operator")) return "人工编辑";
+  if (kind.includes("regenerat")) return "重新生成";
+  if (kind.includes("deepseek") || kind.includes("ai") || kind.includes("generate")) return "AI 生成";
+  return version.producerRef || version.producerKind || "历史版本";
+}
+
+function versionPreviewText(content: Record<string, unknown>): string {
+  const lines = [content.title, content.objective, content.content, content.script]
+    .filter((value): value is string => typeof value === "string" && Boolean(value.trim()));
+  const points = Array.isArray(content.key_points) ? content.key_points.flatMap((point) => {
+    if (typeof point === "string") return [point];
+    if (point && typeof point === "object" && "text" in point && typeof point.text === "string") return [point.text];
+    return [];
+  }) : [];
+  return [...lines, ...points].join("\n") || "该版本没有可预览的文本内容。";
+}
+
+function ItemVersionPanel({
+  workflow,
+  stage,
+  itemKey,
+  itemVersionId,
+  versionNumber,
+  stale,
+  missing,
+  onRegenerate,
+  onReaffirm,
+  actionPending = false,
+}: {
+  workflow: GuidedWorkflow;
+  stage: Exclude<GuidedWorkflowStage, "setup">;
+  itemKey: string;
+  itemVersionId?: string;
+  versionNumber?: number;
+  stale?: boolean;
+  missing?: boolean;
+  onRegenerate?: () => void;
+  onReaffirm?: () => void;
+  actionPending?: boolean;
+}) {
+  const refresh = useWorkflowRefresh(workflow.project.projectCode);
+  const branchKey = workflow.tree.activePath.join("/");
+  const versions = useQuery({
+    queryKey: ["guided-item-versions", workflow.project.projectCode, branchKey, stage, itemKey],
+    queryFn: () => guidedContentApi.getItemVersions(workflow.project.projectCode, stage, itemKey),
+    retry: false,
+  });
+  const selected = useMutation({
+    mutationFn: (candidate: GuidedItemVersionRecord) => guidedContentApi.selectItemVersion(
+      workflow.project.projectCode,
+      stage,
+      itemKey,
+      candidate.versionNumber,
+      stageRevision(workflow, stage),
+    ),
+    onSuccess: (value) => refresh(value),
+  });
+  const active = versions.data?.find((item) => item.id === itemVersionId)
+    ?? versions.data?.find((item) => item.versionNumber === versionNumber)
+    ?? versions.data?.at(-1);
+  const [previewId, setPreviewId] = useState("");
+  useEffect(() => setPreviewId(active?.id ?? ""), [active?.id, branchKey]);
+  const preview = versions.data?.find((item) => item.id === previewId) ?? active;
+  const controls: GuidedItemVersion[] = (versions.data ?? []).map((item) => ({
+    id: item.id,
+    versionNumber: item.versionNumber,
+    sourceLabel: versionSourceLabel(item),
+    createdAt: item.createdAt,
+  }));
+  if (versions.isLoading) return <div className="guided-item-version-loading">正在读取条目版本...</div>;
+  if (versions.error) return <InlineNotice tone="danger" title="条目版本无法读取">{mutationError(versions.error)}</InlineNotice>;
+  return <div className="guided-item-version-panel">
+    {missing ? <InlineNotice tone="warning" title="当前条目缺失">请选用历史版本，或通过当前阶段的生成流程补齐。</InlineNotice> : null}
+    {missing && onRegenerate ? <div className="guided-missing-item-action">
+      <button className="wb-button wb-button-primary" type="button" disabled={actionPending} onClick={onRegenerate}><Sparkles size={14} aria-hidden="true" />生成此条目</button>
+    </div> : null}
+    <GuidedVersionControls
+      versions={controls}
+      previewVersionId={preview?.id ?? ""}
+      activeVersionId={active?.id ?? ""}
+      pendingConfirmation={Boolean(activeStageNode(workflow, stage)?.hasDraft)}
+      staleWarning={stale ? "上游对应条目已经变化，请检查后重新选用合适版本。" : undefined}
+      disabled={selected.isPending || actionPending}
+      onPreview={setPreviewId}
+      onSelect={(id) => {
+        const candidate = versions.data?.find((item) => item.id === id);
+        if (candidate) selected.mutate(candidate);
+      }}
+      onRegenerate={onRegenerate ? () => onRegenerate() : undefined}
+      onReaffirm={onReaffirm ? () => onReaffirm() : undefined}
+    />
+    {preview && preview.id !== active?.id ? <pre className="guided-item-version-preview">{versionPreviewText(preview.content)}</pre> : null}
+    {selected.error ? <InlineNotice tone="danger" title="版本未切换">{mutationError(selected.error)}</InlineNotice> : null}
+  </div>;
+}
+
+const DOWNSTREAM_STAGES: Record<GuidedWorkflowStage, string[]> = {
+  setup: ["直播大纲", "直播脚本", "麦兔分镜"],
+  outline: ["直播脚本", "麦兔分镜"],
+  script: ["麦兔分镜"],
+  storyboard: [],
+};
+
+function ConfirmationPreviewDialog({
+  preview,
+  open,
+  pending,
+  error,
+  onOpenChange,
+  onConfirm,
+}: {
+  preview?: GuidedConfirmationPreview;
+  open: boolean;
+  pending: boolean;
+  error?: unknown;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: () => void;
+}) {
+  const affected = preview?.affectedDownstream.length ? preview.affectedDownstream : preview?.changed ? DOWNSTREAM_STAGES[preview.stage] : [];
+  return <Dialog.Root open={open} onOpenChange={(value) => { if (!pending) onOpenChange(value); }}><Dialog.Portal>
+    <Dialog.Overlay className="product-dialog-overlay" />
+    <Dialog.Content className="guided-confirmation-dialog">
+      <header><div><Dialog.Title>确认本阶段版本</Dialog.Title><Dialog.Description>确认前检查内容变化及其对后续阶段的影响。</Dialog.Description></div><Dialog.Close className="product-icon-button" title="关闭" disabled={pending}><X size={18} aria-hidden="true" /></Dialog.Close></header>
+      {preview ? <div className="guided-confirmation-summary">
+        {preview.changed ? <InlineNotice tone="warning" title="检测到内容变化">
+          {affected.length ? `确认后将影响：${affected.join("、")}。系统会按差异标记需要检查的下游内容。` : "这是当前阶段的新版本，不会影响其他已确认阶段。"}
+        </InlineNotice> : <InlineNotice tone="success" title="内容未变化">确认不会创建重复版本，也不要求重新生成下游内容。</InlineNotice>}
+        {preview.changed ? <dl>
+          <div><dt>新增</dt><dd>{preview.added.length ? preview.added.join("、") : "无"}</dd></div>
+          <div><dt>删除</dt><dd>{preview.removed.length ? preview.removed.join("、") : "无"}</dd></div>
+          <div><dt>修改</dt><dd>{preview.changedItems.length ? preview.changedItems.join("、") : "无"}</dd></div>
+          <div><dt>顺序</dt><dd>{preview.reordered ? "已调整" : "未调整"}</dd></div>
+        </dl> : null}
+      </div> : <LoadingBlock label="正在检查版本变化" />}
+      {error ? <InlineNotice tone="danger" title="确认预览失败">{mutationError(error)}</InlineNotice> : null}
+      <footer><button className="wb-button" type="button" disabled={pending} onClick={() => onOpenChange(false)}>取消</button><button className="wb-button wb-button-primary" type="button" disabled={!preview || pending} onClick={onConfirm}>{pending ? "正在确认" : preview?.changed ? "确认并更新下游状态" : "确认，无需重生成"}</button></footer>
+    </Dialog.Content>
+  </Dialog.Portal></Dialog.Root>;
 }
 
 function GenerationBanner({ projectCode, job, label }: { projectCode: string; job?: GuidedJob; label?: string }) {
@@ -271,6 +449,7 @@ function SetupRecommendations({
 
 function SetupPanel({ workflow, assets, onDirtyChange }: { workflow: GuidedWorkflow; assets: LibraryAsset[]; onDirtyChange: (dirty: boolean) => void }) {
   const refresh = useWorkflowRefresh(workflow.project.projectCode);
+  const setupBranch = stageBranchIdentity(workflow, "setup");
   const [theme, setTheme] = useState(workflow.project.theme);
   const [selected, setSelected] = useState(workflow.materialPool.selectedAssetCodes);
   const [selectedKnowledge, setSelectedKnowledge] = useState(workflow.setup.selectedKnowledgeCodes);
@@ -278,6 +457,8 @@ function SetupPanel({ workflow, assets, onDirtyChange }: { workflow: GuidedWorkf
   const [recommendationCandidates, setRecommendationCandidates] = useState(workflow.setup.recommendations);
   const [localThemeJob, setLocalThemeJob] = useState<GuidedJob>();
   const [localRecommendationJobs, setLocalRecommendationJobs] = useState<GuidedJob[]>([]);
+  const [confirmationOpen, setConfirmationOpen] = useState(false);
+  const [confirmationPreview, setConfirmationPreview] = useState<GuidedConfirmationPreview>();
   const room = useQuery({
     queryKey: ["guided-maitu-room-configuration", workflow.project.projectCode],
     queryFn: () => guidedContentApi.getMaituRoomConfiguration(workflow.project.projectCode),
@@ -288,7 +469,13 @@ function SetupPanel({ workflow, assets, onDirtyChange }: { workflow: GuidedWorkf
     setTheme(workflow.project.theme);
     setSelected(workflow.materialPool.selectedAssetCodes);
     setSelectedKnowledge(workflow.setup.selectedKnowledgeCodes);
-  }, [workflow.project.revisionNumber, workflow.materialPool.revisionNumber, workflow.setup.selectedKnowledgeCodes.join("|")]);
+    setThemeCandidate(workflow.setup.themeCandidate);
+    setRecommendationCandidates(workflow.setup.recommendations);
+    setLocalThemeJob(undefined);
+    setLocalRecommendationJobs([]);
+    setConfirmationOpen(false);
+    setConfirmationPreview(undefined);
+  }, [setupBranch]);
   useEffect(() => {
     if (workflow.setup.themeCandidate) {
       setThemeCandidate(workflow.setup.themeCandidate);
@@ -354,30 +541,46 @@ function SetupPanel({ workflow, assets, onDirtyChange }: { workflow: GuidedWorkf
   const dirty = theme !== workflow.project.theme
     || selected.join("|") !== workflow.materialPool.selectedAssetCodes.join("|")
     || selectedKnowledge.join("|") !== workflow.setup.selectedKnowledgeCodes.join("|");
+  const previewConfirmation = useMutation({
+    mutationFn: async () => {
+      if (dirty) await save.mutateAsync();
+      return guidedContentApi.getConfirmationPreview(workflow.project.projectCode, "setup");
+    },
+    onSuccess: (value) => { setConfirmationPreview(value); setConfirmationOpen(true); },
+  });
+  const confirmSetup = useMutation({
+    mutationFn: () => {
+      if (!confirmationPreview) throw new Error("确认预览尚未就绪");
+      return guidedContentApi.confirmSetup(workflow.project.projectCode, confirmationPreview.expectedRevision, confirmationPreview.previewFingerprint);
+    },
+    onSuccess: (value) => { setConfirmationOpen(false); setConfirmationPreview(undefined); refresh(value); },
+  });
   useDirtyEditor(dirty, onDirtyChange);
-  const canGenerate = Boolean(workflow.project.theme.trim()) && !dirty && !activeJob(workflow.jobs.outline) && !activeJob(themeJob) && !recommendationJobs.some(activeJob);
+  const canGenerate = workflow.gates.setupConfirmed && Boolean(workflow.project.theme.trim()) && !dirty && !activeJob(workflow.jobs.outline) && !activeJob(themeJob) && !recommendationJobs.some(activeJob);
   const knownAssetCodes = new Set(assets.map((item) => item.assetCode));
   return <section className="guided-panel guided-setup-panel">
     <header className="guided-panel-header">
       <div><h2>主题与素材</h2><span>已选 {selected.length} 份素材、{selectedKnowledge.length} 条知识</span></div>
       <div>
-        <button className="wb-button" type="button" disabled={!dirty || !theme.trim() || save.isPending || !workflow.gates.setupEditable} onClick={() => save.mutate()}><Save size={15} aria-hidden="true" />保存</button>
+        <button className="wb-button" type="button" title="保存修改；已确认项目会创建新的主题与素材分支" disabled={!dirty || !theme.trim() || save.isPending} onClick={() => save.mutate()}><Save size={15} aria-hidden="true" />保存</button>
+        {(dirty || activeStageNode(workflow, "setup")?.hasDraft) ? <button className="wb-button" type="button" disabled={!theme.trim() || previewConfirmation.isPending || confirmSetup.isPending} onClick={() => previewConfirmation.mutate()}><Check size={15} aria-hidden="true" />确认主题与素材</button> : null}
         <button className="wb-button wb-button-primary" type="button" disabled={!canGenerate} onClick={() => generate.mutate()}><Sparkles size={15} aria-hidden="true" />生成大纲</button>
       </div>
     </header>
-    {!workflow.gates.setupEditable ? <InlineNotice tone="warning" title="大纲已确认">重新打开大纲后才能修改主题、知识与素材。</InlineNotice> : null}
+    {!workflow.gates.setupEditable ? <InlineNotice tone="warning" title="编辑将创建新分支">当前主题与素材已经有下游内容；保存修改会创建新的主题与素材分支，不会覆盖原分支。</InlineNotice> : null}
     <RoomHostStatus configuration={room.data} isLoading={room.isLoading} hasError={Boolean(room.error)} />
-    <div className="guided-theme-field"><span>直播主题</span><textarea aria-label="直播主题" rows={4} value={theme} disabled={!workflow.gates.setupEditable} onChange={(event) => setTheme(event.target.value)} /><div className="guided-theme-actions">
-      <button className="wb-button" type="button" disabled={!theme.trim() || !workflow.gates.setupEditable || optimizeTheme.isPending || activeJob(themeJob)} onClick={() => optimizeTheme.mutate()}><Sparkles size={15} aria-hidden="true" />优化主题</button>
-      <button className="wb-button" type="button" disabled={!theme.trim() || !workflow.gates.setupEditable || recommend.isPending || recommendationJobs.some(activeJob)} onClick={() => recommend.mutate()}><BookOpen size={15} aria-hidden="true" />推荐知识与素材</button>
+    <div className="guided-theme-field"><span>直播主题</span><textarea aria-label="直播主题" rows={4} value={theme} onChange={(event) => setTheme(event.target.value)} /><div className="guided-theme-actions">
+      <button className="wb-button" type="button" disabled={!theme.trim() || optimizeTheme.isPending || activeJob(themeJob)} onClick={() => optimizeTheme.mutate()}><Sparkles size={15} aria-hidden="true" />优化主题</button>
+      <button className="wb-button" type="button" disabled={!theme.trim() || recommend.isPending || recommendationJobs.some(activeJob)} onClick={() => recommend.mutate()}><BookOpen size={15} aria-hidden="true" />推荐知识与素材</button>
     </div></div>
-    {themeCandidate ? <section className="guided-theme-candidate"><header><strong>AI 主题候选</strong>{themeCandidate.rationale ? <small>{themeCandidate.rationale}</small> : null}</header><p>{themeCandidate.theme}</p><footer><button className="wb-button wb-button-primary" type="button" disabled={!workflow.gates.setupEditable} onClick={() => setTheme(themeCandidate.theme)}>应用到编辑框</button></footer></section> : null}
+    {themeCandidate ? <section className="guided-theme-candidate"><header><strong>AI 主题候选</strong>{themeCandidate.rationale ? <small>{themeCandidate.rationale}</small> : null}</header><p>{themeCandidate.theme}</p><footer><button className="wb-button wb-button-primary" type="button" onClick={() => setTheme(themeCandidate.theme)}>应用到编辑框</button></footer></section> : null}
     <GenerationBanner projectCode={workflow.project.projectCode} job={themeJob} />
     {recommendationJobs.map((job) => <GenerationBanner key={job.jobCode} projectCode={workflow.project.projectCode} job={job} />)}
     {workflow.setup.knowledgeReferences.length ? <section className="guided-confirmed-knowledge"><header><BookOpen size={14} aria-hidden="true" /><strong>已确认知识</strong><span>{workflow.setup.knowledgeReferences.length} 条</span></header><div>{workflow.setup.knowledgeReferences.map((item) => <article key={item.knowledgeCode}><b>{item.title}</b>{item.excerpt ? <small>{item.excerpt}</small> : null}</article>)}</div></section> : null}
-    <SetupRecommendations recommendations={recommendationCandidates} selectedKnowledge={selectedKnowledge} onKnowledgeChange={setSelectedKnowledge} selectedMaterials={selected} onMaterialChange={setSelected} knownAssetCodes={knownAssetCodes} disabled={!workflow.gates.setupEditable} />
-    <MaterialPicker assets={assets} selected={selected} onChange={setSelected} disabled={!workflow.gates.setupEditable} />
+    <SetupRecommendations recommendations={recommendationCandidates} selectedKnowledge={selectedKnowledge} onKnowledgeChange={setSelectedKnowledge} selectedMaterials={selected} onMaterialChange={setSelected} knownAssetCodes={knownAssetCodes} disabled={false} />
+    <MaterialPicker assets={assets} selected={selected} onChange={setSelected} />
     <GenerationBanner projectCode={workflow.project.projectCode} job={workflow.jobs.outline} />
+    <ConfirmationPreviewDialog preview={confirmationPreview} open={confirmationOpen} pending={confirmSetup.isPending} error={previewConfirmation.error || confirmSetup.error} onOpenChange={setConfirmationOpen} onConfirm={() => confirmSetup.mutate()} />
     {save.error || generate.error || optimizeTheme.error || recommend.error ? <InlineNotice tone="danger" title="操作未完成">{mutationError(save.error || generate.error || optimizeTheme.error || recommend.error)}</InlineNotice> : null}
   </section>;
 }
@@ -399,6 +602,7 @@ function SortableOutlineSection({
   onDelete,
   onRegenerate,
   onGuidedRegenerate,
+  versionPanel,
 }: {
   section: GuidedOutlineSection;
   index: number;
@@ -409,6 +613,7 @@ function SortableOutlineSection({
   onDelete: () => void;
   onRegenerate: () => void;
   onGuidedRegenerate: () => void;
+  versionPanel?: ReactNode;
 }) {
   const sortable = useSortable({ id: section.sectionKey, disabled: !editable });
   return <article className="guided-outline-section" ref={sortable.setNodeRef} style={{ transform: CSS.Transform.toString(sortable.transform), transition: sortable.transition }}>
@@ -427,6 +632,7 @@ function SortableOutlineSection({
         <button className="guided-regenerate" type="button" disabled={!canRegenerate || activeJob(job)} onClick={onRegenerate}><RefreshCw size={14} aria-hidden="true" />重新生成此段</button>
         <button className="guided-regenerate" type="button" disabled={!canRegenerate || activeJob(job)} onClick={onGuidedRegenerate}><Sparkles size={14} aria-hidden="true" />引导重生成</button>
       </footer>
+      {versionPanel}
     </div>
     <div className="guided-outline-side-actions">
       {editable ? <button className="product-icon-button" type="button" title="删除段落" onClick={onDelete}><Trash2 size={15} aria-hidden="true" /></button> : null}
@@ -437,17 +643,28 @@ function SortableOutlineSection({
 
 function OutlinePanel({ workflow, onDirtyChange }: { workflow: GuidedWorkflow; onDirtyChange: (dirty: boolean) => void }) {
   const refresh = useWorkflowRefresh(workflow.project.projectCode);
+  const outlineBranch = stageBranchIdentity(workflow, "outline");
   const [sections, setSections] = useState(workflow.outline?.sections ?? []);
   const [guidanceSection, setGuidanceSection] = useState<GuidedOutlineSection>();
   const [guidance, setGuidance] = useState("");
   const [localSectionJobs, setLocalSectionJobs] = useState<Record<string, GuidedJob>>({});
-  useEffect(() => setSections(workflow.outline?.sections ?? []), [workflow.outline?.revisionNumber]);
-  useEffect(() => setLocalSectionJobs({}), [workflow.outline?.revisionNumber]);
+  const [confirmationOpen, setConfirmationOpen] = useState(false);
+  const [confirmationPreview, setConfirmationPreview] = useState<GuidedConfirmationPreview>();
+  const [manualEditing, setManualEditing] = useState(false);
+  useEffect(() => {
+    setSections(workflow.outline?.sections ?? []);
+    setLocalSectionJobs({});
+    setGuidanceSection(undefined);
+    setGuidance("");
+    setConfirmationOpen(false);
+    setConfirmationPreview(undefined);
+    setManualEditing(false);
+  }, [outlineBranch]);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
-  const editable = workflow.outline?.status === "draft" && workflow.gates.outlineCurrent;
+  const editable = workflow.gates.outlineCurrent && (workflow.outline?.status === "draft" || manualEditing);
   const dirty = !sameDraft(sections, workflow.outline?.sections ?? []);
   useDirtyEditor(dirty, onDirtyChange);
   const save = useMutation({
@@ -467,20 +684,19 @@ function OutlinePanel({ workflow, onDirtyChange }: { workflow: GuidedWorkflow; o
       refresh();
     },
   });
-  const confirm = useMutation({
+  const previewConfirmation = useMutation({
     mutationFn: async () => {
-      let revision = workflow.outline?.revisionNumber ?? 0;
-      if (dirty) {
-        const revised = await guidedContentApi.reviseOutline(workflow.project.projectCode, revision, sections);
-        revision = revised.outline?.revisionNumber ?? 0;
-      }
-      return guidedContentApi.confirmOutline(workflow.project.projectCode, revision);
+      if (dirty) await save.mutateAsync();
+      return guidedContentApi.getConfirmationPreview(workflow.project.projectCode, "outline");
     },
-    onSuccess: refresh,
+    onSuccess: (value) => { setConfirmationPreview(value); setConfirmationOpen(true); },
   });
-  const reopen = useMutation({
-    mutationFn: () => guidedContentApi.reopenOutline(workflow.project.projectCode, workflow.outline?.revisionNumber ?? 0),
-    onSuccess: refresh,
+  const confirm = useMutation({
+    mutationFn: () => {
+      if (!confirmationPreview) throw new Error("确认预览尚未就绪");
+      return guidedContentApi.confirmOutline(workflow.project.projectCode, confirmationPreview.expectedRevision, confirmationPreview.previewFingerprint);
+    },
+    onSuccess: (value) => { setConfirmationOpen(false); setConfirmationPreview(undefined); refresh(value); },
   });
   const dragEnd = (event: DragEndEvent) => {
     if (!event.over || event.active.id === event.over.id) return;
@@ -513,15 +729,18 @@ function OutlinePanel({ workflow, onDirtyChange }: { workflow: GuidedWorkflow; o
       <div>
         {!workflow.gates.outlineCurrent ? <button className="wb-button wb-button-primary" type="button" disabled={activeJob(workflow.jobs.outline) || generate.isPending} onClick={() => generate.mutate()}><RefreshCw size={15} aria-hidden="true" />重新生成大纲</button> : editable ? <>
           <button className="wb-button" type="button" onClick={() => setSections((items) => [...items, { sectionKey: `manual-${Date.now()}`, title: "新段落", objective: "待补充", keyPoints: [] }])}><Plus size={15} aria-hidden="true" />添加段落</button>
-          <button className="wb-button" type="button" disabled={!sections.length || save.isPending || hasActiveSectionJob} onClick={() => save.mutate()}><Save size={15} aria-hidden="true" />保存版本</button>
-          <button className="wb-button wb-button-primary" type="button" disabled={!sections.length || confirm.isPending || save.isPending || hasActiveSectionJob} onClick={() => confirm.mutate()}><Check size={15} aria-hidden="true" />确认大纲</button>
-        </> : <button className="wb-button" type="button" disabled={reopen.isPending} onClick={() => reopen.mutate()}><RotateCcw size={15} aria-hidden="true" />重新打开</button>}
+          <button className="wb-button" type="button" disabled={!dirty || !sections.length || save.isPending || hasActiveSectionJob} onClick={() => save.mutate()}><Save size={15} aria-hidden="true" />保存版本</button>
+          <button className="wb-button wb-button-primary" type="button" disabled={!sections.length || previewConfirmation.isPending || confirm.isPending || save.isPending || hasActiveSectionJob} onClick={() => previewConfirmation.mutate()}><Check size={15} aria-hidden="true" />确认大纲</button>
+        </> : <>
+          <button className="wb-button" type="button" onClick={() => setManualEditing(true)}><FilePenLine size={15} aria-hidden="true" />编辑当前大纲</button>
+          <button className="wb-button wb-button-primary" type="button" disabled={activeJob(workflow.jobs.outline) || generate.isPending} onClick={() => generate.mutate()}><Plus size={15} aria-hidden="true" />生成大纲新分支</button>
+        </>}
       </div>
     </header>
     {!workflow.gates.outlineCurrent ? <InlineNotice tone="warning" title="大纲输入已变化">请重新生成大纲。</InlineNotice> : null}
     <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={dragEnd}>
       <SortableContext items={sections.map((section) => section.sectionKey)} strategy={verticalListSortingStrategy}>
-        <div className="guided-outline-list">{sections.map((section, index) => <SortableOutlineSection key={section.sectionKey} section={section} index={index} editable={editable} canRegenerate={workflow.gates.outlineCurrent && !dirty && !hasActiveSectionJob && !activeJob(workflow.jobs.outline)} job={sectionJobs[section.sectionKey]} onChange={(next) => setSections((items) => items.map((item) => item.sectionKey === next.sectionKey ? next : item))} onDelete={() => setSections((items) => items.filter((item) => item.sectionKey !== section.sectionKey))} onRegenerate={() => regenerate.mutate({ sectionKey: section.sectionKey })} onGuidedRegenerate={() => { setGuidanceSection(section); setGuidance(""); }} />)}</div>
+        <div className="guided-outline-list">{sections.map((section, index) => <SortableOutlineSection key={section.sectionKey} section={section} index={index} editable={editable} canRegenerate={workflow.gates.outlineCurrent && !dirty && !hasActiveSectionJob && !activeJob(workflow.jobs.outline)} job={sectionJobs[section.sectionKey]} onChange={(next) => setSections((items) => items.map((item) => item.sectionKey === next.sectionKey ? next : item))} onDelete={() => setSections((items) => items.filter((item) => item.sectionKey !== section.sectionKey))} onRegenerate={() => regenerate.mutate({ sectionKey: section.sectionKey })} onGuidedRegenerate={() => { setGuidanceSection(section); setGuidance(""); }} versionPanel={<ItemVersionPanel workflow={workflow} stage="outline" itemKey={section.sectionKey} itemVersionId={section.itemVersionId} versionNumber={section.versionNumber} stale={section.stale} missing={section.missing} />} />)}</div>
       </SortableContext>
     </DndContext>
     <GenerationBanner projectCode={workflow.project.projectCode} job={workflow.jobs.outline} />
@@ -530,7 +749,8 @@ function OutlinePanel({ workflow, onDirtyChange }: { workflow: GuidedWorkflow; o
       <label><span>{guidanceSection?.title ?? "大纲段落"}</span><textarea autoFocus rows={6} value={guidance} placeholder="例如：突出主推商品的核心卖点，并加入适用人群说明。" onChange={(event) => setGuidance(event.target.value)} /></label>
       <footer><button className="wb-button" type="button" disabled={regenerate.isPending} onClick={() => { setGuidanceSection(undefined); setGuidance(""); }}>取消</button><button className="wb-button wb-button-primary" type="button" disabled={!guidance.trim() || regenerate.isPending || !guidanceSection} onClick={() => guidanceSection && regenerate.mutate({ sectionKey: guidanceSection.sectionKey, prompt: guidance })}>{regenerate.isPending ? "正在提交" : "按引导重生成"}</button></footer>
     </Dialog.Content></Dialog.Portal></Dialog.Root>
-    {save.error || generate.error || confirm.error || reopen.error || regenerate.error ? <InlineNotice tone="danger" title="操作未完成">{mutationError(save.error || generate.error || confirm.error || reopen.error || regenerate.error)}</InlineNotice> : null}
+    <ConfirmationPreviewDialog preview={confirmationPreview} open={confirmationOpen} pending={confirm.isPending} error={previewConfirmation.error || confirm.error} onOpenChange={setConfirmationOpen} onConfirm={() => confirm.mutate()} />
+    {save.error || generate.error || confirm.error || regenerate.error ? <InlineNotice tone="danger" title="操作未完成">{mutationError(save.error || generate.error || confirm.error || regenerate.error)}</InlineNotice> : null}
   </section>;
 }
 
@@ -568,15 +788,24 @@ function ScriptArchivesDialog({
 
 function ScriptPanel({ workflow, assets, onDirtyChange }: { workflow: GuidedWorkflow; assets: LibraryAsset[]; onDirtyChange: (dirty: boolean) => void }) {
   const refresh = useWorkflowRefresh(workflow.project.projectCode);
+  const scriptBranch = stageBranchIdentity(workflow, "script");
   const [blocks, setBlocks] = useState(workflow.script?.blocks ?? []);
   const [selected, setSelected] = useState(workflow.materialPool.selectedAssetCodes);
   const [materialsOpen, setMaterialsOpen] = useState(false);
   const [archivesOpen, setArchivesOpen] = useState(false);
-  const [oldScriptHidden, setOldScriptHidden] = useState(false);
-  const [regenerationSourceRevision, setRegenerationSourceRevision] = useState<number>();
   const [localScriptJob, setLocalScriptJob] = useState<GuidedJob>();
-  useEffect(() => setBlocks(workflow.script?.blocks ?? []), [workflow.script?.revisionNumber]);
-  useEffect(() => setSelected(workflow.materialPool.selectedAssetCodes), [workflow.materialPool.revisionNumber]);
+  const [confirmationOpen, setConfirmationOpen] = useState(false);
+  const [confirmationPreview, setConfirmationPreview] = useState<GuidedConfirmationPreview>();
+  const [manualEditing, setManualEditing] = useState(false);
+  useEffect(() => {
+    setBlocks(workflow.script?.blocks ?? []);
+    setSelected(workflow.materialPool.selectedAssetCodes);
+    setMaterialsOpen(false);
+    setLocalScriptJob(undefined);
+    setConfirmationOpen(false);
+    setConfirmationPreview(undefined);
+    setManualEditing(false);
+  }, [scriptBranch]);
   const serverScriptJob = workflowJob(workflow, (job) => `${job.operation ?? ""} ${job.stage}`.toLowerCase().includes("script"));
   const scriptJob = serverScriptJob ?? localScriptJob;
   useEffect(() => {
@@ -587,50 +816,52 @@ function ScriptPanel({ workflow, assets, onDirtyChange }: { workflow: GuidedWork
     const timer = window.setInterval(() => refresh(), 1_500);
     return () => window.clearInterval(timer);
   }, [localScriptJob, refresh]);
-  useEffect(() => {
-    if (oldScriptHidden && workflow.script && regenerationSourceRevision !== undefined && workflow.script.revisionNumber !== regenerationSourceRevision) {
-      setOldScriptHidden(false);
-      setRegenerationSourceRevision(undefined);
-      setLocalScriptJob(undefined);
-    }
-  }, [oldScriptHidden, regenerationSourceRevision, workflow.script?.revisionNumber]);
-  const visibleScript = oldScriptHidden ? undefined : workflow.script;
-  const editable = visibleScript?.status === "draft" && workflow.gates.scriptCurrent;
+  const visibleScript = workflow.script;
+  const editable = workflow.gates.scriptCurrent && (visibleScript?.status === "draft" || manualEditing);
   const dirty = !sameDraft(blocks, visibleScript?.blocks ?? []);
   useDirtyEditor(dirty, onDirtyChange);
   const generate = useMutation({
     mutationFn: () => guidedContentApi.generateScript(workflow.project.projectCode),
-    onMutate: () => {
-      if (workflow.script) {
-        setOldScriptHidden(true);
-        setRegenerationSourceRevision(workflow.script.revisionNumber);
-        setBlocks([]);
-      }
-    },
     onSuccess: (job) => {
       if (job) setLocalScriptJob(job);
       refresh();
     },
-    onError: () => {
-      setOldScriptHidden(false);
-      setRegenerationSourceRevision(undefined);
-      setBlocks(workflow.script?.blocks ?? []);
+  });
+  const regenerateBlock = useMutation({
+    mutationFn: (sectionKey: string) => guidedContentApi.regenerateScriptBlock(
+      workflow.project.projectCode,
+      sectionKey,
+      stageRevision(workflow, "script"),
+    ),
+    onSuccess: (job) => {
+      if (job) setLocalScriptJob(job);
+      refresh();
     },
+  });
+  const reaffirmBlock = useMutation({
+    mutationFn: (sectionKey: string) => guidedContentApi.reaffirmScriptBlock(
+      workflow.project.projectCode,
+      sectionKey,
+      stageRevision(workflow, "script"),
+    ),
+    onSuccess: refresh,
   });
   const save = useMutation({ mutationFn: () => guidedContentApi.reviseScript(workflow.project.projectCode, visibleScript?.revisionNumber ?? 0, blocks), onSuccess: refresh });
   const pool = useMutation({ mutationFn: () => guidedContentApi.updateMaterialPool(workflow.project.projectCode, { expected_revision: workflow.materialPool.revisionNumber, selected_asset_codes: selected }), onSuccess: (value) => { refresh(value); setMaterialsOpen(false); } });
-  const confirm = useMutation({
+  const previewConfirmation = useMutation({
     mutationFn: async () => {
-      let revision = visibleScript?.revisionNumber ?? 0;
-      if (dirty) {
-        const revised = await guidedContentApi.reviseScript(workflow.project.projectCode, revision, blocks);
-        revision = revised.script?.revisionNumber ?? 0;
-      }
-      return guidedContentApi.confirmScript(workflow.project.projectCode, revision);
+      if (dirty) await save.mutateAsync();
+      return guidedContentApi.getConfirmationPreview(workflow.project.projectCode, "script");
     },
-    onSuccess: refresh,
+    onSuccess: (value) => { setConfirmationPreview(value); setConfirmationOpen(true); },
   });
-  const reopen = useMutation({ mutationFn: () => guidedContentApi.reopenScript(workflow.project.projectCode, visibleScript?.revisionNumber ?? 0), onSuccess: refresh });
+  const confirm = useMutation({
+    mutationFn: () => {
+      if (!confirmationPreview) throw new Error("确认预览尚未就绪");
+      return guidedContentApi.confirmScript(workflow.project.projectCode, confirmationPreview.expectedRevision, confirmationPreview.previewFingerprint);
+    },
+    onSuccess: (value) => { setConfirmationOpen(false); setConfirmationPreview(undefined); refresh(value); },
+  });
   const waive = useMutation({ mutationFn: (code: string) => guidedContentApi.waiveRequirement(workflow.project.projectCode, code, visibleScript?.revisionNumber ?? 0), onSuccess: refresh });
   if (!workflow.gates.outlineConfirmed) return <EmptyBlock icon={FileText} title="直播脚本尚未解锁" detail="确认当前直播大纲后可生成脚本。" />;
   const regenerating = generate.isPending || activeJob(scriptJob);
@@ -639,9 +870,9 @@ function ScriptPanel({ workflow, assets, onDirtyChange }: { workflow: GuidedWork
   if (!visibleScript) return <section className="guided-panel">
     <header className="guided-panel-header"><div><h2>直播脚本</h2></div><div><button className="wb-button" type="button" onClick={() => setArchivesOpen(true)}><Archive size={15} aria-hidden="true" />版本归档</button></div></header>
     <GenerationBanner projectCode={workflow.project.projectCode} job={scriptJob} />
-    {oldScriptHidden ? <EmptyBlock icon={Archive} title="旧脚本已存档" detail="旧稿已从当前工作区移除，新的脚本正在按当前大纲生成。" /> : !regenerating ? <EmptyBlock icon={FileText} title="还没有直播脚本" detail="脚本按已确认大纲逐段生成。" /> : null}
+    {!regenerating ? <EmptyBlock icon={FileText} title="还没有直播脚本" detail="脚本按已确认大纲逐段生成。" /> : null}
     {!regenerating ? <div className="guided-empty-action"><button className="wb-button wb-button-primary" type="button" disabled={generate.isPending} onClick={startGeneration}><Sparkles size={15} aria-hidden="true" />生成直播脚本</button></div> : null}
-    <ScriptArchivesDialog open={archivesOpen} onOpenChange={setArchivesOpen} projectCode={workflow.project.projectCode} onRestore={(value) => { setOldScriptHidden(false); setRegenerationSourceRevision(undefined); refresh(value); }} />
+    <ScriptArchivesDialog open={archivesOpen} onOpenChange={setArchivesOpen} projectCode={workflow.project.projectCode} onRestore={refresh} />
     {generate.error ? <InlineNotice tone="danger" title="脚本未生成">{mutationError(generate.error)}</InlineNotice> : null}
   </section>;
   return <section className="guided-panel">
@@ -651,12 +882,15 @@ function ScriptPanel({ workflow, assets, onDirtyChange }: { workflow: GuidedWork
         <button className="wb-button" type="button" onClick={() => setArchivesOpen(true)}><Archive size={15} aria-hidden="true" />版本归档</button>
         {!workflow.gates.scriptCurrent ? <button className="wb-button wb-button-primary" type="button" disabled={!workflow.gates.outlineConfirmed || regenerating} onClick={startGeneration}><RefreshCw size={15} aria-hidden="true" />基于当前大纲重新生成</button> : editable ? <>
           <button className="wb-button" type="button" disabled={!workflow.gates.scriptCurrent} onClick={() => setMaterialsOpen((value) => !value)}><Image size={15} aria-hidden="true" />补充素材</button>
-          <button className="wb-button" type="button" disabled={!workflow.gates.scriptCurrent || save.isPending} onClick={() => save.mutate()}><Save size={15} aria-hidden="true" />保存版本</button>
-          <button className="wb-button wb-button-primary" type="button" disabled={unmetVisualRequirements > 0 || confirm.isPending || save.isPending} onClick={() => confirm.mutate()}><Check size={15} aria-hidden="true" />确认脚本</button>
-        </> : <button className="wb-button" type="button" disabled={reopen.isPending} onClick={() => reopen.mutate()}><RotateCcw size={15} aria-hidden="true" />重新打开</button>}
+          <button className="wb-button" type="button" disabled={!dirty || !workflow.gates.scriptCurrent || save.isPending} onClick={() => save.mutate()}><Save size={15} aria-hidden="true" />保存版本</button>
+          <button className="wb-button wb-button-primary" type="button" disabled={unmetVisualRequirements > 0 || previewConfirmation.isPending || confirm.isPending || save.isPending} onClick={() => previewConfirmation.mutate()}><Check size={15} aria-hidden="true" />确认脚本</button>
+        </> : <>
+          <button className="wb-button" type="button" onClick={() => setManualEditing(true)}><FilePenLine size={15} aria-hidden="true" />编辑当前脚本</button>
+          <button className="wb-button wb-button-primary" type="button" disabled={regenerating} onClick={startGeneration}><Plus size={15} aria-hidden="true" />生成脚本新分支</button>
+        </>}
       </div>
     </header>
-    {!workflow.gates.scriptCurrent ? <InlineNotice tone="warning" title="脚本上游已变化">重新生成会立即归档当前旧稿，并在此处显示生成进度。</InlineNotice> : null}
+    {!workflow.gates.scriptCurrent ? <InlineNotice tone="warning" title="脚本上游已变化">重新生成会创建当前大纲下的新脚本分支，旧脚本仍保留在版本树中。</InlineNotice> : null}
     {materialsOpen && editable ? <div className="guided-script-materials"><MaterialPicker assets={assets} selected={selected} locked={workflow.materialPool.selectedAssetCodes} onChange={setSelected} /><footer><button className="wb-button wb-button-primary" type="button" disabled={pool.isPending} onClick={() => pool.mutate()}>保存并重新匹配</button></footer></div> : null}
     <div className="guided-script-list">{blocks.map((block, index) => {
       const requirements = visibleScript.requirements.filter((item) => item.blockSortOrder === index && item.materialRole !== "digital_human" && item.materialRole !== "voice") ?? [];
@@ -668,24 +902,50 @@ function ScriptPanel({ workflow, assets, onDirtyChange }: { workflow: GuidedWork
           <StatusBadge label={item.status === "matched" ? item.matchedAssetCode ?? "已匹配" : item.status === "waived" ? "已豁免" : item.priority === "required" ? "必选缺失" : "可选缺失"} tone={item.status === "matched" ? "success" : item.status === "waived" ? "warning" : item.priority === "required" ? "danger" : "neutral"} />
           {editable && item.priority === "required" && item.status === "missing" ? <button className="wb-button" type="button" disabled={waive.isPending} onClick={() => waive.mutate(item.requirementCode)}>豁免</button> : null}
         </div>)}</div>
+        <ItemVersionPanel
+          workflow={workflow}
+          stage="script"
+          itemKey={block.sectionKey}
+          itemVersionId={block.itemVersionId}
+          versionNumber={block.versionNumber}
+          stale={block.stale}
+          missing={block.missing}
+          onRegenerate={!dirty && !regenerating ? () => regenerateBlock.mutate(block.sectionKey) : undefined}
+          onReaffirm={block.stale && !dirty && !regenerating ? () => reaffirmBlock.mutate(block.sectionKey) : undefined}
+          actionPending={regenerateBlock.isPending || reaffirmBlock.isPending || regenerating}
+        />
       </article>;
     })}</div>
     <GenerationBanner projectCode={workflow.project.projectCode} job={scriptJob} />
-    <ScriptArchivesDialog open={archivesOpen} onOpenChange={setArchivesOpen} projectCode={workflow.project.projectCode} expectedCurrentRevision={visibleScript.revisionNumber} onRestore={(value) => { setOldScriptHidden(false); setRegenerationSourceRevision(undefined); refresh(value); }} />
-    {save.error || pool.error || confirm.error || reopen.error || waive.error || generate.error ? <InlineNotice tone="danger" title="操作未完成">{mutationError(save.error || pool.error || confirm.error || reopen.error || waive.error || generate.error)}</InlineNotice> : null}
+    <ScriptArchivesDialog open={archivesOpen} onOpenChange={setArchivesOpen} projectCode={workflow.project.projectCode} expectedCurrentRevision={visibleScript.revisionNumber} onRestore={refresh} />
+    <ConfirmationPreviewDialog preview={confirmationPreview} open={confirmationOpen} pending={confirm.isPending} error={previewConfirmation.error || confirm.error} onOpenChange={setConfirmationOpen} onConfirm={() => confirm.mutate()} />
+    {save.error || pool.error || confirm.error || waive.error || generate.error || regenerateBlock.error || reaffirmBlock.error ? <InlineNotice tone="danger" title="操作未完成">{mutationError(save.error || pool.error || confirm.error || waive.error || generate.error || regenerateBlock.error || reaffirmBlock.error)}</InlineNotice> : null}
   </section>;
 }
 
 function StoryboardPanel({ workflow, onDirtyChange }: { workflow: GuidedWorkflow; onDirtyChange: (dirty: boolean) => void }) {
   const refresh = useWorkflowRefresh(workflow.project.projectCode);
+  const storyboardBranch = stageBranchIdentity(workflow, "storyboard");
   const templates = useQuery({ queryKey: ["guided-layout-templates"], queryFn: liveResearchApi.listTemplates });
   const published = (templates.data ?? []).filter((template) => template.templateKind === "layout_hypothesis" && template.published_revision);
   const [templateCode, setTemplateCode] = useState(workflow.storyboard?.templateCode ?? "");
   const projection = useQuery({ queryKey: ["guided-layout-projection", templateCode], queryFn: () => liveResearchApi.getProjection(templateCode), enabled: Boolean(templateCode) });
   const [scenes, setScenes] = useState<GuidedStoryboardScene[]>(workflow.storyboard?.scenes ?? []);
-  useEffect(() => setScenes(workflow.storyboard?.scenes ?? []), [workflow.storyboard?.planCode]);
+  const [confirmationOpen, setConfirmationOpen] = useState(false);
+  const [confirmationPreview, setConfirmationPreview] = useState<GuidedConfirmationPreview>();
+  const [confirmationPlanCode, setConfirmationPlanCode] = useState("");
+  const [manualEditing, setManualEditing] = useState(false);
+  useEffect(() => {
+    setTemplateCode(workflow.storyboard?.templateCode ?? "");
+    setScenes(workflow.storyboard?.scenes ?? []);
+    setConfirmationOpen(false);
+    setConfirmationPreview(undefined);
+    setConfirmationPlanCode("");
+    setManualEditing(false);
+  }, [storyboardBranch]);
   const dirty = !sameDraft(scenes, workflow.storyboard?.scenes ?? []);
   useDirtyEditor(dirty, onDirtyChange);
+  const storyboardJob = workflowJob(workflow, (job) => job.stage === "storyboard");
   const generate = useMutation({
     mutationFn: () => {
       if (!projection.data?.projection_fingerprint) throw new Error("模板投影尚未就绪");
@@ -693,28 +953,55 @@ function StoryboardPanel({ workflow, onDirtyChange }: { workflow: GuidedWorkflow
     },
     onSuccess: () => refresh(),
   });
+  const regenerateScene = useMutation({
+    mutationFn: (sectionKey: string) => guidedContentApi.regenerateStoryboardScene(
+      workflow.project.projectCode,
+      sectionKey,
+      stageRevision(workflow, "storyboard"),
+    ),
+    onSuccess: () => refresh(),
+  });
+  const reaffirmScene = useMutation({
+    mutationFn: (sectionKey: string) => guidedContentApi.reaffirmStoryboardScene(
+      workflow.project.projectCode,
+      sectionKey,
+      stageRevision(workflow, "storyboard"),
+    ),
+    onSuccess: refresh,
+  });
   const save = useMutation({ mutationFn: () => guidedContentApi.reviseStoryboard(workflow.project.projectCode, workflow.storyboard?.planCode ?? "", scenes), onSuccess: refresh });
-  const confirm = useMutation({
+  const previewConfirmation = useMutation({
     mutationFn: async () => {
       let planCode = workflow.storyboard?.planCode ?? "";
       if (dirty) {
         const revised = await guidedContentApi.reviseStoryboard(workflow.project.projectCode, planCode, scenes);
         planCode = revised.storyboard?.planCode ?? "";
       }
-      return guidedContentApi.confirmStoryboard(workflow.project.projectCode, planCode);
+      const preview = await guidedContentApi.getConfirmationPreview(workflow.project.projectCode, "storyboard");
+      return { preview, planCode };
     },
-    onSuccess: refresh,
+    onSuccess: ({ preview, planCode }) => { setConfirmationPreview(preview); setConfirmationPlanCode(planCode); setConfirmationOpen(true); },
+  });
+  const confirm = useMutation({
+    mutationFn: () => {
+      if (!confirmationPreview) throw new Error("确认预览尚未就绪");
+      return guidedContentApi.confirmStoryboard(workflow.project.projectCode, confirmationPlanCode, confirmationPreview.previewFingerprint);
+    },
+    onSuccess: (value) => { setConfirmationOpen(false); setConfirmationPreview(undefined); refresh(value); },
   });
   if (!workflow.gates.scriptConfirmed) return <EmptyBlock icon={Layers3} title="麦兔分镜尚未解锁" detail="确认直播脚本和素材需求后可生成分镜。" />;
-  const editable = workflow.storyboard?.reviewStatus === "draft" && workflow.gates.storyboardCurrent;
+  const editable = workflow.gates.storyboardCurrent && (workflow.storyboard?.reviewStatus === "draft" || manualEditing);
   const needsGeneration = !workflow.storyboard || !workflow.gates.storyboardCurrent;
   return <section className="guided-panel">
     <header className="guided-panel-header">
       <div><h2>麦兔直播间分镜</h2>{workflow.storyboard ? <StatusBadge label={workflow.storyboard.reviewStatus} tone={editable ? "warning" : "success"} /> : null}</div>
       <div>
         {workflow.storyboard && editable ? <>
-          <button className="wb-button" type="button" disabled={save.isPending} onClick={() => save.mutate()}><Save size={15} aria-hidden="true" />保存版本</button>
-          <button className="wb-button wb-button-primary" type="button" disabled={confirm.isPending || save.isPending} onClick={() => confirm.mutate()}><Check size={15} aria-hidden="true" />确认分镜</button>
+          <button className="wb-button" type="button" disabled={!dirty || save.isPending} onClick={() => save.mutate()}><Save size={15} aria-hidden="true" />保存版本</button>
+          <button className="wb-button wb-button-primary" type="button" disabled={previewConfirmation.isPending || confirm.isPending || save.isPending} onClick={() => previewConfirmation.mutate()}><Check size={15} aria-hidden="true" />确认分镜</button>
+        </> : workflow.storyboard && workflow.gates.storyboardCurrent ? <>
+          <button className="wb-button" type="button" onClick={() => setManualEditing(true)}><FilePenLine size={15} aria-hidden="true" />编辑当前分镜</button>
+          <button className="wb-button wb-button-primary" type="button" disabled={!templateCode || !projection.data?.projection_fingerprint || activeJob(storyboardJob) || generate.isPending} onClick={() => generate.mutate()}><Plus size={15} aria-hidden="true" />生成分镜新分支</button>
         </> : null}
       </div>
     </header>
@@ -722,15 +1009,28 @@ function StoryboardPanel({ workflow, onDirtyChange }: { workflow: GuidedWorkflow
     {workflow.storyboard && !workflow.gates.storyboardCurrent ? <InlineNotice tone="warning" title="分镜上游已变化">请基于当前脚本和素材重新生成分镜。</InlineNotice> : null}
     {needsGeneration ? <div className="guided-template-select">
       <label><span>直播间模板</span><select value={templateCode} onChange={(event) => setTemplateCode(event.target.value)}><option value="">请选择已发布模板</option>{published.map((template) => <option key={template.template_code} value={template.template_code}>{template.title}</option>)}</select></label>
-      <button className="wb-button wb-button-primary" type="button" disabled={!templateCode || !projection.data?.projection_fingerprint || activeJob(workflow.jobs.storyboard) || generate.isPending} onClick={() => generate.mutate()}><Sparkles size={15} aria-hidden="true" />生成分镜</button>
+      <button className="wb-button wb-button-primary" type="button" disabled={!templateCode || !projection.data?.projection_fingerprint || activeJob(storyboardJob) || generate.isPending} onClick={() => generate.mutate()}><Sparkles size={15} aria-hidden="true" />生成分镜</button>
     </div> : null}
-    <GenerationBanner projectCode={workflow.project.projectCode} job={workflow.jobs.storyboard} />
-    {workflow.storyboard ? <div className="guided-storyboard-list">{scenes.map((scene, index) => <article key={scene.shotCode}>
+    <GenerationBanner projectCode={workflow.project.projectCode} job={storyboardJob} />
+    {workflow.storyboard ? <div className="guided-storyboard-list">{scenes.map((scene, index) => <article key={scene.itemKey ?? scene.shotCode}>
       <header><b>{index + 1}</b><input aria-label={`第 ${index + 1} 个分镜标题`} value={scene.title} disabled={!editable} onChange={(event) => setScenes((items) => items.map((item) => item.shotCode === scene.shotCode ? { ...item, title: event.target.value } : item))} /></header>
       <textarea aria-label={`第 ${index + 1} 个分镜话术`} rows={7} value={scene.script} disabled={!editable} onChange={(event) => setScenes((items) => items.map((item) => item.shotCode === scene.shotCode ? { ...item, script: event.target.value } : item))} />
       <div className="guided-scene-layers">{scene.layers.map((layer) => <span key={`${layer.role}:${layer.assetCode}`}><Layers3 size={13} aria-hidden="true" />{productLabel(layer.role, layer.role)} · {layer.assetCode}</span>)}</div>
+      <ItemVersionPanel
+        workflow={workflow}
+        stage="storyboard"
+        itemKey={scene.itemKey ?? scene.shotCode}
+        itemVersionId={scene.itemVersionId}
+        versionNumber={scene.versionNumber}
+        stale={scene.stale}
+        missing={scene.missing}
+        onRegenerate={!dirty && !activeJob(storyboardJob) ? () => regenerateScene.mutate(scene.itemKey ?? scene.shotCode) : undefined}
+        onReaffirm={scene.stale && !scene.missing && !dirty && !activeJob(storyboardJob) ? () => reaffirmScene.mutate(scene.itemKey ?? scene.shotCode) : undefined}
+        actionPending={regenerateScene.isPending || reaffirmScene.isPending || activeJob(storyboardJob)}
+      />
     </article>)}</div> : !activeJob(workflow.jobs.storyboard) ? <EmptyBlock icon={Layers3} title="还没有分镜" /> : null}
-    {templates.error || projection.error || generate.error || save.error || confirm.error ? <InlineNotice tone="danger" title="操作未完成">{mutationError(templates.error || projection.error || generate.error || save.error || confirm.error)}</InlineNotice> : null}
+    <ConfirmationPreviewDialog preview={confirmationPreview} open={confirmationOpen} pending={confirm.isPending} error={previewConfirmation.error || confirm.error} onOpenChange={setConfirmationOpen} onConfirm={() => confirm.mutate()} />
+    {templates.error || projection.error || generate.error || save.error || confirm.error || regenerateScene.error || reaffirmScene.error ? <InlineNotice tone="danger" title="操作未完成">{mutationError(templates.error || projection.error || generate.error || save.error || confirm.error || regenerateScene.error || reaffirmScene.error)}</InlineNotice> : null}
   </section>;
 }
 
@@ -771,6 +1071,7 @@ export function GuidedProjectCreateDialog({ open, onClose }: { open: boolean; on
 
 export function GuidedProjectWorkspace({ projectCode, tab }: { projectCode: string; tab: string }) {
   const [editorDirty, setEditorDirty] = useState(false);
+  const [versionTreeOpen, setVersionTreeOpen] = useState(false);
   const onDirtyChange = useCallback((dirty: boolean) => setEditorDirty(dirty), []);
   const activeTab = TABS.some((item) => item.value === tab) ? tab : "setup";
   const workflow = useQuery({
@@ -783,6 +1084,18 @@ export function GuidedProjectWorkspace({ projectCode, tab }: { projectCode: stri
   });
   const assets = useQuery({ queryKey: ["guided-content-assets"], queryFn: assetLibraryApi.listAssets });
   const summary = useQuery({ queryKey: ["content-project", projectCode, "workspace-summary"], queryFn: () => contentProjectsApi.workspaceSummary(projectCode) });
+  const refresh = useWorkflowRefresh(projectCode);
+  const selectBranch = useMutation({
+    mutationFn: (nodeCode: string) => guidedContentApi.selectTreeNode(projectCode, nodeCode, workflow.data?.tree.headRevision ?? 0),
+    onSuccess: () => {
+      setVersionTreeOpen(false);
+      refresh();
+    },
+  });
+  const updateBranch = useMutation({
+    mutationFn: ({ nodeCode, label, archived }: { nodeCode: string; label?: string; archived?: boolean }) => guidedContentApi.updateTreeNode(projectCode, nodeCode, { ...(label !== undefined ? { label } : {}), ...(archived !== undefined ? { archived } : {}) }),
+    onSuccess: () => refresh(),
+  });
   useEffect(() => {
     if (!editorDirty) return;
     const warn = (event: BeforeUnloadEvent) => event.preventDefault();
@@ -797,7 +1110,7 @@ export function GuidedProjectWorkspace({ projectCode, tab }: { projectCode: stri
     && !asset.materialRoles.some((role) => role === "digital_human" || role === "voice")
   ));
   const ready: Record<string, boolean> = {
-    setup: Boolean(workflow.data.project.theme),
+    setup: workflow.data.gates.setupConfirmed,
     outline: workflow.data.gates.outlineCurrent,
     script: workflow.data.gates.scriptCurrent,
     storyboard: workflow.data.gates.storyboardCurrent,
@@ -805,12 +1118,21 @@ export function GuidedProjectWorkspace({ projectCode, tab }: { projectCode: stri
     delivery: summary.data.delivery.available,
     activity: true,
   };
+  const treeNodes = workflow.data.tree.nodes.map((node) => ({
+    nodeCode: node.nodeCode,
+    parentNodeCode: node.parentNodeCode,
+    title: node.label,
+    stage: node.stage,
+    status: treeNodeStatus(node.status, node.hasDraft),
+    versionNumber: node.currentRevisionNumber,
+  }));
+  const activeBranch = treeNodes.find((node) => node.nodeCode === workflow.data.tree.activePath.at(-1));
   return <div className={`project-workspace guided-workspace is-${activeTab}`}>
     <a className="project-back" href="/console/projects"><ArrowLeft size={15} aria-hidden="true" />返回项目列表</a>
-    <PageHeader eyebrow={`麦兔直播间 ${workflow.data.project.targetLiveRoomId}`} title={workflow.data.project.title} description={workflow.data.project.theme || "主题待填写"} actions={<StatusBadge label={workflow.data.project.status} tone="success" />} />
+    <PageHeader eyebrow={`麦兔直播间 ${workflow.data.project.targetLiveRoomId}`} title={workflow.data.project.title} description={workflow.data.project.theme || "主题待填写"} actions={<><IconButton label="版本分支" pressed={versionTreeOpen} onClick={() => setVersionTreeOpen(true)}><ListTree size={17} aria-hidden="true" /></IconButton><StatusBadge label={workflow.data.project.status} tone="success" /></>} />
     <ActiveJobsPanel workflow={workflow.data} />
     <nav className="project-tabs guided-tabs" aria-label="直播项目流程">{TABS.map((item) => { const Icon = item.icon; const isReady = ready[item.value]; return <a key={item.value} aria-current={activeTab === item.value ? "step" : undefined} className={activeTab === item.value ? "active" : undefined} href={`/console/projects?project=${encodeURIComponent(projectCode)}&tab=${item.value}`} onClick={(event) => { if (activeTab !== item.value && editorDirty && !window.confirm("当前修改尚未保存，确定离开吗？")) event.preventDefault(); }}><Icon size={15} aria-hidden="true" /><span>{item.label}</span><i role="img" aria-label={isReady ? "已完成" : "待完成"} title={isReady ? "已完成" : "待完成"} className={isReady ? "ready" : undefined} /></a>; })}</nav>
-    <div className="project-tab-content">
+    <div className="project-tab-content guided-version-stage-content">
       {activeTab === "setup" ? <SetupPanel workflow={workflow.data} assets={usableAssets} onDirtyChange={onDirtyChange} /> : null}
       {activeTab === "outline" ? <OutlinePanel workflow={workflow.data} onDirtyChange={onDirtyChange} /> : null}
       {activeTab === "script" ? <ScriptPanel workflow={workflow.data} assets={usableAssets} onDirtyChange={onDirtyChange} /> : null}
@@ -819,6 +1141,27 @@ export function GuidedProjectWorkspace({ projectCode, tab }: { projectCode: stri
       {activeTab === "delivery" ? !workflow.data.gates.storyboardConfirmed ? <EmptyBlock icon={PackageCheck} title="交付尚未解锁" detail="请先确认分镜并完成成片制作。" /> : summary.data.delivery.referenceCode ? <DeliveryProductPanel search={`?release=${encodeURIComponent(summary.data.delivery.referenceCode)}`} /> : <EmptyBlock icon={PackageCheck} title="还没有可交付内容" /> : null}
       {activeTab === "activity" ? <ActivityPanel workflow={workflow.data} /> : null}
     </div>
-    {workflow.error || assets.error || summary.error ? <div className="guided-page-error"><AlertTriangle size={16} aria-hidden="true" />项目数据未完整加载。</div> : null}
+    <Inspector
+      open={versionTreeOpen}
+      title="版本分支"
+      description={`当前：${activeBranch?.title ?? "尚未建立分支"}`}
+      onClose={() => setVersionTreeOpen(false)}
+      className="guided-version-inspector"
+    >
+      <GuidedVersionTree
+        nodes={treeNodes}
+        activePath={workflow.data.tree.activePath}
+        showHeader={false}
+        onSelect={(nodeCode) => {
+          if (editorDirty && !window.confirm("当前修改尚未保存，确定切换版本分支吗？")) return;
+          selectBranch.mutate(nodeCode);
+        }}
+        onRename={(nodeCode, label) => updateBranch.mutate({ nodeCode, label })}
+        onArchive={(nodeCode) => {
+          if (window.confirm("归档后该分支将从默认版本树中隐藏，确定继续吗？")) updateBranch.mutate({ nodeCode, archived: true });
+        }}
+      />
+    </Inspector>
+    {workflow.error || assets.error || summary.error || selectBranch.error || updateBranch.error ? <div className="guided-page-error"><AlertTriangle size={16} aria-hidden="true" />{mutationError(workflow.error || assets.error || summary.error || selectBranch.error || updateBranch.error)}</div> : null}
   </div>;
 }
