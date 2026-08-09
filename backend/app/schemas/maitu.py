@@ -7,27 +7,33 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app.core.config import settings
 from app.core.maitu_retry_intent import is_canonical_retry_before_state
-from app.core.secret_hygiene import contains_durable_secret
+from app.core.secret_hygiene import (
+    PUBLIC_SHA256_PROTOCOL_FIELDS,
+    contains_durable_secret,
+    find_invalid_public_sha256_field,
+)
 from app.schemas.assets import MaituAssetCategory, MaituReplacementPolicy
 
 
-def _without_public_material_url_fields(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {
-            key: _without_public_material_url_fields(item)
-            for key, item in value.items()
-            if key
-            not in {
-                "source_material_url",
-                "source_cover_url",
-                "fingerprint",
-                "script_sha256",
-                "expected_script_sha256",
+def _without_public_protocol_fields(value: Any) -> Any:
+    invalid_sha256_field = find_invalid_public_sha256_field(value)
+    if invalid_sha256_field is not None:
+        raise ValueError(f"{invalid_sha256_field} must be a SHA-256 digest")
+
+    def sanitize(item: Any) -> Any:
+        if isinstance(item, dict):
+            return {
+                key: sanitize(nested)
+                for key, nested in item.items()
+                if key
+                not in PUBLIC_SHA256_PROTOCOL_FIELDS
+                | {"source_material_url", "source_cover_url"}
             }
-        }
-    if isinstance(value, list):
-        return [_without_public_material_url_fields(item) for item in value]
-    return value
+        if isinstance(item, list):
+            return [sanitize(nested) for nested in item]
+        return item
+
+    return sanitize(value)
 
 
 def _validate_secret_free_worker_identity(value: str) -> str:
@@ -871,7 +877,7 @@ class MaituScriptLayoutExecutionManifestOperation(BaseModel):
     @model_validator(mode="after")
     def require_canonical_secret_free_intent(self) -> "MaituScriptLayoutExecutionManifestOperation":
         _require_canonical_json_value(self.intent)
-        if contains_durable_secret(_without_public_material_url_fields(self.intent)):
+        if contains_durable_secret(_without_public_protocol_fields(self.intent)):
             raise ValueError("operation intent must not contain credentials")
         return self
 
@@ -938,7 +944,7 @@ class MaituScriptLayoutExecutionCheckpointInvalidateCreate(MaituScriptLayoutExec
             "operation_fingerprint",
         }
         secret_evidence = {key: value for key, value in self.evidence.items() if key not in public_evidence_fields}
-        if contains_durable_secret(_without_public_material_url_fields(secret_evidence)):
+        if contains_durable_secret(_without_public_protocol_fields(secret_evidence)):
             raise ValueError("checkpoint invalidation evidence must not contain credentials")
         return self
 
@@ -971,7 +977,7 @@ class MaituScriptLayoutExecutionCheckpointCompleteCreate(MaituScriptLayoutExecut
             "evidence": secret_evidence,
             "operation_result": self.operation_result.model_dump(exclude_none=True),
         }
-        if contains_durable_secret(_without_public_material_url_fields(durable_payload)):
+        if contains_durable_secret(_without_public_protocol_fields(durable_payload)):
             raise ValueError("checkpoint durable fields must not contain credentials")
         return self
 
@@ -1015,7 +1021,7 @@ class MaituScriptLayoutExecutionCheckpointReconcileCreate(BaseModel):
             "evidence": secret_evidence,
             "operation_result": self.operation_result.model_dump(exclude_none=True) if self.operation_result else None,
         }
-        if contains_durable_secret(_without_public_material_url_fields(durable_payload)):
+        if contains_durable_secret(_without_public_protocol_fields(durable_payload)):
             raise ValueError("reconciliation durable fields must not contain credentials")
         return self
 

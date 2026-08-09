@@ -108,6 +108,7 @@ def test_stale_generation_job_rejects_old_worker_terminal_writes() -> None:
                 selected_asset_codes=[],
                 actor_id="test-operator",
             )
+            assert workflow["setup_branch"]["label"] == "租约测试"
             workflow = service.confirm_setup(
                 project_code,
                 expected_revision=workflow["setup_branch"]["current_revision_number"],
@@ -524,7 +525,14 @@ def test_targeted_storyboard_scene_regeneration_preserves_other_scenes_and_clear
                                     "asset_code": "ASSET-LAYER-1",
                                     "kind": "image",
                                     "z_index": 1,
-                                }
+                                },
+                                {
+                                    "asset_code": "ASSET-HOST-1",
+                                    "role": "digital_human",
+                                    "constraint_evidence": {
+                                        "system_managed": True,
+                                    },
+                                },
                             ],
                         },
                         "source_node_revision_id": original_script_revision["id"],

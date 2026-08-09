@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { LiveRoomEditorProductPage } from "./LiveRoomEditorProductPage";
@@ -185,6 +185,7 @@ describe("unified live-room generation entry", () => {
 
   it("saves dirty scene edits before queueing and refreshes to the executed plan", async () => {
     const requests: Array<{ url: string; method: string; body?: Record<string, unknown> }> = [];
+    let syncAttempts = 0;
     const revised = {
       ...livePlan(),
       plan_code: "LIVEPLAN-UI-002",
@@ -216,6 +217,12 @@ describe("unified live-room generation entry", () => {
       if (url.endsWith("/room-inspections/ROOMCHECK-SUCCESS")) return json(successfulInspection());
       if (url.endsWith("/LIVEPLAN-UI-001/blueprint-revisions") && method === "POST") return json(revised, 201);
       if (url.endsWith("/LIVEPLAN-UI-002/confirm-execution") && method === "POST") return json(executed);
+      if (url.endsWith("/LIVEPLAN-UI-002/sync-execution") && method === "POST") {
+        syncAttempts += 1;
+        return syncAttempts === 1
+          ? json({ detail: "temporary readback failure" }, 503)
+          : json({ ...executed, execution_status: "maitu_complete" });
+      }
       if (url.endsWith("/LIVEPLAN-UI-002/execution")) return json({ execution_job_code: "MT-WB-EXEC-001", plan_code: "LIVEPLAN-UI-002", source_kind: "functional_live_room_plan", status: "succeeded", stage: "verified", progress_current: 5, progress_total: 5, stage_events: [], result: { ready_for_go_live: false }, retryable: false });
       return json([]);
     }));
@@ -243,7 +250,7 @@ describe("unified live-room generation entry", () => {
     firstRender.unmount();
     renderPage(window.location.search);
     expect(await screen.findByDisplayValue("修改后的开场")).toBeInTheDocument();
-    expect(requests.some((request) => request.url === "/api/functional-live-room-plans/LIVEPLAN-UI-002" && request.method === "GET")).toBe(true);
+    await waitFor(() => expect(syncAttempts).toBeGreaterThanOrEqual(2), { timeout: 5_000 });
   });
 
   it("closes a reconciled job and creates a new job only after a fresh room inspection", async () => {

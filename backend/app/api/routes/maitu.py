@@ -139,6 +139,7 @@ _PROTOCOL_ID_FIELDS = {
     "source_plan_fingerprint",
     "operation_fingerprint",
     "fingerprint",
+    "system_host_binding_fingerprint",
     "inventory_snapshot_sha256",
     "script_sha256",
     "expected_script_sha256",

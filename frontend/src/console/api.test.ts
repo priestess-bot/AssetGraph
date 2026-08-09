@@ -29,6 +29,42 @@ describe("Console API", () => {
     expect(fetchMock.mock.calls[1]?.[1]?.headers).toMatchObject({ Authorization: "Bearer temporary-secret" });
   });
 
+  it("keeps release decisions behind the memory-only operator credential", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(response({
+      command: "approve",
+      entity_type: "release",
+      entity_code: "RELEASE-001",
+      entity_revision: 1,
+      status: "approved",
+      impact: "fixed",
+      receipt_code: "COMMAND-RELEASE-001",
+      replayed: false,
+      approval_code: "APPROVAL-001",
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    setWorkbenchAccessToken("temporary-secret");
+
+    await consoleApi.decideRelease("RELEASE-001", {
+      expectedManifestRevision: 1,
+      decision: "approve",
+      reasonCode: "CONTENT_DELIVERY_APPROVED",
+      summary: "Reviewed output",
+      approvedScope: { carrier: "rendered_video" },
+      idempotencyKey: "release-approve-001",
+    });
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/console/releases/RELEASE-001/decision");
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(init.headers).toMatchObject({ Authorization: "Bearer temporary-secret" });
+    expect(JSON.parse(String(init.body))).toEqual({
+      expected_manifest_revision: 1,
+      decision: "approve",
+      structured_reason: { reason_code: "CONTENT_DELIVERY_APPROVED", summary: "Reviewed output" },
+      approved_scope: { carrier: "rendered_video" },
+      idempotency_key: "release-approve-001",
+    });
+  });
+
   it("normalizes stable task, notification, and search deep links", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(response([{ item_code: "TASK-1", item_type: "human_task", title: "review", status: "open", priority: 10, summary: "Review", href: "/governance/runs?run=RUN-1", updated_at: "2026-07-23T00:00:00Z", run_code: "RUN-1", progress_completed: 1, progress_total: 2 }]))

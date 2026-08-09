@@ -98,6 +98,8 @@ export interface FunctionalLiveRoomPlan {
           height: number;
         };
         z_order: number;
+        system_managed: boolean;
+        system_host_binding_fingerprint?: string;
       }>;
       script: string;
     }>;
@@ -169,6 +171,7 @@ export interface FunctionalLiveRoomBuildOperation {
   assetOriginalFilename?: string;
   assetLocalRelativePath?: string;
   materialId?: number;
+  maituSourceMaterialId?: number;
   sourceMaterialType?: string;
   speakerId?: number;
   digitalHumanImageId?: number;
@@ -436,6 +439,9 @@ function buildOperations(value: unknown): FunctionalLiveRoomBuildOperation[] {
         materialId:
           optionalNumber(operation.material_id) ??
           optionalNumber(operation.maitu_material_id),
+        maituSourceMaterialId: optionalNumber(
+          operation.maitu_source_material_id,
+        ),
         sourceMaterialType: asOptionalString(operation.source_material_type),
         speakerId: optionalNumber(operation.speaker_id),
         digitalHumanImageId: optionalNumber(
@@ -742,10 +748,15 @@ function plan(value: unknown): FunctionalLiveRoomPlan {
                 layers: asArray(scene.layers).flatMap((layer) =>
                   isRecord(layer)
                     ? (() => {
-                        const role = asString(
+                      const role = asString(
                           layer.role,
                           asString(layer.material_role),
                         );
+                        const constraintEvidence = isRecord(
+                          layer.constraint_evidence,
+                        )
+                          ? layer.constraint_evidence
+                          : {};
                         return [
                           {
                             role,
@@ -766,6 +777,13 @@ function plan(value: unknown): FunctionalLiveRoomPlan {
                             typeof layer.z_order === "number"
                               ? layer.z_order
                               : 0,
+                          system_managed:
+                            layer.system_managed === true
+                            || constraintEvidence.system_managed === true,
+                          system_host_binding_fingerprint: asOptionalString(
+                            layer.system_host_binding_fingerprint
+                            ?? constraintEvidence.system_host_binding_fingerprint,
+                          ),
                           },
                         ];
                       })()

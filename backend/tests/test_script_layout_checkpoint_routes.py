@@ -269,6 +269,7 @@ def test_script_layout_route_secret_filter_accepts_public_script_hashes_only() -
                 "script_sha256": "a" * 64,
                 "expected_script_sha256": "a" * 64,
                 "constraint_profile_ref": {"fingerprint": "b" * 64},
+                "constraint_evidence": {"system_host_binding_fingerprint": "c" * 64},
             }
         }
     )

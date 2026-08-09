@@ -14,6 +14,7 @@ import httpx
 
 from app.core.config import settings
 from app.core.telemetry import inject_current_trace
+from app.domain.contracts import canonical_fingerprint
 
 
 class MaituAuthorityError(RuntimeError):
@@ -290,14 +291,62 @@ class MaituAuthorityVerifier:
             "environment": str(room.get("environment") or room.get("env") or "working"),
             "hosts": hosts,
         }
-        ready_hosts = [host for host in hosts if host["ready"]]
-        status = "ready" if len(ready_hosts) == 1 else "ambiguous" if len(ready_hosts) > 1 else "unconfigured"
-        selected = ready_hosts[0] if len(ready_hosts) == 1 else {}
+        ready_bindings: dict[tuple[str, str, str], dict[str, Any]] = {}
+        for host in hosts:
+            if not host["ready"]:
+                continue
+            identity = (
+                str(host.get("material_id") or ""),
+                str(host.get("digital_human_image_id") or ""),
+                str(host.get("speaker_id") or ""),
+            )
+            binding = ready_bindings.setdefault(
+                identity,
+                {
+                    "material_id": identity[0],
+                    "digital_human_image_id": identity[1],
+                    "speaker_id": identity[2],
+                    "scene_ids": [],
+                    "scene_names": [],
+                },
+            )
+            scene_id = str(host.get("clip_id") or "")
+            scene_name = str(host.get("clip_name") or "")
+            if scene_id and scene_id not in binding["scene_ids"]:
+                binding["scene_ids"].append(scene_id)
+            if scene_name and scene_name not in binding["scene_names"]:
+                binding["scene_names"].append(scene_name)
+        unique_ready_hosts = list(ready_bindings.values())
+        status = (
+            "ready"
+            if len(unique_ready_hosts) == 1
+            else "ambiguous"
+            if len(unique_ready_hosts) > 1
+            else "unconfigured"
+        )
+        selected = unique_ready_hosts[0] if len(unique_ready_hosts) == 1 else {}
+        binding = None
+        if selected:
+            selected = {
+                **selected,
+                "scene_ids": sorted(selected.get("scene_ids") or []),
+                "scene_names": sorted(selected.get("scene_names") or []),
+            }
+            binding_payload = {
+                "live_room_id": payload["live_room_id"],
+                **selected,
+            }
+            binding = {
+                **binding_payload,
+                "fingerprint_sha256": canonical_fingerprint(binding_payload),
+            }
         return {
             **payload,
             "status": status,
             "ready": status == "ready",
             "has_ready_host": status == "ready",
+            "unique_ready_host_count": len(unique_ready_hosts),
+            "binding": binding,
             "digital_human": {
                 "name": selected.get("digital_human_image_id"),
                 "material_id": selected.get("material_id"),
@@ -305,7 +354,7 @@ class MaituAuthorityVerifier:
             if selected
             else None,
             "voice": {"name": selected.get("speaker_id")} if selected else None,
-            "scene_name": selected.get("clip_name") if selected else None,
+            "scene_name": (selected.get("scene_names") or [None])[0] if selected else None,
             "checked_at": datetime.now(UTC).isoformat(),
             "fingerprint_sha256": hashlib.sha256(self._canonical(payload)).hexdigest(),
         }

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ArrowRight, CheckCircle2, Copy, Download, Film, Image, Music2, RefreshCw, Save, Scissors, Subtitles, Volume2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, CheckCircle2, Copy, Download, Film, Image, Music2, PackageCheck, RefreshCw, Save, Scissors, Subtitles, Volume2 } from "lucide-react";
 import { assetLibraryApi } from "../assets/api";
 import { contentProjectsApi } from "../content/api";
 import { functionalLiveRoomsApi } from "../live-rooms/api";
@@ -8,6 +8,7 @@ import { PageHeader } from "../product/components";
 import { EmptyBlock, LoadingBlock, StatusBadge } from "../workbench/components";
 import { productLabel } from "../workbench/productLanguage";
 import { functionalVideosApi, type FunctionalVideoPlan } from "./api";
+import { isLocallyRenderableAsset } from "./model";
 
 type ClipDraft = {
   key: string;
@@ -88,8 +89,8 @@ function CreateVideoPanel({ requestedProject, onCreated }: { requestedProject: s
   const [music, setMusic] = useState("");
   useEffect(() => { if (!projectCode && projects.data?.[0]) setProjectCode(projects.data[0].projectCode); }, [projectCode, projects.data]);
   useEffect(() => { if (!roomPlan && rooms.data?.[0]) setRoomPlan(rooms.data[0].planCode); }, [roomPlan, rooms.data]);
-  const videos = (assets.data ?? []).filter((item) => item.mediaKind === "video" && item.executionCapability === "local_only");
-  const musicAssets = (assets.data ?? []).filter((item) => item.mediaKind === "audio" && item.materialRoles.includes("background_music"));
+  const videos = (assets.data ?? []).filter((item) => isLocallyRenderableAsset(item, "video"));
+  const musicAssets = (assets.data ?? []).filter((item) => isLocallyRenderableAsset(item, "audio") && item.materialRoles.includes("background_music"));
   const create = useMutation({
     mutationFn: () => functionalVideosApi.create({
       ...(source === "project" ? { project_code: projectCode } : { live_room_plan_code: roomPlan }),
@@ -108,7 +109,7 @@ function CreateVideoPanel({ requestedProject, onCreated }: { requestedProject: s
       <label className="product-field"><span>目标时长</span><select value={duration} onChange={(event) => setDuration(Number(event.target.value))}><option value="30">30 秒</option><option value="45">45 秒</option><option value="55">55 秒</option><option value="60">60 秒</option><option value="90">90 秒</option></select></label>
       <label className="product-field"><span>背景音乐</span><select value={music} onChange={(event) => setMusic(event.target.value)}><option value="">不使用背景音乐</option>{musicAssets.map((item) => <option key={item.assetCode} value={item.assetCode}>{item.title}</option>)}</select></label>
     </div>
-    <section className="video-create-assets"><header><div><strong>可用视频素材</strong><span>最多选择 6 份</span></div><b>{visuals.length}/6</b></header>{videos.length ? <div>{videos.map((item) => <label key={item.assetCode} className={visuals.includes(item.assetCode) ? "selected" : ""}><input type="checkbox" checked={visuals.includes(item.assetCode)} disabled={!visuals.includes(item.assetCode) && visuals.length >= 6} onChange={() => setVisuals((current) => current.includes(item.assetCode) ? current.filter((code) => code !== item.assetCode) : [...current, item.assetCode])} /><video muted preload="metadata" src={assetLibraryApi.previewUrl(item.assetCode)} /><span><strong>{item.title}</strong><small>{item.materialRoles.map((role) => productLabel(role, "视频素材")).join("、")}</small></span></label>)}</div> : <EmptyBlock icon={Film} title="素材库中没有可本地剪辑的视频" detail="先导入视频素材并将用途设置为本地成片。" />}</section>
+    <section className="video-create-assets"><header><div><strong>可用视频素材</strong><span>最多选择 6 份</span></div><b>{visuals.length}/6</b></header>{videos.length ? <div>{videos.map((item) => <label key={item.assetCode} className={visuals.includes(item.assetCode) ? "selected" : ""}><input type="checkbox" checked={visuals.includes(item.assetCode)} disabled={!visuals.includes(item.assetCode) && visuals.length >= 6} onChange={() => setVisuals((current) => current.includes(item.assetCode) ? current.filter((code) => code !== item.assetCode) : [...current, item.assetCode])} /><video muted preload="metadata" src={assetLibraryApi.previewUrl(item.assetCode)} /><span><strong>{item.title}</strong><small>{item.materialRoles.map((role) => productLabel(role, "视频素材")).join("、")}</small></span></label>)}</div> : <EmptyBlock icon={Film} title="素材库中没有可本地剪辑的视频" detail="请先准备已授权且已下载到本地的视频素材。" />}</section>
     {create.error ? <div className="product-inline-error">成片制作没有启动，请检查内容来源和视频素材。</div> : null}
     <footer><a className="product-secondary-button" href="/assets">管理视频素材</a><button className="product-primary-button" type="button" disabled={(source === "project" ? !projectCode : !roomPlan) || create.isPending} onClick={() => create.mutate()}><Scissors size={16} />{create.isPending ? "正在建立时间轴" : "建立初始时间轴"}</button></footer>
   </div>;
@@ -124,7 +125,7 @@ function VideoEditor({ plan, onPlan }: { plan: FunctionalVideoPlan; onPlan: (pla
   const [subtitlePreset, setSubtitlePreset] = useState<"compact" | "standard" | "large">(plan.productionTimeline.subtitle_style?.preset ?? "standard");
   useEffect(() => { setClips(clipsFromPlan(plan)); setPosterTimeMs(plan.productionTimeline.poster_time_ms ?? 2000); setSubtitlePreset(plan.productionTimeline.subtitle_style?.preset ?? "standard"); setSelected(0); }, [plan.planCode, plan.timelineRevision]);
   const clip = clips[selected];
-  const usableVideo = (assets.data ?? []).filter((item) => item.mediaKind === "video" && item.executionCapability === "local_only");
+  const usableVideo = (assets.data ?? []).filter((item) => isLocallyRenderableAsset(item, "video"));
   const source = assets.data?.find((item) => item.assetCode === clip?.sourceAssetCode);
   const videoUrl = plan.artifacts.find((item) => item.artifact_key === "video")?.download_url;
   const posterUrl = plan.artifacts.find((item) => item.artifact_key === "poster")?.download_url;
@@ -143,6 +144,7 @@ function VideoEditor({ plan, onPlan }: { plan: FunctionalVideoPlan; onPlan: (pla
   });
   const retry = useMutation({ mutationFn: () => functionalVideosApi.retry(plan.planCode), onSuccess: onPlan });
   const branch = useMutation({ mutationFn: () => functionalVideosApi.branch(plan.planCode, { title: `${plan.title} - 编辑副本` }), onSuccess: onPlan });
+  const releaseCandidate = useMutation({ mutationFn: () => functionalVideosApi.createReleaseCandidate(plan.planCode), onSuccess: onPlan });
   const completeChecks = Object.values(plan.qualityReport.checks).filter(Boolean).length;
   const totalChecks = Object.keys(plan.qualityReport.checks).length;
   const duration = Math.max(1, clips.reduce((sum,item) => sum + item.durationMs,0));
@@ -156,7 +158,7 @@ function VideoEditor({ plan, onPlan }: { plan: FunctionalVideoPlan; onPlan: (pla
       <div className="video-property-row"><label className="product-field"><span>时长（秒）</span><input disabled={!editable} type="number" min=".25" max="120" step=".1" value={clip.durationMs/1000} onChange={(event) => updateClip({ durationMs: Math.round(Number(event.target.value)*1000) })} /></label><label className="product-field"><span>速度</span><select disabled={!editable} value={clip.playbackRate} onChange={(event) => updateClip({ playbackRate: Number(event.target.value) })}><option value=".75">0.75x</option><option value="1">1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option></select></label></div>
       <label className="product-field"><span>转场</span><select disabled={!editable} value={clip.transition} onChange={(event) => updateClip({ transition: event.target.value })}><option value="cut">直接切换</option><option value="fade">淡入淡出</option><option value="fade_out">淡出</option></select></label>
       <label className="product-field"><span>标题文字</span><input disabled={!editable} value={clip.headlineText} onChange={(event) => updateClip({ headlineText: event.target.value })} /></label>
-      <label className="product-field"><span>字幕</span><textarea disabled={!editable} rows={4} value={clip.subtitleText} onChange={(event) => updateClip({ subtitleText: event.target.value })} /></label>
+      <label className="product-field"><span>配音与字幕</span><textarea disabled={!editable} rows={4} value={clip.subtitleText} onChange={(event) => updateClip({ subtitleText: event.target.value })} /></label>
       <div className="video-property-row"><label className="product-field"><span>字幕位置</span><select disabled={!editable} value={clip.captionPosition} onChange={(event) => updateClip({ captionPosition: event.target.value as "bottom" | "center" })}><option value="bottom">画面底部</option><option value="center">画面中部</option></select></label><label className="product-field"><span>人声音量</span><input disabled={!editable} type="number" min="-30" max="12" value={clip.gainDb} onChange={(event) => updateClip({ gainDb: Number(event.target.value) })} /></label></div>
       <div className="video-clip-move"><button type="button" className="product-secondary-button" disabled={!editable || selected === 0} onClick={() => move(-1)}><ArrowLeft size={15} />前移</button><button type="button" className="product-secondary-button" disabled={!editable || selected === clips.length-1} onClick={() => move(1)}>后移<ArrowRight size={15} /></button></div>
     </> : <EmptyBlock icon={Scissors} title="选择一个镜头" />}</div> : <div className="video-production-panel">
@@ -167,7 +169,7 @@ function VideoEditor({ plan, onPlan }: { plan: FunctionalVideoPlan; onPlan: (pla
       {plan.jobStatus === "failed" ? <button className="product-primary-button" type="button" disabled={retry.isPending} onClick={() => retry.mutate()}><RefreshCw size={15} />重新制作</button> : null}
     </div>}</aside>
     <section className="video-timeline-product"><header><div><button className="product-icon-button" type="button" title="剪辑工具"><Scissors size={16} /></button><button className="product-icon-button" type="button" title="字幕"><Subtitles size={16} /></button><button className="product-icon-button" type="button" title="音频"><Music2 size={16} /></button></div><label><span>海报帧</span><input disabled={!editable} type="number" min="0" max={duration/1000} step=".1" value={posterTimeMs/1000} onChange={(event) => setPosterTimeMs(Math.round(Number(event.target.value)*1000))} /><b>秒</b></label><label><span>字幕大小</span><select disabled={!editable} value={subtitlePreset} onChange={(event) => setSubtitlePreset(event.target.value as typeof subtitlePreset)}><option value="compact">紧凑</option><option value="standard">标准</option><option value="large">大字</option></select></label></header><div className="video-track-stack"><div className="video-track-label"><Film size={14} />画面</div><div className="video-track-clips">{clips.map((item,index) => <button key={item.key} type="button" className={selected === index ? "active" : ""} style={{ flexGrow: Math.max(1,item.durationMs) }} onClick={() => setSelected(index)}><span>{index+1}</span><strong>{assets.data?.find((asset) => asset.assetCode === item.sourceAssetCode)?.title ?? `镜头 ${index+1}`}</strong><small>{(item.durationMs/1000).toFixed(1)}s</small></button>)}</div><div className="video-track-label"><Subtitles size={14} />字幕</div><div className="video-track-subtitles">{clips.map((item,index) => <button key={item.key} type="button" className={selected === index ? "active" : ""} style={{ flexGrow: Math.max(1,item.durationMs) }} onClick={() => setSelected(index)}>{item.subtitleText || "无字幕"}</button>)}</div><div className="video-track-label"><Volume2 size={14} />音频</div><div className="video-track-audio">{clips.map((item) => <span key={item.key} style={{ flexGrow: Math.max(1,item.durationMs) }}><i /></span>)}</div></div></section>
-    <footer className="video-editor-actions"><span>{save.isSuccess ? "时间轴已保存为新版本" : save.error ? "时间轴没有保存，请检查镜头设置" : editable ? "修改后保存为新的时间轴版本" : "已完成的成片需先创建编辑副本"}</span>{!editable ? <button className="product-secondary-button" type="button" disabled={branch.isPending} onClick={() => branch.mutate()}><Copy size={15} />创建编辑副本</button> : null}<button className="product-primary-button" type="button" disabled={!editable || save.isPending} onClick={() => save.mutate()}><Save size={16} />保存时间轴</button></footer>
+    <footer className="video-editor-actions"><span>{releaseCandidate.error ? "交付候选没有创建，请检查成片质检与素材权利。" : save.isSuccess ? "时间轴已保存为新版本" : save.error ? "时间轴没有保存，请检查镜头设置" : editable ? "修改后保存为新的时间轴版本" : "已完成的成片需先创建编辑副本"}</span>{plan.release ? <a className="product-secondary-button" href={`/console/projects?project=${encodeURIComponent(plan.projectCode)}&tab=delivery`}><PackageCheck size={15} />查看交付</a> : plan.jobStatus === "succeeded" && plan.qualityReport.passed ? <button className="product-secondary-button" type="button" disabled={releaseCandidate.isPending} onClick={() => releaseCandidate.mutate()}><PackageCheck size={15} />创建交付候选</button> : null}{!editable ? <button className="product-secondary-button" type="button" disabled={branch.isPending} onClick={() => branch.mutate()}><Copy size={15} />创建编辑副本</button> : null}<button className="product-primary-button" type="button" disabled={!editable || save.isPending} onClick={() => save.mutate()}><Save size={16} />保存时间轴</button></footer>
   </div>;
 }
 

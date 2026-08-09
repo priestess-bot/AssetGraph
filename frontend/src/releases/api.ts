@@ -1,4 +1,4 @@
-import { asArray, asNumber, asOptionalString, asString, isRecord, postJson, requestJson } from "../workbench/api";
+import { asArray, asNumber, asOptionalString, asString, isRecord, postJson, queryString, requestJson } from "../workbench/api";
 
 const ROOT = "/api/releases";
 
@@ -86,7 +86,11 @@ function detail(value: unknown): ReleaseDetail {
 }
 
 export const releasesApi = {
-  list: () => requestJson<unknown[]>(ROOT).then((rows) => rows.map(summary)),
+  list: (projectCode?: string) => {
+    const scopedProjectCode = projectCode?.trim();
+    const url = `${ROOT}${queryString({ project_code: scopedProjectCode })}`;
+    return requestJson<unknown[]>(url).then((rows) => rows.map(summary));
+  },
   get: (releaseCode: string) => requestJson<unknown>(`${ROOT}/${encodeURIComponent(releaseCode)}`).then(detail),
   validate: (releaseCode: string) => postJson<unknown>(`${ROOT}/${encodeURIComponent(releaseCode)}/validate`, { actor: "functional-operator" }).then(detail),
   prepareDeliveryPackage: (releaseCode: string, targetName: string, idempotencyKey: string) => postJson<unknown>(`${ROOT}/${encodeURIComponent(releaseCode)}/delivery-packages`, { actor: "functional-operator", target_name: targetName, idempotency_key: idempotencyKey }).then(detail),

@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 from psycopg import Connection
@@ -35,8 +36,11 @@ def repository(connection: Annotated[Connection, Depends(get_db)]) -> ReleaseRep
 
 
 @router.get("")
-def list_releases(instance: Annotated[ReleaseRepository, Depends(repository)]) -> list[dict]:
-    return instance.list_releases()
+def list_releases(
+    instance: Annotated[ReleaseRepository, Depends(repository)],
+    project_code: Annotated[str | None, Query(min_length=1, max_length=64)] = None,
+) -> list[dict]:
+    return instance.list_releases(project_code=project_code)
 
 
 @router.get("/{release_code}")
@@ -97,7 +101,7 @@ def download_delivery_package(
     if release is None:
         raise HTTPException(status_code=404, detail="Release not found")
     return JSONResponse(
-        content=release,
+        content=jsonable_encoder(release),
         headers={"Content-Disposition": f'attachment; filename="{release_code}-delivery-package.json"'},
     )
 

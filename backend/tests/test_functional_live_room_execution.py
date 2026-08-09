@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import pytest
+
+from app.domain.errors import DomainValidationError
 from app.services.functional_live_rooms import FunctionalLiveRoomService
 
 
@@ -247,3 +250,262 @@ def test_execution_readback_marks_observed_geometry_difference() -> None:
 
     assert comparison["status"] == "mismatch"
     assert comparison["scenes"][0]["layers"][0]["status"] == "mismatch"
+
+
+def test_execution_readback_rejects_wrong_system_host_identity() -> None:
+    handoff = {
+        "target_live_room_id": "room-1",
+        "expected_title": "asser测试",
+        "operations": [
+            {"operation_type": "preflight_content_build_plan"},
+            {
+                "operation_type": "fill_default_scene",
+                "scene_index": 0,
+                "scene_name": "MSB-1",
+            },
+            {
+                "operation_type": "insert_asset_layer",
+                "scene_index": 0,
+                "scene_name": "MSB-1",
+                "layer_id": "LYR-HOST-1",
+                "layer_type": "digital_human",
+                "asset_code": "AG-HOST-37200",
+                "maitu_source_material_id": 37200,
+                "source_material_type": "digital_human",
+                "speaker_id": 3760,
+                "digital_human_image_id": 7717,
+                "x": 86.4,
+                "y": 345.6,
+                "width": 388.8,
+                "height": 1228.8,
+                "z_index": 1,
+            },
+            {
+                "operation_type": "position_asset_layer",
+                "scene_index": 0,
+                "layer_id": "LYR-HOST-1",
+                "x": 86.4,
+                "y": 345.6,
+                "width": 388.8,
+                "height": 1228.8,
+                "z_index": 1,
+            },
+            {
+                "operation_type": "write_script",
+                "scene_index": 0,
+                "script_text": "测试话术",
+            },
+            {
+                "operation_type": "verify_scene",
+                "scene_index": 0,
+                "scene_name": "MSB-1",
+            },
+        ],
+    }
+    results = [
+        {
+            "operation_index": 0,
+            "completion_evidence": {
+                "target_live_room_id": "room-1",
+                "authoritative_live_room_title": "asser测试",
+                "environment": "working",
+                "not_live": True,
+            },
+        },
+        {
+            "operation_index": 5,
+            "completion_evidence": {
+                "scene_name": "MSB-1",
+                "verified_layers": [
+                    {
+                        "layer_id": "LYR-HOST-1",
+                        "layer_type": "digital_human",
+                        "asset_code": "AG-HOST-37200",
+                        "material_id": 999,
+                        "source_material_id": 37200,
+                        "speaker_id": 3761,
+                        "digital_human_image_id": 7717,
+                        "left": 86.4,
+                        "top": 345.6,
+                        "width": 388.8,
+                        "height": 1228.8,
+                        "z_index": 1,
+                    }
+                ],
+                "verified_script_text": "测试话术",
+            },
+        },
+    ]
+
+    comparison = FunctionalLiveRoomService._execution_readback_comparison(
+        handoff, results
+    )
+
+    layer = comparison["scenes"][0]["layers"][0]
+    assert comparison["status"] == "mismatch"
+    assert layer["status"] == "mismatch"
+    assert layer["expected"]["host_identity"]["speaker_id"] == 3760
+    assert layer["observed"]["host_identity"]["speaker_id"] == 3761
+
+
+def test_live_room_release_requires_final_matched_readback() -> None:
+    plan = {
+        "plan_code": "LIVEPLAN-1",
+        "execution_status": "maitu_complete",
+        "execution_evidence": {
+            "status": "finalized_draft_readback",
+            "comparison": {"status": "matched"},
+            "execution": {
+                "execution_code": "EXEC-1",
+                "ready_for_go_live": False,
+            },
+        },
+    }
+
+    FunctionalLiveRoomService._require_release_execution_readback(plan)
+
+    with pytest.raises(DomainValidationError) as invalid:
+        FunctionalLiveRoomService._require_release_execution_readback(
+            {
+                **plan,
+                "execution_evidence": {
+                    **plan["execution_evidence"],
+                    "comparison": {"status": "mismatch"},
+                },
+            }
+        )
+
+    assert invalid.value.code == "LIVE_ROOM_RELEASE_EXECUTION_REQUIRED"
+
+
+def test_execution_readback_can_project_an_executed_build_plan_without_allowing_replay() -> None:
+    class FakeMaitu:
+        def get_live_room_build_plan_operations(self, build_plan_code: str) -> dict[str, object]:
+            assert build_plan_code == "MT-BUILD-1"
+            return {
+                "build_plan_code": build_plan_code,
+                "status": "executed",
+                "can_execute": True,
+                "manual_review_required": False,
+                "blocked_reasons": [],
+                "target_live_room_id": "41172",
+                "expected_title": "asser test",
+                "checkpoint_source_fingerprint": "a" * 64,
+                "operations": [
+                    {
+                        "operation_type": "preflight_content_build_plan",
+                        "expected_live_room_title": "asser test",
+                    }
+                ],
+            }
+
+    service = object.__new__(FunctionalLiveRoomService)
+    service.maitu = FakeMaitu()  # type: ignore[assignment]
+    plan = {
+        "plan_code": "LIVEPLAN-1",
+        "review_status": "confirmed",
+        "status": "ready",
+        "blocked_reasons": [],
+        "build_plan": {"build_plan_code": "MT-BUILD-1", "inventory_snapshot": {}},
+        "target_live_room_id": "41172",
+        "expected_title": "asser test",
+    }
+
+    with pytest.raises(DomainValidationError):
+        service._execution_handoff(plan)
+
+    handoff = service._execution_handoff(plan, allow_executed=True)
+
+    assert handoff["build_plan_code"] == "MT-BUILD-1"
+
+
+def test_live_room_release_rights_include_system_managed_host() -> None:
+    plan = {
+        "primary_template_code": None,
+        "secondary_template_codes": [],
+        "selected_asset_codes": ["AG-BG-1", "AG-HOST-37200"],
+        "build_plan": {
+            "live_room_configuration": {},
+            "inventory_snapshot": {
+                "assets": [
+                    {
+                        "asset_code": "AG-BG-1",
+                        "rights_status": "approved",
+                        "rights_note": "brand-owned",
+                    },
+                    {
+                        "asset_code": "AG-HOST-37200",
+                        "rights_status": "approved",
+                        "rights_note": "room-bound host",
+                    },
+                ]
+            },
+        },
+    }
+
+    current_assets = [
+        {
+            "asset_code": asset["asset_code"],
+            "rights_status": "approved",
+            "rights_note": asset["rights_note"],
+            "rights_updated_at": datetime(2026, 8, 9, tzinfo=UTC),
+            "rights_updated_by": "reviewer",
+            "updated_at": datetime(2026, 8, 9, tzinfo=UTC),
+        }
+        for asset in plan["build_plan"]["inventory_snapshot"]["assets"]
+    ]
+    snapshot = FunctionalLiveRoomService._build_release_rights_snapshot(
+        plan, current_assets
+    )
+
+    assert snapshot["status"] == "valid"
+    assert snapshot["asset_count"] == 2
+    assert snapshot["asset_codes"] == ["AG-BG-1", "AG-HOST-37200"]
+
+    plan["build_plan"]["inventory_snapshot"]["assets"][1]["rights_status"] = (
+        "pending"
+    )
+    with pytest.raises(DomainValidationError) as invalid:
+        FunctionalLiveRoomService._build_release_rights_snapshot(
+            plan, current_assets
+        )
+    assert invalid.value.code == "LIVE_ROOM_RELEASE_RIGHTS_REQUIRED"
+
+    plan["build_plan"]["inventory_snapshot"]["assets"][1]["rights_status"] = (
+        "approved"
+    )
+    current_assets[1]["rights_status"] = "revoked"
+    with pytest.raises(DomainValidationError) as revoked:
+        FunctionalLiveRoomService._build_release_rights_snapshot(
+            plan, current_assets
+        )
+    assert revoked.value.code == "LIVE_ROOM_RELEASE_RIGHTS_REQUIRED"
+
+
+def test_live_room_release_quality_gates_replace_pending_execution_gate() -> None:
+    gates = FunctionalLiveRoomService._release_quality_gates(
+        {
+            "gate_results": [
+                {
+                    "gate": "asset_rights",
+                    "status": "pass",
+                    "rule_code": "GATE_ASSET_RIGHTS_APPROVED",
+                },
+                {
+                    "gate": "evidence_completeness",
+                    "status": "warning",
+                    "rule_code": "GATE_EXECUTION_EVIDENCE_PENDING",
+                },
+            ]
+        }
+    )
+
+    assert all(gate["status"] == "pass" for gate in gates)
+    assert {gate["code"] for gate in gates} >= {
+        "GATE_MAITU_DRAFT_EXECUTION_SUCCEEDED",
+        "GATE_MAITU_DRAFT_READBACK_MATCHED",
+        "GATE_LIVE_ROOM_ASSET_RIGHTS_VALID",
+    }
+    assert "GATE_EXECUTION_EVIDENCE_PENDING" not in {
+        gate["code"] for gate in gates
+    }

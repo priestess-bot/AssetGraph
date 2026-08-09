@@ -119,6 +119,8 @@ def test_timeline_update_preserves_requested_clip_order_across_tracks_and_shots(
         "width_ratio": 0.4,
     }
     assert rendered_input["shots"][0]["subtitle_text"] == "第二段字幕"
+    assert rendered_input["shots"][0]["narration"] == "第二段字幕"
+    assert rendered_input["shots"][0]["tts_text"] == "第二段字幕"
     assert rendered_input["shots"][0]["screen_text"] == "第二段标题"
     assert rendered_input["shots"][0]["voice_gain_db"] == 0.0
     assert updated["poster_time_ms"] == 12_000
@@ -716,6 +718,32 @@ def test_timeline_subtitle_updates_remain_bound_to_fixed_shots() -> None:
         assert exc.code == "VIDEO_TIMELINE_SUBTITLE_SET_MISMATCH"
     else:
         raise AssertionError("subtitle updates must retain the complete fixed subtitle set")
+
+
+def test_timeline_subtitle_text_is_the_frozen_voice_script() -> None:
+    timeline = _timeline()
+    timeline["tracks"][2]["clips"][0]["subtitle_text"] = "PRO 配音与字幕一致"
+
+    rendered = FunctionalVideoService._timeline_shot_list(
+        {
+            "shots": [
+                {
+                    "shot_code": "SHOT-01",
+                    "narration": "旧文案",
+                    "tts_text": "旧文案",
+                },
+                {
+                    "shot_code": "SHOT-02",
+                    "narration": "第二段旧文案",
+                    "tts_text": "第二段旧文案",
+                },
+            ]
+        },
+        timeline,
+    )
+
+    assert rendered["shots"][0]["narration"] == "PRO 配音与字幕一致"
+    assert rendered["shots"][0]["tts_text"] == "P R O 配音与字幕一致"
 
 
 def test_timeline_subtitle_update_payload_preserves_historical_text() -> None:

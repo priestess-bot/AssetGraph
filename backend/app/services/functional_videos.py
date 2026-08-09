@@ -23,6 +23,9 @@ from app.services.functional_content import FunctionalContentService
 from app.services.releases import ReleaseService
 
 
+LOCAL_RENDER_CAPABILITIES = frozenset({"local_only", "maitu_bound"})
+
+
 def build_video_reproducibility_evidence(
     *,
     timeline_revision: int,
@@ -428,7 +431,7 @@ class FunctionalVideoService:
             if (
                 str(row.get("asset_type") or "") != "VID"
                 or str(row.get("media_kind") or "") != "video"
-                or str(row.get("execution_capability") or "") != "local_only"
+                or str(row.get("execution_capability") or "") not in LOCAL_RENDER_CAPABILITIES
                 or not local_relative_path
                 or not checksum_is_valid
                 or not path_is_safe
@@ -499,7 +502,7 @@ class FunctionalVideoService:
         if (
             str(row.get("media_kind") or "") != "audio"
             or "background_music" not in list(row.get("material_roles") or [])
-            or str(row.get("execution_capability") or "") != "local_only"
+            or str(row.get("execution_capability") or "") not in LOCAL_RENDER_CAPABILITIES
             or not checksum_is_valid
             or not path_is_safe
         ):
@@ -566,7 +569,7 @@ class FunctionalVideoService:
         if (
             str(row.get("media_kind") or "") != "audio"
             or "sound_effect" not in list(row.get("material_roles") or [])
-            or str(row.get("execution_capability") or "") != "local_only"
+            or str(row.get("execution_capability") or "") not in LOCAL_RENDER_CAPABILITIES
             or not checksum_is_valid
             or not path_is_safe
         ):
@@ -624,7 +627,7 @@ class FunctionalVideoService:
         if (
             str(row.get("media_kind") or "") != "image"
             or "product_display" not in list(row.get("material_roles") or [])
-            or str(row.get("execution_capability") or "") != "local_only"
+            or str(row.get("execution_capability") or "") not in LOCAL_RENDER_CAPABILITIES
             or not checksum_is_valid
             or not path_is_safe
         ):
@@ -682,7 +685,7 @@ class FunctionalVideoService:
         if (
             str(row.get("media_kind") or "") != "image"
             or "brand_title" not in list(row.get("material_roles") or [])
-            or str(row.get("execution_capability") or "") != "local_only"
+            or str(row.get("execution_capability") or "") not in LOCAL_RENDER_CAPABILITIES
             or not checksum_is_valid
             or not path_is_safe
         ):
@@ -1006,7 +1009,7 @@ class FunctionalVideoService:
         return self._enrich(row)
 
     def create_release_candidate(self, plan_code: str, *, actor_id: str) -> dict[str, Any]:
-        """Freeze a QC-passed rendered-video plan for review, never delivery."""
+        """Freeze a QC-passed rendered-video plan for release review."""
         source = self._branch_source(plan_code)
         if source is None:
             if self.get_plan(plan_code) is None:
@@ -1033,6 +1036,7 @@ class FunctionalVideoService:
         )
         if not video_artifact or not video_artifact.get("checksum_sha256"):
             raise DomainValidationError("VIDEO_RELEASE_ARTIFACT_MISSING", "The QC-passed video artifact is required for release")
+        rights_snapshot = self._release_rights_snapshot(job)
         subject_refs = self._release_subject_refs(source)
         snapshot_artifact = self._get_or_create_release_snapshot(source, job, subject_refs)
         release = self._release_service().create_candidate(
@@ -1048,17 +1052,13 @@ class FunctionalVideoService:
                     "role": "rendered_video_release_snapshot",
                 }
             ],
-            rights_snapshot={
-                "status": "pending_evidence",
-                "asset_codes": self._selected_material_codes(dict(job.get("shot_list") or {})),
-                "reason": "Rendered source asset rights and delivery authorization have not been collected.",
-            },
+            rights_snapshot=rights_snapshot,
             quality_snapshot={
                 "schema_version": "functional-video-release-quality.v1",
                 "gates": [
+                    {"code": "GATE_VIDEO_RENDER_SUCCEEDED", "status": "pass", "blocking": True},
                     {"code": "GATE_VIDEO_QC", "status": "pass", "blocking": True},
-                    {"code": "GATE_RELEASE_RIGHTS_EVIDENCE_PENDING", "status": "pending", "blocking": True},
-                    {"code": "GATE_RELEASE_AUTHORIZATION_PENDING", "status": "pending", "blocking": True},
+                    {"code": "GATE_VIDEO_ASSET_RIGHTS", "status": "pass", "blocking": True},
                 ],
                 "quality_report": quality_report,
             },
@@ -1069,7 +1069,8 @@ class FunctionalVideoService:
                     "content_chain": "fixed",
                     "production_timeline": "fixed",
                     "render_artifact": "fixed",
-                    "rights_and_delivery": "pending",
+                    "source_asset_rights": "fixed",
+                    "release_approval": "pending",
                 },
             },
             carrier_facet={
@@ -1083,7 +1084,7 @@ class FunctionalVideoService:
                     "relative_path": video_artifact.get("relative_path"),
                     "checksum_sha256": video_artifact["checksum_sha256"],
                 },
-                "delivery": {"status": "not_authorized"},
+                "delivery": {"status": "awaiting_release_approval"},
             },
             created_by=actor_id,
         )
@@ -1163,6 +1164,290 @@ class FunctionalVideoService:
             "program_revision": {"code": source["program_revision_code"], "revision": int(source["program_revision"])},
             "shot_list_revision": {"code": source["shot_list_revision_code"], "revision": int(source["shot_list_revision"])},
         }
+
+    def _release_rights_snapshot(self, job: dict[str, Any]) -> dict[str, Any]:
+        rendered_assets = self._rendered_release_inputs(job)
+        identifiers = sorted(
+            {
+                identifier
+                for asset in rendered_assets
+                for identifier in (asset.get("asset_code"), asset.get("local_file_code"))
+                if identifier
+            }
+        )
+        checksums = sorted({str(asset["checksum_sha256"]) for asset in rendered_assets})
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """SELECT asset_code, local_file_code, checksum_sha256, rights_status,
+                          rights_updated_at, rights_updated_by
+                   FROM assets
+                   WHERE deleted_at IS NULL
+                     AND (
+                         asset_code = ANY(%s)
+                         OR local_file_code = ANY(%s)
+                         OR checksum_sha256::text = ANY(%s)
+                     )
+                   ORDER BY asset_code""",
+                (identifiers, identifiers, checksums),
+            )
+            candidates = [dict(row) for row in cursor.fetchall()]
+        return self._build_release_rights_snapshot(rendered_assets, candidates)
+
+    @staticmethod
+    def _rendered_release_inputs(job: dict[str, Any]) -> list[dict[str, Any]]:
+        asset_plan = job.get("asset_plan")
+        if not isinstance(asset_plan, dict):
+            raise DomainValidationError(
+                "VIDEO_RELEASE_ASSET_PLAN_REQUIRED",
+                "The completed render must retain its exact asset plan",
+            )
+        raw_assets = asset_plan.get("assets")
+        if not isinstance(raw_assets, list) or not raw_assets:
+            raise DomainValidationError(
+                "VIDEO_RELEASE_ASSET_PLAN_REQUIRED",
+                "The completed render must retain every source asset in its asset plan",
+            )
+        try:
+            declared_count = int(asset_plan["asset_count"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise DomainValidationError(
+                "VIDEO_RELEASE_ASSET_PLAN_INVALID",
+                "The rendered asset plan has no valid asset count",
+            ) from exc
+        if declared_count != len(raw_assets):
+            raise DomainValidationError(
+                "VIDEO_RELEASE_ASSET_PLAN_INVALID",
+                "The rendered asset plan count does not match its frozen inputs",
+                details={"declared_count": declared_count, "actual_count": len(raw_assets)},
+            )
+
+        rendered_assets: list[dict[str, Any]] = []
+        seen_identities: dict[tuple[str, str], dict[str, Any]] = {}
+        for index, raw_asset in enumerate(raw_assets):
+            if not isinstance(raw_asset, dict):
+                raise DomainValidationError(
+                    "VIDEO_RELEASE_ASSET_PLAN_INVALID",
+                    "Every rendered asset input must be an object",
+                    details={"asset_index": index},
+                )
+            asset_code = str(raw_asset.get("asset_code") or "").strip()
+            local_file_code = str(raw_asset.get("local_file_code") or "").strip()
+            checksum = str(raw_asset.get("checksum_sha256") or "").strip()
+            relative_path = str(raw_asset.get("relative_path") or "").strip()
+            if not asset_code and not local_file_code:
+                raise DomainValidationError(
+                    "VIDEO_RELEASE_ASSET_IDENTITY_REQUIRED",
+                    "Every rendered input must retain an asset or local file code",
+                    details={"asset_index": index},
+                )
+            if not VideoProductionRepository._valid_checksum(checksum):
+                raise DomainValidationError(
+                    "VIDEO_RELEASE_ASSET_CHECKSUM_REQUIRED",
+                    "Every rendered input must retain a valid SHA-256 checksum",
+                    details={"asset_index": index, "asset_code": asset_code or None},
+                )
+            normalized = {
+                "asset_code": asset_code or None,
+                "local_file_code": local_file_code or None,
+                "checksum_sha256": checksum,
+                "relative_path": relative_path or None,
+            }
+            identity = (asset_code, local_file_code)
+            existing = seen_identities.get(identity)
+            if existing is not None and existing != normalized:
+                raise DomainValidationError(
+                    "VIDEO_RELEASE_ASSET_INPUT_CONFLICT",
+                    "A rendered asset identity resolves to conflicting frozen inputs",
+                    details={"asset_code": asset_code or None, "local_file_code": local_file_code or None},
+                )
+            if existing is None:
+                seen_identities[identity] = normalized
+                rendered_assets.append(normalized)
+
+        available_codes = {
+            identifier
+            for asset in rendered_assets
+            for identifier in (asset.get("asset_code"), asset.get("local_file_code"))
+            if identifier
+        }
+        available_paths = {
+            str(asset["relative_path"])
+            for asset in rendered_assets
+            if asset.get("relative_path")
+        }
+        required_codes = set(
+            FunctionalVideoService._selected_material_codes(dict(job.get("shot_list") or {}))
+        )
+        required_codes.update(
+            str(item.get("asset_code") or "").strip()
+            for item in asset_plan.get("shot_assets") or []
+            if isinstance(item, dict)
+        )
+        for field in ("brand_logo", "product_sticker", "background_music", "sound_effect"):
+            selected = asset_plan.get(field)
+            if isinstance(selected, dict):
+                required_codes.add(str(selected.get("asset_code") or "").strip())
+        overlays = asset_plan.get("overlays")
+        required_paths = (
+            {
+                str(path).strip()
+                for path in overlays.values()
+                if isinstance(path, str) and path.strip()
+            }
+            if isinstance(overlays, dict)
+            else set()
+        )
+        missing_codes = sorted(code for code in required_codes if code and code not in available_codes)
+        missing_paths = sorted(path for path in required_paths if path not in available_paths)
+        if missing_codes or missing_paths:
+            raise DomainValidationError(
+                "VIDEO_RELEASE_ASSET_PLAN_INCOMPLETE",
+                "The rendered asset plan omits timeline or overlay inputs",
+                details={"missing_asset_codes": missing_codes, "missing_relative_paths": missing_paths},
+            )
+        return sorted(
+            rendered_assets,
+            key=lambda item: (
+                str(item.get("asset_code") or ""),
+                str(item.get("local_file_code") or ""),
+                str(item["checksum_sha256"]),
+            ),
+        )
+
+    @classmethod
+    def _build_release_rights_snapshot(
+        cls,
+        rendered_assets: list[dict[str, Any]],
+        candidates: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        resolved: dict[str, dict[str, Any]] = {}
+        unapproved: list[dict[str, Any]] = []
+        for rendered_asset in rendered_assets:
+            candidate, matched_by = cls._match_release_asset(rendered_asset, candidates)
+            rights_status = str(candidate.get("rights_status") or "")
+            if rights_status != "approved":
+                unapproved.append(
+                    {
+                        "asset_code": str(candidate.get("asset_code") or ""),
+                        "rights_status": rights_status or None,
+                    }
+                )
+                continue
+            asset_code = str(candidate["asset_code"])
+            rendered_codes = sorted(
+                {
+                    str(code)
+                    for code in (rendered_asset.get("asset_code"), rendered_asset.get("local_file_code"))
+                    if code
+                }
+            )
+            updated_at = candidate.get("rights_updated_at")
+            item = resolved.setdefault(
+                asset_code,
+                {
+                    "asset_code": asset_code,
+                    "local_file_code": candidate.get("local_file_code"),
+                    "checksum_sha256": str(candidate["checksum_sha256"]),
+                    "rights_status": rights_status,
+                    "rights_updated_at": updated_at.isoformat() if hasattr(updated_at, "isoformat") else updated_at,
+                    "rights_updated_by": candidate.get("rights_updated_by"),
+                    "rendered_input_codes": [],
+                    "matched_by": [],
+                },
+            )
+            item["rendered_input_codes"] = sorted(set(item["rendered_input_codes"]) | set(rendered_codes))
+            item["matched_by"] = sorted(set(item["matched_by"]) | {matched_by})
+        if unapproved:
+            raise DomainValidationError(
+                "VIDEO_RELEASE_ASSET_RIGHTS_REQUIRED",
+                "Every rendered source asset must have approved rights before release",
+                details={"assets": sorted(unapproved, key=lambda item: item["asset_code"])},
+            )
+        assets = sorted(resolved.values(), key=lambda item: item["asset_code"])
+        if not assets:
+            raise DomainValidationError(
+                "VIDEO_RELEASE_ASSET_PLAN_REQUIRED",
+                "The release rights snapshot cannot be empty",
+            )
+        return {
+            "schema_version": "functional-video-release-rights.v1",
+            "status": "valid",
+            "source": "rendered_asset_plan.v1",
+            "asset_count": len(assets),
+            "asset_codes": [asset["asset_code"] for asset in assets],
+            "assets": assets,
+            "render_input_fingerprint_sha256": canonical_fingerprint(rendered_assets),
+            "rights_evidence_fingerprint_sha256": canonical_fingerprint(assets),
+        }
+
+    @staticmethod
+    def _match_release_asset(
+        rendered_asset: dict[str, Any],
+        candidates: list[dict[str, Any]],
+    ) -> tuple[dict[str, Any], str]:
+        checksum = str(rendered_asset["checksum_sha256"])
+        source_asset_code = str(rendered_asset.get("asset_code") or "")
+        source_local_file_code = str(rendered_asset.get("local_file_code") or "")
+
+        def exact_match(rows: list[dict[str, Any]], matched_by: str) -> tuple[dict[str, Any], str]:
+            exact = [row for row in rows if str(row.get("checksum_sha256") or "") == checksum]
+            if not exact:
+                raise DomainValidationError(
+                    "VIDEO_RELEASE_ASSET_CHECKSUM_MISMATCH",
+                    "A rendered source checksum no longer matches its catalog asset",
+                    details={
+                        "rendered_asset_code": source_asset_code or None,
+                        "rendered_local_file_code": source_local_file_code or None,
+                        "expected_checksum": checksum,
+                        "catalog_asset_codes": sorted(str(row.get("asset_code") or "") for row in rows),
+                    },
+                )
+            if len(exact) != 1:
+                raise DomainValidationError(
+                    "VIDEO_RELEASE_ASSET_AMBIGUOUS",
+                    "A rendered source resolves to multiple active catalog assets",
+                    details={
+                        "rendered_asset_code": source_asset_code or None,
+                        "rendered_local_file_code": source_local_file_code or None,
+                        "catalog_asset_codes": sorted(str(row.get("asset_code") or "") for row in exact),
+                    },
+                )
+            return exact[0], matched_by
+
+        if source_asset_code:
+            direct = [row for row in candidates if str(row.get("asset_code") or "") == source_asset_code]
+            if direct:
+                return exact_match(direct, "asset_code")
+        if source_local_file_code:
+            explicit_local = [
+                row
+                for row in candidates
+                if str(row.get("local_file_code") or "") == source_local_file_code
+            ]
+            if explicit_local:
+                return exact_match(explicit_local, "local_file_code")
+        if source_asset_code:
+            legacy_local = [
+                row
+                for row in candidates
+                if str(row.get("local_file_code") or "") == source_asset_code
+            ]
+            if legacy_local:
+                return exact_match(legacy_local, "local_file_code")
+        checksum_matches = [
+            row for row in candidates if str(row.get("checksum_sha256") or "") == checksum
+        ]
+        if checksum_matches:
+            return exact_match(checksum_matches, "checksum_sha256")
+        raise DomainValidationError(
+            "VIDEO_RELEASE_ASSET_NOT_FOUND",
+            "A rendered source asset is absent from the active asset catalog",
+            details={
+                "rendered_asset_code": source_asset_code or None,
+                "rendered_local_file_code": source_local_file_code or None,
+                "checksum_sha256": checksum,
+            },
+        )
 
     def _get_or_create_release_snapshot(
         self,
@@ -2639,7 +2924,12 @@ class FunctionalVideoService:
                 shot["source_available_seconds"] = float(source_range["end_seconds"]) - float(source_range["start_seconds"])
             subtitle = subtitle_by_shot.get(clip_code)
             if subtitle is not None:
-                shot["subtitle_text"] = str(subtitle.get("subtitle_text") or shot.get("narration") or "")
+                subtitle_text = str(
+                    subtitle.get("subtitle_text") or shot.get("narration") or ""
+                )
+                shot["subtitle_text"] = subtitle_text
+                shot["narration"] = subtitle_text
+                shot["tts_text"] = subtitle_text.replace("PRO", "P R O")
                 shot["screen_text"] = str(subtitle.get("headline_text") or "")
                 shot["caption_position"] = (
                     str(subtitle.get("caption_position"))

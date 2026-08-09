@@ -172,9 +172,26 @@ if (-not $SkipMinio) {
 }
 
 $backendHealth = "http://127.0.0.1:8000/health"
+$generatedOperatorCredential = $false
 if (-not (Test-HttpEndpoint -Uri $backendHealth)) {
     if (Test-TcpPort -Port 8000) {
         throw "Port 8000 is occupied by a service that is not AssetGraph."
+    }
+    $operatorConfigured = (& $backendPython -c "from app.core.config import settings; print('yes' if settings.control_plane_operator_token is not None else 'no')") -eq "yes"
+    if (-not $operatorConfigured) {
+        if ($null -eq (Get-Command Set-Clipboard -ErrorAction SilentlyContinue)) {
+            throw "Control-plane approval requires ASSETGRAPH_CONTROL_PLANE_OPERATOR_TOKEN because this PowerShell session has no clipboard support."
+        }
+        $randomBytes = [byte[]]::new(32)
+        $random = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+        try {
+            $random.GetBytes($randomBytes)
+        } finally {
+            $random.Dispose()
+        }
+        $env:ASSETGRAPH_CONTROL_PLANE_OPERATOR_TOKEN = [Convert]::ToBase64String($randomBytes).TrimEnd("=").Replace("+", "-").Replace("/", "_")
+        Set-Clipboard -Value $env:ASSETGRAPH_CONTROL_PLANE_OPERATOR_TOKEN
+        $generatedOperatorCredential = $true
     }
     $backendArguments = @("-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8000")
     if (-not $Production) {
@@ -248,6 +265,9 @@ Write-Host "  Console: $applicationUrl"
 Write-Host "  API:     http://127.0.0.1:8000/docs"
 Write-Host "  MinIO:   http://127.0.0.1:9001"
 Write-Host "  Logs:    $logRoot"
+if ($generatedOperatorCredential) {
+    Write-Host "  Review:  ephemeral approval credential copied to the Windows clipboard"
+}
 if (-not $SkipContentGeneration) {
     Write-Host "  Content: guided generation worker"
 }

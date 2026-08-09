@@ -84,7 +84,106 @@ def test_read_room_host_configuration_returns_safe_ready_host_metadata(monkeypat
     assert result["has_ready_host"] is True
     assert result["digital_human"] == {"name": "40", "material_id": "20"}
     assert result["voice"] == {"name": "30"}
+    assert result["binding"] == {
+        "live_room_id": "47000002",
+        "material_id": "20",
+        "digital_human_image_id": "40",
+        "speaker_id": "30",
+        "scene_ids": ["1"],
+        "scene_names": ["Scene A"],
+        "fingerprint_sha256": result["binding"]["fingerprint_sha256"],
+    }
     assert len(result["fingerprint_sha256"]) == 64
+
+
+def test_read_room_host_configuration_deduplicates_same_binding_across_scenes(monkeypatch) -> None:
+    materials = [
+        {
+            "id": 10,
+            "material_id": 20,
+            "type": "digital_human",
+            "speaker_id": 30,
+            "digital_human_image_id": 40,
+        }
+    ]
+    verifier = verifier_for(
+        monkeypatch,
+        {
+            "/live_rooms/47000002?env=working&include_qa_clips=true": {
+                "id": 47000002,
+                "name": "Working room",
+                "environment": "working",
+                "is_live": False,
+                "topics": [
+                    {
+                        "clips": [
+                            {"id": 1, "name": "Scene A", "clip_materials": materials},
+                            {"id": 2, "name": "Scene B", "clip_materials": materials},
+                        ]
+                    }
+                ],
+            }
+        },
+    )
+
+    result = verifier.read_room_host_configuration("47000002")
+
+    assert result["status"] == "ready"
+    assert result["unique_ready_host_count"] == 1
+    assert result["binding"]["scene_ids"] == ["1", "2"]
+    assert result["binding"]["scene_names"] == ["Scene A", "Scene B"]
+    assert len(result["hosts"]) == 2
+
+
+def test_read_room_host_configuration_rejects_distinct_ready_bindings(monkeypatch) -> None:
+    verifier = verifier_for(
+        monkeypatch,
+        {
+            "/live_rooms/47000002?env=working&include_qa_clips=true": {
+                "id": 47000002,
+                "name": "Working room",
+                "environment": "working",
+                "is_live": False,
+                "topics": [
+                    {
+                        "clips": [
+                            {
+                                "id": 1,
+                                "name": "Scene A",
+                                "clip_materials": [
+                                    {
+                                        "material_id": 20,
+                                        "type": "digital_human",
+                                        "speaker_id": 30,
+                                        "digital_human_image_id": 40,
+                                    }
+                                ],
+                            },
+                            {
+                                "id": 2,
+                                "name": "Scene B",
+                                "clip_materials": [
+                                    {
+                                        "material_id": 21,
+                                        "type": "digital_human",
+                                        "speaker_id": 31,
+                                        "digital_human_image_id": 41,
+                                    }
+                                ],
+                            },
+                        ]
+                    }
+                ],
+            }
+        },
+    )
+
+    result = verifier.read_room_host_configuration("47000002")
+
+    assert result["status"] == "ambiguous"
+    assert result["has_ready_host"] is False
+    assert result["unique_ready_host_count"] == 2
+    assert result["binding"] is None
 
 
 def test_reconciliation_attests_confirmed_not_applied_when_effect_is_absent(monkeypatch) -> None:

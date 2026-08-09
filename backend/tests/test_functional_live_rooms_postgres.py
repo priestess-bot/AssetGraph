@@ -6,6 +6,8 @@ from uuid import uuid4
 
 import psycopg
 import pytest
+from psycopg.errors import LockNotAvailable
+from psycopg.types.json import Jsonb
 
 from app.domain.errors import DomainValidationError
 from app.repositories.assets import AssetRepository
@@ -21,6 +23,32 @@ DATABASE_URL = os.getenv("ASSETGRAPH_TEST_DATABASE_URL")
 pytestmark = pytest.mark.skipif(
     not DATABASE_URL, reason="ASSETGRAPH_TEST_DATABASE_URL is not configured"
 )
+
+
+def _mark_release_ready(
+    connection: psycopg.Connection, plan_code: str
+) -> None:
+    evidence = {
+        "schema_version": "functional-live-room-execution-readback.v2",
+        "status": "finalized_draft_readback",
+        "comparison": {"status": "matched"},
+        "execution": {
+            "execution_code": f"EXEC-{plan_code}",
+            "execution_status": "completed",
+            "ready_for_go_live": False,
+        },
+    }
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            UPDATE functional_live_room_plans
+            SET execution_status = 'maitu_complete', execution_evidence = %s,
+                updated_at = now()
+            WHERE plan_code = %s
+            """,
+            (Jsonb(evidence), plan_code),
+        )
+    connection.commit()
 
 
 def _asset(
@@ -770,7 +798,7 @@ def test_live_room_duration_deviation_warns_without_blocking_plan() -> None:
         ]
 
 
-def test_live_room_release_candidate_freezes_plan_and_stays_pending_external_evidence() -> (
+def test_live_room_release_candidate_freezes_executed_readback_matched_plan() -> (
     None
 ):
     suffix = uuid4().hex
@@ -797,6 +825,7 @@ def test_live_room_release_candidate_freezes_plan_and_stays_pending_external_evi
             },
             actor_id="test-operator",
         )
+        _mark_release_ready(connection, plan["plan_code"])
 
         candidate = service.create_release_candidate(
             plan["plan_code"], actor_id="test-operator"
@@ -837,11 +866,14 @@ def test_live_room_release_candidate_freezes_plan_and_stays_pending_external_evi
                 "role": "live_room_build_plan_snapshot",
             }
         ]
-        assert manifest["rights_snapshot"]["status"] == "approved"
+        assert manifest["rights_snapshot"]["status"] == "valid"
         assert any(
-            gate["code"] == "GATE_RELEASE_AUTHORIZATION_PENDING" and gate["blocking"]
+            gate["code"] == "GATE_MAITU_DRAFT_READBACK_MATCHED"
+            and gate["status"] == "pass"
             for gate in manifest["quality_snapshot"]["gates"]
         )
+        assert manifest["lineage_snapshot"]["coverage"]["execution_readback"] == "matched"
+        assert manifest["carrier_facet"]["execution"]["readback_evidence"] == "matched"
         assert ReleaseService(
             repository,
             signing_key=b"functional-live-room-release-test-key",
@@ -865,14 +897,140 @@ def test_live_room_release_candidate_freezes_plan_and_stays_pending_external_evi
         )
         assert snapshot[0]["subject_refs"] == manifest["subject_refs"]
 
-        with pytest.raises(DomainValidationError) as invalid:
-            ReleaseService(
-                repository,
-                signing_key=b"functional-live-room-release-test-key",
-                signing_key_id="functional-live-room-release-test-key-id",
-            ).validate_candidate(release["release_code"], actor_id="validator")
-        assert invalid.value.code == "RELEASE_GATE_FAILED"
-        assert repository.get_release(release["release_code"])["status"] == "candidate"
+        validated = ReleaseService(
+            repository,
+            signing_key=b"functional-live-room-release-test-key",
+            signing_key_id="functional-live-room-release-test-key-id",
+        ).validate_candidate(release["release_code"], actor_id="validator")
+        assert validated["status"] == "awaiting_approval"
+
+
+def test_live_room_release_candidate_rechecks_current_asset_rights() -> None:
+    suffix = uuid4().hex
+    with psycopg.connect(DATABASE_URL) as connection:
+        assets = AssetRepository(connection)
+        project = _generated_project(connection, suffix)
+        selected = [
+            _asset(assets, suffix, "digital_human"),
+            _asset(assets, suffix, "background"),
+            _asset(assets, suffix, "promotion_text"),
+        ]
+        service = FunctionalLiveRoomService(
+            connection,
+            release_signing_key=b"functional-live-room-release-test-key",
+            release_signing_key_id="functional-live-room-release-test-key-id",
+        )
+        plan = service.create_plan(
+            {
+                "project_code": project["project_code"],
+                "target_live_room_id": f"empty-draft-{suffix}",
+                "expected_title": "Revoked rights draft",
+                "asset_codes": [item["asset_code"] for item in selected],
+                "group_codes": [],
+            },
+            actor_id="test-operator",
+        )
+        _mark_release_ready(connection, plan["plan_code"])
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """UPDATE assets
+                   SET rights_status = 'revoked', rights_updated_at = now(),
+                       rights_updated_by = 'rights-test'
+                   WHERE asset_code = %s""",
+                (selected[1]["asset_code"],),
+            )
+        connection.commit()
+
+        with pytest.raises(DomainValidationError) as revoked:
+            service.create_release_candidate(
+                plan["plan_code"], actor_id="test-operator"
+            )
+
+        assert revoked.value.code == "LIVE_ROOM_RELEASE_RIGHTS_REQUIRED"
+
+
+def test_live_room_release_candidate_replay_uses_committed_rights_snapshot() -> None:
+    suffix = uuid4().hex
+    with psycopg.connect(DATABASE_URL) as connection:
+        assets = AssetRepository(connection)
+        project = _generated_project(connection, suffix)
+        selected = [
+            _asset(assets, suffix, "digital_human"),
+            _asset(assets, suffix, "background"),
+            _asset(assets, suffix, "promotion_text"),
+        ]
+        service = FunctionalLiveRoomService(
+            connection,
+            release_signing_key=b"functional-live-room-release-test-key",
+            release_signing_key_id="functional-live-room-release-test-key-id",
+        )
+        plan = service.create_plan(
+            {
+                "project_code": project["project_code"],
+                "target_live_room_id": f"replayed-rights-{suffix}",
+                "expected_title": "Replayed rights draft",
+                "asset_codes": [item["asset_code"] for item in selected],
+                "group_codes": [],
+            },
+            actor_id="test-operator",
+        )
+        _mark_release_ready(connection, plan["plan_code"])
+        candidate = service.create_release_candidate(
+            plan["plan_code"], actor_id="test-operator"
+        )
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """UPDATE assets
+                   SET rights_status = 'revoked', rights_updated_at = now(),
+                       rights_updated_by = 'rights-test'
+                   WHERE asset_code = %s""",
+                (selected[1]["asset_code"],),
+            )
+        connection.commit()
+
+        replay = service.create_release_candidate(
+            plan["plan_code"], actor_id="test-operator"
+        )
+
+        assert replay["release"]["release_code"] == candidate["release"]["release_code"]
+
+
+def test_live_room_release_rights_snapshot_locks_current_assets() -> None:
+    suffix = uuid4().hex
+    with psycopg.connect(DATABASE_URL) as connection:
+        assets = AssetRepository(connection)
+        project = _generated_project(connection, suffix)
+        selected = [
+            _asset(assets, suffix, "digital_human"),
+            _asset(assets, suffix, "background"),
+            _asset(assets, suffix, "promotion_text"),
+        ]
+        service = FunctionalLiveRoomService(connection)
+        plan = service.create_plan(
+            {
+                "project_code": project["project_code"],
+                "target_live_room_id": f"locked-rights-{suffix}",
+                "expected_title": "Locked rights draft",
+                "asset_codes": [item["asset_code"] for item in selected],
+                "group_codes": [],
+            },
+            actor_id="test-operator",
+        )
+        releaseable = service._releaseable_plan(plan["plan_code"])
+        assert releaseable is not None
+        snapshot = service._release_rights_snapshot(releaseable)
+        assert snapshot["status"] == "valid"
+
+        with psycopg.connect(DATABASE_URL) as competing:
+            with competing.cursor() as cursor:
+                cursor.execute("SET LOCAL lock_timeout = '100ms'")
+                with pytest.raises(LockNotAvailable):
+                    cursor.execute(
+                        "UPDATE assets SET rights_status = 'revoked' WHERE asset_code = %s",
+                        (selected[1]["asset_code"],),
+                    )
+            competing.rollback()
+        connection.rollback()
 
 
 def test_live_room_plan_clone_recompiles_business_inputs_for_a_new_target() -> None:
@@ -896,9 +1054,10 @@ def test_live_room_plan_clone_recompiles_business_inputs_for_a_new_target() -> N
             },
             actor_id="test-operator",
         )
+        _mark_release_ready(connection, source["plan_code"])
         service.create_release_candidate(source["plan_code"], actor_id="test-operator")
-        source = service.confirm_execution(source["plan_code"], confirmed=True)
-        assert source is not None and source["execution_status"] == "requested"
+        source = service.get_plan(source["plan_code"])
+        assert source is not None and source["execution_status"] == "maitu_complete"
 
         cloned = service.clone_plan(
             source["plan_code"],

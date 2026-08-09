@@ -6,7 +6,11 @@ from typing import Annotated, Any, Iterable
 from fastapi import Header, HTTPException, status
 
 from app.core.config import settings
-from app.core.secret_hygiene import contains_durable_secret, contains_forbidden_value
+from app.core.secret_hygiene import (
+    contains_durable_secret,
+    contains_forbidden_value,
+    find_invalid_public_sha256_field,
+)
 
 
 def maitu_forbidden_values() -> tuple[str, ...]:
@@ -32,6 +36,13 @@ def reject_maitu_durable_secret(
 ) -> None:
     durable = payload.model_dump(mode="json", exclude_none=True) if hasattr(payload, "model_dump") else payload
     forbidden_values = maitu_forbidden_values()
+
+    invalid_sha256_field = find_invalid_public_sha256_field(durable)
+    if invalid_sha256_field is not None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"{invalid_sha256_field} must be a SHA-256 digest",
+        )
     # Public protocol UUIDs and SHA-256 identities are structurally valid, but
     # they must never equal or contain any configured credential. Check the
     # complete payload before excluding those identity fields from the generic

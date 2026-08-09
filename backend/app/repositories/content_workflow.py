@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
@@ -8,8 +9,12 @@ from psycopg import Connection
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
-from app.domain.contracts import canonical_fingerprint
+from app.domain.contracts import canonical_fingerprint, canonical_json_bytes
 from app.domain.errors import DomainConflictError, DomainValidationError
+
+
+def _json_document(value: Any) -> Any:
+    return json.loads(canonical_json_bytes(value))
 
 
 class ContentWorkflowRepository:
@@ -597,6 +602,8 @@ class ContentWorkflowRepository:
             "script": "generate_script",
             "storyboard": "generate_storyboard",
         }.get(stage, "generate")
+        json_input_snapshot = _json_document(input_snapshot)
+        json_template_ref = _json_document(template_ref or {})
         fingerprint = canonical_fingerprint(
             {
                 "operation": resolved_operation,
@@ -612,7 +619,7 @@ class ContentWorkflowRepository:
             }
         )
         idempotency_key = f"{resolved_operation}:{fingerprint}"
-        job_items = items or [{"item_key": stage, "input_payload": input_snapshot}]
+        job_items = items or [{"item_key": stage, "input_payload": json_input_snapshot}]
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
                 "SELECT id FROM content_projects WHERE id = %s FOR UPDATE",
@@ -676,8 +683,8 @@ class ContentWorkflowRepository:
                     material_pool_revision,
                     source_outline_revision,
                     source_script_revision,
-                    Jsonb(template_ref or {}),
-                    Jsonb(input_snapshot),
+                    Jsonb(json_template_ref),
+                    Jsonb(json_input_snapshot),
                     fingerprint,
                     len(job_items),
                     requested_by,
@@ -698,7 +705,7 @@ class ContentWorkflowRepository:
                         job["id"],
                         str(item.get("item_key") or f"item-{sort_order + 1}"),
                         sort_order,
-                        Jsonb(dict(item.get("input_payload") or {})),
+                        Jsonb(_json_document(dict(item.get("input_payload") or {}))),
                     ),
                 )
         if commit:

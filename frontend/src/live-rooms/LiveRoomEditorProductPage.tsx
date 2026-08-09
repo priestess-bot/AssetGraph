@@ -13,6 +13,8 @@ import {
   Layers3,
   ListChecks,
   LoaderCircle,
+  LockKeyhole,
+  PackageCheck,
   Plus,
   RefreshCw,
   RotateCcw,
@@ -59,7 +61,7 @@ import {
 import "./live-room.css";
 
 type Geometry = { x: number; y: number; width: number; height: number };
-type DraftLayer = { key: string; role: string; assetCode: string; executionCapability: string; geometry: Geometry; zOrder: number };
+type DraftLayer = { key: string; role: string; assetCode: string; executionCapability: string; geometry: Geometry; zOrder: number; systemManaged: boolean };
 type DraftScene = { key: string; shotCode: string; title: string; script: string; layers: DraftLayer[] };
 type WorkflowStage = "idle" | "project" | "brief" | "content" | "plan" | "done";
 
@@ -95,6 +97,7 @@ function draftFromPlan(plan: FunctionalLiveRoomPlan): DraftScene[] {
       executionCapability: layer.execution_capability,
       geometry: { ...layer.normalized_geometry },
       zOrder: layer.z_order,
+      systemManaged: layer.system_managed,
     }))),
   }));
 }
@@ -526,6 +529,7 @@ function LiveRoomEditor({ plan, matrix, initialInspection, onPlan, onNew }: {
   const [confirmedSceneIds, setConfirmedSceneIds] = useState<string[]>([]);
   const [testUseAcknowledged, setTestUseAcknowledged] = useState(false);
   const [reconciliationAcknowledged, setReconciliationAcknowledged] = useState(false);
+  const [terminalSyncError, setTerminalSyncError] = useState(false);
   const terminalRefresh = useRef("");
   const revisionCreation = useRef({ key: crypto.randomUUID(), fingerprint: "" });
   const executionCreation = useRef({ key: crypto.randomUUID(), fingerprint: "" });
@@ -544,15 +548,25 @@ function LiveRoomEditor({ plan, matrix, initialInspection, onPlan, onNew }: {
     enabled: shouldPollExecution,
     refetchInterval: (state) => {
       const current = state.state.data as LiveRoomDraftExecution | undefined;
-      return current && terminalExecutionStatuses.has(current.status) ? false : 1_500;
+      if (!current || !terminalExecutionStatuses.has(current.status)) return 1_500;
+      const key = `${current.executionJobCode}:${current.status}`;
+      return terminalRefresh.current === key ? false : 1_500;
     },
   });
+  useEffect(() => setTerminalSyncError(false), [execution.data?.executionJobCode]);
   useEffect(() => {
     const status = execution.data?.status;
     if (!status || !terminalExecutionStatuses.has(status) || terminalRefresh.current === `${execution.data?.executionJobCode}:${status}`) return;
-    terminalRefresh.current = `${execution.data?.executionJobCode}:${status}`;
-    void functionalLiveRoomsApi.get(plan.planCode).then(onPlan);
-  }, [execution.data?.executionJobCode, execution.data?.status, onPlan, plan.planCode]);
+    const terminalKey = `${execution.data?.executionJobCode}:${status}`;
+    const refreshPlan = status === "succeeded"
+      ? functionalLiveRoomsApi.syncExecution(plan.planCode)
+      : functionalLiveRoomsApi.get(plan.planCode);
+    void refreshPlan.then((next) => {
+      terminalRefresh.current = terminalKey;
+      setTerminalSyncError(false);
+      onPlan(next);
+    }).catch(() => setTerminalSyncError(true));
+  }, [execution.data?.executionJobCode, execution.data?.status, execution.dataUpdatedAt, onPlan, plan.planCode]);
 
   const scene = draft[sceneIndex];
   const layer = layerIndex === undefined ? undefined : scene?.layers[layerIndex];
@@ -568,7 +582,7 @@ function LiveRoomEditor({ plan, matrix, initialInspection, onPlan, onNew }: {
   }));
   const moveScene = (offset: -1 | 1) => setDraft((current) => { const target = sceneIndex + offset; if (target < 0 || target >= current.length) return current; const next = [...current]; [next[sceneIndex], next[target]] = [next[target], next[sceneIndex]]; setSceneIndex(target); return next; });
   const moveSelectedLayer = (direction: -1 | 1) => {
-    if (!scene || !layer) return;
+    if (!scene || !layer || layer.systemManaged) return;
     const moved = moveLayer(scene.layers, layer.key, direction);
     updateScene({ layers: moved });
     setLayerIndex(moved.findIndex((entry) => entry.key === layer.key));
@@ -622,6 +636,10 @@ function LiveRoomEditor({ plan, matrix, initialInspection, onPlan, onNew }: {
       inspection.inspect();
     },
   });
+  const releaseCandidate = useMutation({
+    mutationFn: () => functionalLiveRoomsApi.createReleaseCandidate(plan.planCode),
+    onSuccess: (next) => onPlan(next),
+  });
 
   const result = inspection.inspection?.result;
   const roomMatches = Boolean(result && result.actualTitle === plan.expectedTitle);
@@ -644,7 +662,7 @@ function LiveRoomEditor({ plan, matrix, initialInspection, onPlan, onNew }: {
 
     <aside className="live-editor-outline">
       <header><div><span>场景与图层</span><strong>{draft.length} 个场景</strong></div><StatusBadge label="结构由剧本生成" tone="neutral" /></header>
-      <div className="live-scene-outline">{draft.map((item, index) => <section key={item.key} className={index === sceneIndex ? "active" : ""}><button type="button" onClick={() => { setSceneIndex(index); setLayerIndex(undefined); }}><span>{String(index + 1).padStart(2, "0")}</span><strong>{item.title || "未命名场景"}</strong><small>{item.layers.length} 个图层</small></button>{index === sceneIndex ? <div>{[...item.layers].sort((left, right) => right.zOrder - left.zOrder).map((entry) => { const actualIndex = item.layers.findIndex((candidate) => candidate.key === entry.key); return <button key={entry.key} type="button" className={actualIndex === layerIndex ? "selected" : ""} onClick={() => setLayerIndex(actualIndex)}><Layers3 size={13} /><span><strong>{asset(entry.assetCode)?.title ?? productLabel(entry.role, "画面素材")}</strong><small>{layerBandLabel(entry.role)} · 第 {entry.zOrder} 层</small></span></button>; })}</div> : null}</section>)}</div>
+      <div className="live-scene-outline">{draft.map((item, index) => <section key={item.key} className={index === sceneIndex ? "active" : ""}><button type="button" onClick={() => { setSceneIndex(index); setLayerIndex(undefined); }}><span>{String(index + 1).padStart(2, "0")}</span><strong>{item.title || "未命名场景"}</strong><small>{item.layers.length} 个图层</small></button>{index === sceneIndex ? <div>{[...item.layers].sort((left, right) => right.zOrder - left.zOrder).map((entry) => { const actualIndex = item.layers.findIndex((candidate) => candidate.key === entry.key); return <button key={entry.key} type="button" className={actualIndex === layerIndex ? "selected" : ""} onClick={() => setLayerIndex(actualIndex)}>{entry.systemManaged ? <LockKeyhole size={13} /> : <Layers3 size={13} />}<span><strong>{asset(entry.assetCode)?.title ?? productLabel(entry.role, "画面素材")}</strong><small>{entry.systemManaged ? "麦兔系统锁定" : layerBandLabel(entry.role)} · 第 {entry.zOrder} 层</small></span></button>; })}</div> : null}</section>)}</div>
       <footer><button type="button" title="上移场景" disabled={sceneIndex === 0} onClick={() => moveScene(-1)}><ArrowUp size={15} /></button><button type="button" title="下移场景" disabled={sceneIndex >= draft.length - 1} onClick={() => moveScene(1)}><ArrowDown size={15} /></button></footer>
     </aside>
 
@@ -657,15 +675,16 @@ function LiveRoomEditor({ plan, matrix, initialInspection, onPlan, onNew }: {
     <aside className="live-editor-properties">
       <nav><button type="button" className={panel === "properties" ? "active" : ""} onClick={() => setPanel("properties")}>属性</button><button type="button" className={panel === "build" ? "active" : ""} onClick={() => setPanel("build")}>搭建清单</button><button type="button" className={panel === "execute" ? "active" : ""} onClick={() => setPanel("execute")}>写入草稿</button></nav>
       {panel === "properties" ? <div className="live-properties-body">{layer ? <>
-        <div className="live-properties-heading"><span>图层属性</span><h3>{asset(layer.assetCode)?.title ?? "画面素材"}</h3></div>
-        <label className="product-field"><span>使用素材</span><select aria-label="使用素材" value={layer.assetCode} onChange={(event) => { const selected = asset(event.target.value); updateLayer({ assetCode: event.target.value, executionCapability: selected?.executionCapability ?? layer.executionCapability }); }}>{assets.data?.filter((item) => item.materialRoles.includes(layer.role) || (layer.role === "product_image" && item.materialRoles.includes("product_display"))).map((item) => <option key={item.assetCode} value={item.assetCode} disabled={!assetSelectionStatus(item).selectable}>{item.title}{assetSelectionStatus(item).readyForDraft ? "" : `（${assetSelectionStatus(item).label}）`}</option>)}</select></label>
+        <div className="live-properties-heading"><span>图层属性</span><h3>{asset(layer.assetCode)?.title ?? "画面素材"}</h3>{layer.systemManaged ? <StatusBadge label="麦兔系统锁定" tone="neutral" /> : null}</div>
+        <label className="product-field"><span>使用素材</span><select aria-label="使用素材" value={layer.assetCode} disabled={layer.systemManaged} onChange={(event) => { const selected = asset(event.target.value); updateLayer({ assetCode: event.target.value, executionCapability: selected?.executionCapability ?? layer.executionCapability }); }}>{assets.data?.filter((item) => item.materialRoles.includes(layer.role) || (layer.role === "product_image" && item.materialRoles.includes("product_display"))).map((item) => <option key={item.assetCode} value={item.assetCode} disabled={!assetSelectionStatus(item).selectable}>{item.title}{assetSelectionStatus(item).readyForDraft ? "" : `（${assetSelectionStatus(item).label}）`}</option>)}</select></label>
         <div className="live-readonly-role"><span>画面用途</span><strong>{productLabel(layer.role, layer.role === "set_surface" ? "桌面与底图" : "其他图层")}</strong><small>用途来自剧本与素材约束，不能在场景中绕过。</small></div>
-        <div className="live-layer-order-control"><header><span>图层层级</span><StatusBadge label={layerBandLabel(layer.role)} tone={["background", "brand_title", "promotion_text", "decoration_foreground"].includes(layer.role) ? "warning" : "neutral"} /></header><div><button type="button" title="在当前层级区下移" disabled={!canMoveLayer(scene.layers, layer.key, -1)} onClick={() => moveSelectedLayer(-1)}><ArrowDown size={16} /></button><strong>底到顶第 {layer.zOrder} 层</strong><button type="button" title="在当前层级区上移" disabled={!canMoveLayer(scene.layers, layer.key, 1)} onClick={() => moveSelectedLayer(1)}><ArrowUp size={16} /></button></div><p>只能在同一层级区内移动，固定置顶和置底规则不能绕过。</p></div>
-        <div className="live-geometry-controls">{(["x", "y", "width", "height"] as const).map((key) => { const range = geometryRange(layer.geometry, key); return <label key={key}><span>{({ x: "左侧位置", y: "顶部位置", width: "画面宽度", height: "画面高度" } as const)[key]} <strong>{Math.round(layer.geometry[key] * 100)}%</strong></span><input type="range" min={range.min} max={range.max} step="0.01" value={layer.geometry[key]} onChange={(event) => updateLayer({ geometry: updateGeometry(layer.geometry, key, Number(event.target.value)) })} /></label>; })}</div>
+        <div className="live-layer-order-control"><header><span>图层层级</span><StatusBadge label={layer.systemManaged ? "系统固定" : layerBandLabel(layer.role)} tone={["background", "brand_title", "promotion_text", "decoration_foreground"].includes(layer.role) ? "warning" : "neutral"} /></header><div><button type="button" title="在当前层级区下移" disabled={layer.systemManaged || !canMoveLayer(scene.layers, layer.key, -1)} onClick={() => moveSelectedLayer(-1)}><ArrowDown size={16} /></button><strong>底到顶第 {layer.zOrder} 层</strong><button type="button" title="在当前层级区上移" disabled={layer.systemManaged || !canMoveLayer(scene.layers, layer.key, 1)} onClick={() => moveSelectedLayer(1)}><ArrowUp size={16} /></button></div><p>{layer.systemManaged ? "主播图层与目标直播间绑定，只能在麦兔中调整。" : "只能在同一层级区内移动，固定置顶和置底规则不能绕过。"}</p></div>
+        <div className="live-geometry-controls">{(["x", "y", "width", "height"] as const).map((key) => { const range = geometryRange(layer.geometry, key); return <label key={key}><span>{({ x: "左侧位置", y: "顶部位置", width: "画面宽度", height: "画面高度" } as const)[key]} <strong>{Math.round(layer.geometry[key] * 100)}%</strong></span><input type="range" min={range.min} max={range.max} step="0.01" value={layer.geometry[key]} disabled={layer.systemManaged} onChange={(event) => updateLayer({ geometry: updateGeometry(layer.geometry, key, Number(event.target.value)) })} /></label>; })}</div>
       </> : scene ? <><div className="live-properties-heading"><span>场景属性</span><h3>{scene.title}</h3></div><label className="product-field"><span>场景名称</span><input value={scene.title} onChange={(event) => updateScene({ title: event.target.value })} /></label><div className="live-scene-summary"><span><strong>{scene.layers.length}</strong>个图层</span><span><strong>{scene.script.length}</strong>字话术</span></div><p className="live-structure-note">场景和图层集合来自已确认的剧本。需要增删时，请重新生成内容结构。</p></> : <EmptyBlock icon={Layers3} title="选择一个场景" />}</div> : null}
       {panel === "build" ? <div className="live-build-body"><section className="live-build-boundary"><header><strong>草稿执行边界</strong><StatusBadge label={matrix.canExecuteDraft ? "本地执行器可用" : "以任务状态为准"} tone={matrix.canExecuteDraft ? "success" : "warning"} /></header><p>只写入离线测试草稿，不排播、不开播。最终是否可执行由房间检查和真实任务队列决定。</p></section><section className="live-build-list"><header><h3>搭建步骤</h3><p>执行器会按以下顺序完成并逐步回读。</p></header><ol>{plan.buildPlan.operations.map((operation, index) => <li key={`${operation.kind}:${index}`}><span>{index + 1}</span><div><strong>{operationTitle(operation)}</strong><small>{operation.sceneIndex !== undefined ? `场景 ${operation.sceneIndex + 1}` : "按当前方案配置"}</small></div></li>)}</ol></section></div> : null}
       {panel === "execute" ? <div className="live-execute-body">
         {execution.data ? <ExecutionProgress execution={execution.data} onRetry={() => retry.mutate()} retrying={retry.isPending} onReconcile={() => reconcile.mutate()} reconciling={reconcile.isPending} /> : null}
+        {terminalSyncError ? <section className="live-recovery-notice"><RotateCcw size={17} /><span><strong>执行结果暂未同步</strong><small>系统会继续读取最终回读结果，无需重新执行草稿任务。</small></span></section> : null}
         {!execution.data || reconciliationRecorded ? <>
           {reconciliationRecorded ? <section className="live-recovery-notice"><ClipboardCheck size={17} /><span><strong>旧任务已停止，不会自动重放</strong><small>已记录人工核对。请等待房间重新读取完成，再确认最新场景清单并创建一个新任务。</small></span></section> : null}
           <RoomInspectionSummary inspection={inspection.inspection} loading={inspection.isLoading} error={inspection.error} onInspect={inspection.inspect} />
@@ -677,7 +696,7 @@ function LiveRoomEditor({ plan, matrix, initialInspection, onPlan, onNew }: {
       </div> : null}
     </aside>
 
-    <footer className="live-editor-actions"><div><span>{hasUnsavedChanges ? "有未保存的画面修改，写入时会先保存并重新编译" : save.isSuccess ? "场景修改已保存，并重新编译了图层顺序" : save.error ? "修改没有保存，请检查场景和素材" : "保存时会重新应用素材约束并生成连续图层顺序"}</span></div><StatusBadge label={executionStatusLabel(plan.executionStatus)} tone={statusTone(plan.executionStatus)} /><button className="product-secondary-button" type="button" onClick={() => setPanel("build")}><ListChecks size={16} />搭建清单</button><button className="product-secondary-button" type="button" disabled={save.isPending || !hasUnsavedChanges} onClick={() => save.mutate()}><Save size={16} />保存场景</button><button className="product-primary-button" type="button" onClick={() => setPanel("execute")}><CirclePlay size={16} />写入草稿</button></footer>
+    <footer className="live-editor-actions"><div><span>{releaseCandidate.error ? friendlyRequestError(releaseCandidate.error, "交付候选没有创建").detail : hasUnsavedChanges ? "有未保存的画面修改，写入时会先保存并重新编译" : save.isSuccess ? "场景修改已保存，并重新编译了图层顺序" : save.error ? "修改没有保存，请检查场景和素材" : "保存时会重新应用素材约束并生成连续图层顺序"}</span></div><StatusBadge label={executionStatusLabel(plan.executionStatus)} tone={statusTone(plan.executionStatus)} />{plan.release ? <a className="product-secondary-button" href={`/console/projects?project=${encodeURIComponent(plan.projectCode)}&tab=delivery`}><PackageCheck size={16} />查看交付</a> : plan.executionStatus === "maitu_complete" ? <button className="product-secondary-button" type="button" disabled={releaseCandidate.isPending} onClick={() => releaseCandidate.mutate()}><PackageCheck size={16} />创建交付候选</button> : null}<button className="product-secondary-button" type="button" onClick={() => setPanel("build")}><ListChecks size={16} />搭建清单</button><button className="product-secondary-button" type="button" disabled={save.isPending || !hasUnsavedChanges} onClick={() => save.mutate()}><Save size={16} />保存场景</button><button className="product-primary-button" type="button" onClick={() => setPanel("execute")}><CirclePlay size={16} />写入草稿</button></footer>
   </div>;
 }
 

@@ -1,0 +1,213 @@
+{
+  "schema_version": "assetgraph.guided-live-e2e-report.v1",
+  "run_id": "guided-live-e2e-41172-2026-08-09T03-57-55",
+  "started_at": "2026-08-09T03:57:55+08:00",
+  "completed_at": "2026-08-09T08:53:02+08:00",
+  "verdict": "passed_with_non_blocking_issues",
+  "non_blocking_issue_count": 7,
+  "security_boundary": {
+    "went_live": false,
+    "external_publish_called": false,
+    "raw_authorization_committed": false,
+    "runtime_credentials_in_evidence": false,
+    "raw_provider_payload_committed": false
+  },
+  "project": {
+    "project_code": "CONTENT-20260808-000001",
+    "title": "asser测试",
+    "target_live_room_id": "41172",
+    "workflow_tree_revision": 13,
+    "main_path": [
+      "GNODE-6E9188420F484A42",
+      "GNODE-8D460A78A0E84AEB",
+      "GNODE-73981C5B138F46D0",
+      "GNODE-A8A4A34AF0FA416E"
+    ],
+    "alternate_branch": {
+      "setup_node_code": "GNODE-2272438BAC9F4FED",
+      "outline_node_code": "GNODE-6D0CC520B3B942C9",
+      "version_isolation_verified": true
+    }
+  },
+  "workflow": {
+    "setup": {
+      "status": "confirmed",
+      "revision": 2,
+      "selected_content_asset_count": 5,
+      "selected_knowledge_count": 1
+    },
+    "outline": {
+      "status": "confirmed",
+      "revision": 4,
+      "section_count": 3,
+      "section_regeneration_verified": true,
+      "guided_regeneration_verified": true,
+      "version_restore_verified": true
+    },
+    "script": {
+      "status": "confirmed",
+      "revision": 4,
+      "block_count": 3,
+      "block_regeneration_verified": true,
+      "manual_correction_verified": true,
+      "material_matching_verified": true
+    },
+    "storyboard": {
+      "status": "confirmed",
+      "revision": 3,
+      "scene_count": 3,
+      "execution_ready": true
+    }
+  },
+  "maitu_draft": {
+    "live_plan_code": "LIVEPLAN-20260808-000002",
+    "build_plan_code": "MT-BUILD-20260808-000002",
+    "execution_job_code": "MT-WB-EXEC-20260808-000001",
+    "room_id": "41172",
+    "room_online": false,
+    "ready_for_go_live": false,
+    "checkpoint_operation_count": 31,
+    "high_level_progress": "5/5",
+    "prior_failed_attempt_count": 2,
+    "business_draft_cleared_with_system_host_seed_retained": true,
+    "readback_schema": "functional-live-room-execution-readback.v2",
+    "readback_status": "finalized_draft_readback",
+    "comparison_matched": true,
+    "scenes": [
+      {
+        "scene_id": "437569",
+        "name": "开场与直播主题",
+        "text_length": 118,
+        "image_material_ids": ["37262", "40101"],
+        "video_material_ids": []
+      },
+      {
+        "scene_id": "461645",
+        "name": "产品事实与风味",
+        "text_length": 126,
+        "image_material_ids": ["37262", "37266", "40999", "40101"],
+        "video_material_ids": []
+      },
+      {
+        "scene_id": "461646",
+        "name": "品鉴、佐餐与互动收尾",
+        "text_length": 142,
+        "image_material_ids": [],
+        "video_material_ids": ["40774"]
+      }
+    ],
+    "digital_human_material_id": "37200",
+    "speaker_id": "3760",
+    "avatar_image_id": "7717"
+  },
+  "video": {
+    "successful_plan_code": "VIDPLAN-20260808-000002",
+    "duration_seconds": 30.0,
+    "width": 1080,
+    "height": 1920,
+    "frame_rate": 30,
+    "video_codec": "h264",
+    "audio_codec": "aac",
+    "audio_sample_rate_hz": 48000,
+    "file_size_bytes": 25486196,
+    "qc_passed": 19,
+    "qc_total": 19,
+    "artifact_count": 10,
+    "browser_playback_verified": true,
+    "full_browser_playback_ended": true,
+    "integrated_loudness_lufs": -16.92,
+    "true_peak_db": -1.46,
+    "detected_silence_seconds_range": [2.505084, 2.885438],
+    "unique_visual_source_count": 1,
+    "business_av_acceptance": "pending"
+  },
+  "releases": [
+    {
+      "kind": "maitu_live_room_draft",
+      "release_code": "RELEASE-20260808-000001",
+      "approval_code": "APPROVAL-20260808-000002",
+      "delivery_code": "DELIVERY-20260808-000002",
+      "release_status": "delivery_pending",
+      "delivery_status": "prepared",
+      "package_size_bytes": 20123,
+      "package_sha256": "8cff04b2ec05cae7b1963e0be46120814b879e098717a245e1d3fc0cff0b7b26"
+    },
+    {
+      "kind": "vertical_video",
+      "release_code": "RELEASE-20260808-000002",
+      "approval_code": "APPROVAL-20260808-000001",
+      "delivery_code": "DELIVERY-20260808-000001",
+      "release_status": "delivery_pending",
+      "delivery_status": "prepared",
+      "package_size_bytes": 8988,
+      "package_sha256": "7188bda6e3599da7699628ff507d531f5e0b0ffcffacd3a6d2f5c26fb48b21b5"
+    }
+  ],
+  "verification": {
+    "backend_tests": {
+      "passed": 1099,
+      "skipped": 1,
+      "skip_reason": "POSIX permission bits are not meaningful on Windows"
+    },
+    "frontend_tests": {
+      "files": 27,
+      "passed": 147
+    },
+    "frontend_production_build": "passed",
+    "ruff": "passed",
+    "git_diff_check": "passed"
+  },
+  "security_review": {
+    "unprotected_release_decision_route_removed": true,
+    "operator_identity_is_server_authenticated": true,
+    "system_host_fingerprint_requires_sha256_at_protocol_boundary": true,
+    "all_public_protocol_hashes_require_sha256": true,
+    "live_release_rechecks_current_asset_rights": true,
+    "live_release_rights_transaction_atomic": true,
+    "current_live_release_assets_approved": 6,
+    "current_live_release_assets_total": 6
+  },
+  "open_issues": [
+    {
+      "priority": "P1",
+      "code": "theme_optimizer_grounding",
+      "summary": "主题优化结果与知识和商品事实结合不足，需要确定强制检索与事实评分策略。"
+    },
+    {
+      "priority": "P1",
+      "code": "voice_duration_preflight",
+      "summary": "短镜头可能生成超时配音，需要确定自动压缩、延长镜头或仅预警的默认策略。"
+    },
+    {
+      "priority": "P1",
+      "code": "business_av_acceptance",
+      "summary": "六个镜头重复同一商品画面并存在静音区间，麦兔数字人预览也呈白色宿主占位，需要业务方完成视听验收。"
+    },
+    {
+      "priority": "P2",
+      "code": "maitu_attempt_history_ui",
+      "summary": "麦兔成功页混合显示当前成功尝试和历史失败阶段。"
+    },
+    {
+      "priority": "P2",
+      "code": "setup_diff_summary",
+      "summary": "主题与素材变更摘要与差异行的判定可能不一致。"
+    },
+    {
+      "priority": "P2",
+      "code": "live_gate_recalculation",
+      "summary": "最终回读完成后旧直播计划门禁未同步重算，耗时指标也存在异常值。"
+    },
+    {
+      "priority": "P3",
+      "code": "video_stage_labels_and_bundle_size",
+      "summary": "成片阶段名称较泛，生产构建主包仍可继续拆分。"
+    }
+  ],
+  "evidence": {
+    "directory": "docs/evidence/guided-live-e2e-41172-2026-08-09T03-57-55",
+    "screenshot_count": 32,
+    "first_screenshot": "01-project-created-setup.png",
+    "last_screenshot": "34-delivery-both-prepared.png"
+  }
+}

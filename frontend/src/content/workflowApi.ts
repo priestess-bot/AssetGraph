@@ -86,6 +86,7 @@ export interface GuidedStoryboardLayer {
   assetCode: string;
   geometry: { x: number; y: number; width: number; height: number };
   zOrder: number;
+  systemManaged?: boolean;
 }
 
 export interface GuidedStoryboardScene {
@@ -180,6 +181,13 @@ export interface GuidedMaituRoomConfiguration {
   sceneName?: string;
   checkedAt?: string;
   message?: string;
+  hostAssetCode?: string;
+  sourceMaterialId?: string;
+  speakerId?: string;
+  digitalHumanImageId?: string;
+  boundSceneCount?: number;
+  bindingFingerprint?: string;
+  systemManaged: boolean;
 }
 
 export interface GuidedRevisionArchive {
@@ -501,6 +509,7 @@ function storyboardScene(value: unknown): GuidedStoryboardScene | undefined {
     layers: asArray(value.layers).flatMap((raw) => {
       if (!isRecord(raw)) return [];
       const geometry = isRecord(raw.normalized_geometry) ? raw.normalized_geometry : isRecord(raw.geometry) ? raw.geometry : {};
+      const constraintEvidence = isRecord(raw.constraint_evidence) ? raw.constraint_evidence : {};
       const role = asString(raw.role ?? raw.material_role);
       const assetCode = asString(raw.asset_code);
       if (!role || !assetCode) return [];
@@ -514,6 +523,7 @@ function storyboardScene(value: unknown): GuidedStoryboardScene | undefined {
           height: asNumber(geometry.height),
         },
         zOrder: asNumber(raw.z_order),
+        systemManaged: raw.system_managed === true || constraintEvidence.system_managed === true,
       }];
     }),
   };
@@ -679,12 +689,14 @@ function normalizeRecommendations(value: unknown): { job?: GuidedJob; recommenda
 
 export function normalizeMaituRoomConfiguration(value: unknown): GuidedMaituRoomConfiguration {
   const source = isRecord(value) && isRecord(value.configuration) ? value.configuration : value;
-  if (!isRecord(source)) return { status: "unknown", ready: false };
+  if (!isRecord(source)) return { status: "unknown", ready: false, systemManaged: false };
   const host = isRecord(source.digital_human) ? source.digital_human : isRecord(source.host) ? source.host : {};
   const voice = isRecord(source.voice) ? source.voice : isRecord(source.voice_profile) ? source.voice_profile : {};
   const hosts = asArray(source.hosts).filter(isRecord);
   const selectedHost = hosts.find((item) => item.ready === true) ?? hosts[0] ?? {};
   const scene = isRecord(source.scene) ? source.scene : {};
+  const binding = isRecord(source.binding) ? source.binding : {};
+  const identifier = (raw: unknown) => raw === undefined || raw === null || String(raw).trim() === "" ? undefined : String(raw);
   const hostName = asOptionalString(host.name ?? host.title ?? selectedHost.clip_name ?? source.digital_human_name ?? source.host_name ?? source.avatar_name ?? selectedHost.digital_human_image_id);
   const voiceName = asOptionalString(voice.name ?? voice.title ?? selectedHost.speaker_id ?? source.voice_name ?? source.voice_profile_name);
   const ready = asBoolean(source.ready ?? source.configured ?? source.has_ready_host, Boolean(hostName && voiceName));
@@ -696,6 +708,13 @@ export function normalizeMaituRoomConfiguration(value: unknown): GuidedMaituRoom
     sceneName: asOptionalString(source.scene_name ?? scene.name ?? selectedHost.clip_name),
     checkedAt: asOptionalString(source.checked_at ?? source.last_checked_at ?? source.updated_at),
     message: asOptionalString(source.message ?? source.error_message),
+    hostAssetCode: asOptionalString(binding.asset_code),
+    sourceMaterialId: identifier(binding.material_id),
+    speakerId: identifier(binding.speaker_id),
+    digitalHumanImageId: identifier(binding.digital_human_image_id),
+    boundSceneCount: asArray(binding.scene_ids).length || undefined,
+    bindingFingerprint: asOptionalString(binding.fingerprint_sha256),
+    systemManaged: Boolean(ready && Object.keys(binding).length),
   };
 }
 

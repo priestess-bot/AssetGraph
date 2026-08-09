@@ -49,6 +49,7 @@ class ReleaseService:
         lineage_snapshot: dict[str, Any],
         carrier_facet: dict[str, Any],
         created_by: str,
+        commit: bool = True,
     ) -> dict[str, Any]:
         manifest = {
             "schema_version": "release-manifest.v1",
@@ -81,6 +82,7 @@ class ReleaseService:
             signature_algorithm="hmac-sha256",
             signature_key_id=self.signing_key_id,
             signature_value=signature,
+            commit=commit,
         )
 
     def validate_candidate(self, release_code: str, *, actor_id: str) -> dict[str, Any]:

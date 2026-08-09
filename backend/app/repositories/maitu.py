@@ -4696,7 +4696,7 @@ class MaituMaterialSlotRepository:
     def _next_slot_code(self) -> str:
         sequence_date = datetime.now(UTC).date()
         object_type = BusinessObjectType.MAITU_SLOT.value
-        with self.connection.cursor() as cursor:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
                 """
                 INSERT INTO business_sequences (sequence_date, object_type, current_value)
@@ -4707,13 +4707,13 @@ class MaituMaterialSlotRepository:
                 """,
                 (sequence_date, object_type),
             )
-            sequence = cursor.fetchone()[0]
+            sequence = cursor.fetchone()["current_value"]
         return format_maitu_slot_code(sequence_date, sequence)
 
     def _next_plan_code(self) -> str:
         sequence_date = datetime.now(UTC).date()
         object_type = BusinessObjectType.MAITU_PLAN.value
-        with self.connection.cursor() as cursor:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
                 """
                 INSERT INTO business_sequences (sequence_date, object_type, current_value)
@@ -4724,13 +4724,13 @@ class MaituMaterialSlotRepository:
                 """,
                 (sequence_date, object_type),
             )
-            sequence = cursor.fetchone()[0]
+            sequence = cursor.fetchone()["current_value"]
         return format_maitu_plan_code(sequence_date, sequence)
 
     def _next_build_plan_code(self) -> str:
         sequence_date = datetime.now(UTC).date()
         object_type = BusinessObjectType.MAITU_BUILD_PLAN.value
-        with self.connection.cursor() as cursor:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
                 """
                 INSERT INTO business_sequences (sequence_date, object_type, current_value)
@@ -4741,13 +4741,13 @@ class MaituMaterialSlotRepository:
                 """,
                 (sequence_date, object_type),
             )
-            sequence = cursor.fetchone()[0]
+            sequence = cursor.fetchone()["current_value"]
         return format_maitu_build_plan_code(sequence_date, sequence)
 
     def _next_layout_adjustment_code(self) -> str:
         sequence_date = datetime.now(UTC).date()
         object_type = BusinessObjectType.MAITU_LAYOUT_ADJUSTMENT.value
-        with self.connection.cursor() as cursor:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
                 """
                 INSERT INTO business_sequences (sequence_date, object_type, current_value)
@@ -4758,13 +4758,13 @@ class MaituMaterialSlotRepository:
                 """,
                 (sequence_date, object_type),
             )
-            sequence = cursor.fetchone()[0]
+            sequence = cursor.fetchone()["current_value"]
         return format_maitu_layout_adjustment_code(sequence_date, sequence)
 
     def _next_execution_code(self) -> str:
         sequence_date = datetime.now(UTC).date()
         object_type = BusinessObjectType.MAITU_EXECUTION.value
-        with self.connection.cursor() as cursor:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
                 """
                 INSERT INTO business_sequences (sequence_date, object_type, current_value)
@@ -4775,13 +4775,13 @@ class MaituMaterialSlotRepository:
                 """,
                 (sequence_date, object_type),
             )
-            sequence = cursor.fetchone()[0]
+            sequence = cursor.fetchone()["current_value"]
         return format_maitu_execution_code(sequence_date, sequence)
 
     def _next_retry_task_code(self) -> str:
         sequence_date = datetime.now(UTC).date()
         object_type = BusinessObjectType.MAITU_RETRY_TASK.value
-        with self.connection.cursor() as cursor:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
                 """
                 INSERT INTO business_sequences (sequence_date, object_type, current_value)
@@ -4792,13 +4792,13 @@ class MaituMaterialSlotRepository:
                 """,
                 (sequence_date, object_type),
             )
-            sequence = cursor.fetchone()[0]
+            sequence = cursor.fetchone()["current_value"]
         return format_maitu_retry_task_code(sequence_date, sequence)
 
     def _next_jd_live_metric_session_code(self) -> str:
         sequence_date = datetime.now(UTC).date()
         object_type = BusinessObjectType.JD_LIVE_METRIC_SESSION.value
-        with self.connection.cursor() as cursor:
+        with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
                 """
                 INSERT INTO business_sequences (sequence_date, object_type, current_value)
@@ -4809,7 +4809,7 @@ class MaituMaterialSlotRepository:
                 """,
                 (sequence_date, object_type),
             )
-            sequence = cursor.fetchone()[0]
+            sequence = cursor.fetchone()["current_value"]
         return format_jd_live_metric_session_code(sequence_date, sequence)
 
     def resolve_plan_slots(self, payload: dict[str, Any]) -> list[dict[str, Any]]:

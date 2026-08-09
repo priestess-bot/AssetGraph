@@ -236,6 +236,8 @@ class ScriptLayoutBuildPlanBuilder:
             "asset_original_filename": layer.get("asset_original_filename"),
             "asset_local_relative_path": layer.get("asset_local_relative_path"),
             "asset_browser_use_hint": layer.get("asset_browser_use_hint"),
+            "maitu_material_id": layer.get("maitu_material_id"),
+            "maitu_source_material_id": layer.get("maitu_source_material_id"),
             "material_id": layer.get("maitu_material_id"),
             "source_material_type": layer.get("source_material_type"),
             "source_material_url": layer.get("source_material_url"),

@@ -134,15 +134,29 @@ class FunctionalLiveRoomService:
             )
         except MaterialLibraryValidationError as exc:
             raise DomainValidationError("LIVE_ROOM_ASSET_GAP_INVALID", str(exc)) from exc
+        user_asset_codes = list(payload.get("asset_codes") or [])
+        system_host_binding = self._resolve_system_host_binding(
+            payload.get("_system_host_binding"),
+            target_live_room_id=str(payload["target_live_room_id"]),
+        )
+        effective_asset_codes = [
+            *user_asset_codes,
+            *material_pack_asset_codes,
+            *(
+                [str(system_host_binding["asset_code"])]
+                if system_host_binding is not None
+                else []
+            ),
+        ]
         selected_assets = self._selected_assets(
-            [*(payload.get("asset_codes") or []), *material_pack_asset_codes],
+            effective_asset_codes,
             payload.get("group_codes") or [],
         )
         if not selected_assets:
             raise DomainValidationError("LIVE_ROOM_ASSETS_REQUIRED", "Select at least one asset or group before planning")
         required_loose_asset_codes = self._validate_required_loose_asset_codes(
             payload.get("required_loose_asset_codes") or [],
-            payload.get("asset_codes") or [],
+            user_asset_codes,
             selected_assets,
         )
         material_rules_by_asset: dict[str, list[dict[str, Any]]] = {}
@@ -155,19 +169,43 @@ class FunctionalLiveRoomService:
         material_role_overrides = self._validate_material_role_overrides(
             payload.get("material_role_overrides") or {}, selected_assets
         )
+        if system_host_binding is not None:
+            host_asset_code = str(system_host_binding["asset_code"])
+            requested_host_asset = material_role_overrides.get("digital_human")
+            if requested_host_asset and requested_host_asset != host_asset_code:
+                raise DomainValidationError(
+                    "LIVE_ROOM_SYSTEM_HOST_LAYER_LOCKED",
+                    "The Maitu room host is fixed by the target-room configuration",
+                    details={"target_live_room_id": payload["target_live_room_id"]},
+                )
+            if host_asset_code in (payload.get("room_constraint_overrides") or {}):
+                raise DomainValidationError(
+                    "LIVE_ROOM_SYSTEM_HOST_LAYER_LOCKED",
+                    "The Maitu room host position cannot be changed from AssetGraph",
+                    details={"target_live_room_id": payload["target_live_room_id"]},
+                )
         room_constraint_overrides = self._validate_room_constraint_overrides(
             payload.get("room_constraint_overrides") or {}, selected_assets, actor_id=actor_id
         )
         payload = {
             **payload,
+            "asset_codes": list(dict.fromkeys(effective_asset_codes)),
+            "system_host_binding": system_host_binding,
             "material_role_overrides": material_role_overrides,
             "room_constraint_overrides": room_constraint_overrides,
         }
         selection_sources = self._material_selection_sources(
-            asset_codes=payload.get("asset_codes") or [],
+            asset_codes=user_asset_codes,
             group_codes=payload.get("group_codes") or [],
             material_pack_refs=material_pack_refs,
         )
+        if system_host_binding is not None:
+            selection_sources[str(system_host_binding["asset_code"])] = [
+                {
+                    "kind": "system_host",
+                    "code": str(system_host_binding["fingerprint_sha256"]),
+                }
+            ]
         story = detail["story_brief"]
         script = detail["script"]
         shot_list = detail["shot_list"]
@@ -175,12 +213,26 @@ class FunctionalLiveRoomService:
             raise DomainValidationError("LIVE_ROOM_CONTENT_CHAIN_INVALID", "ContentProject chain is incomplete")
         snapshot = {
             "asset_codes": [asset["asset_code"] for asset in selected_assets],
+            "user_selected_asset_codes": list(dict.fromkeys(user_asset_codes)),
+            "system_asset_codes": (
+                [str(system_host_binding["asset_code"])]
+                if system_host_binding is not None
+                else []
+            ),
+            "system_host_binding": system_host_binding,
             "assets": [
                 {
                     "asset_code": asset["asset_code"], "media_kind": asset["media_kind"],
                     "material_roles": asset["material_roles"], "execution_capability": asset["execution_capability"],
                     "rights_status": asset["rights_status"],
                     "rights_note": asset.get("rights_note"),
+                    "maitu_material_id": asset.get("maitu_material_id"),
+                    "maitu_source_material_id": asset.get("maitu_source_material_id"),
+                    "source_material_type": asset.get("source_material_type"),
+                    "source_material_url": asset.get("source_material_url"),
+                    "source_cover_url": asset.get("source_cover_url"),
+                    "speaker_id": asset.get("speaker_id"),
+                    "digital_human_image_id": asset.get("digital_human_image_id"),
                     "constraint_profile_ref": asset["constraint_profile_ref"],
                     "qualified_effect_refs": list(asset.get("qualified_effect_refs") or []),
                     "selection_sources": selection_sources.get(asset["asset_code"], []),
@@ -226,6 +278,7 @@ class FunctionalLiveRoomService:
                 "material_role_modes": dict(payload.get("material_role_modes") or {}),
                 "room_constraint_overrides": room_constraint_overrides,
                 "scene_overrides": list(payload.get("scene_overrides") or []),
+                "system_host_binding": system_host_binding,
             },
             material_snapshot_ref=snapshot,
             constraint_snapshot_ref={
@@ -239,6 +292,7 @@ class FunctionalLiveRoomService:
                 ],
                 "room_constraint_overrides": room_constraint_overrides,
                 "scene_overrides": list(payload.get("scene_overrides") or []),
+                "system_host_binding": system_host_binding,
             },
             actor_id=actor_id,
             producer_strategy_revision="functional-live-room.v1",
@@ -271,6 +325,7 @@ class FunctionalLiveRoomService:
                 "material_role_modes": dict(payload.get("material_role_modes") or {}),
                 "room_constraint_overrides": room_constraint_overrides,
                 "scene_overrides": list(payload.get("scene_overrides") or []),
+                "system_host_binding": system_host_binding,
             },
             actor_id=actor_id,
         )
@@ -814,7 +869,7 @@ class FunctionalLiveRoomService:
                     "LIVE_ROOM_EXECUTION_NOT_REQUESTED",
                     "Explicit confirmation is required before reading Maitu execution results",
                 )
-            handoff = self._execution_handoff(plan)
+            handoff = self._execution_handoff(plan, allow_executed=True)
             executions = self.maitu.list_live_room_build_plan_execution_results(
                 handoff["build_plan_code"], mode="script_layout_draft", limit=1
             )
@@ -843,7 +898,11 @@ class FunctionalLiveRoomService:
         return self._with_release(self._serialize(row))
 
     def _execution_handoff(
-        self, plan: dict[str, Any], *, allow_pending_test_rights: bool = False
+        self,
+        plan: dict[str, Any],
+        *,
+        allow_pending_test_rights: bool = False,
+        allow_executed: bool = False,
     ) -> dict[str, Any]:
         self._require_confirmed_review(plan)
         build_plan = plan.get("build_plan") if isinstance(plan.get("build_plan"), dict) else {}
@@ -888,8 +947,11 @@ class FunctionalLiveRoomService:
                 rights_statuses=rights_statuses,
             )
         )
+        operation_status_allowed = operation_plan.get("status") == "ready" or (
+            allow_executed and operation_plan.get("status") == "executed"
+        )
         if (
-            (operation_plan.get("status") != "ready" and not test_rights_exception)
+            (not operation_status_allowed and not test_rights_exception)
             or (operation_plan.get("can_execute") is not True and not test_rights_exception)
             or (operation_plan.get("manual_review_required") is True and not test_rights_exception)
             or (operation_blockers and not test_rights_exception)
@@ -1188,6 +1250,31 @@ class FunctionalLiveRoomService:
                     "height": (observed_layer or {}).get("height"),
                     "z_index": (observed_layer or {}).get("z_index"),
                 }
+                expected_host_identity = {
+                    "source_material_id": operation.get("maitu_source_material_id"),
+                    "speaker_id": operation.get("speaker_id"),
+                    "digital_human_image_id": operation.get(
+                        "digital_human_image_id"
+                    ),
+                }
+                observed_host_identity = {
+                    "source_material_id": (observed_layer or {}).get(
+                        "source_material_id"
+                    ),
+                    "speaker_id": (observed_layer or {}).get("speaker_id"),
+                    "digital_human_image_id": (observed_layer or {}).get(
+                        "digital_human_image_id"
+                    ),
+                }
+                host_identity_matched = (
+                    operation.get("source_material_type") != "digital_human"
+                    or all(
+                        FunctionalLiveRoomService._readback_value_matches(
+                            expected_host_identity[key], observed_host_identity[key]
+                        )
+                        for key in expected_host_identity
+                    )
+                )
                 layer_matched = (
                     observed_layer is not None
                     and observed_layer.get("asset_code") == operation.get("asset_code")
@@ -1201,6 +1288,7 @@ class FunctionalLiveRoomService:
                         )
                         for key in expected_geometry
                     )
+                    and host_identity_matched
                 )
                 layers.append(
                     {
@@ -1215,12 +1303,14 @@ class FunctionalLiveRoomService:
                         "expected": {
                             "asset_code": operation.get("asset_code"),
                             "layer_type": operation.get("layer_type"),
+                            "host_identity": expected_host_identity,
                             "geometry": expected_geometry,
                         },
                         "observed": {
                             "asset_code": (observed_layer or {}).get("asset_code"),
                             "layer_type": (observed_layer or {}).get("layer_type"),
                             "material_id": (observed_layer or {}).get("material_id"),
+                            "host_identity": observed_host_identity,
                             "geometry": observed_geometry,
                         },
                     }
@@ -1304,123 +1394,137 @@ class FunctionalLiveRoomService:
             return expected == observed
 
     def create_release_candidate(self, plan_code: str, *, actor_id: str) -> dict[str, Any]:
-        """Freeze a reviewable live-room draft candidate without delivery.
-
-        The candidate freezes approved asset-rights evidence while keeping
-        authorization and authoritative readback as blocking release gates. It
-        is therefore a durable review object only, never an implicit write action.
-        """
-        plan = self._releaseable_plan(plan_code)
-        if plan is None:
-            raise KeyError(plan_code)
-        self._require_confirmed_review(plan)
-        if plan["status"] != "ready":
-            raise DomainValidationError(
-                "LIVE_ROOM_RELEASE_PLAN_BLOCKED",
-                "Only a ready live-room plan can create a release candidate",
-                details={"plan_code": plan_code, "blocked_reasons": plan["blocked_reasons"]},
-            )
-        if plan["release_code"]:
-            existing = self.get_plan(plan_code)
-            if existing is None:
-                raise KeyError(plan_code)
-            return existing
-
-        subject_refs = self._release_subject_refs(plan)
-        snapshot_artifact = self._get_or_create_release_snapshot(plan, subject_refs)
-        release = self._release_service().create_candidate(
-            subject_type="production_variant",
-            subject_code=str(plan["variant_code"]),
-            subject_revision=int(plan["variant_revision"]),
-            carrier_kind="live_room_draft",
-            subject_refs=subject_refs,
-            artifact_refs=[
-                {
-                    "artifact_code": snapshot_artifact["artifact_code"],
-                    "checksum_sha256": snapshot_artifact["checksum_sha256"],
-                    "role": "live_room_build_plan_snapshot",
-                }
-            ],
-            rights_snapshot={
-                "status": "approved",
-                "asset_codes": list(plan["selected_asset_codes"] or []),
-                "assets": [
-                    {
-                        "asset_code": asset.get("asset_code"),
-                        "status": asset.get("rights_status"),
-                        "note": asset.get("rights_note"),
-                    }
-                    for asset in (plan["build_plan"].get("inventory_snapshot") or {}).get("assets", [])
-                ],
-                "template_refs": self._template_refs(plan),
-                "reason": "Every selected asset was approved before the BuildPlan became executable.",
-            },
-            quality_snapshot={
-                "schema_version": "functional-live-room-release-quality.v1",
-                "gates": self._release_quality_gates(plan),
-                "static_gate_results": plan["gate_results"],
-                "quality_report": plan["quality_report"],
-            },
-            lineage_snapshot={
-                "complete": True,
-                "schema_version": "functional-live-room-lineage.v1",
-                "edge_count": self._release_lineage_edge_count(plan),
-                "coverage": {
-                    "content_chain": "fixed",
-                    "scene_and_layer_projection": "fixed",
-                    "build_plan": "fixed",
-                    "execution_readback": "pending",
-                },
-            },
-            carrier_facet={
-                "build_plan_ref": {
-                    "code": plan["build_plan"].get("build_plan_code"),
-                    "revision": 1,
-                    "fingerprint": canonical_fingerprint(plan["build_plan"]),
-                    "snapshot_artifact_code": snapshot_artifact["artifact_code"],
-                },
-                "live_room_configuration_ref": {
-                    "code": plan["configuration_code"],
-                    "revision": int(plan["configuration_revision"]),
-                    "target_live_room_id": plan["target_live_room_id"],
-                },
-                "maitu_scene_blueprint_refs": [
-                    {"code": scene.get("scene_blueprint_code") or scene.get("scene_code"), "revision": 1}
-                    for scene in plan["blueprint"].get("scenes") or []
-                ],
-                "execution": {
-                    "status": "not_authorized",
-                    "ready_for_go_live": False,
-                    "readback_evidence": "pending",
-                },
-            },
-            created_by=actor_id,
-        )
-        with self.connection.cursor(row_factory=dict_row) as cursor:
-            cursor.execute(
-                """
-                UPDATE functional_live_room_plans
-                SET release_code = %s,
-                    release_snapshot_artifact_code = %s,
-                    release_manifest_fingerprint = %s,
-                    updated_at = now()
-                WHERE id = %s AND release_code IS NULL
-                RETURNING *
-                """,
-                (
-                    release["release_code"],
-                    snapshot_artifact["artifact_code"],
-                    release["manifest"]["manifest_fingerprint"],
-                    plan["id"],
-                ),
-            )
-            updated = cursor.fetchone()
-            if updated is None:
+        """Freeze an executed, readback-matched Maitu draft for release review."""
+        try:
+            with self.connection.cursor() as cursor:
                 cursor.execute(
-                    "SELECT * FROM functional_live_room_plans WHERE id = %s", (plan["id"],))
+                    "SELECT id FROM functional_live_room_plans WHERE plan_code = %s FOR UPDATE",
+                    (plan_code,),
+                )
+                if cursor.fetchone() is None:
+                    raise KeyError(plan_code)
+            plan = self._releaseable_plan(plan_code)
+            if plan is None:
+                raise KeyError(plan_code)
+            if plan["release_code"]:
+                existing = self.get_plan(plan_code)
+                if existing is None:
+                    raise KeyError(plan_code)
+                self.connection.rollback()
+                return existing
+            self._require_confirmed_review(plan)
+            if plan["status"] != "ready":
+                raise DomainValidationError(
+                    "LIVE_ROOM_RELEASE_PLAN_BLOCKED",
+                    "Only a ready live-room plan can create a release candidate",
+                    details={"plan_code": plan_code, "blocked_reasons": plan["blocked_reasons"]},
+                )
+            self._require_release_execution_readback(plan)
+            rights_snapshot = self._release_rights_snapshot(plan)
+            subject_refs = self._release_subject_refs(plan)
+            snapshot_artifact = self._get_or_create_release_snapshot(
+                plan,
+                subject_refs,
+                commit=False,
+            )
+            release = self._release_service().create_candidate(
+                subject_type="production_variant",
+                subject_code=str(plan["variant_code"]),
+                subject_revision=int(plan["variant_revision"]),
+                carrier_kind="live_room_draft",
+                subject_refs=subject_refs,
+                artifact_refs=[
+                    {
+                        "artifact_code": snapshot_artifact["artifact_code"],
+                        "checksum_sha256": snapshot_artifact["checksum_sha256"],
+                        "role": "live_room_build_plan_snapshot",
+                    }
+                ],
+                rights_snapshot=rights_snapshot,
+                quality_snapshot={
+                    "schema_version": "functional-live-room-release-quality.v1",
+                    "gates": self._release_quality_gates(plan),
+                    "static_gate_results": plan["gate_results"],
+                    "quality_report": plan["quality_report"],
+                },
+                lineage_snapshot={
+                    "complete": True,
+                    "schema_version": "functional-live-room-lineage.v1",
+                    "edge_count": self._release_lineage_edge_count(plan),
+                    "coverage": {
+                        "content_chain": "fixed",
+                        "scene_and_layer_projection": "fixed",
+                        "build_plan": "fixed",
+                        "execution_readback": "matched",
+                        "source_asset_rights": "fixed",
+                        "release_approval": "pending",
+                    },
+                },
+                carrier_facet={
+                    "build_plan_ref": {
+                        "code": plan["build_plan"].get("build_plan_code"),
+                        "revision": 1,
+                        "fingerprint": canonical_fingerprint(plan["build_plan"]),
+                        "snapshot_artifact_code": snapshot_artifact["artifact_code"],
+                    },
+                    "live_room_configuration_ref": {
+                        "code": plan["configuration_code"],
+                        "revision": int(plan["configuration_revision"]),
+                        "target_live_room_id": plan["target_live_room_id"],
+                    },
+                    "maitu_scene_blueprint_refs": [
+                        {
+                            "code": scene.get("scene_blueprint_code") or scene.get("scene_code"),
+                            "revision": 1,
+                        }
+                        for scene in plan["blueprint"].get("scenes") or []
+                    ],
+                    "execution": {
+                        "status": "succeeded",
+                        "projected_status": plan["execution_status"],
+                        "execution_code": (plan["execution_evidence"].get("execution") or {}).get(
+                            "execution_code"
+                        ),
+                        "ready_for_go_live": False,
+                        "readback_evidence": "matched",
+                        "evidence_fingerprint": canonical_fingerprint(
+                            plan["execution_evidence"]
+                        ),
+                    },
+                },
+                created_by=actor_id,
+                commit=False,
+            )
+            with self.connection.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    """
+                    UPDATE functional_live_room_plans
+                    SET release_code = %s,
+                        release_snapshot_artifact_code = %s,
+                        release_manifest_fingerprint = %s,
+                        updated_at = now()
+                    WHERE id = %s AND release_code IS NULL
+                    RETURNING *
+                    """,
+                    (
+                        release["release_code"],
+                        snapshot_artifact["artifact_code"],
+                        release["manifest"]["manifest_fingerprint"],
+                        plan["id"],
+                    ),
+                )
                 updated = cursor.fetchone()
-        self.connection.commit()
-        return self._with_release(self._serialize(updated))
+                if updated is None:
+                    cursor.execute(
+                        "SELECT * FROM functional_live_room_plans WHERE id = %s",
+                        (plan["id"],),
+                    )
+                    updated = cursor.fetchone()
+            self.connection.commit()
+            return self._with_release(self._serialize(updated))
+        except Exception:
+            self.connection.rollback()
+            raise
 
     def clone_plan(self, plan_code: str, payload: dict[str, Any], *, actor_id: str) -> dict[str, Any]:
         """Recompile business inputs into a different target room.
@@ -1538,6 +1642,11 @@ class FunctionalLiveRoomService:
                 "idempotency_key": payload.get("idempotency_key"),
                 "_review_status": payload.get("_review_status"),
                 "_guided_workflow_authorized": payload.get("_guided_workflow_authorized"),
+                "_system_host_binding": payload.get("_system_host_binding")
+                or (
+                    (source.get("build_plan") or {}).get("inventory_snapshot")
+                    or {}
+                ).get("system_host_binding"),
                 "scene_overrides": scene_overrides,
             },
             actor_id=actor_id,
@@ -1640,7 +1749,12 @@ class FunctionalLiveRoomService:
             "layout_reference_handoff": dict(inventory.get("layout_reference_handoff") or {}) or None,
             "primary_template_code": source.get("primary_template_code"),
             "secondary_template_codes": list(source.get("secondary_template_codes") or []),
-            "asset_codes": list(source.get("selected_asset_codes") or []),
+            "asset_codes": list(
+                inventory.get("user_selected_asset_codes")
+                or source.get("selected_asset_codes")
+                or []
+            ),
+            "_system_host_binding": inventory.get("system_host_binding"),
             "required_loose_asset_codes": list(inventory.get("required_loose_asset_codes") or []),
             "group_codes": list(source.get("selected_group_codes") or []),
             "material_pack_codes": list(source.get("selected_material_pack_codes") or []),
@@ -1962,6 +2076,170 @@ class FunctionalLiveRoomService:
             )
 
     @staticmethod
+    def _require_release_execution_readback(plan: dict[str, Any]) -> None:
+        evidence = (
+            plan.get("execution_evidence")
+            if isinstance(plan.get("execution_evidence"), dict)
+            else {}
+        )
+        comparison = (
+            evidence.get("comparison")
+            if isinstance(evidence.get("comparison"), dict)
+            else {}
+        )
+        execution = (
+            evidence.get("execution")
+            if isinstance(evidence.get("execution"), dict)
+            else {}
+        )
+        if not (
+            plan.get("execution_status") == "maitu_complete"
+            and evidence.get("status") == "finalized_draft_readback"
+            and comparison.get("status") == "matched"
+            and execution.get("ready_for_go_live") is False
+            and str(execution.get("execution_code") or "").strip()
+        ):
+            raise DomainValidationError(
+                "LIVE_ROOM_RELEASE_EXECUTION_REQUIRED",
+                "Create a release candidate only after Maitu draft execution and exact readback succeed",
+                details={
+                    "execution_status": plan.get("execution_status"),
+                    "readback_status": evidence.get("status"),
+                    "comparison_status": comparison.get("status"),
+                },
+            )
+
+    def _release_rights_snapshot(self, plan: dict[str, Any]) -> dict[str, Any]:
+        selected_codes = [
+            str(code) for code in plan.get("selected_asset_codes") or [] if str(code)
+        ]
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """SELECT asset_code, rights_status, rights_note, rights_updated_at,
+                          rights_updated_by, updated_at
+                   FROM assets
+                   WHERE deleted_at IS NULL
+                     AND asset_code = ANY(%s)
+                   ORDER BY asset_code
+                   FOR UPDATE""",
+                (selected_codes,),
+            )
+            current_assets = [dict(row) for row in cursor.fetchall()]
+        return self._build_release_rights_snapshot(plan, current_assets)
+
+    @staticmethod
+    def _build_release_rights_snapshot(
+        plan: dict[str, Any], current_assets: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        selected_codes = [
+            str(code) for code in plan.get("selected_asset_codes") or [] if str(code)
+        ]
+        inventory = (plan.get("build_plan") or {}).get("inventory_snapshot") or {}
+        frozen_assets = [
+            asset
+            for asset in inventory.get("assets") or []
+            if isinstance(asset, dict) and asset.get("asset_code")
+        ]
+        frozen_codes = [str(asset["asset_code"]) for asset in frozen_assets]
+        current_codes = [str(asset.get("asset_code") or "") for asset in current_assets]
+        duplicate_frozen_codes = sorted(
+            code for code in set(frozen_codes) if frozen_codes.count(code) > 1
+        )
+        duplicate_current_codes = sorted(
+            code for code in set(current_codes) if current_codes.count(code) > 1
+        )
+        missing_frozen_codes = sorted(set(selected_codes) - set(frozen_codes))
+        unexpected_frozen_codes = sorted(set(frozen_codes) - set(selected_codes))
+        missing_current_codes = sorted(set(selected_codes) - set(current_codes))
+        unexpected_current_codes = sorted(set(current_codes) - set(selected_codes))
+        invalid_frozen_rights = [
+            {
+                "asset_code": str(asset["asset_code"]),
+                "rights_status": str(asset.get("rights_status") or "pending"),
+            }
+            for asset in frozen_assets
+            if str(asset.get("rights_status") or "pending") != "approved"
+        ]
+        invalid_current_rights = [
+            {
+                "asset_code": str(asset.get("asset_code") or ""),
+                "rights_status": str(asset.get("rights_status") or "pending"),
+            }
+            for asset in current_assets
+            if str(asset.get("rights_status") or "pending") != "approved"
+        ]
+        if (
+            not selected_codes
+            or duplicate_frozen_codes
+            or duplicate_current_codes
+            or missing_frozen_codes
+            or unexpected_frozen_codes
+            or missing_current_codes
+            or unexpected_current_codes
+            or invalid_frozen_rights
+            or invalid_current_rights
+        ):
+            raise DomainValidationError(
+                "LIVE_ROOM_RELEASE_RIGHTS_REQUIRED",
+                "Every frozen live-room asset must still have approved current rights",
+                details={
+                    "duplicate_frozen_asset_codes": duplicate_frozen_codes,
+                    "duplicate_current_asset_codes": duplicate_current_codes,
+                    "missing_frozen_asset_codes": missing_frozen_codes,
+                    "unexpected_frozen_asset_codes": unexpected_frozen_codes,
+                    "missing_current_asset_codes": missing_current_codes,
+                    "unexpected_current_asset_codes": unexpected_current_codes,
+                    "invalid_frozen_rights": invalid_frozen_rights,
+                    "invalid_current_rights": invalid_current_rights,
+                },
+            )
+        frozen_by_code = {
+            str(asset["asset_code"]): asset for asset in frozen_assets
+        }
+        current_by_code = {
+            str(asset["asset_code"]): asset for asset in current_assets
+        }
+        rights_assets = []
+        for asset_code in selected_codes:
+            frozen = frozen_by_code[asset_code]
+            current = current_by_code[asset_code]
+            rights_updated_at = current.get("rights_updated_at")
+            catalog_updated_at = current.get("updated_at")
+            rights_assets.append(
+                {
+                    "asset_code": asset_code,
+                    "status": str(current["rights_status"]),
+                    "note": current.get("rights_note"),
+                    "rights_updated_at": (
+                        rights_updated_at.isoformat()
+                        if hasattr(rights_updated_at, "isoformat")
+                        else rights_updated_at
+                    ),
+                    "rights_updated_by": current.get("rights_updated_by"),
+                    "catalog_updated_at": (
+                        catalog_updated_at.isoformat()
+                        if hasattr(catalog_updated_at, "isoformat")
+                        else catalog_updated_at
+                    ),
+                    "frozen_status": str(frozen["rights_status"]),
+                    "frozen_note": frozen.get("rights_note"),
+                }
+            )
+        return {
+            "schema_version": "functional-live-room-release-rights.v2",
+            "status": "valid",
+            "source": "current_asset_catalog_and_frozen_build_plan",
+            "asset_count": len(rights_assets),
+            "asset_codes": selected_codes,
+            "assets": rights_assets,
+            "template_refs": FunctionalLiveRoomService._template_refs(plan),
+            "rights_evidence_fingerprint_sha256": canonical_fingerprint(
+                rights_assets
+            ),
+            "reason": "Every frozen user-selected and system-managed asset still has approved current rights evidence.",
+        }
+
+    @staticmethod
     def _release_subject_refs(plan: dict[str, Any]) -> dict[str, Any]:
         return {
             "content_project_revision": {
@@ -1994,6 +2272,8 @@ class FunctionalLiveRoomService:
         self,
         plan: dict[str, Any],
         subject_refs: dict[str, Any],
+        *,
+        commit: bool = True,
     ) -> dict[str, Any]:
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
@@ -2084,7 +2364,8 @@ class FunctionalLiveRoomService:
                 (plan["id"], artifact["id"], artifact["artifact_code"], fingerprint, Jsonb(snapshot)),
             )
             cursor.fetchone()
-        self.connection.commit()
+        if commit:
+            self.connection.commit()
         return {
             "artifact_code": artifact["artifact_code"],
             "checksum_sha256": artifact["checksum_sha256"],
@@ -2108,15 +2389,33 @@ class FunctionalLiveRoomService:
         for static_gate in plan["gate_results"] or []:
             status = str(static_gate.get("status") or "blocked")
             gate_name = str(static_gate.get("gate") or "unknown")
+            if gate_name == "evidence_completeness":
+                continue
             gates.append(
                 {
                     "code": str(static_gate.get("rule_code") or gate_name),
                     "status": status,
-                    "blocking": status == "blocked" or gate_name == "evidence_completeness",
+                    "blocking": status == "blocked",
                 }
             )
-        gates.append(
-            {"code": "GATE_RELEASE_AUTHORIZATION_PENDING", "status": "pending", "blocking": True}
+        gates.extend(
+            [
+                {
+                    "code": "GATE_MAITU_DRAFT_EXECUTION_SUCCEEDED",
+                    "status": "pass",
+                    "blocking": True,
+                },
+                {
+                    "code": "GATE_MAITU_DRAFT_READBACK_MATCHED",
+                    "status": "pass",
+                    "blocking": True,
+                },
+                {
+                    "code": "GATE_LIVE_ROOM_ASSET_RIGHTS_VALID",
+                    "status": "pass",
+                    "blocking": True,
+                },
+            ]
         )
         return gates
 
@@ -2184,6 +2483,10 @@ class FunctionalLiveRoomService:
                 SELECT asset.asset_code, COALESCE(asset.title, asset.original_filename) AS title,
                        asset.media_kind, asset.material_roles, asset.execution_capability,
                        asset.rights_status, asset.rights_note,
+                       asset.maitu_material_id, asset.maitu_source_material_id,
+                       asset.source_material_type, asset.source_material_url,
+                       asset.source_cover_url, asset.speaker_id,
+                       asset.digital_human_image_id,
                        profile.profile_code, revision.revision_number AS constraint_profile_revision,
                        revision.constraints AS constraint_profile_constraints,
                        revision.fingerprint_sha256 AS constraint_profile_fingerprint,
@@ -2247,6 +2550,106 @@ class FunctionalLiveRoomService:
         if missing:
             raise DomainValidationError("LIVE_ROOM_ASSET_NOT_FOUND", "Selected assets no longer exist", details={"asset_codes": missing})
         return [by_code[code] for code in codes]
+
+    def _resolve_system_host_binding(
+        self,
+        raw_binding: Any,
+        *,
+        target_live_room_id: str,
+    ) -> dict[str, Any] | None:
+        if raw_binding is None:
+            return None
+        if not isinstance(raw_binding, dict):
+            raise DomainValidationError(
+                "LIVE_ROOM_SYSTEM_HOST_BINDING_INVALID",
+                "The authoritative Maitu host binding is invalid",
+            )
+        binding_payload = {
+            "live_room_id": str(raw_binding.get("live_room_id") or ""),
+            "material_id": str(raw_binding.get("material_id") or ""),
+            "digital_human_image_id": str(
+                raw_binding.get("digital_human_image_id") or ""
+            ),
+            "speaker_id": str(raw_binding.get("speaker_id") or ""),
+            "scene_ids": [
+                str(value)
+                for value in raw_binding.get("scene_ids") or []
+                if str(value).strip()
+            ],
+            "scene_names": [
+                str(value)
+                for value in raw_binding.get("scene_names") or []
+                if str(value).strip()
+            ],
+        }
+        supplied_fingerprint = str(raw_binding.get("fingerprint_sha256") or "")
+        if (
+            binding_payload["live_room_id"] != str(target_live_room_id)
+            or any(
+                not str(binding_payload[key]).strip()
+                for key in (
+                    "material_id",
+                    "digital_human_image_id",
+                    "speaker_id",
+                )
+            )
+            or supplied_fingerprint != canonical_fingerprint(binding_payload)
+        ):
+            raise DomainValidationError(
+                "LIVE_ROOM_SYSTEM_HOST_BINDING_INVALID",
+                "The authoritative Maitu host binding does not match the target room",
+                details={"target_live_room_id": target_live_room_id},
+            )
+        try:
+            material_id = int(binding_payload["material_id"])
+            digital_human_image_id = int(binding_payload["digital_human_image_id"])
+            speaker_id = int(binding_payload["speaker_id"])
+        except (TypeError, ValueError) as exc:
+            raise DomainValidationError(
+                "LIVE_ROOM_SYSTEM_HOST_BINDING_INVALID",
+                "The authoritative Maitu host identity is incomplete",
+            ) from exc
+        if min(material_id, digital_human_image_id, speaker_id) < 1:
+            raise DomainValidationError(
+                "LIVE_ROOM_SYSTEM_HOST_BINDING_INVALID",
+                "The authoritative Maitu host identity is incomplete",
+            )
+        with self.connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT asset_code, COALESCE(title, original_filename) AS title
+                FROM assets
+                WHERE deleted_at IS NULL
+                  AND execution_capability = 'maitu_bound'
+                  AND source_material_type = 'digital_human'
+                  AND maitu_source_material_id = %s
+                  AND speaker_id = %s
+                  AND digital_human_image_id = %s
+                  AND material_roles @> '["digital_human", "voice"]'::jsonb
+                ORDER BY asset_code
+                """,
+                (material_id, speaker_id, digital_human_image_id),
+            )
+            matches = cursor.fetchall()
+        if len(matches) != 1:
+            raise DomainValidationError(
+                "LIVE_ROOM_SYSTEM_HOST_ASSET_NOT_UNIQUE",
+                "The authoritative Maitu host must resolve to exactly one inventory asset",
+                details={
+                    "target_live_room_id": target_live_room_id,
+                    "match_count": len(matches),
+                },
+            )
+        return {
+            **binding_payload,
+            "material_id": material_id,
+            "digital_human_image_id": digital_human_image_id,
+            "speaker_id": speaker_id,
+            "fingerprint_sha256": supplied_fingerprint,
+            "asset_code": str(matches[0]["asset_code"]),
+            "asset_title": str(matches[0]["title"] or matches[0]["asset_code"]),
+            "system_managed": True,
+        }
 
     def _material_selection_sources(
         self,
@@ -2354,6 +2757,11 @@ class FunctionalLiveRoomService:
         blueprint: dict[str, Any],
         blocked_reasons: list[str],
     ) -> dict[str, Any]:
+        inventory_assets = {
+            str(asset.get("asset_code") or ""): asset
+            for asset in inventory_snapshot.get("assets") or []
+            if isinstance(asset, dict) and asset.get("asset_code")
+        }
         layout_scenes: list[dict[str, Any]] = []
         for scene_index, scene in enumerate(blueprint["scenes"]):
             layers = []
@@ -2416,11 +2824,28 @@ class FunctionalLiveRoomService:
                         "mute_policy": mute_policy,
                     },
                 }
+                inventory_asset = inventory_assets.get(str(layer.get("asset_code") or ""), {})
                 layers.append(
                     {
                         "layer_id": layer["layer_blueprint_code"],
                         "layer_type": role,
                         "asset_code": layer["asset_code"],
+                        "maitu_material_id": inventory_asset.get("maitu_material_id"),
+                        "maitu_source_material_id": inventory_asset.get(
+                            "maitu_source_material_id"
+                        ),
+                        "source_material_type": inventory_asset.get(
+                            "source_material_type"
+                        ),
+                        "source_material_url": inventory_asset.get("source_material_url"),
+                        "source_cover_url": inventory_asset.get("source_cover_url"),
+                        "speaker_id": inventory_asset.get("speaker_id"),
+                        "digital_human_image_id": inventory_asset.get(
+                            "digital_human_image_id"
+                        ),
+                        "system_managed": bool(
+                            base_constraint_evidence.get("system_managed")
+                        ),
                         "x": float(geometry.get("x", 0.0)) * 1080,
                         "y": float(geometry.get("y", 0.0)) * 1920,
                         "width": float(geometry.get("width", 1.0)) * 1080,
@@ -3120,6 +3545,28 @@ class FunctionalLiveRoomService:
         for asset in assets:
             for role in asset["material_roles"] or []:
                 layers_by_role.setdefault(role, []).append(asset)
+        system_host_binding = (
+            payload.get("system_host_binding")
+            if isinstance(payload.get("system_host_binding"), dict)
+            else None
+        )
+        system_host_asset: dict[str, Any] | None = None
+        if system_host_binding is not None:
+            host_asset_code = str(system_host_binding.get("asset_code") or "")
+            matching_host_assets = [
+                asset
+                for asset in assets
+                if str(asset.get("asset_code") or "") == host_asset_code
+                and "digital_human" in (asset.get("material_roles") or [])
+                and str(asset.get("execution_capability") or "") == "maitu_bound"
+            ]
+            if len(matching_host_assets) != 1:
+                raise DomainValidationError(
+                    "LIVE_ROOM_SYSTEM_HOST_ASSET_NOT_UNIQUE",
+                    "The authoritative Maitu host must resolve to one executable asset",
+                    details={"asset_code": host_asset_code},
+                )
+            system_host_asset = matching_host_assets[0]
         scenes: list[dict[str, Any]] = []
         operations: list[dict[str, Any]] = [{"kind": "rename_room", "expected_title": payload["expected_title"]}]
         blocked: list[str] = []
@@ -3138,9 +3585,20 @@ class FunctionalLiveRoomService:
                 for layer in (scene_override or {}).get("layers") or []
                 if isinstance(layer, dict) and layer.get("role")
             }
-            required_roles = [str(role) for role in shot["material_role_requirements"]]
+            required_roles = list(
+                dict.fromkeys(str(role) for role in shot["material_role_requirements"])
+            )
+            compiled_roles = list(required_roles)
+            if system_host_asset is not None and "digital_human" not in compiled_roles:
+                compiled_roles.append("digital_human")
+            required_override_roles = set(required_roles)
+            allowed_override_roles = set(required_roles)
+            if system_host_asset is not None:
+                required_override_roles.discard("digital_human")
+                allowed_override_roles.add("digital_human")
             if scene_override and (
-                set(layer_overrides) != set(required_roles)
+                not required_override_roles.issubset(layer_overrides)
+                or not set(layer_overrides).issubset(allowed_override_roles)
                 or len(layer_overrides) != len((scene_override or {}).get("layers") or [])
             ):
                 raise DomainValidationError(
@@ -3148,25 +3606,42 @@ class FunctionalLiveRoomService:
                     "Each revised scene must contain every required material role exactly once",
                     details={
                         "shot_code": shot["shot_code"],
-                        "missing_roles": sorted(set(required_roles) - set(layer_overrides)),
-                        "unexpected_roles": sorted(set(layer_overrides) - set(required_roles)),
+                        "missing_roles": sorted(required_override_roles - set(layer_overrides)),
+                        "unexpected_roles": sorted(set(layer_overrides) - allowed_override_roles),
                     },
                 )
             layers: list[dict[str, Any]] = []
-            for role in required_roles:
-                candidates = FunctionalLiveRoomService._role_candidates_for_shot(
-                    assets=layers_by_role.get(role, []),
-                    role=str(role),
-                    material_role_modes=material_role_modes,
-                    shot_code=str(shot["shot_code"]),
-                    scene_code=scene_code,
-                    scene_type=str(shot.get("scene_type") or "") or None,
+            system_host_override: dict[str, Any] | None = None
+            for role in compiled_roles:
+                is_system_host = role == "digital_human" and system_host_asset is not None
+                candidates = (
+                    [system_host_asset]
+                    if is_system_host
+                    else FunctionalLiveRoomService._role_candidates_for_shot(
+                        assets=layers_by_role.get(role, []),
+                        role=str(role),
+                        material_role_modes=material_role_modes,
+                        shot_code=str(shot["shot_code"]),
+                        scene_code=scene_code,
+                        scene_type=str(shot.get("scene_type") or "") or None,
+                    )
                 )
                 if not candidates:
                     reason = "missing_replacement_role" if material_role_modes.get(str(role)) == "replace" else "missing_role"
                     blocked.append(f"{reason}:{role}:shot:{shot['shot_code']}")
                     continue
                 layer_override = layer_overrides.get(role)
+                if is_system_host and layer_override:
+                    if str(layer_override.get("asset_code") or "") != str(
+                        system_host_asset["asset_code"]
+                    ):
+                        raise DomainValidationError(
+                            "LIVE_ROOM_SYSTEM_HOST_LAYER_LOCKED",
+                            "The Maitu room host cannot be replaced in a scene revision",
+                            details={"shot_code": shot["shot_code"]},
+                        )
+                    system_host_override = layer_override
+                    layer_override = None
                 selection_overrides = dict(material_role_overrides)
                 composition_intent = (
                     shot.get("composition_intent")
@@ -3178,6 +3653,8 @@ class FunctionalLiveRoomService:
                     selection_overrides[role] = str(shot_bindings[role])
                 if layer_override:
                     selection_overrides[role] = str(layer_override.get("asset_code") or "")
+                if is_system_host:
+                    selection_overrides[role] = str(system_host_asset["asset_code"])
                 asset, selection_decision = FunctionalLiveRoomService._choose_material_for_role(
                     role=str(role), candidates=candidates, overrides=selection_overrides,
                     prior_selection_counts=prior_selection_counts,
@@ -3189,6 +3666,11 @@ class FunctionalLiveRoomService:
                 )
                 selection_decision = {
                     **selection_decision,
+                    "strategy": (
+                        "system_host_binding"
+                        if is_system_host
+                        else selection_decision["strategy"]
+                    ),
                     "shot_code": shot["shot_code"],
                     "scene_code": scene_code,
                     "scene_type": shot.get("scene_type"),
@@ -3218,6 +3700,12 @@ class FunctionalLiveRoomService:
                     **constraint_evidence,
                     "material_selection": selection_decision,
                     "media_kind": asset.get("media_kind"),
+                    "system_managed": is_system_host,
+                    "system_host_binding_fingerprint": (
+                        system_host_binding.get("fingerprint_sha256")
+                        if is_system_host and system_host_binding is not None
+                        else None
+                    ),
                 }
                 blocked.extend(f"{failure}:shot:{shot['shot_code']}" for failure in failures)
                 layers.append(
@@ -3232,6 +3720,19 @@ class FunctionalLiveRoomService:
                         "audio_properties": audio_properties,
                         "constraint_evidence": constraint_evidence,
                         "constraint_rules": FunctionalLiveRoomService._constraint_rules(asset),
+                        "maitu_material_id": asset.get("maitu_material_id"),
+                        "maitu_source_material_id": asset.get("maitu_source_material_id"),
+                        "source_material_type": asset.get("source_material_type"),
+                        "source_material_url": asset.get("source_material_url"),
+                        "source_cover_url": asset.get("source_cover_url"),
+                        "speaker_id": asset.get("speaker_id"),
+                        "digital_human_image_id": asset.get("digital_human_image_id"),
+                        "system_managed": is_system_host,
+                        "system_host_binding_fingerprint": (
+                            system_host_binding.get("fingerprint_sha256")
+                            if is_system_host and system_host_binding is not None
+                            else None
+                        ),
                     }
                 )
                 if asset["execution_capability"] != "maitu_bound":
@@ -3240,6 +3741,21 @@ class FunctionalLiveRoomService:
                 f"{failure}:shot:{shot['shot_code']}"
                 for failure in FunctionalLiveRoomService._resolve_scene_layer_relationships(layers)
             )
+            if system_host_override is not None:
+                compiled_host_layer = next(
+                    layer for layer in layers if layer.get("system_managed") is True
+                )
+                if (
+                    canonical_fingerprint(system_host_override.get("geometry") or {})
+                    != canonical_fingerprint(compiled_host_layer["normalized_geometry"])
+                    or int(system_host_override.get("z_order", -1))
+                    != int(compiled_host_layer["z_order"])
+                ):
+                    raise DomainValidationError(
+                        "LIVE_ROOM_SYSTEM_HOST_LAYER_LOCKED",
+                        "The Maitu room host geometry and layer order are system-managed",
+                        details={"shot_code": shot["shot_code"]},
+                    )
             source_blocks = [
                 block_by_code[code]
                 for code in (shot.get("script_block_codes") or [])
@@ -3252,7 +3768,7 @@ class FunctionalLiveRoomService:
                 str(block.get("content") or "") for block in source_blocks
             ).strip()
             duration_ms = int(shot.get("estimated_duration_ms") or 1)
-            scenes.append({"scene_code": scene_code, "shot_code": shot["shot_code"], "title": str((scene_override or {}).get("title") or shot["shot_goal"]), "layers": layers, "script": str((scene_override or {}).get("script") or source_script), "transition_strategy": {"type": "cut" if index else "initial"}, "estimated_active_start_ms": active_start_ms, "estimated_active_end_ms": active_start_ms + duration_ms, "estimated_duration_ms": duration_ms, "constraint_evidence": {"selection_source": "functional_live_room.v1", "required_roles": required_roles, "named_regions": named_regions, "blueprint_revision_requested": bool(scene_override)}})
+            scenes.append({"scene_code": scene_code, "shot_code": shot["shot_code"], "title": str((scene_override or {}).get("title") or shot["shot_goal"]), "layers": layers, "script": str((scene_override or {}).get("script") or source_script), "transition_strategy": {"type": "cut" if index else "initial"}, "estimated_active_start_ms": active_start_ms, "estimated_active_end_ms": active_start_ms + duration_ms, "estimated_duration_ms": duration_ms, "constraint_evidence": {"selection_source": "functional_live_room.v1", "required_roles": required_roles, "system_managed_roles": ["digital_human"] if system_host_asset is not None else [], "named_regions": named_regions, "blueprint_revision_requested": bool(scene_override)}})
             operations.append({"kind": "create_scene", "scene_code": scene_code, "source_shot": shot["shot_code"]})
             operations.extend({"kind": "insert_bound_asset", "scene_code": scene_code, "asset_code": layer["asset_code"], "role": layer["role"]} for layer in layers)
             operations.append({"kind": "write_script", "scene_code": scene_code, "script_block_codes": [str(block["block_code"]) for block in source_blocks]})
@@ -3281,6 +3797,7 @@ class FunctionalLiveRoomService:
                 "material_selection_decisions": material_selection_decisions,
                 "material_pack_requirement_evidence": pack_requirement_evidence,
                 "required_loose_asset_evidence": loose_requirement_evidence,
+                "system_host_binding": system_host_binding,
             },
             {"schema_version": "maitu-build-plan.functional.v1", "target_live_room_id": payload["target_live_room_id"], "operations": operations, "go_live": False},
             list(dict.fromkeys(blocked)),

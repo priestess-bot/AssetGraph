@@ -26,12 +26,14 @@ import {
   Check,
   Clapperboard,
   Clock3,
+  ExternalLink,
   FileText,
   FilePenLine,
   GripVertical,
   Image,
   Layers3,
   ListTree,
+  LockKeyhole,
   LoaderCircle,
   PackageCheck,
   Plus,
@@ -117,7 +119,9 @@ function jobLabel(job: GuidedJob): string {
 }
 
 function workflowJob(workflow: GuidedWorkflow, predicate: (job: GuidedJob) => boolean): GuidedJob | undefined {
-  return Object.values(workflow.jobs).find(predicate);
+  return Object.values(workflow.jobs)
+    .filter(predicate)
+    .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))[0];
 }
 
 function outlineSectionJob(workflow: GuidedWorkflow, sectionKey: string): GuidedJob | undefined {
@@ -404,10 +408,12 @@ function RoomHostStatus({ configuration, isLoading, hasError }: { configuration?
   if (isLoading) return <section className="guided-room-status" aria-live="polite"><strong>麦兔直播间配置</strong><span>正在读取数字人与音色配置...</span></section>;
   if (hasError || !configuration) return <section className="guided-room-status is-warning"><strong>麦兔直播间配置</strong><span>暂时无法读取。请在麦兔直播间中检查数字人与音色后重试。</span></section>;
   return <section className={`guided-room-status ${configuration.ready ? "is-ready" : "is-warning"}`}>
-    <div><strong>麦兔直播间配置</strong><StatusBadge label={configuration.ready ? "已配置" : "待配置"} tone={configuration.ready ? "success" : "warning"} /></div>
+    <div><strong>麦兔直播间配置</strong><StatusBadge label={configuration.ready ? "已配置" : "待配置"} tone={configuration.ready ? "success" : "warning"} />{configuration.systemManaged ? <StatusBadge label="系统锁定" tone="neutral" /> : null}</div>
     <span>数字人：{configuration.hostName ?? "未选择"}</span>
     <span>音色：{configuration.voiceName ?? "未选择"}</span>
     {configuration.sceneName ? <span>场景：{configuration.sceneName}</span> : null}
+    {configuration.boundSceneCount ? <span>绑定场景：{configuration.boundSceneCount} 个</span> : null}
+    {configuration.sourceMaterialId ? <span>主播素材：{configuration.sourceMaterialId}</span> : null}
     {configuration.checkedAt ? <small>最近检查：{formatDate(configuration.checkedAt)}</small> : null}
     {configuration.message ? <small>{configuration.message}</small> : null}
   </section>;
@@ -927,6 +933,12 @@ function StoryboardPanel({ workflow, onDirtyChange }: { workflow: GuidedWorkflow
   const refresh = useWorkflowRefresh(workflow.project.projectCode);
   const storyboardBranch = stageBranchIdentity(workflow, "storyboard");
   const templates = useQuery({ queryKey: ["guided-layout-templates"], queryFn: liveResearchApi.listTemplates });
+  const room = useQuery({
+    queryKey: ["guided-maitu-room-configuration", workflow.project.projectCode],
+    queryFn: () => guidedContentApi.getMaituRoomConfiguration(workflow.project.projectCode),
+    retry: false,
+    staleTime: 15_000,
+  });
   const published = (templates.data ?? []).filter((template) => template.templateKind === "layout_hypothesis" && template.published_revision);
   const [templateCode, setTemplateCode] = useState(workflow.storyboard?.templateCode ?? "");
   const projection = useQuery({ queryKey: ["guided-layout-projection", templateCode], queryFn: () => liveResearchApi.getProjection(templateCode), enabled: Boolean(templateCode) });
@@ -1003,10 +1015,12 @@ function StoryboardPanel({ workflow, onDirtyChange }: { workflow: GuidedWorkflow
           <button className="wb-button" type="button" onClick={() => setManualEditing(true)}><FilePenLine size={15} aria-hidden="true" />编辑当前分镜</button>
           <button className="wb-button wb-button-primary" type="button" disabled={!templateCode || !projection.data?.projection_fingerprint || activeJob(storyboardJob) || generate.isPending} onClick={() => generate.mutate()}><Plus size={15} aria-hidden="true" />生成分镜新分支</button>
         </> : null}
+        {workflow.gates.storyboardConfirmed && workflow.storyboard?.planCode ? <a className="wb-button wb-button-primary" href={`/console/production/live-rooms?project=${encodeURIComponent(workflow.project.projectCode)}&run=${encodeURIComponent(workflow.storyboard.planCode)}`}><ExternalLink size={15} aria-hidden="true" />写入麦兔草稿</a> : null}
       </div>
     </header>
     {workflow.gates.storyboardManualOnly || workflow.storyboard?.manualOnly ? <InlineNotice tone="warning" title="仅支持人工落地">该版本包含已豁免的必选素材需求。</InlineNotice> : null}
     {workflow.storyboard && !workflow.gates.storyboardCurrent ? <InlineNotice tone="warning" title="分镜上游已变化">请基于当前脚本和素材重新生成分镜。</InlineNotice> : null}
+    <RoomHostStatus configuration={room.data} isLoading={room.isLoading} hasError={Boolean(room.error)} />
     {needsGeneration ? <div className="guided-template-select">
       <label><span>直播间模板</span><select value={templateCode} onChange={(event) => setTemplateCode(event.target.value)}><option value="">请选择已发布模板</option>{published.map((template) => <option key={template.template_code} value={template.template_code}>{template.title}</option>)}</select></label>
       <button className="wb-button wb-button-primary" type="button" disabled={!templateCode || !projection.data?.projection_fingerprint || activeJob(storyboardJob) || generate.isPending} onClick={() => generate.mutate()}><Sparkles size={15} aria-hidden="true" />生成分镜</button>
@@ -1015,7 +1029,7 @@ function StoryboardPanel({ workflow, onDirtyChange }: { workflow: GuidedWorkflow
     {workflow.storyboard ? <div className="guided-storyboard-list">{scenes.map((scene, index) => <article key={scene.itemKey ?? scene.shotCode}>
       <header><b>{index + 1}</b><input aria-label={`第 ${index + 1} 个分镜标题`} value={scene.title} disabled={!editable} onChange={(event) => setScenes((items) => items.map((item) => item.shotCode === scene.shotCode ? { ...item, title: event.target.value } : item))} /></header>
       <textarea aria-label={`第 ${index + 1} 个分镜话术`} rows={7} value={scene.script} disabled={!editable} onChange={(event) => setScenes((items) => items.map((item) => item.shotCode === scene.shotCode ? { ...item, script: event.target.value } : item))} />
-      <div className="guided-scene-layers">{scene.layers.map((layer) => <span key={`${layer.role}:${layer.assetCode}`}><Layers3 size={13} aria-hidden="true" />{productLabel(layer.role, layer.role)} · {layer.assetCode}</span>)}</div>
+      <div className="guided-scene-layers">{scene.layers.map((layer) => <span key={`${layer.role}:${layer.assetCode}`}>{layer.systemManaged ? <LockKeyhole size={13} aria-hidden="true" /> : <Layers3 size={13} aria-hidden="true" />}{productLabel(layer.role, layer.role)} · {layer.assetCode}{layer.systemManaged ? " · 系统锁定" : ""}</span>)}</div>
       <ItemVersionPanel
         workflow={workflow}
         stage="storyboard"
@@ -1138,7 +1152,7 @@ export function GuidedProjectWorkspace({ projectCode, tab }: { projectCode: stri
       {activeTab === "script" ? <ScriptPanel workflow={workflow.data} assets={usableAssets} onDirtyChange={onDirtyChange} /> : null}
       {activeTab === "storyboard" ? <StoryboardPanel workflow={workflow.data} onDirtyChange={onDirtyChange} /> : null}
       {activeTab === "video" ? workflow.data.gates.storyboardConfirmed ? <VideoEditorProductPage search={`?project=${encodeURIComponent(projectCode)}${summary.data.video.referenceCode ? `&plan=${encodeURIComponent(summary.data.video.referenceCode)}` : ""}`} /> : <EmptyBlock icon={Clapperboard} title="成片尚未解锁" detail="确认当前麦兔分镜后可进入成片制作。" /> : null}
-      {activeTab === "delivery" ? !workflow.data.gates.storyboardConfirmed ? <EmptyBlock icon={PackageCheck} title="交付尚未解锁" detail="请先确认分镜并完成成片制作。" /> : summary.data.delivery.referenceCode ? <DeliveryProductPanel search={`?release=${encodeURIComponent(summary.data.delivery.referenceCode)}`} /> : <EmptyBlock icon={PackageCheck} title="还没有可交付内容" /> : null}
+      {activeTab === "delivery" ? !workflow.data.gates.storyboardConfirmed ? <EmptyBlock icon={PackageCheck} title="交付尚未解锁" detail="请先确认分镜并完成成片制作。" /> : summary.data.delivery.referenceCode ? <DeliveryProductPanel search={`?release=${encodeURIComponent(summary.data.delivery.referenceCode)}`} projectCode={projectCode} /> : <EmptyBlock icon={PackageCheck} title="还没有可交付内容" /> : null}
       {activeTab === "activity" ? <ActivityPanel workflow={workflow.data} /> : null}
     </div>
     <Inspector

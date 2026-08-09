@@ -264,6 +264,7 @@ class GuidedWorkflowRead(BaseModel):
     tree: dict[str, Any] = Field(default_factory=dict)
     active_path: list[str] = Field(default_factory=list)
     jobs: dict[str, GuidedGenerationJobRead] = Field(default_factory=dict)
+    recommendations: dict[str, Any] = Field(default_factory=dict)
     revisions: dict[str, Any] = Field(default_factory=dict)
     script_archives: list[dict[str, Any]] = Field(default_factory=list)
     history: list[dict[str, Any]] = Field(default_factory=list)

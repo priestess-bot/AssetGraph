@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
@@ -51,6 +52,15 @@ STORYBOARD_SCENE_STRATEGY_REVISION = "content.guided-storyboard-scene.deepseek-p
 THEME_OPTIMIZATION_STRATEGY_REVISION = "content.guided-theme-optimize.deepseek-pro.v1"
 KNOWLEDGE_RECOMMENDATION_STRATEGY_REVISION = "content.guided-knowledge-recommend.deepseek-pro.v1"
 MATERIAL_RECOMMENDATION_STRATEGY_REVISION = "content.guided-material-recommend.deepseek-pro.v1"
+GUIDED_CONTENT_STRATEGY_REVISIONS = (
+    THEME_OPTIMIZATION_STRATEGY_REVISION,
+    KNOWLEDGE_RECOMMENDATION_STRATEGY_REVISION,
+    MATERIAL_RECOMMENDATION_STRATEGY_REVISION,
+    OUTLINE_STRATEGY_REVISION,
+    OUTLINE_SECTION_STRATEGY_REVISION,
+    SCRIPT_STRATEGY_REVISION,
+    STORYBOARD_SCENE_STRATEGY_REVISION,
+)
 CONTENT_GENERATION_PURPOSE = "guided_live_content_generation"
 CONTENT_GENERATION_PROCESSOR_FIELDS = frozenset(
     {
@@ -81,6 +91,18 @@ MATERIAL_ROLES = (
     "supporting_video",
     "background_music",
     "sound_effect",
+)
+
+KNOWLEDGE_THEME_INTENT_MARKERS = (
+    "风味",
+    "品鉴",
+    "佐餐",
+    "指南",
+    "介绍",
+    "讲解",
+    "直播",
+    "专场",
+    "商品咨询",
 )
 
 OUTLINE_OUTPUT_SCHEMA: dict[str, Any] = {
@@ -594,14 +616,7 @@ def build_guided_content_generator(connection: Connection) -> GuidedContentGener
             processing_region=settings.deepseek_processing_region,
             processing_purpose=CONTENT_GENERATION_PURPOSE,
         )
-        for strategy_revision in (
-            THEME_OPTIMIZATION_STRATEGY_REVISION,
-            KNOWLEDGE_RECOMMENDATION_STRATEGY_REVISION,
-            MATERIAL_RECOMMENDATION_STRATEGY_REVISION,
-            OUTLINE_STRATEGY_REVISION,
-            OUTLINE_SECTION_STRATEGY_REVISION,
-            SCRIPT_STRATEGY_REVISION,
-        )
+        for strategy_revision in GUIDED_CONTENT_STRATEGY_REVISIONS
     ]
     return RoutedGuidedContentGenerator(
         ProviderRouter(
@@ -735,6 +750,14 @@ class GuidedContentWorkflowService:
                 producer_kind="human",
                 producer_ref="guided-setup-edit",
             )
+            if str(setup_node.get("label") or "").strip() == "未命名主题":
+                self.versions.update_node(
+                    project_id=project["project_id"],
+                    node_code=setup_node["node_code"],
+                    label=str(content.get("theme") or "未命名主题").strip()[:80],
+                    archive=None,
+                    actor_id=actor_id,
+                )
         return self.get_workflow(project_code)
 
     def confirm_setup(
@@ -1201,6 +1224,7 @@ class GuidedContentWorkflowService:
             label=f"直播大纲 {datetime.now(UTC).strftime('%m-%d %H:%M')}",
             actor_id=actor_id,
             status="generating",
+            commit=False,
         )
         snapshot = self._generation_input(project, pool)
         snapshot.update(
@@ -1380,6 +1404,7 @@ class GuidedContentWorkflowService:
             label=f"直播脚本 {datetime.now(UTC).strftime('%m-%d %H:%M')}",
             actor_id=actor_id,
             status="generating",
+            commit=False,
         )
         base_input = self._generation_input(project, pool)
         base_input["outline"] = {"sections": sections}
@@ -1876,6 +1901,15 @@ class GuidedContentWorkflowService:
             raise DomainConflictError("GUIDED_TEMPLATE_CHANGED", "The selected template projection changed; select it again")
         if not list(pool["selected_asset_codes"] or []):
             raise DomainValidationError("GUIDED_STORYBOARD_MATERIAL_REQUIRED", "Select at least one material before storyboard generation")
+        configuration = self.maitu_room_configuration(project_code)
+        if not configuration.get("has_ready_host") or not isinstance(
+            configuration.get("binding"), dict
+        ):
+            raise DomainConflictError(
+                "GUIDED_MAITU_HOST_CONFIGURATION_REQUIRED",
+                "Select one consistent digital human and voice in the target Maitu room before generating the storyboard",
+                details={"live_room_id": configuration.get("live_room_id")},
+            )
         node = self.versions.create_node(
             project_id=canonical_project["project_id"],
             project_code=project_code,
@@ -1884,6 +1918,7 @@ class GuidedContentWorkflowService:
             label=f"麦兔分镜 {datetime.now(UTC).strftime('%m-%d %H:%M')}",
             actor_id=actor_id,
             status="generating",
+            commit=False,
         )
         input_snapshot = {
             "project": self._project_input(project),
@@ -1897,6 +1932,7 @@ class GuidedContentWorkflowService:
                 "revision": revision,
                 "projection_fingerprint": projection_fingerprint,
             },
+            "system_host_binding": dict(configuration["binding"]),
         }
         return self.repository.enqueue_job(
             project=project,
@@ -1971,6 +2007,16 @@ class GuidedContentWorkflowService:
         for candidate in candidate_items:
             for layer in (candidate or {}).get("content", {}).get("layers") or []:
                 if not isinstance(layer, dict):
+                    continue
+                constraint_evidence = (
+                    layer.get("constraint_evidence")
+                    if isinstance(layer.get("constraint_evidence"), dict)
+                    else {}
+                )
+                if (
+                    layer.get("system_managed") is True
+                    or constraint_evidence.get("system_managed") is True
+                ):
                     continue
                 asset_code = str(layer.get("asset_code") or "").strip()
                 if not asset_code or asset_code in seen_assets:
@@ -2240,6 +2286,7 @@ class GuidedContentWorkflowService:
                         }
                     ),
                     "scenes": scenes,
+                    "_system_host_binding": configuration.get("binding"),
                     "_review_status": "draft",
                     "_guided_workflow_authorized": True,
                 },
@@ -2861,7 +2908,7 @@ class GuidedContentWorkflowService:
         content = dict(revision.get("content") or {})
         refs = dict(revision.get("canonical_refs") or {})
         return {
-            "plan_code": refs.get("plan_code") or node["node_code"],
+            "plan_code": refs.get("plan_code") or content.get("base_plan_code") or node["node_code"],
             "review_status": revision["status"],
             "status": node["status"],
             "node_code": node["node_code"],
@@ -3417,7 +3464,21 @@ class GuidedContentWorkflowService:
     def _knowledge_recommendation_candidates(
         self, project: dict[str, Any], theme: str
     ) -> list[dict[str, Any]]:
-        hits = self.knowledge.search_knowledge(theme)
+        hits: list[dict[str, Any]] = []
+        seen_hits: set[tuple[str, str, int | None]] = set()
+        for query in self._knowledge_recommendation_queries(theme):
+            for hit in self.knowledge.search_knowledge(query):
+                hit_key = (
+                    str(hit.get("entity_type") or ""),
+                    str(hit.get("entity_code") or ""),
+                    hit.get("revision_number")
+                    if isinstance(hit.get("revision_number"), int)
+                    else None,
+                )
+                if hit_key in seen_hits:
+                    continue
+                seen_hits.add(hit_key)
+                hits.append(hit)
         candidates: list[dict[str, Any]] = []
         for hit in hits:
             validation = hit.get("validation") or {}
@@ -3448,6 +3509,31 @@ class GuidedContentWorkflowService:
                 }
             )
         return candidates[:60]
+
+    @staticmethod
+    def _knowledge_recommendation_queries(theme: str) -> list[str]:
+        normalized = str(theme or "").strip()
+        if not normalized:
+            return []
+
+        queries = [normalized]
+        segments = [
+            segment.strip()
+            for segment in re.split(r"[\s,，、;；:：/|]+", normalized)
+            if segment.strip()
+        ]
+        queries.extend(segments)
+        for segment in segments:
+            marker_offsets = [
+                segment.find(marker)
+                for marker in KNOWLEDGE_THEME_INTENT_MARKERS
+                if marker in segment
+            ]
+            if marker_offsets:
+                subject = segment[: min(marker_offsets)].strip()
+                if len(subject) >= 2:
+                    queries.append(subject)
+        return list(dict.fromkeys(queries))[:20]
 
     def _material_recommendation_candidates(self) -> list[dict[str, Any]]:
         candidates = []
@@ -4471,6 +4557,14 @@ class GuidedContentGenerationWorker:
             )
         self._renew_or_raise(job, worker_id)
         template = dict(job["template_ref"] or {})
+        system_host_binding = (job.get("input_snapshot") or {}).get(
+            "system_host_binding"
+        )
+        if not isinstance(system_host_binding, dict):
+            raise DomainConflictError(
+                "GUIDED_MAITU_HOST_CONFIGURATION_REQUIRED",
+                "The storyboard job has no frozen Maitu host binding",
+            )
         plan = FunctionalLiveRoomService(self.connection).create_plan(
             {
                 "idempotency_key": creation_key,
@@ -4486,6 +4580,7 @@ class GuidedContentGenerationWorker:
                 "material_pack_codes": [],
                 "asset_gap_codes": [],
                 "asset_gap_waivers": {},
+                "_system_host_binding": system_host_binding,
                 "_review_status": "draft",
                 "_guided_workflow_authorized": True,
             },
@@ -4642,6 +4737,27 @@ class GuidedContentGenerationWorker:
             or snapshot.get("current_scene")
             or {}
         )
+        system_layers = []
+        for layer in current_scene.get("layers") or []:
+            if not isinstance(layer, dict):
+                continue
+            constraint_evidence = (
+                layer.get("constraint_evidence")
+                if isinstance(layer.get("constraint_evidence"), dict)
+                else {}
+            )
+            if (
+                layer.get("system_managed") is True
+                or constraint_evidence.get("system_managed") is True
+            ):
+                system_layers.append(dict(layer))
+        if len(system_layers) != 1:
+            raise DomainConflictError(
+                "GUIDED_MAITU_HOST_CONFIGURATION_REQUIRED",
+                "The current storyboard scene has no unique system-managed host layer",
+                details={"section_key": target_key},
+            )
+        selected_layers.append(system_layers[0])
         specs = []
         for script_item in script_node["revision"].get("items") or []:
             key = script_item["item_key"]
@@ -4850,5 +4966,9 @@ class GuidedContentGenerationWorker:
         if table not in allowed:
             raise ValueError(table)
         with self.connection.cursor() as cursor:
-            cursor.execute(f"SELECT COALESCE(MAX(revision_number), 0) FROM {table} WHERE project_id = %s", (project_id,))
-            return int(cursor.fetchone()[0])
+            cursor.execute(
+                f"SELECT COALESCE(MAX(revision_number), 0) AS current_revision "
+                f"FROM {table} WHERE project_id = %s",
+                (project_id,),
+            )
+            return int(cursor.fetchone()["current_revision"])

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, CheckCircle2, Download, PackageCheck, RotateCcw, Send, ShieldCheck, X } from "lucide-react";
 import { consoleApi } from "../console/api";
+import { hasWorkbenchAccessToken, setWorkbenchAccessToken, WorkbenchApiError } from "../workbench/api";
 import { EmptyBlock, LoadingBlock, StatusBadge, formatDate } from "../workbench/components";
 import { productLabel } from "../workbench/productLanguage";
 import { releasesApi, type ReleaseDetail } from "./api";
@@ -39,10 +40,28 @@ function ReleaseChecks({ release }: { release: ReleaseDetail }) {
 
 function ApprovalActions({ release, onUpdated }: { release: ReleaseDetail; onUpdated: () => void }) {
   const [summary, setSummary] = useState("");
+  const [operatorToken, setOperatorToken] = useState("");
+  const [connected, setConnected] = useState(hasWorkbenchAccessToken);
+  const connect = useMutation({
+    mutationFn: () => consoleApi.session(operatorToken),
+    onSuccess: () => {
+      setWorkbenchAccessToken(operatorToken);
+      setOperatorToken("");
+      setConnected(true);
+    },
+    onError: () => setWorkbenchAccessToken(),
+  });
   const decide = useMutation({
     mutationFn: (decision: "approve" | "reject") => consoleApi.decideRelease(release.releaseCode, { expectedManifestRevision: release.manifest.revisionNumber, decision, reasonCode: decision === "approve" ? "CONTENT_DELIVERY_APPROVED" : "CONTENT_DELIVERY_REJECTED", summary, approvedScope: { carrier: release.carrierKind }, idempotencyKey: `release-${decision}-${crypto.randomUUID()}` }),
     onSuccess: onUpdated,
+    onError: (error) => {
+      if (error instanceof WorkbenchApiError && [401, 503].includes(error.status)) {
+        setWorkbenchAccessToken();
+        setConnected(false);
+      }
+    },
   });
+  if (!connected) return <section className="delivery-action-panel"><header><span className="product-section-kicker">审核身份</span><h3>连接审核权限</h3><p>批准与退回需要独立审核人身份。</p></header><label className="product-field"><span>控制面审核凭据</span><input type="password" autoComplete="off" value={operatorToken} onChange={(event) => setOperatorToken(event.target.value)} /></label><div><button className="product-primary-button" type="button" disabled={!operatorToken.trim() || connect.isPending} onClick={() => connect.mutate()}><ShieldCheck size={15} />{connect.isPending ? "正在验证" : "验证审核身份"}</button></div>{connect.error ? <small className="product-error-copy">审核身份验证失败，请检查本机控制面配置。</small> : null}</section>;
   return <section className="delivery-action-panel"><header><span className="product-section-kicker">人工确认</span><h3>批准交付内容</h3><p>确认标题、画面、话术或成片符合本次交付目标。</p></header><label className="product-field"><span>确认说明</span><textarea rows={3} value={summary} onChange={(event) => setSummary(event.target.value)} placeholder="记录批准依据或需要退回修改的内容" /></label><div><button className="product-secondary-button" type="button" disabled={summary.trim().length < 3 || decide.isPending} onClick={() => decide.mutate("reject")}><X size={15} />退回修改</button><button className="product-primary-button" type="button" disabled={summary.trim().length < 3 || decide.isPending} onClick={() => decide.mutate("approve")}><Check size={15} />批准交付</button></div>{decide.error ? <small className="product-error-copy">决定没有保存，请刷新后重试。</small> : null}</section>;
 }
 
@@ -69,10 +88,14 @@ function DeliveryDetail({ release, onUpdated }: { release: ReleaseDetail; onUpda
   </div>;
 }
 
-export function DeliveryProductPanel({ search }: { search: string }) {
+export function DeliveryProductPanel({ search, projectCode }: { search: string; projectCode?: string }) {
   const requested = new URLSearchParams(search).get("release") ?? "";
+  const scopedProjectCode = projectCode?.trim() || undefined;
   const [selected, setSelected] = useState(requested);
-  const releases = useQuery({ queryKey: ["releases"], queryFn: releasesApi.list });
+  const releases = useQuery({
+    queryKey: ["releases", scopedProjectCode ?? "all"],
+    queryFn: () => releasesApi.list(scopedProjectCode),
+  });
   useEffect(() => { if (requested) setSelected(requested); }, [requested]);
   const available = useMemo(() => releases.data?.find((item) => item.releaseCode === selected)?.releaseCode ?? releases.data?.[0]?.releaseCode ?? "", [releases.data, selected]);
   const detail = useQuery({ queryKey: ["release", available], queryFn: () => releasesApi.get(available), enabled: Boolean(available) });

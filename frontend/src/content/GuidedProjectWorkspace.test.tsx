@@ -171,6 +171,29 @@ describe("guided project workspace", () => {
     expect(screen.getByRole("button", { name: "确认仍然适用" })).toBeEnabled();
   });
 
+  it("shows the latest failed storyboard item job instead of an older successful branch job", async () => {
+    const current = workflow({
+      outline: { story_brief_code: "STORY-001", revision_number: 1, status: "confirmed", sections: [{ section_key: "section-1", title: "Opening", objective: "Introduce", key_points: [] }], created_at: "2026-08-06T02:01:00Z" },
+      script: { script_revision_code: "SCRIPT-001", revision_number: 1, status: "confirmed", title: "Test script", source_outline_revision: 1, source_material_pool_revision: 1, blocks: [{ block_code: "BLOCK-001", sort_order: 0, section_key: "section-1", content: "Script" }], requirements: [], created_at: "2026-08-06T02:02:00Z" },
+      storyboard: { plan_code: "PLAN-001", review_status: "draft", blueprint: { scenes: [{ shot_code: "SHOT-001", title: "Opening scene", script: "Script", layers: [] }] } },
+      jobs: {
+        storyboard: { job_code: "JOB-OLD", stage: "storyboard", operation: "generate_storyboard", status: "succeeded", total_items: 1, completed_items: 1, attempts: 1, max_attempts: 3, result_refs: {}, updated_at: "2026-08-06T02:03:00Z" },
+        "storyboard:section-1": { job_code: "JOB-NEW", stage: "storyboard", operation: "regenerate_storyboard_scene", target_section_key: "section-1", status: "failed", total_items: 1, completed_items: 0, attempts: 3, max_attempts: 3, error_code: "MODEL_STRATEGY_UNAVAILABLE", error_message: "scene generation failed", result_refs: {}, updated_at: "2026-08-06T02:04:00Z" },
+      },
+      gates: { setup_editable: false, setup_confirmed: true, outline_current: true, outline_confirmed: true, script_current: true, script_confirmed: true, storyboard_current: true, storyboard_confirmed: false },
+    });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/assets?")) return Response.json([]);
+      if (url.endsWith(`/workspace-summary`)) return Response.json(summary);
+      return Response.json(current);
+    }));
+
+    renderWorkspace("storyboard");
+
+    expect(await screen.findByText("scene generation failed")).toBeInTheDocument();
+  });
+
   it("keeps the video stage locked until the current storyboard is confirmed", async () => {
     const current = workflow();
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {

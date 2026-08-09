@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import os
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -11,7 +12,7 @@ from dotenv import load_dotenv
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKER_ROOT = REPO_ROOT / "workers" / "browser-use"
-PYTHON = REPO_ROOT / "backend" / ".venv" / "bin" / "python"
+PYTHON = Path(sys.executable).resolve()
 BACKEND_ONLY_SECRET_KEYS = frozenset(
     {
         "ASSETGRAPH_MAITU_AUTHORITY_TOKEN",

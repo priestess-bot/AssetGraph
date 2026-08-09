@@ -69,6 +69,38 @@ def _assets() -> list[dict]:
     ]
 
 
+def _host_asset() -> dict:
+    return {
+        "asset_code": "AG-HOST-37200",
+        "media_kind": "video",
+        "material_roles": ["digital_human", "voice"],
+        "execution_capability": "maitu_bound",
+        "constraint_profile_ref": None,
+        "qualified_effect_refs": [],
+        "maitu_material_id": None,
+        "maitu_source_material_id": 37200,
+        "source_material_type": "digital_human",
+        "source_material_url": None,
+        "source_cover_url": None,
+        "speaker_id": 3760,
+        "digital_human_image_id": 7717,
+    }
+
+
+def _host_binding() -> dict:
+    return {
+        "live_room_id": "room-1",
+        "material_id": 37200,
+        "speaker_id": 3760,
+        "digital_human_image_id": 7717,
+        "scene_ids": ["1", "2"],
+        "scene_names": ["场景 1", "场景 2"],
+        "fingerprint_sha256": "a" * 64,
+        "asset_code": "AG-HOST-37200",
+        "system_managed": True,
+    }
+
+
 def _scene_overrides() -> list[dict]:
     return [
         {
@@ -187,6 +219,135 @@ def test_blueprint_revision_rejects_an_asset_outside_the_role_candidates() -> No
         )
 
     assert invalid.value.code == "LIVE_ROOM_MATERIAL_OVERRIDE_INVALID"
+
+
+def test_system_host_is_compiled_into_every_scene_and_cannot_be_replaced() -> None:
+    payload = {
+        "target_live_room_id": "room-1",
+        "expected_title": "系统主播测试",
+        "system_host_binding": _host_binding(),
+    }
+    blueprint, _, blocked = FunctionalLiveRoomService._compile(
+        _detail(),
+        [*_assets(), _host_asset()],
+        payload,
+        variant_code="VARIANT-SYSTEM-HOST",
+    )
+
+    assert blocked == []
+    assert blueprint["system_host_binding"]["asset_code"] == "AG-HOST-37200"
+    for scene in blueprint["scenes"]:
+        host_layers = [
+            layer for layer in scene["layers"] if layer.get("system_managed") is True
+        ]
+        assert len(host_layers) == 1
+        assert host_layers[0]["asset_code"] == "AG-HOST-37200"
+        assert host_layers[0]["maitu_source_material_id"] == 37200
+        assert host_layers[0]["speaker_id"] == 3760
+        assert host_layers[0]["digital_human_image_id"] == 7717
+
+    overrides = [
+        {
+            "shot_code": scene["shot_code"],
+            "sort_order": index,
+            "title": scene["title"],
+            "script": scene["script"],
+            "layers": [
+                {
+                    "role": layer["role"],
+                    "asset_code": layer["asset_code"],
+                    "geometry": layer["normalized_geometry"],
+                    "z_order": layer["z_order"],
+                }
+                for layer in scene["layers"]
+            ],
+        }
+        for index, scene in enumerate(blueprint["scenes"])
+    ]
+    host_override = next(
+        layer for layer in overrides[0]["layers"] if layer["role"] == "digital_human"
+    )
+    host_override["asset_code"] = "AG-BG-A"
+
+    with pytest.raises(DomainValidationError) as invalid:
+        FunctionalLiveRoomService._compile(
+            _detail(),
+            [*_assets(), _host_asset()],
+            {**payload, "scene_overrides": overrides},
+            variant_code="VARIANT-SYSTEM-HOST-REVISED",
+        )
+
+    assert invalid.value.code == "LIVE_ROOM_SYSTEM_HOST_LAYER_LOCKED"
+
+
+def test_system_host_geometry_is_locked_during_blueprint_revision() -> None:
+    payload = {
+        "target_live_room_id": "room-1",
+        "expected_title": "系统主播测试",
+        "system_host_binding": _host_binding(),
+    }
+    blueprint, _, _ = FunctionalLiveRoomService._compile(
+        _detail(),
+        [*_assets(), _host_asset()],
+        payload,
+        variant_code="VARIANT-SYSTEM-HOST-GEOMETRY",
+    )
+    overrides = [
+        {
+            "shot_code": scene["shot_code"],
+            "sort_order": index,
+            "title": scene["title"],
+            "script": scene["script"],
+            "layers": [
+                {
+                    "role": layer["role"],
+                    "asset_code": layer["asset_code"],
+                    "geometry": layer["normalized_geometry"],
+                    "z_order": layer["z_order"],
+                }
+                for layer in scene["layers"]
+            ],
+        }
+        for index, scene in enumerate(blueprint["scenes"])
+    ]
+    host_override = next(
+        layer for layer in overrides[0]["layers"] if layer["role"] == "digital_human"
+    )
+    host_override["geometry"] = {
+        **host_override["geometry"],
+        "x": host_override["geometry"]["x"] + 0.01,
+    }
+
+    with pytest.raises(DomainValidationError) as invalid:
+        FunctionalLiveRoomService._compile(
+            _detail(),
+            [*_assets(), _host_asset()],
+            {**payload, "scene_overrides": overrides},
+            variant_code="VARIANT-SYSTEM-HOST-GEOMETRY-REVISED",
+        )
+
+    assert invalid.value.code == "LIVE_ROOM_SYSTEM_HOST_LAYER_LOCKED"
+
+
+def test_system_host_is_injected_when_legacy_revision_omits_locked_layer() -> None:
+    overrides = _scene_overrides()
+    blueprint, _, blocked = FunctionalLiveRoomService._compile(
+        _detail(),
+        [*_assets(), _host_asset()],
+        {
+            "target_live_room_id": "room-1",
+            "expected_title": "旧分镜迁移",
+            "system_host_binding": _host_binding(),
+            "scene_overrides": overrides,
+        },
+        variant_code="VARIANT-LEGACY-HOST-MIGRATION",
+    )
+
+    assert blocked == []
+    assert all(
+        len([layer for layer in scene["layers"] if layer.get("system_managed")]) == 1
+        for scene in blueprint["scenes"]
+    )
 
 
 def test_blueprint_revision_migration_keeps_source_and_revision_metadata() -> None:
@@ -391,3 +552,71 @@ def test_persisted_build_plan_uses_only_draft_actions_and_fixed_asset_codes() ->
     assert (product_position["x"], product_position["y"]) == (324.0, 1152.0)
     assert product_position["z_index"] == 3
     assert build_plan["inventory_snapshot"] == {"asset_codes": ["AG-BG-A"]}
+
+
+def test_persisted_build_plan_freezes_system_host_native_identity() -> None:
+    class MaituRepositoryStub:
+        def create_script_layout_build_plan(
+            self, payload: dict, *, plan_name: str
+        ) -> dict:
+            assert plan_name
+            return {**payload, "build_plan_code": "MT-BUILD-HOST"}
+
+    service = object.__new__(FunctionalLiveRoomService)
+    service.maitu = MaituRepositoryStub()
+    build_plan = service._persist_build_plan(
+        detail={"project_code": "CONTENT-1", "revision_number": 1, "title": "测试"},
+        variant={"variant_code": "VARIANT-1", "revision_number": 1},
+        configuration={
+            "configuration_code": "CONFIG-1",
+            "revision_number": 1,
+            "target_live_room_id": "room-1",
+            "expected_title": "asser测试",
+        },
+        inventory_snapshot={
+            "asset_codes": ["AG-HOST-37200"],
+            "assets": [_host_asset()],
+            "system_host_binding": _host_binding(),
+        },
+        blueprint={
+            "schema_version": "maitu-scene-blueprint.functional.v2",
+            "scenes": [
+                {
+                    "scene_code": "MSB-HOST-1",
+                    "script": "测试话术",
+                    "layers": [
+                        {
+                            "layer_blueprint_code": "LYR-HOST-1",
+                            "material_role": "digital_human",
+                            "asset_code": "AG-HOST-37200",
+                            "normalized_geometry": {
+                                "x": 0.08,
+                                "y": 0.18,
+                                "width": 0.36,
+                                "height": 0.64,
+                            },
+                            "z_order": 1,
+                            "constraint_evidence": {
+                                "media_kind": "video",
+                                "system_managed": True,
+                            },
+                        }
+                    ],
+                }
+            ],
+        },
+        blocked_reasons=[],
+    )
+
+    insert = next(
+        operation
+        for operation in build_plan["operations"]
+        if operation["operation_type"] == "insert_asset_layer"
+    )
+    assert insert["asset_code"] == "AG-HOST-37200"
+    assert insert["maitu_material_id"] is None
+    assert insert["maitu_source_material_id"] == 37200
+    assert insert["material_id"] is None
+    assert insert["source_material_type"] == "digital_human"
+    assert insert["speaker_id"] == 3760
+    assert insert["digital_human_image_id"] == 7717

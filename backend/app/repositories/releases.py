@@ -30,6 +30,7 @@ class ReleaseRepository:
         signature_algorithm: str,
         signature_key_id: str,
         signature_value: str,
+        commit: bool = True,
     ) -> dict[str, Any]:
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
@@ -42,7 +43,8 @@ class ReleaseRepository:
             )
             existing = cursor.fetchone()
             if existing is not None:
-                self.connection.rollback()
+                if commit:
+                    self.connection.rollback()
                 return self.get_release(existing["release_code"])
             release_code = self._next_code(cursor, prefix="RELEASE", object_type="release")
             cursor.execute(
@@ -105,7 +107,8 @@ class ReleaseRepository:
                 reason_code="RELEASE_CREATED",
                 evidence={"manifest_code": manifest_code, "fingerprint": manifest_fingerprint},
             )
-        self.connection.commit()
+        if commit:
+            self.connection.commit()
         return self.get_release(release_code)
 
     def get_release(self, release_code: str) -> dict[str, Any] | None:
@@ -138,10 +141,28 @@ class ReleaseRepository:
         result["deliveries"] = [self._serialize(row) for row in deliveries]
         return result
 
-    def list_releases(self) -> list[dict[str, Any]]:
+    def list_releases(self, project_code: str | None = None) -> list[dict[str, Any]]:
+        project_filter = ""
+        parameters: tuple[str, ...] = ()
+        if project_code is not None:
+            project_filter = """
+                   WHERE EXISTS (
+                       SELECT 1
+                       FROM (
+                           SELECT live.release_code
+                           FROM functional_live_room_plans AS live
+                           WHERE live.project_code = %s
+                           UNION ALL
+                           SELECT video.release_code
+                           FROM functional_video_plans AS video
+                           WHERE video.project_code = %s
+                       ) AS project_release
+                       WHERE project_release.release_code = release.release_code
+                   )"""
+            parameters = (project_code, project_code)
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
-                """SELECT release.release_code, release.subject_type, release.subject_code,
+                f"""SELECT release.release_code, release.subject_type, release.subject_code,
                           release.subject_revision, release.carrier_kind, release.status,
                           release.current_manifest_revision, release.release_fingerprint,
                           release.created_at, release.updated_at,
@@ -151,8 +172,10 @@ class ReleaseRepository:
                    JOIN release_manifests manifest
                      ON manifest.release_id = release.id AND manifest.revision_number = release.current_manifest_revision
                    LEFT JOIN delivery_attempts delivery ON delivery.release_id = release.id
+                   {project_filter}
                    GROUP BY release.id, manifest.id
-                   ORDER BY release.updated_at DESC, release.release_code"""
+                   ORDER BY release.updated_at DESC, release.release_code""",
+                parameters,
             )
             rows = cursor.fetchall()
         return [self._serialize(row) for row in rows]

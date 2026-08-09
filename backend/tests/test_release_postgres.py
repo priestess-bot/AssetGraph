@@ -35,12 +35,19 @@ def _artifact(repository: EvidenceRepository, suffix: str) -> dict:
     )
 
 
-def _candidate(service: ReleaseService, artifact: dict, suffix: str, *, quality_status: str = "pass") -> dict:
+def _candidate(
+    service: ReleaseService,
+    artifact: dict,
+    suffix: str,
+    *,
+    quality_status: str = "pass",
+    carrier_kind: str = "live_room_draft",
+) -> dict:
     return service.create_candidate(
         subject_type="production_variant",
         subject_code=f"VARIANT-{suffix}",
         subject_revision=1,
-        carrier_kind="live_room_draft",
+        carrier_kind=carrier_kind,
         subject_refs={
             "content_project_revision": {"code": f"CONTENT-{suffix}", "revision": 1},
             "production_variant_revision": {"code": f"VARIANT-{suffix}", "revision": 1},
@@ -61,7 +68,13 @@ def _candidate(service: ReleaseService, artifact: dict, suffix: str, *, quality_
             "gates": [{"code": "preflight", "status": quality_status, "blocking": True}]
         },
         lineage_snapshot={"complete": True, "edge_count": 3},
-        carrier_facet={"build_plan_ref": {"code": f"PLAN-{suffix}", "revision": 1}},
+        carrier_facet={
+            (
+                "production_timeline_ref"
+                if carrier_kind == "rendered_video"
+                else "build_plan_ref"
+            ): {"code": f"PLAN-{suffix}", "revision": 1}
+        },
         created_by="producer-a",
     )
 
@@ -220,6 +233,110 @@ def test_release_validation_approval_delivery_and_exposure_are_independent_facts
             )
             exposure_count = cursor.fetchone()[0]
         assert (release_count, delivery_count, exposure_count) == (1, 1, 1)
+
+
+def test_list_releases_filters_live_room_and_video_candidates_by_project() -> None:
+    live_suffix = uuid4().hex
+    video_suffix = uuid4().hex
+    foreign_suffix = uuid4().hex
+    unassociated_suffix = uuid4().hex
+    project_code = f"CONTENT-{uuid4().hex}"
+    foreign_project_code = f"CONTENT-{uuid4().hex}"
+
+    with psycopg.connect(DATABASE_URL) as connection:
+        release_repository = ReleaseRepository(connection)
+        service = ReleaseService(
+            release_repository,
+            signing_key=b"release-test-signing-key",
+            signing_key_id="release-test-key",
+        )
+        evidence = EvidenceRepository(connection)
+        live_release = _candidate(service, _artifact(evidence, live_suffix), live_suffix)
+        video_release = _candidate(
+            service,
+            _artifact(evidence, video_suffix),
+            video_suffix,
+            carrier_kind="rendered_video",
+        )
+        foreign_release = _candidate(service, _artifact(evidence, foreign_suffix), foreign_suffix)
+        unassociated_release = _candidate(
+            service,
+            _artifact(evidence, unassociated_suffix),
+            unassociated_suffix,
+        )
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO functional_live_room_plans (
+                    plan_code, project_code, variant_code, configuration_code,
+                    target_live_room_id, expected_title, blueprint, build_plan,
+                    status, release_code
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, '{}'::jsonb, '{}'::jsonb, 'ready', %s)
+                """,
+                (
+                    f"LIVEPLAN-{live_suffix}",
+                    project_code,
+                    f"VARIANT-{live_suffix}",
+                    f"CONFIG-{live_suffix}",
+                    f"ROOM-{live_suffix}",
+                    "Project live-room release",
+                    live_release["release_code"],
+                ),
+            )
+            cursor.execute(
+                "INSERT INTO video_production_jobs (job_code, topic) VALUES (%s, %s)",
+                (f"JOB-{video_suffix}", "Project rendered-video release"),
+            )
+            cursor.execute(
+                """
+                INSERT INTO functional_video_plans (
+                    plan_code, project_code, variant_code, video_job_code,
+                    title, production_timeline, render_profile, release_code
+                )
+                VALUES (%s, %s, %s, %s, %s, '{}'::jsonb, '{}'::jsonb, %s)
+                """,
+                (
+                    f"VIDEOPLAN-{video_suffix}",
+                    project_code,
+                    f"VARIANT-{video_suffix}",
+                    f"JOB-{video_suffix}",
+                    "Project rendered-video release",
+                    video_release["release_code"],
+                ),
+            )
+            cursor.execute(
+                """
+                INSERT INTO functional_live_room_plans (
+                    plan_code, project_code, variant_code, configuration_code,
+                    target_live_room_id, expected_title, blueprint, build_plan,
+                    status, release_code
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, '{}'::jsonb, '{}'::jsonb, 'ready', %s)
+                """,
+                (
+                    f"LIVEPLAN-{foreign_suffix}",
+                    foreign_project_code,
+                    f"VARIANT-{foreign_suffix}",
+                    f"CONFIG-{foreign_suffix}",
+                    f"ROOM-{foreign_suffix}",
+                    "Foreign live-room release",
+                    foreign_release["release_code"],
+                ),
+            )
+        connection.commit()
+
+        scoped_codes = {
+            release["release_code"]
+            for release in release_repository.list_releases(project_code=project_code)
+        }
+        assert scoped_codes == {live_release["release_code"], video_release["release_code"]}
+        assert {
+            release["release_code"]
+            for release in release_repository.list_releases(project_code=foreign_project_code)
+        } == {foreign_release["release_code"]}
+        assert unassociated_release["release_code"] not in scoped_codes
 
 
 def test_stale_delivery_callbacks_cannot_overwrite_revoked_or_delivered_releases() -> None:

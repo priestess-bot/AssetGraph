@@ -1,23 +1,89 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from app.domain.errors import DomainValidationError
+from app.repositories.content_workflow import _json_document
+from app.schemas.content_workflow import GuidedWorkflowRead
 from app.services.content_workflow import (
     CONTENT_GENERATION_PROCESSOR_FIELDS,
     CONTENT_GENERATION_PURPOSE,
+    GUIDED_CONTENT_STRATEGY_REVISIONS,
     OUTLINE_INSTRUCTIONS,
     OUTLINE_STRATEGY_REVISION,
     SCRIPT_STRATEGY_REVISION,
+    STORYBOARD_SCENE_STRATEGY_REVISION,
     GuidedContentGenerationWorker,
     GuidedContentWorkflowService,
     RoutedGuidedContentGenerator,
 )
 from app.services.providers import ModelCapability, StrategyResult
 from app.services.functional_live_rooms import FunctionalLiveRoomService
+
+
+def test_guided_workflow_read_keeps_async_setup_results() -> None:
+    payload = GuidedWorkflowRead.model_validate(
+        {
+            "workflow_version": "guided-live.v1",
+            "project": {},
+            "material_pool": {},
+            "recommendations": {
+                "optimize_theme": {"theme_candidate": "Improved theme"},
+            },
+        }
+    ).model_dump(mode="json")
+
+    assert payload["recommendations"] == {
+        "optimize_theme": {"theme_candidate": "Improved theme"},
+    }
+
+
+def test_generation_job_snapshot_serializes_database_timestamps() -> None:
+    snapshot = {
+        "script": {
+            "blocks": [
+                {
+                    "section_key": "section-1",
+                    "created_at": datetime(2026, 8, 9, 4, 41, tzinfo=UTC),
+                }
+            ]
+        }
+    }
+
+    encoded = _json_document(snapshot)
+
+    assert encoded["script"]["blocks"][0]["created_at"] == "2026-08-09T04:41:00.000000Z"
+
+
+def test_storyboard_scene_strategy_has_a_provider_binding() -> None:
+    assert STORYBOARD_SCENE_STRATEGY_REVISION in GUIDED_CONTENT_STRATEGY_REVISIONS
+
+
+def test_storyboard_view_preserves_the_base_plan_code_for_draft_revisions() -> None:
+    service = object.__new__(GuidedContentWorkflowService)
+    viewed = service._version_storyboard_view(
+        {
+            "node_code": "GNODE-001",
+            "status": "draft",
+            "revision": {
+                "status": "draft",
+                "content": {"base_plan_code": "LIVEPLAN-001"},
+                "canonical_refs": {},
+                "items": [],
+                "created_at": datetime(2026, 8, 9, tzinfo=UTC),
+                "updated_at": datetime(2026, 8, 9, tzinfo=UTC),
+                "confirmed_at": None,
+            },
+        },
+        {"revision": {"items": []}},
+    )
+
+    assert viewed is not None
+    assert viewed["plan_code"] == "LIVEPLAN-001"
 
 
 class FakeRouter:
@@ -168,6 +234,44 @@ def test_outline_citations_are_limited_to_pinned_knowledge_sources() -> None:
     assert "user_payload.knowledge" in OUTLINE_INSTRUCTIONS
 
 
+def test_knowledge_recommendation_falls_back_to_product_subject_and_deduplicates() -> None:
+    hit = {
+        "entity_type": "product_fact_card",
+        "entity_code": "MT-FACT-20260808-000001",
+        "revision_number": 1,
+        "title": "张裕品酒大师PRO商品事实基线",
+        "summary": "商品事实",
+        "validation": {"content_eligible": True},
+    }
+
+    class FakeKnowledge:
+        def __init__(self) -> None:
+            self.queries: list[str] = []
+
+        def search_knowledge(self, query: str) -> list[dict[str, Any]]:
+            self.queries.append(query)
+            return [hit] if query == "张裕品酒大师PRO" else []
+
+    service = object.__new__(GuidedContentWorkflowService)
+    service.knowledge = FakeKnowledge()  # type: ignore[attr-defined]
+
+    candidates = service._knowledge_recommendation_candidates(
+        {}, "张裕品酒大师PRO风味、品鉴与佐餐指南"
+    )
+
+    assert "张裕品酒大师PRO" in service.knowledge.queries
+    assert candidates == [
+        {
+            "source_id": "fact_card:MT-FACT-20260808-000001:v1",
+            "kind": "fact_card",
+            "code": "MT-FACT-20260808-000001",
+            "version_number": 1,
+            "title": "张裕品酒大师PRO商品事实基线",
+            "summary": "商品事实",
+        }
+    ]
+
+
 def test_storyboard_keeps_one_scene_per_script_block() -> None:
     script = {
         "blocks": [
@@ -192,6 +296,31 @@ def test_storyboard_keeps_one_scene_per_script_block() -> None:
     assert shots[0]["material_role_requirements"] == ["background"]
     assert shots[0]["composition_intent"]["material_asset_bindings"] == {"background": "AG-BG"}
     assert segments[2]["metadata"]["outline_section_keys"] == ["section-3"]
+
+
+def test_storyboard_revision_lookup_supports_dict_row_connections() -> None:
+    class FakeCursor:
+        def __enter__(self) -> "FakeCursor":
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def execute(self, query: str, params: tuple[object, ...]) -> None:
+            assert "AS current_revision" in query
+            assert params == ("project-id",)
+
+        def fetchone(self) -> dict[str, int]:
+            return {"current_revision": 7}
+
+    class FakeConnection:
+        def cursor(self) -> FakeCursor:
+            return FakeCursor()
+
+    worker = object.__new__(GuidedContentGenerationWorker)
+    worker.connection = FakeConnection()  # type: ignore[assignment]
+
+    assert worker._current_revision("content_program_revisions", "project-id") == 7
 
 
 def test_script_can_bind_an_additive_material_pool_without_invalidating_the_outline() -> None:
